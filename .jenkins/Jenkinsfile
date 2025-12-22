@@ -1,5 +1,11 @@
 pipeline {
-    agent none
+    agent {dockerfile {
+                    filename '.jenkins/Dockerfile'
+                    args '--shm-size=4gb'
+                    label 'docker'
+                    reuseNode false
+                }
+            }
 
     options {
         timeout(time: 60, unit: 'MINUTES')
@@ -7,14 +13,6 @@ pipeline {
 
     stages {
         stage('Checkout + Compile') {
-            agent {
-                dockerfile {
-                    filename '.jenkins/Dockerfile'
-                    args '--shm-size=4gb'
-                    label 'docker'
-                    reuseNode false
-                }
-            }
             environment {
                 PARALLEL = "${env.PARALLEL}"
             }
@@ -36,18 +34,10 @@ pipeline {
 
         stage('Build and Test Matrix') {
             matrix {
-                agent {
-                    dockerfile {
-                        filename '.jenkins/Dockerfile'
-                        args '--gpus=2 --shm-size=4gb'
-                        label 'docker && v100'
-                        reuseNode false
-                    }
-                }
                 axes {
                     axis {
                         name 'PYTHON_VERSION'
-                        values '3.11'//, '3.12', '3.13'
+                        values '3.11', '3.12', '3.13'
                     }
                     axis {
                         name 'JAX_VERSION'
@@ -62,28 +52,32 @@ pipeline {
                     stage('Build') {
                         steps {
                             checkout scm
-                            unstash 'compiled-bin'
-                            sh '''#!/bin/bash -ex
-                                python${PYTHON_VERSION} -m venv venv
-                                source venv/bin/activate
+                            dir("ci/${PYTHON_VERSION}/${JAX_VERSION}") {
+                                unstash 'compiled-bin'
+                                sh '''#!/bin/bash -ex
+                                    python${PYTHON_VERSION} -m venv venv
+                                    source venv/bin/activate
 
-                                python -m pip install --upgrade pip build
-                                python -m pip install "jax[cuda12-local]==$JAX_VERSION"
+                                    python -m pip install --upgrade pip build
+                                    python -m pip install "jax[cuda12-local]==$JAX_VERSION"
 
-                                python -m build --wheel
+                                    python -m build --wheel --outdir dist
 
-                                python -m pip install --no-deps dist/jaxmg-*.whl
-                                python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
-                            '''
+                                    python -m pip install --no-deps dist/jaxmg-*.whl
+                                    python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
+                                '''
+                            }
                         }
                     }
                     stage('Test') {
                         steps {
-                            sh '''#!/bin/bash -ex
-                                source venv/bin/activate
-                                python -m pip install pytest matplotlib
-                                python -m pytest -svv
-                            '''
+                            dir("ci/${PYTHON_VERSION}/${JAX_VERSION}") {
+                                sh '''#!/bin/bash -ex
+                                    source venv/bin/activate
+                                    python -m pip install pytest matplotlib
+                                    python -m pytest -svv
+                                '''
+                            }
                         }
                     }
                 }
