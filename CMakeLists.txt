@@ -46,10 +46,20 @@ message(STATUS "CUDNN include directory: $ENV{CUDNN_ROOT}")
 enable_language(CUDA)
 
 # Get Jaxlib
+# Allow overriding the JAX version via -DJAX_VERSION=0.x.y or env JAX_VERSION; default to 0.6.2
+if(NOT DEFINED JAX_VERSION OR JAX_VERSION STREQUAL "")
+    if(DEFINED ENV{JAX_VERSION} AND NOT "$ENV{JAX_VERSION}" STREQUAL "")
+        set(JAX_VERSION "$ENV{JAX_VERSION}")
+    else()
+        set(JAX_VERSION "0.6.2")
+    endif()
+endif()
+set(JAX_GIT_TAG "jax-v${JAX_VERSION}")
+message(STATUS "Using JAX version: ${JAX_VERSION} (tag: ${JAX_GIT_TAG})")
 CPMAddPackage(
     NAME jax
     GIT_REPOSITORY https://github.com/jax-ml/jax.git
-    GIT_TAG jax-v0.6.2
+    GIT_TAG ${JAX_GIT_TAG}
     DOWNLOAD_ONLY YES
 )
 message(STATUS "Jax source directory: ${jax_SOURCE_DIR}")

@@ -34,8 +34,6 @@ pipeline {
                     source $HOME/.venv/bin/activate
                     python3 -m pip install --upgrade pip build
                     python3 -m build --wheel
-                    python3 -m pip install dist/jaxmg-*.whl\[cuda12-local\]
-                    # TODO python versions
                 '''
             }
         }
@@ -43,9 +41,18 @@ pipeline {
             environment {
                 CUDA_VISIBLE_DEVICES = "0,1"
             }
+            matrix {
+                axes {
+                    axis {
+                        name 'JAX_VERSION'
+                        values '0.6.1', '0.7.1', '0.8.1'
+                    }
+                }
+            
             steps {
                 sh '''#!/bin/bash -ex
                     source $HOME/.venv/bin/activate
+                    python3 -m pip install dist/jaxmg-*.whl "jax[cuda12]==${JAX_VERSION}"
                     python3 -m pip install pytest matplotlib
                     python3 -m pytest -svv
                 '''
