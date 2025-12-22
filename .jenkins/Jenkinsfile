@@ -44,31 +44,33 @@ pipeline {
                         for (j in jaxVersions) {
                             stage("Build ${p}-${j}") {
                                 unstash 'compiled-bin'
-                                sh """#!/bin/bash -ex
-                                    WORKDIR="${p}/${j}"
-                                    mkdir -p "$WORKDIR"
+                                withEnv(["WORKDIR=ci/${p}/${j}", "PYV=${p}", "JAXV=${j}"]) {
+                                    sh '''#!/bin/bash -ex
+                                        mkdir -p "$WORKDIR"
 
-                                    python${p} -m venv "$WORKDIR/venv"
-                                    source "$WORKDIR/venv/bin/activate"
+                                        python"$PYV" -m venv "$WORKDIR/venv"
+                                        source "$WORKDIR/venv/bin/activate"
 
-                                    python -m pip install --upgrade pip build
-                                    python -m pip install "jax[cuda12-local]==${j}"
+                                        python -m pip install --upgrade pip build
+                                        python -m pip install "jax[cuda12-local]==$JAXV"
 
-                                    # Build wheel from project root, output to the cell-specific dist
-                                    python -m build --wheel --outdir "$WORKDIR/dist"
+                                        # Build wheel from project root, output to the cell-specific dist
+                                        python -m build --wheel --outdir "$WORKDIR/dist"
 
-                                    # Do not quote the wildcard; allow shell globbing
-                                    python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
-                                    python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
-                                """
+                                        # Do not quote the wildcard; allow shell globbing
+                                        python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
+                                        python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
+                                    '''
+                                }
                             }
                             stage("Test ${p}-${j}") {
-                                sh """#!/bin/bash -ex
-                                    WORKDIR="${p}/${j}"
-                                    source "$WORKDIR/venv/bin/activate"
-                                    python -m pip install pytest matplotlib
-                                    python -m pytest -svv tests
-                                """
+                                withEnv(["WORKDIR=ci/${p}/${j}"]) {
+                                    sh '''#!/bin/bash -ex
+                                        source "$WORKDIR/venv/bin/activate"
+                                        python -m pip install pytest matplotlib
+                                        python -m pytest -svv tests
+                                    '''
+                                }
                             }
                         }
                     }
