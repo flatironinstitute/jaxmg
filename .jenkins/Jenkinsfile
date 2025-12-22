@@ -72,13 +72,13 @@ pipeline {
                     }
                     stage('Test') {
                         steps {
-                            dir("ci/${PYTHON_VERSION}/${JAX_VERSION}") {
-                                sh '''#!/bin/bash -ex
-                                    source venv/bin/activate
-                                    python -m pip install pytest matplotlib
-                                    python -m pytest -svv
-                                '''
-                            }
+                            sh '''#!/bin/bash -ex
+                                WORKDIR="ci/${PYTHON_VERSION}/${JAX_VERSION}"
+                                source "$WORKDIR/venv/bin/activate"
+                                python -m pip install pytest matplotlib
+                                # Run from repo root and target the configured tests folder explicitly
+                                python -m pytest -svv tests
+                            '''
                         }
                     }
                 }
