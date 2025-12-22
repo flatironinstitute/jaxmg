@@ -2,10 +2,12 @@ FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    python3 \
+    python3.11 python3.11-venv \
+    python3.12 python3.12-venv \
+    python3.12 python3.13-venv \
+    python3.12 python3.14-venv \
     python3-build \
     python3-pip \
-    python3-venv \
     cmake \
     git && \
     apt-get autoremove --purge -y && \
