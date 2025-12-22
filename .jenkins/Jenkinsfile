@@ -1,11 +1,11 @@
 pipeline {
-    agent {dockerfile {
-                    filename '.jenkins/Dockerfile'
-                    args '--shm-size=4gb'
-                    label 'docker'
-                    reuseNode false
-                }
-            }
+    agent {
+        dockerfile {
+            filename '.jenkins/Dockerfile'
+            args '--gpus=2 --shm-size=4gb'
+            label 'docker && v100'
+        }
+    }
 
     options {
         timeout(time: 60, unit: 'MINUTES')
