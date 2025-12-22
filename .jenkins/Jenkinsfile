@@ -1,11 +1,39 @@
 pipeline {
     agent none
-    
+
     options {
         timeout(time: 60, unit: 'MINUTES')
     }
-    
+
     stages {
+        stage('Checkout + Compile') {
+            agent {
+                dockerfile {
+                    filename '.jenkins/Dockerfile'
+                    args '--shm-size=4gb'
+                    label 'docker'
+                    reuseNode false
+                }
+            }
+            environment {
+                PARALLEL = "${env.PARALLEL}"
+            }
+            steps {
+                checkout scm
+                sh '''#!/bin/bash -ex
+                    export CUDA_ROOT=/usr/local/cuda
+                    export CUDNN_ROOT=/usr
+                    export PATH=/usr/local/cuda/bin:$PATH
+                    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+
+                    mkdir -p build && cd build
+                    cmake -DCMAKE_BUILD_TYPE=Release ..
+                    cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
+                '''
+                stash name: 'compiled-bin', includes: 'src/jaxmg/bin/**', useDefaultExcludes: false
+            }
+        }
+
         stage('Build and Test Matrix') {
             matrix {
                 agent {
@@ -31,36 +59,19 @@ pipeline {
                     PARALLEL = "${env.PARALLEL}"
                 }
                 stages {
-                    stage('Compile') {
-                        steps {
-                            sh '''#!/bin/bash -ex
-                                export CUDA_ROOT=/usr/local/cuda
-                                export CUDNN_ROOT=/usr
-                                export PATH=/usr/local/cuda/bin:$PATH
-                                export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-                                mkdir -p third_party/gpus
-                                ln -sfn third_party/gpus/cuda
-                                mkdir -p build && cd build
-                                cmake -DCMAKE_BUILD_TYPE=Release ..
-                                cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
-                            '''
-                        }
-                    }
                     stage('Build') {
                         steps {
+                            checkout scm
+                            unstash 'compiled-bin'
                             sh '''#!/bin/bash -ex
-                                # Create venv with specific Python version
                                 python${PYTHON_VERSION} -m venv venv
                                 source venv/bin/activate
-                                
-                                # Install build tools and JAX
+
                                 python -m pip install --upgrade pip build
                                 python -m pip install "jax[cuda12-local]==$JAX_VERSION"
-                                
-                                # Build wheel (each agent has its own workspace, no conflicts)
+
                                 python -m build --wheel
-                                
-                                # Install the wheel and verify versions
+
                                 python -m pip install --no-deps dist/jaxmg-*.whl
                                 python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
                             '''
