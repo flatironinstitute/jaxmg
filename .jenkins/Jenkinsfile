@@ -48,12 +48,13 @@ pipeline {
                     CUDA_VISIBLE_DEVICES = '0,1'
                 }
                 stages {
-                    stage('Build') {
+                    stage('Build and Test') {
                         steps {
                             sh '''#!/bin/bash -ex
                                 VENV_DIR="$HOME/$PYTHON_VERSION/$JAX_VERSION/.venv"
                                 DIST_DIR="$HOME/$PYTHON_VERSION/$JAX_VERSION/dist"
-                                
+                                BUILD_DIR="$HOME/$PYTHON_VERSION/$JAX_VERSION/build"
+
                                 # Create venv with specific Python version
                                 python${PYTHON_VERSION} -m venv "$VENV_DIR"
                                 source "$VENV_DIR/bin/activate"
@@ -64,17 +65,13 @@ pipeline {
                                 
                                 # Build wheel into version-specific dist directory
                                 mkdir -p "$DIST_DIR"
-                                python -m build --wheel --outdir "$DIST_DIR"
+                                # Use isolated temp directory to prevent parallel build conflicts
+                                TMPDIR="$BUILD_DIR" python -m build --wheel --outdir "$DIST_DIR"
                                 
                                 # Install the wheel and verify versions
                                 python -m pip install --no-deps "$DIST_DIR"/jaxmg-*.whl
                                 python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
-                            '''
-                        }
-                    }
-                    stage('Test') {
-                        steps {
-                            sh '''#!/bin/bash -ex
+                            
                                 VENV_DIR="$HOME/$PYTHON_VERSION/$JAX_VERSION/.venv"
                                 source "$VENV_DIR/bin/activate"
                                 
