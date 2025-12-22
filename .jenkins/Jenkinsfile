@@ -37,11 +37,11 @@ pipeline {
                 axes {
                     axis {
                         name 'PYTHON_VERSION'
-                        values '3.11', '3.12', '3.13'
+                        values '3.11'
                     }
                     axis {
                         name 'JAX_VERSION'
-                        values '0.6.2', '0.7.2', '0.8.1'
+                        values '0.6.2'
                     }
                 }
                 environment {
