@@ -13,7 +13,7 @@ pipeline {
         HOME = "$WORKSPACE"
     }
     stages {
-        stage('Build') {
+        stage('Compile') {
             environment {
                 PARALLEL = "${env.PARALLEL}"
             }
@@ -29,18 +29,10 @@ pipeline {
                     cmake -DCMAKE_BUILD_TYPE=Release ..
                     cmake --build . --target install -- -j$PARALLEL
                 '''
-                sh '''#!/bin/bash -ex
-                    python3 -m venv $HOME/.venv
-                    source $HOME/.venv/bin/activate
-                    python3 -m pip install --upgrade pip build
-                    python3 -m build --wheel
-                '''
             }
         }
-        stage('Test') {
-            environment {
-                CUDA_VISIBLE_DEVICES = '0,1'
-            }
+        stage('Build and Test')
+        {
             matrix {
                 axes {
                     axis {
@@ -48,11 +40,24 @@ pipeline {
                         values '0.6.2', '0.7.2', '0.8.1'
                     }
                 }
+                environment {
+                    CUDA_VISIBLE_DEVICES = '0,1'
+                }
                 stages {
-                    stage('TestJaxVersion') {
+                    stage('Build ') {
                         steps {
                             sh '''#!/bin/bash -ex
-                        source $HOME/.venv/bin/activate
+                                    python3 -m venv $HOME/$JAX_VERSION/.venv
+                                    source $HOME/$JAX_VERSION/.venv/bin/activate
+                                    python3 -m pip install --upgrade pip build
+                                    python3 -m build --wheel
+                                '''
+                        }
+                    }
+                    stage('Test') {
+                        steps {
+                            sh '''#!/bin/bash -ex
+                        source $HOME/$JAX_VERSION/.venv/bin/activate
                         python3 -m pip install dist/jaxmg-*.whl "jax[cuda12]==$JAX_VERSION"
                         python3 -m pip install pytest matplotlib
                         python3 -m pytest -svv
