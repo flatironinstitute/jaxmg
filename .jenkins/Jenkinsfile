@@ -17,6 +17,13 @@ pipeline {
             environment {
                 PARALLEL = "${env.PARALLEL}"
             }
+            // matrix {
+            //     axes {
+            //         axis {
+            //             name 'PYTHON_VERSION'
+            //             values '3.11'
+            //         }
+            //     }}
             steps {
                 sh '''#!/bin/bash -ex
                     export CUDA_ROOT=/usr/local/cuda
@@ -30,8 +37,8 @@ pipeline {
                     cmake --build . --target install -- -j$PARALLEL
                 '''
                 sh '''#!/bin/bash -ex
-                    python3 -m pip install --upgrade pip build
-                    python3 -m build --wheel --outdir dist
+                    python3.11 -m pip install --upgrade pip build
+                    python3.11 -m build --wheel --outdir dist
                     ls -lh dist/
                 '''
             }
@@ -52,12 +59,12 @@ pipeline {
                     stage('Install') {
                         steps {
                             sh '''#!/bin/bash -ex
-                                python3 -m venv $HOME/$JAX_VERSION/.venv
+                                python3.11 -m venv $HOME/$JAX_VERSION/.venv
                                 source $HOME/$JAX_VERSION/.venv/bin/activate
-                                python3 -m pip install --upgrade pip
-                                python3 -m pip install "jax[cuda12]==$JAX_VERSION"
-                                python3 -m pip install --no-deps dist/jaxmg-*.whl
-                                python3 -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
+                                python3.11 -m pip install --upgrade pip
+                                python3.11 -m pip install "jax[cuda12]==$JAX_VERSION"
+                                python3.11 -m pip install --no-deps dist/jaxmg-*.whl
+                                python3.11 -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
                             '''
                         }
                     }
@@ -65,8 +72,8 @@ pipeline {
                         steps {
                             sh '''#!/bin/bash -ex
                                 source $HOME/$JAX_VERSION/.venv/bin/activate
-                                python3 -m pip install pytest matplotlib
-                                python3 -m pytest -svv
+                                python3.11 -m pip install pytest matplotlib
+                                python3.11 -m pytest -svv
                             '''
                         }
                     }
