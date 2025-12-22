@@ -50,21 +50,24 @@ pipeline {
                 stages {
                     stage('Build') {
                         steps {
-                            dir("ci/${PYTHON_VERSION}/${JAX_VERSION}") {
-                                unstash 'compiled-bin'
-                                sh '''#!/bin/bash -ex
-                                    python${PYTHON_VERSION} -m venv venv
-                                    source venv/bin/activate
+                            checkout scm
+                            unstash 'compiled-bin'
+                            sh '''#!/bin/bash -ex
+                                WORKDIR="ci/${PYTHON_VERSION}/${JAX_VERSION}"
+                                mkdir -p "$WORKDIR"
 
-                                    python -m pip install --upgrade pip build
-                                    python -m pip install "jax[cuda12-local]==$JAX_VERSION"
+                                python${PYTHON_VERSION} -m venv "$WORKDIR/venv"
+                                source "$WORKDIR/venv/bin/activate"
 
-                                    python -m build --wheel --outdir dist
+                                python -m pip install --upgrade pip build
+                                python -m pip install "jax[cuda12-local]==$JAX_VERSION"
 
-                                    python -m pip install --no-deps dist/jaxmg-*.whl
-                                    python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
-                                '''
-                            }
+                                # Build wheel from project root, output to the cell-specific dist
+                                python -m build --wheel --outdir "$WORKDIR/dist"
+
+                                python -m pip install --no-deps "$WORKDIR/dist/jaxmg-*.whl"
+                                python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
+                            '''
                         }
                     }
                     stage('Test') {
