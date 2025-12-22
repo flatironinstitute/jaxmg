@@ -26,8 +26,8 @@ pipeline {
                     mkdir -p third_party/gpus
                     ln -sfn third_party/gpus/cuda
                     mkdir -p build && cd build
-                    // cmake -DCMAKE_BUILD_TYPE=Release ..
-                    // cmake --build . --target install -- -j$PARALLEL
+                    cmake -DCMAKE_BUILD_TYPE=Release ..
+                    cmake --build . --target install -- -j$PARALLEL
                 '''
             }
         }
