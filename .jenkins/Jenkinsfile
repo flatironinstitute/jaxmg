@@ -45,7 +45,7 @@ pipeline {
                             stage("Build ${p}-${j}") {
                                 unstash 'compiled-bin'
                                 sh """#!/bin/bash -ex
-                                    WORKDIR="ci/${p}/${j}"
+                                    WORKDIR="${p}/${j}"
                                     mkdir -p "$WORKDIR"
 
                                     python${p} -m venv "$WORKDIR/venv"
@@ -64,7 +64,7 @@ pipeline {
                             }
                             stage("Test ${p}-${j}") {
                                 sh """#!/bin/bash -ex
-                                    WORKDIR="ci/${p}/${j}"
+                                    WORKDIR="${p}/${j}"
                                     source "$WORKDIR/venv/bin/activate"
                                     python -m pip install pytest matplotlib
                                     python -m pytest -svv tests
