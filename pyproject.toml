@@ -10,9 +10,7 @@ authors = [{ name = "Roeland Wiersema" }]
 classifiers = ["Programming Language :: Python :: 3"]
 dependencies = [
     "jax>=0.6.2; sys_platform == 'darwin'",
-    "jax[cuda]>=0.6.2; sys_platform == 'linux'",
     "jax[cuda12]>=0.6.2; sys_platform == 'linux'",
-    "jax[cuda13]>=0.6.2; sys_platform == 'linux'",
 ]
 readme = "README.md"
 requires-python = ">=3.11"
@@ -62,7 +60,7 @@ dev = [
 ]
 
 cuda13 = [
-    "jax[cuda13]>=0.6.2"
+    "jax[cuda13]>=0.7.1"
 ]
 
 cuda12-local = [
