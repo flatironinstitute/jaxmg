@@ -1,80 +1,75 @@
 pipeline {
-    agent {
-        dockerfile {
-            filename '.jenkins/Dockerfile'
-            args '--gpus=2 --shm-size=4gb'
-            label 'docker && v100'
-        }
-    }
+    agent none
+    
     options {
-        timeout(time: 30, unit: 'MINUTES')
+        timeout(time: 60, unit: 'MINUTES')
     }
-    environment {
-        HOME = "$WORKSPACE"
-    }
+    
     stages {
-        stage('Compile') {
-            environment {
-                PARALLEL = "${env.PARALLEL}"
-            }
-            steps {
-                sh '''#!/bin/bash -ex
-                    export CUDA_ROOT=/usr/local/cuda
-                    export CUDNN_ROOT=/usr
-                    export PATH=/usr/local/cuda/bin:$PATH
-                    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-                    mkdir -p third_party/gpus
-                    ln -sfn third_party/gpus/cuda
-                    mkdir -p build && cd build
-                    cmake -DCMAKE_BUILD_TYPE=Release ..
-                    cmake --build . --target install -- -j$PARALLEL
-                '''
-            }
-        }
-        stage('Build and Test')
-        {
+        stage('Build and Test Matrix') {
             matrix {
+                agent {
+                    dockerfile {
+                        filename '.jenkins/Dockerfile'
+                        args '--gpus=2 --shm-size=4gb'
+                        label 'docker && v100'
+                        reuseNode false
+                    }
+                }
                 axes {
                     axis {
                         name 'PYTHON_VERSION'
-                        values '3.11'
+                        values '3.11', '3.12', '3.13'
                     }
                     axis {
                         name 'JAX_VERSION'
-                        values '0.6.2'
+                        values '0.6.2', '0.7.2', '0.8.1'
                     }
                 }
                 environment {
                     CUDA_VISIBLE_DEVICES = '0,1'
+                    PARALLEL = "${env.PARALLEL}"
                 }
                 stages {
-                    stage('Build and Test') {
+                    stage('Compile') {
                         steps {
                             sh '''#!/bin/bash -ex
-                                VENV_DIR="$HOME/$PYTHON_VERSION/$JAX_VERSION/.venv"
-                                DIST_DIR="$HOME/$PYTHON_VERSION/$JAX_VERSION/dist"
-                                BUILD_DIR="$HOME/$PYTHON_VERSION/$JAX_VERSION/build"
-
+                                export CUDA_ROOT=/usr/local/cuda
+                                export CUDNN_ROOT=/usr
+                                export PATH=/usr/local/cuda/bin:$PATH
+                                export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+                                mkdir -p third_party/gpus
+                                ln -sfn third_party/gpus/cuda
+                                mkdir -p build && cd build
+                                cmake -DCMAKE_BUILD_TYPE=Release ..
+                                cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
+                            '''
+                        }
+                    }
+                    stage('Build') {
+                        steps {
+                            sh '''#!/bin/bash -ex
                                 # Create venv with specific Python version
-                                python${PYTHON_VERSION} -m venv "$VENV_DIR"
-                                source "$VENV_DIR/bin/activate"
+                                python${PYTHON_VERSION} -m venv venv
+                                source venv/bin/activate
                                 
                                 # Install build tools and JAX
                                 python -m pip install --upgrade pip build
                                 python -m pip install "jax[cuda12-local]==$JAX_VERSION"
                                 
-                                # Build wheel into version-specific dist directory
-                                mkdir -p "$DIST_DIR"
-                                # Use isolated temp directory to prevent parallel build conflicts
-                                TMPDIR="$BUILD_DIR" python -m build --wheel --outdir "$DIST_DIR"
+                                # Build wheel (each agent has its own workspace, no conflicts)
+                                python -m build --wheel
                                 
                                 # Install the wheel and verify versions
-                                python -m pip install --no-deps "$DIST_DIR"/jaxmg-*.whl
+                                python -m pip install --no-deps dist/jaxmg-*.whl
                                 python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
-                            
-                                VENV_DIR="$HOME/$PYTHON_VERSION/$JAX_VERSION/.venv"
-                                source "$VENV_DIR/bin/activate"
-                                
+                            '''
+                        }
+                    }
+                    stage('Test') {
+                        steps {
+                            sh '''#!/bin/bash -ex
+                                source venv/bin/activate
                                 python -m pip install pytest matplotlib
                                 python -m pytest -svv
                             '''
