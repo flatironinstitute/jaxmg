@@ -31,54 +31,47 @@ pipeline {
             }
         }
 
-        stage('Build and Test Matrix') {
-            matrix {
-                axes {
-                    axis {
-                        name 'PYTHON_VERSION'
-                        values '3.11', '3.12', '3.13'
-                    }
-                    axis {
-                        name 'JAX_VERSION'
-                        values '0.6.2'//, '0.7.2', '0.8.1'
-                    }
-                }
-                environment {
-                    CUDA_VISIBLE_DEVICES = '0,1'
-                    PARALLEL = "${env.PARALLEL}"
-                }
-                stages {
-                    stage('Build') {
-                        steps {
-                            unstash 'compiled-bin'
-                            sh '''#!/bin/bash -ex
-                                WORKDIR="ci/${PYTHON_VERSION}/${JAX_VERSION}"
-                                mkdir -p "$WORKDIR"
+        stage('Build and Test') {
+            environment {
+                CUDA_VISIBLE_DEVICES = '0,1'
+                PARALLEL = "${env.PARALLEL}"
+            }
+            steps {
+                script {
+                    def pyVersions = ['3.11', '3.12', '3.13']
+                    def jaxVersions = ['0.6.2'] // '0.7.1'. '0.8.1'
+                    for (p in pyVersions) {
+                        for (j in jaxVersions) {
+                            stage("Build ${p}-${j}") {
+                                unstash 'compiled-bin'
+                                sh """#!/bin/bash -ex
+                                    WORKDIR="ci/${p}/${j}"
+                                    mkdir -p "$WORKDIR"
 
-                                python${PYTHON_VERSION} -m venv "$WORKDIR/venv"
-                                source "$WORKDIR/venv/bin/activate"
+                                    python${p} -m venv "$WORKDIR/venv"
+                                    source "$WORKDIR/venv/bin/activate"
 
-                                python -m pip install --upgrade pip build
-                                python -m pip install "jax[cuda12-local]==$JAX_VERSION"
+                                    python -m pip install --upgrade pip build
+                                    python -m pip install "jax[cuda12-local]==${j}"
 
-                                # Build wheel from project root, output to the cell-specific dist
-                                python -m build --wheel --outdir "$WORKDIR/dist"
+                                    # Build wheel from project root, output to the cell-specific dist
+                                    python -m build --wheel --outdir "$WORKDIR/dist"
 
-                                # Do not quote the wildcard; allow shell globbing
-                                python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
-                                python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
-                            '''
+                                    # Do not quote the wildcard; allow shell globbing
+                                    python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
+                                    python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
+                                """
+                            }
+                            stage("Test ${p}-${j}") {
+                                sh """#!/bin/bash -ex
+                                    WORKDIR="ci/${p}/${j}"
+                                    source "$WORKDIR/venv/bin/activate"
+                                    python -m pip install pytest matplotlib
+                                    python -m pytest -svv tests
+                                """
+                            }
                         }
                     }
-                    stage('Test') {
-                        steps {
-                            sh '''#!/bin/bash -ex
-                                WORKDIR="ci/${PYTHON_VERSION}/${JAX_VERSION}"
-                                source "$WORKDIR/venv/bin/activate"
-                                python -m pip install pytest matplotlib
-                                # Run from repo root and target the configured tests folder explicitly
-                                python -m pytest -svv tests
-                            '''
                         }
                     }
                 }
