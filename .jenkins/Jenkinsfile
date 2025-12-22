@@ -55,7 +55,6 @@ pipeline {
                                 python3 -m venv $HOME/$JAX_VERSION/.venv
                                 source $HOME/$JAX_VERSION/.venv/bin/activate
                                 python3 -m pip install --upgrade pip
-                                # Install JAX version and the pre-built wheel from Compile stage
                                 python3 -m pip install "jax[cuda12]==$JAX_VERSION"
                                 python3 -m pip install --no-deps dist/jaxmg-*.whl
                                 python3 -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
