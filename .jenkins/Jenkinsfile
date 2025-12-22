@@ -64,7 +64,8 @@ pipeline {
                                 # Build wheel from project root, output to the cell-specific dist
                                 python -m build --wheel --outdir "$WORKDIR/dist"
 
-                                python -m pip install --no-deps "$WORKDIR/dist/jaxmg-*.whl"
+                                # Do not quote the wildcard; allow shell globbing
+                                python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
                                 python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
                             '''
                         }
