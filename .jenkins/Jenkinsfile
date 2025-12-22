@@ -50,7 +50,6 @@ pipeline {
                 stages {
                     stage('Build') {
                         steps {
-                            checkout scm
                             dir("ci/${PYTHON_VERSION}/${JAX_VERSION}") {
                                 unstash 'compiled-bin'
                                 sh '''#!/bin/bash -ex
