@@ -26,8 +26,8 @@ pipeline {
                     mkdir -p third_party/gpus
                     ln -sfn third_party/gpus/cuda
                     mkdir -p build && cd build
-                    cmake -DCMAKE_BUILD_TYPE=Release ..
-                    cmake --build . --target install -- -j$PARALLEL
+                    // cmake -DCMAKE_BUILD_TYPE=Release ..
+                    // cmake --build . --target install -- -j$PARALLEL
                 '''
             }
         }
@@ -50,7 +50,10 @@ pipeline {
                                     python3 -m venv $HOME/$JAX_VERSION/.venv
                                     source $HOME/$JAX_VERSION/.venv/bin/activate
                                     python3 -m pip install --upgrade pip build
-                                    python3 -m build --wheel
+                                    # Build wheel into a per-version dist directory
+                                    OUTDIR="$HOME/$JAX_VERSION/dist"
+                                    mkdir -p "$OUTDIR"
+                                    python3 -m build --wheel --outdir "$OUTDIR"
                                 '''
                         }
                     }
@@ -58,7 +61,8 @@ pipeline {
                         steps {
                             sh '''#!/bin/bash -ex
                         source $HOME/$JAX_VERSION/.venv/bin/activate
-                        python3 -m pip install dist/jaxmg-*.whl "jax[cuda12]==$JAX_VERSION"
+                        # Install JAX and the wheel built for this version from its own dist dir
+                        python3 -m pip install "$HOME/$JAX_VERSION/dist/jaxmg-"*.whl "jax[cuda12]==$JAX_VERSION"
                         python3 -m pip install pytest matplotlib
                         python3 -m pytest -svv
                         '''
