@@ -87,12 +87,21 @@ execute_process(
 if(NOT ln_result EQUAL 0)
     message(FATAL_ERROR "Failed to create symlink for CUDA: $ENV{CUDA_ROOT}")
 endif()
+# Resolve cuDNN include directory across layouts (CUDA 12/13)
+if(EXISTS "$ENV{CUDNN_ROOT}/include")
+    set(CUDNN_INC "$ENV{CUDNN_ROOT}/include") # CUDA 12
+elseif(EXISTS "$ENV{CUDNN_ROOT}/x86_64-linux-gnu") # CUDA 13
+    set(CUDNN_INC "$ENV{CUDNN_ROOT}/x86_64-linux-gnu")
+else()
+    message(FATAL_ERROR "Failed to locate cuDNN headers under CUDNN_ROOT=$ENV{CUDNN_ROOT}")
+endif()
+message(STATUS "Resolved cuDNN include dir: ${CUDNN_INC}")
 execute_process(
-    COMMAND ln -sfn $ENV{CUDNN_ROOT}/include ${CMAKE_SOURCE_DIR}/third_party/gpus/cudnn
+    COMMAND ln -sfn ${CUDNN_INC} ${CMAKE_SOURCE_DIR}/third_party/gpus/cudnn
     RESULT_VARIABLE ln_result
 )
 if(NOT ln_result EQUAL 0)
-    message(FATAL_ERROR "Failed to create symlink for CUDNN: $ENV{CUDNN_ROOT}/include")
+    message(FATAL_ERROR "Failed to create symlink for CUDNN include: ${CUDNN_INC}")
 endif()
 file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/xla/ffi)
 execute_process(
@@ -253,7 +262,6 @@ install(TARGETS syevd_no_V
     LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/src/jaxmg/bin
 )
 
-# module load gcc/11.5.0 cudnn/9.2.0.82-12 cuda/12.8.0
 # module load gcc/11.5.0 cudnn/9.2.0.82-12 cuda/12.8.0
 
 # cmake ..
