@@ -39,7 +39,7 @@ pipeline {
             steps {
                 script {
                     def pyVersions = ['3.11', '3.12', '3.13']
-                    def jaxVersions = ['0.6.2'] // '0.7.1'. '0.8.1'
+                    def jaxVersions = ['0.6.2', '0.7.1', '0.8.1']
                     for (p in pyVersions) {
                         for (j in jaxVersions) {
                             stage("Build ${p}-${j}") {
