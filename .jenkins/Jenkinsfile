@@ -66,6 +66,21 @@ pipeline {
                             stage("Test ${p}-${j}") {
                                 withEnv(["WORKDIR=ci/${p}/${j}"]) {
                                     sh '''#!/bin/bash -ex
+                                        nukegpu() {
+                                            local pids
+                                            pids=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | sed '/^$/d' | sort -u)
+                                            if [ -z "$pids" ]; then
+                                                echo "nukegpu_all: no GPU PIDs."
+                                                return 0
+                                            fi
+                                            echo "nukegpu_all: killing ALL GPU PIDs -> $pids"
+                                            for pid in $pids; do
+                                                kill -9 "$pid" 2>/dev/null || sudo kill -9 "$pid" 2>/dev/null || echo "could not kill $pid"
+                                            done
+                                        }
+
+                                        # Ensure GPUs are free before running tests
+                                        nukegpu || true
                                         source "$WORKDIR/venv/bin/activate"
                                         python -m pip install pytest matplotlib
                                         python -m pytest -svv tests
