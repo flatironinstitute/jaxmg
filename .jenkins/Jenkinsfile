@@ -22,7 +22,6 @@ pipeline {
                     export CUDNN_ROOT=/usr
                     export PATH=/usr/local/cuda/bin:$PATH
                     export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-                    // export JAX_VERSION="0.7.2"
                     mkdir -p build && cd build
                     cmake -DCMAKE_BUILD_TYPE=Release ..
                     cmake --build . --target install -- -j${PARALLEL:-$(nproc)}

@@ -14,6 +14,7 @@ include(${CPM_DOWNLOAD_LOCATION})
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}" ${CMAKE_MODULE_PATH})
 
 # Static linking against C++20 standard library
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -26,6 +27,7 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -stdlib=libc++ -static-libgcc")
 endif()
 
+# Abseill headers
 CPMAddPackage(
     NAME absl
     GIT_REPOSITORY https://github.com/abseil/abseil-cpp
@@ -37,14 +39,11 @@ find_package(CUDAToolkit REQUIRED)
 find_library(CUSOLVERMG_LIB cusolverMg
     HINTS "${CUDAToolkit_LIBRARY_DIR}" "${CUDA_TOOLKIT_ROOT_DIR}/lib64" "/usr/local/cuda/lib64"
     REQUIRED)
-# Import CUDAToolkit (Requires CUDA_HOME to be set)
-set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}" ${CMAKE_MODULE_PATH})
 find_package(CUDNN REQUIRED)
 message(STATUS "CUDA include directory: $ENV{CUDA_ROOT}")
 message(STATUS "CUDNN include directory: $ENV{CUDNN_ROOT}")
 # Enable CUDA 
 enable_language(CUDA)
-
 # Ensure CUDA uses C++20 (required by this project)
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
