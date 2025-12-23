@@ -45,6 +45,10 @@ message(STATUS "CUDNN include directory: $ENV{CUDNN_ROOT}")
 # Enable CUDA 
 enable_language(CUDA)
 
+# Ensure CUDA uses C++20 (required by this project)
+set(CMAKE_CUDA_STANDARD 20)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
 # Get Jaxlib
 # Allow overriding the JAX version via -DJAX_VERSION=0.x.y or env JAX_VERSION; default to 0.6.2
 if(NOT DEFINED JAX_VERSION OR JAX_VERSION STREQUAL "")
@@ -250,6 +254,8 @@ install(TARGETS syevd_no_V
 )
 
 # module load gcc/11.5.0 cudnn/9.2.0.82-12 cuda/12.8.0
+# module load gcc/11.5.0 cudnn/9.2.0.82-12 cuda/12.8.0
+
 # cmake ..
 # cmake --build . --target install
 # OR

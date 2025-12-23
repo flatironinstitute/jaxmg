@@ -24,7 +24,7 @@ pipeline {
                     export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
                     mkdir -p build && cd build
-                    cmake -DCMAKE_BUILD_TYPE=Release ..
+                    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_STANDARD=20 ..
                     cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
                 '''
                 stash name: 'compiled-bin', includes: 'src/jaxmg/bin/**', useDefaultExcludes: false
