@@ -87,21 +87,14 @@ execute_process(
 if(NOT ln_result EQUAL 0)
     message(FATAL_ERROR "Failed to create symlink for CUDA: $ENV{CUDA_ROOT}")
 endif()
-# Resolve cuDNN include directory across layouts (CUDA 12/13)
-if(EXISTS "$ENV{CUDNN_ROOT}/include")
-    set(CUDNN_INC "$ENV{CUDNN_ROOT}/include") # CUDA 12
-elseif(EXISTS "$ENV{CUDNN_ROOT}/x86_64-linux-gnu") # CUDA 13
-    set(CUDNN_INC "$ENV{CUDNN_ROOT}/x86_64-linux-gnu")
-else()
-    message(FATAL_ERROR "Failed to locate cuDNN headers under CUDNN_ROOT=$ENV{CUDNN_ROOT}")
-endif()
-message(STATUS "Resolved cuDNN include dir: ${CUDNN_INC}")
+
+message(STATUS "Resolved cuDNN include dir: ${CUDNN_INCLUDE_PATH}")
 execute_process(
-    COMMAND ln -sfn ${CUDNN_INC} ${CMAKE_SOURCE_DIR}/third_party/gpus/cudnn
+    COMMAND ln -sfn ${CUDNN_INCLUDE_PATH} ${CMAKE_SOURCE_DIR}/third_party/gpus/cudnn
     RESULT_VARIABLE ln_result
 )
 if(NOT ln_result EQUAL 0)
-    message(FATAL_ERROR "Failed to create symlink for CUDNN include: ${CUDNN_INC}")
+    message(FATAL_ERROR "Failed to create symlink for CUDNN include: ${CUDNN_INCLUDE_PATH}")
 endif()
 file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/xla/ffi)
 execute_process(
