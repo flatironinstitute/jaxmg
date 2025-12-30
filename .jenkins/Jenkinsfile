@@ -1,9 +1,10 @@
 pipeline {
+    agent none
     stages {
         stage('CUDA 12 (local)') {
             agent {
                 dockerfile {
-                    filename '.jenkins/Dockerfile'
+                    filename '.jenkins/Dockerfile12'
                     args '--gpus=2 --shm-size=4gb'
                     label 'docker && v100'
                 }
@@ -11,6 +12,11 @@ pipeline {
 
             options {
                 timeout(time: 60, unit: 'MINUTES')
+            }
+            steps {
+                sh '''#!/bin/bash -ex
+                    echo "CUDA12 (local)"
+                '''
             }
         }
         stage('CUDA 13 (local)') {
@@ -24,6 +30,11 @@ pipeline {
 
             options {
                 timeout(time: 60, unit: 'MINUTES')
+            }
+            steps {
+                sh '''#!/bin/bash -ex
+                    echo "CUDA13 (local)"
+                '''
             }
         }
     }
