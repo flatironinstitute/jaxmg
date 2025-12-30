@@ -1,7 +1,7 @@
 pipeline {
     agent none
     stages {
-        stage('CUDA 12 (local)') {
+        stage('CUDA 12') {
             agent {
                 dockerfile {
                     filename '.jenkins/Dockerfile12'
@@ -13,13 +13,34 @@ pipeline {
             options {
                 timeout(time: 60, unit: 'MINUTES')
             }
-            steps {
-                sh '''#!/bin/bash -ex
-                    echo "CUDA12 (local)"
-                '''
+            stages {
+                stage('Compile') {
+                    environment {
+                        PARALLEL = "${env.PARALLEL}"
+                    }
+                    steps {
+                        sh '''#!/bin/bash -ex
+                        export CUDA_ROOT=/usr/local/cuda
+                        export CUDNN_ROOT=/usr
+                        export PATH=/usr/local/cuda/bin:$PATH
+                        export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+                        mkdir -p build && cd build
+                        cmake -DCMAKE_BUILD_TYPE=Release ..
+                        cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
+                        echo "Built libs:"
+                        ls -la src/jaxmg/bin/
+                        echo "Running ldd on built libraries"
+                        for so in src/jaxmg/bin/*.so; do
+                            echo ">>> $so"
+                            ldd "$so" || true
+                        done
+                    '''
+                        stash name: 'compiled-bin', includes: 'src/jaxmg/bin/**', useDefaultExcludes: false
+                    }
+                }
             }
         }
-        stage('CUDA 13 (local)') {
+        stage('CUDA 13') {
             agent {
                 dockerfile {
                     filename '.jenkins/Dockerfile13'
@@ -33,7 +54,7 @@ pipeline {
             }
             steps {
                 sh '''#!/bin/bash -ex
-                    echo "CUDA13 (local)"
+                    echo "CUDA13"
                 '''
             }
         }
