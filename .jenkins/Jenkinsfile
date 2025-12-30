@@ -27,15 +27,53 @@ pipeline {
                         mkdir -p build && cd build
                         cmake -DCMAKE_BUILD_TYPE=Release ..
                         cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
-                        echo "Built libs:"
-                        ls -la src/jaxmg/bin/
-                        echo "Running ldd on built libraries"
-                        for so in src/jaxmg/bin/*.so; do
+                        echo "Built libs at $WORKSPACE/src/jaxmg/bin:"
+                        ls -la "$WORKSPACE/src/jaxmg/bin""
+                    '''
+                        stash name: 'compiled-bin', includes: 'src/jaxmg/bin/**', useDefaultExcludes: false
+                    }
+                }
+                stage('Local') {
+                    steps {
+                        unstash 'compiled-bin'
+                        sh '''#!/bin/bash -ex
+                        echo "LDD baseline on built libraries"
+                        for so in "$WORKSPACE/src/jaxmg/bin"/*.so; do
                             echo ">>> $so"
                             ldd "$so" || true
                         done
-                    '''
-                        stash name: 'compiled-bin', includes: 'src/jaxmg/bin/**', useDefaultExcludes: false
+                        '''
+                    }
+                }
+                stage('JAX NVIDIA') {
+                    steps {
+                        unstash 'compiled-bin'
+                        sh '''#!/bin/bash -ex
+                        echo "Unlinking selected CUDA libraries, then rerunning ldd"
+                        libs=(
+                            libcupti.so.12
+                            libcublas.so.12
+                            libcublasLt.so.12
+                            libcusparse.so.12
+                            libcusolver.so.11
+                            libcusolverMg.so.11
+                        )
+                        for lib in "${libs[@]}"; do
+                            path=$(ldconfig -p | awk -v L="$lib" '$1==L {print $NF}' | head -n1 || true)
+                            if [ -n "$path" ]; then
+                                echo "Unlinking $lib at $path"
+                                unlink "$path" || rm -f "$path" || echo "Failed to unlink $path"
+                            else
+                                echo "Library $lib not found in ldconfig cache"
+                            fi
+                        done
+
+                        echo "Rerunning ldd on built libraries"
+                        for so in "$WORKSPACE/src/jaxmg/bin"/*.so; do
+                            echo ">>> $so"
+                            ldd "$so" || true
+                        done
+                        '''
                     }
                 }
             }
