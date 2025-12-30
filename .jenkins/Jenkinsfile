@@ -28,7 +28,7 @@ pipeline {
                         cmake -DCMAKE_BUILD_TYPE=Release ..
                         cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
                         echo "Built libs at $WORKSPACE/src/jaxmg/bin:"
-                        ls -la "$WORKSPACE/src/jaxmg/bin""
+                        ls -la "$WORKSPACE/src/jaxmg/bin"
                     '''
                         stash name: 'compiled-bin', includes: 'src/jaxmg/bin/**', useDefaultExcludes: false
                     }
