@@ -1,94 +1,29 @@
 pipeline {
-    agent {
-        dockerfile {
-            filename '.jenkins/Dockerfile'
-            args '--gpus=2 --shm-size=4gb'
-            label 'docker && v100'
-        }
-    }
-
-    options {
-        timeout(time: 60, unit: 'MINUTES')
-    }
-
     stages {
-        stage('Checkout + Compile') {
-            environment {
-                PARALLEL = "${env.PARALLEL}"
+        stage('CUDA 12 (local)') {
+            agent {
+                dockerfile {
+                    filename '.jenkins/Dockerfile'
+                    args '--gpus=2 --shm-size=4gb'
+                    label 'docker && v100'
+                }
             }
-            steps {
-                sh '''#!/bin/bash -ex
-                    export CUDA_ROOT=/usr/local/cuda
-                    export CUDNN_ROOT=/usr
-                    export PATH=/usr/local/cuda/bin:$PATH
-                    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-                    mkdir -p build && cd build
-                    cmake -DCMAKE_BUILD_TYPE=Release ..
-                    cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
-                '''
-                stash name: 'compiled-bin', includes: 'src/jaxmg/bin/**', useDefaultExcludes: false
+
+            options {
+                timeout(time: 60, unit: 'MINUTES')
             }
         }
-
-        stage('Build and Test') {
-            environment {
-                CUDA_VISIBLE_DEVICES = '0,1'
-                PARALLEL = "${env.PARALLEL}"
-            }
-            steps {
-                script {
-                    def pyVersions = ['3.11', '3.12', '3.13']
-                    def jaxVersions = ['0.6.2', '0.7.1', '0.8.1']
-                    for (p in pyVersions) {
-                        for (j in jaxVersions) {
-                            stage("Build ${p}-${j}") {
-                                unstash 'compiled-bin'
-                                withEnv(["WORKDIR=ci/${p}/${j}", "PYV=${p}", "JAXV=${j}"]) {
-                                    sh '''#!/bin/bash -ex
-                                        mkdir -p "$WORKDIR"
-
-                                        python"$PYV" -m venv "$WORKDIR/venv"
-                                        source "$WORKDIR/venv/bin/activate"
-
-                                        python -m pip install --upgrade pip build
-                                        python -m pip install "jax[cuda12-local]==$JAXV"
-
-                                        # Build wheel from project root, output to the cell-specific dist
-                                        python -m build --wheel --outdir "$WORKDIR/dist"
-
-                                        # Do not quote the wildcard; allow shell globbing
-                                        python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
-                                        python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
-                                    '''
-                                }
-                            }
-                            stage("Test ${p}-${j}") {
-                                withEnv(["WORKDIR=ci/${p}/${j}"]) {
-                                    sh '''#!/bin/bash -ex
-                                        nukegpu() {
-                                            local pids
-                                            pids=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | sed '/^$/d' | sort -u)
-                                            if [ -z "$pids" ]; then
-                                                echo "nukegpu_all: no GPU PIDs."
-                                                return 0
-                                            fi
-                                            echo "nukegpu_all: killing ALL GPU PIDs -> $pids"
-                                            for pid in $pids; do
-                                                kill -9 "$pid" 2>/dev/null || sudo kill -9 "$pid" 2>/dev/null || echo "could not kill $pid"
-                                            done
-                                        }
-
-                                        # Ensure GPUs are free before running tests
-                                        nukegpu || true
-                                        source "$WORKDIR/venv/bin/activate"
-                                        python -m pip install pytest matplotlib
-                                        python -m pytest -svv tests
-                                    '''
-                                }
-                            }
-                        }
-                    }
+        stage('CUDA 13 (local)') {
+            agent {
+                dockerfile {
+                    filename '.jenkins/Dockerfile13'
+                    args '--gpus=2 --shm-size=4gb'
+                    label 'docker && v100'
                 }
+            }
+
+            options {
+                timeout(time: 60, unit: 'MINUTES')
             }
         }
     }
