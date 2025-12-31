@@ -60,7 +60,7 @@ dev = [
 ]
 
 cuda13 = [
-    "jax[cuda13]>=0.7.1"
+    "jax[cuda13]>=0.7.2"
 ]
 
 cuda12-local = [
@@ -68,5 +68,5 @@ cuda12-local = [
 ]
 
 cuda13-local = [
-    "jax[cuda13-local]>=0.6.2"
+    "jax[cuda13-local]>=0.7.2"
 ]

@@ -16,7 +16,7 @@
 #include "jaxlib/gpu/handle_pool.h"
 // CUDA
 #include "third_party/gpus/cuda/include/cusolverMg.h"
-#include "third_party/gpus/cuda/include/cuda_runtime.h"
+#include "third_party/gpus/cuda/include/cuda_runtime_api.h"
 // XLA
 #include "xla/ffi/api/ffi.h"
 
