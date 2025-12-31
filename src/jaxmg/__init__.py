@@ -42,6 +42,7 @@ def _load(module, libraries):
 # libnvJitLink.so.12 => not found
 # libcublasLt.so.12 => not found
 # We now load these from the binaries shipped with jax.
+_load("cuda_runtime", ["libcudart.so.12"])
 _load("cuda_cupti", ["libcupti.so.12"])
 _load("cublas", ["libcublas.so.12", "libcublasLt.so.12"])
 _load("cusparse", ["libcusparse.so.12"])
