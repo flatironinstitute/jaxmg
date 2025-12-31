@@ -83,6 +83,7 @@ pipeline {
                                                     python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
                                                     python -c "import sys, jax; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices()); import jaxmg"
                                                 '''
+                                                archiveArtifacts artifacts: "${WORKDIR}/dist/*.whl", onlyIfSuccessful: true
                                             }
                                         }
                                         stage("Test ${c}-${p}-${j}") {
@@ -199,6 +200,7 @@ pipeline {
                                                     python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
                                                     python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices())"
                                                 '''
+                                                archiveArtifacts artifacts: "${WORKDIR}/dist/*.whl", onlyIfSuccessful: true
                                             }
                                         }
                                         stage("Test ${c}-${p}-${j}") {
