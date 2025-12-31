@@ -25,9 +25,6 @@ pipeline {
                             'JAX_VERSIOn=0.6.2',
                         ]) {
                             sh '''#!/bin/bash -ex
-                            # Save original env, then set CUDA paths only for compilation
-                            ORIG_PATH="$PATH"
-                            ORIG_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
                             export PATH="/usr/local/cuda/bin:$PATH"
                             export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
 
@@ -54,6 +51,10 @@ pipeline {
                             for (c in cudaVersions) {
                                 for (p in pyVersions) {
                                     for (j in jaxVersions) {
+                                        if (p == '3.14' && j == '0.6.2') {
+                                            echo "Skipping ${c}-${p}-${j}: python 3.14 with JAX 0.6.2 unsupported"
+                                            continue
+                                        }
                                         stage("Build ${c}-${p}-${j}") {
                                             unstash 'bin12'
                                             withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
@@ -61,18 +62,7 @@ pipeline {
                                                     mkdir -p "$WORKDIR"
 
                                                     python"$PYV" -m venv "$WORKDIR/venv"
-                                                    source "$WORKDIR/venv/bin/activate"
-
-                                                    # Restore original env; set CUDA paths only for *-local variants
-                                                    ORIG_PATH="$PATH"
-                                                    ORIG_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
-                                                    if [ "$CUV" = "cuda12-local" ]; then
-                                                        export PATH="/usr/local/cuda/bin:$ORIG_PATH"
-                                                        export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$ORIG_LD_LIBRARY_PATH"
-                                                    else
-                                                        export PATH="$ORIG_PATH"
-                                                        export LD_LIBRARY_PATH="$ORIG_LD_LIBRARY_PATH"
-                                                    fi
+                                                    source "$WORKDIR/venv/bin/activate"                                                   
 
                                                     python -m pip install --upgrade pip build
                                                     python -m pip install "jax[$CUV]==$JAXV"
@@ -142,10 +132,7 @@ pipeline {
                             'CUDNN_ROOT=/usr',
                             'JAX_VERSION=0.7.2',
                         ]) {
-                            sh '''#!/bin/bash -ex
-                            # Save original env, then set CUDA paths only for compilation
-                            ORIG_PATH="$PATH"
-                            ORIG_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
+                            sh '''#!/bin/bash -ex                            
                             export PATH="/usr/local/cuda/bin:$PATH"
                             export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
 
@@ -179,18 +166,7 @@ pipeline {
                                                     mkdir -p "$WORKDIR"
 
                                                     python"$PYV" -m venv "$WORKDIR/venv"
-                                                    source "$WORKDIR/venv/bin/activate"
-
-                                                    # Restore original env; set CUDA paths only for *-local variants
-                                                    ORIG_PATH="$PATH"
-                                                    ORIG_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
-                                                    if [ "$CUV" = "cuda13-local" ]; then
-                                                        export PATH="/usr/local/cuda/bin:$ORIG_PATH"
-                                                        export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$ORIG_LD_LIBRARY_PATH"
-                                                    else
-                                                        export PATH="$ORIG_PATH"
-                                                        export LD_LIBRARY_PATH="$ORIG_LD_LIBRARY_PATH"
-                                                    fi
+                                                    source "$WORKDIR/venv/bin/activate"                                                    
 
                                                     python -m pip install --upgrade pip build
                                                     python -m pip install "jax[$CUV]==$JAXV"

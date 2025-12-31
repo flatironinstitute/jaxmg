@@ -64,7 +64,7 @@ We make use of Jenkins to build and test the code. We test the following configu
 1. Two Linux docker images with CUDA 12 and 13 Toolkit installations:
    - `nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04`
    - `nvidia/cuda:13.0.0-cudnn-devel-ubuntu22.04`
-2. Python `3.11`, `3.12`, `3.13`
+2. Python `3.11`, `3.12`, `3.13`, `3.14`
 
 3. For CUDA 12:
    - JAX `0.6.2`, `0.7.1`, `0.8.1`

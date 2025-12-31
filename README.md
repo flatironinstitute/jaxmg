@@ -29,12 +29,59 @@ This will install a GPU compatible version of JAX. By default we use `jax[cuda12
 
 1. `pip install "jaxmg[cuda12-local]"`: Use locally available CUDA 12 installation.
 
-2. `pip install "jaxmg[cuda13]"`: Use CUDA 13 (only works for `jax>=0.7.2`)
+2. `pip install "jaxmg[cuda13]"`: Use CUDA 13 (only works for `jax>=0.7.2`).
 
 3. `pip install "jaxmg[cuda13-local]"`: Use locally available CUDA 13 installation.
 
+## Example
 
-### cuSolverMp
+A minimal example that runs the code is:
+
+```python
+import jax
+jax.config.update("jax_enable_x64", True)
+import jax.numpy as jnp
+from jax.sharding import PartitionSpec as P, NamedSharding
+from jaxmg import potrs
+print(f"Devices: {jax.devices()}")
+# Assumes we have at least one GPU available
+devices = jax.devices("gpu")
+N = 12
+T_A = 3
+dtype = jnp.float64
+# Create diagonal matrix and `b` all equal to one
+A = jnp.diag(jnp.arange(N, dtype=dtype) + 1)
+b = jnp.ones((N, 1), dtype=dtype)
+ndev = len(devices)
+# Make mesh and place data (rows sharded)
+mesh = jax.make_mesh((ndev,), ("x",))
+A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+b = jax.device_put(b, NamedSharding(mesh, P(None, None)))
+# Call potrs
+out = potrs(A, b, T_A=T_A, mesh=mesh, in_specs=(P("x", None), P(None, None)))
+print(out)
+expected_out = 1.0 / (jnp.arange(N, dtype=dtype) + 1)
+print(jnp.allclose(out.flatten(), expected_out))
+```
+which gives
+```bash
+[[1.        ]
+ [0.5       ]
+ [0.33333333]
+ [0.25      ]
+ [0.2       ]
+ [0.16666667]
+ [0.14285714]
+ [0.125     ]
+ [0.11111111]
+ [0.1       ]
+ [0.09090909]
+ [0.08333333]]
+True
+```
+as expected.
+
+## cuSolverMp
 As of CUDA 13, there is a new distributed linear algebra library called [cuSolverMp](https://docs.nvidia.com/cuda/cusolvermp/) with similar capabilities as cuSolverMg, that does support multi-node computations as well as >16 devices. Given the similarities in syntax, it should be straightforward to eventually switch to this API. This will require sharding data into a cyclic 2D form and handling the solver orchestration with MPI.
 
 ## Citations
