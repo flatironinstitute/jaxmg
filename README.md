@@ -29,23 +29,20 @@ The provided binary is compiled with:
 
 ## Installation
 
-Clone the repository and install with:
+The package is available on PyPi and can be installed with
 
 ```bash
 pip install jaxmg
 ```
 
-This will install a GPU compatible version of JAX. 
+This will install a GPU compatible version of JAX. By default we use `jax[cuda12]`, but `jaxmg` is compatible with the following alternative JAX configurations:
 
-To verify the installation (requires at least one GPU) run
+1. `pip install "jaxmg[cuda12-local]"`: Use locally available CUDA 12 installation.
 
-```bash
-pytest 
-```
-There are two types of tests:
+2. `pip install "jaxmg[cuda13]"`: Use CUDA 13 (only works for `jax>=0.7.2`)
 
-1. SPMD tests: Single Process Multiple GPU tests.
-3. MPMD: Multiple Processes Multiple GPU tests.
+3. `pip install "jaxmg[cuda13-local]"`: Use locally available CUDA 13 installation.
+
 
 ### cuSolverMp
 As of CUDA 13, there is a new distributed linear algebra library called [cuSolverMp](https://docs.nvidia.com/cuda/cusolvermp/) with similar capabilities as cuSolverMg, that does support multi-node computations as well as >16 devices. Given the similarities in syntax, it should be straightforward to eventually switch to this API. This will require sharding data into a cyclic 2D form and handling the solver orchestration with MPI.
