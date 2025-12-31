@@ -36,6 +36,7 @@ def _load(module, libraries):
 import jax
 
 _load("cusolver", ["libcusolverMg.so.11"])
+_load("cu13", ["libcusolverMg.so.12"])
 
 jax.config.update("jax_enable_x64", True)
 
