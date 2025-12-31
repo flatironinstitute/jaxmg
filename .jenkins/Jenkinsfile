@@ -29,51 +29,55 @@ pipeline {
                         cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
                         echo "Built libs at $WORKSPACE/src/jaxmg/bin:"
                         ls -la "$WORKSPACE/src/jaxmg/bin"
-                    '''
+                        '''
                         stash name: 'compiled-bin', includes: 'src/jaxmg/bin/**', useDefaultExcludes: false
                     }
                 }
                 stage('Local') {
-                    steps {
-                        unstash 'compiled-bin'
-                        sh '''#!/bin/bash -ex
-                        echo "LDD baseline on built libraries"
-                        for so in "$WORKSPACE/src/jaxmg/bin"/*.so; do
-                            echo ">>> $so"
-                            ldd "$so" || true
-                        done
-                        '''
+                    environment {
+                        CUDA_VISIBLE_DEVICES = '0,1'
+                        PARALLEL = "${env.PARALLEL}"
                     }
-                }
-                stage('JAX NVIDIA') {
                     steps {
-                        unstash 'compiled-bin'
-                        sh '''#!/bin/bash -ex
-                        echo "Unlinking selected CUDA libraries, then rerunning ldd"
-                        libs=(
-                            libcupti.so.12
-                            libcublas.so.12
-                            libcublasLt.so.12
-                            libcusparse.so.12
-                            libcusolver.so.11
-                            libcusolverMg.so.11
-                        )
-                        for lib in "${libs[@]}"; do
-                            path=$(ldconfig -p | awk -v L="$lib" '$1==L {print $NF}' | head -n1 || true)
-                            if [ -n "$path" ]; then
-                                echo "Unlinking $lib at $path"
-                                unlink "$path" || rm -f "$path" || echo "Failed to unlink $path"
-                            else
-                                echo "Library $lib not found in ldconfig cache"
-                            fi
-                        done
+                        script {
+                            def cudaVersions = ['cuda12', 'cuda12-local']
+                            def pyVersions = ['3.11', '3.12', '3.13']
+                            def jaxVersions = ['0.6.2', '0.7.1', '0.8.1']
+                            for (c in cudaVersions) {
+                                for (p in pyVersions) {
+                                    for (j in jaxVersions) {
+                                        stage("Build ${c}-${p}-${j}") {
+                                            unstash 'compiled-bin'
+                                            withEnv(["WORKDIR=${c}/${p}/${j}","CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
+                                                sh '''#!/bin/bash -ex
+                                                    mkdir -p "$WORKDIR"
 
-                        echo "Rerunning ldd on built libraries"
-                        for so in "$WORKSPACE/src/jaxmg/bin"/*.so; do
-                            echo ">>> $so"
-                            ldd "$so" || true
-                        done
-                        '''
+                                                    python"$PYV" -m venv "$WORKDIR/venv"
+                                                    source "$WORKDIR/venv/bin/activate"
+
+                                                    # Set LD_LIBRARY_PATH based on JAX CUDA flavor
+                                                    if [ "$CUV" = "cuda12" ]; then
+                                                        export LD_LIBRARY_PATH=""
+                                                    else
+                                                        export LD_LIBRARY_PATH="/usr/local/cuda/lib64"
+                                                    fi
+
+                                                    python -m pip install --upgrade pip build
+                                                    python -m pip install "jax[$CUV]==$JAXV"
+
+                                                    # Build wheel from project root, output to the cell-specific dist
+                                                    python -m build --wheel --outdir "$WORKDIR/dist"
+
+                                                    # Do not quote the wildcard; allow shell globbing
+                                                    python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
+                                                    python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
+                                                '''
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

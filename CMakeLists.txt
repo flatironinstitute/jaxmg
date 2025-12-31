@@ -257,7 +257,7 @@ install(TARGETS syevd_no_V
 # module load gcc/11.5.0 cudnn/9.2.0.82-12 cuda/12.8.0
 
 # cmake ..
-# cmake --build . --target install
+# cmake --build . --target install -j10
 # OR
 # cmake --build . --target cyclic && cmake --install .
 # cmake --build . --target potrs_mp && cmake --install .
