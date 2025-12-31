@@ -201,7 +201,6 @@ pipeline {
                                                     # Do not quote the wildcard; allow shell globbing
                                                     python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
                                                     echo "Cannot test package on V100s"
-                                                    // python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices())"
                                                 '''
                                                 archiveArtifacts artifacts: "${WORKDIR}/dist/*.whl", onlyIfSuccessful: true
                                             }
