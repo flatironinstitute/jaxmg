@@ -17,16 +17,6 @@ JAXMg provides a C++ interface between [JAX](https://github.com/google/jax) and 
 
 For more details, see the [API](api/potrs.md).
 
-The provided binary is compiled with:
-
-| Component | Version |
-|---|---:|
-| **GCC** | 11.5.0 |
-| **CUDA** | 12.8.0 |
-| **cuDNN** | 9.2.0.82-12 |
-
-> **_NOTE:_** We require JAX>=0.6.0, since it ships with CUDA 12.x binaries, which this package relies on. No local version of CUDA is required.
-
 ## Installation
 
 The package is available on PyPi and can be installed with

@@ -12,14 +12,3 @@ JAXMg provides a C++ interface between [JAX](https://github.com/google/jax) and 
 - [cusolverMgPotrs](https://docs.nvidia.com/cuda/cusolver/index.html#cusolvermgsyevd-deprecated): Computes eigenvalues and eigenvectors of an $N\times N$ symmetric (Hermitian) matrix.
 
 For more details, see the [API](api/potrs.md).
-
-The provided binaries are compiled with:
-
-| Component | Version |
-|---|---:|
-| **GCC** | 11.5.0 |
-| **CUDA** | 12.8.0 |
-| **cuDNN** | 9.2.0.82-12 |
-
-!!! Warning
-    We require JAX>=0.6.0, since it ships with CUDA 12.x binaries, which this package relies on. No local version of CUDA is required.
