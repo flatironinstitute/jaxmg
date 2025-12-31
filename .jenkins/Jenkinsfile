@@ -140,7 +140,7 @@ pipeline {
                         withEnv([
                             'CUDA_ROOT=/usr/local/cuda',
                             'CUDNN_ROOT=/usr',
-                            'JAX_VERSIOn=0.7.2',
+                            'JAX_VERSION=0.7.2',
                         ]) {
                             sh '''#!/bin/bash -ex
                             # Save original env, then set CUDA paths only for compilation
