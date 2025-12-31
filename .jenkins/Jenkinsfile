@@ -40,14 +40,14 @@ pipeline {
                         stash name: 'bin12', includes: 'src/jaxmg/bin/**', useDefaultExcludes: false
                     }
                 }
-                stage('Local') {
+                stage('Build+Test') {
                     environment {
                         CUDA_VISIBLE_DEVICES = '0,1'
                         PARALLEL = "${env.PARALLEL}"
                     }
                     steps {
                         script {
-                            def cudaVersions = ['cuda12', 'cuda12-local']
+                            def cudaVersions = ['cuda12-local', ]
                             def pyVersions = ['3.11',]
                             def jaxVersions = ['0.6.2', '0.7.1', '0.8.1']
                             for (c in cudaVersions) {
@@ -156,14 +156,14 @@ pipeline {
                         stash name: 'bin13', includes: 'src/jaxmg/bin/**', useDefaultExcludes: false
                     }
                 }
-                stage('Local') {
+                stage('Build+Test') {
                     environment {
                         CUDA_VISIBLE_DEVICES = '0,1'
                         PARALLEL = "${env.PARALLEL}"
                     }
                     steps {
                         script {
-                            def cudaVersions = ['cuda13', 'cuda13-local']
+                            def cudaVersions = ['cuda13-local', ]
                             def pyVersions = ['3.11', ]
                             def jaxVersions = ['0.7.2', '0.8.1']
                             for (c in cudaVersions) {
