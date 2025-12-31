@@ -42,14 +42,13 @@ def _load(module, libraries):
 # libnvJitLink.so.12 => not found
 # libcublasLt.so.12 => not found
 # We now load these from the binaries shipped with jax.
-_load("cuda_cupti", ["libcupti.so.12"])
-_load("cublas", ["libcublas.so.12", "libcublasLt.so.12"])
-_load("cusparse", ["libcusparse.so.12"])
-_load("cusolver", ["libcusolver.so.11", "libcusolverMg.so.11"])
+# _load("cuda_cupti", ["libcupti.so.12"])
+# _load("cublas", ["libcublas.so.12", "libcublasLt.so.12"])
+# _load("cusparse", ["libcusparse.so.12"])
 
 import jax
-import jax.numpy as jnp
-
+_load("cusolver", ["libcusolverMg.so.11"])
+print("LOADED CUSOLVER MG ONLY?")
 jax.config.update("jax_enable_x64", True)
 
 from .utils import determine_distributed_setup
