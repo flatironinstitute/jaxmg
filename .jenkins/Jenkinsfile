@@ -19,18 +19,25 @@ pipeline {
                         PARALLEL = "${env.PARALLEL}"
                     }
                     steps {
-                        sh '''#!/bin/bash -ex
-                        export CUDA_ROOT=/usr/local/cuda
-                        export CUDNN_ROOT=/usr
-                        export PATH=/usr/local/cuda/bin:$PATH
-                        export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-                        mkdir -p build && cd build
-                        cmake -DCMAKE_BUILD_TYPE=Release ..
-                        cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
-                        echo "Built libs at $WORKSPACE/src/jaxmg/bin:"
-                        ls -la "$WORKSPACE/src/jaxmg/bin"
-                        '''
-                        stash name: 'compiled-bin', includes: 'src/jaxmg/bin/**', useDefaultExcludes: false
+                        withEnv([
+                            'CUDA_ROOT=/usr/local/cuda',
+                            'CUDNN_ROOT=/usr',
+                        ]) {
+                            sh '''#!/bin/bash -ex
+                            # Save original env, then set CUDA paths only for compilation
+                            ORIG_PATH="$PATH"
+                            ORIG_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
+                            export PATH="/usr/local/cuda/bin:$PATH"
+                            export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+
+                            mkdir -p build && cd build
+                            cmake -DCMAKE_BUILD_TYPE=Release ..
+                            cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
+                            echo "Built libs at $WORKSPACE/src/jaxmg/bin:"
+                            ls -la "$WORKSPACE/src/jaxmg/bin"
+                            '''
+                        }
+                        stash name: 'bin12', includes: 'src/jaxmg/bin/**', useDefaultExcludes: false
                     }
                 }
                 stage('Local') {
@@ -47,7 +54,7 @@ pipeline {
                                 for (p in pyVersions) {
                                     for (j in jaxVersions) {
                                         stage("Build ${c}-${p}-${j}") {
-                                            unstash 'compiled-bin'
+                                            unstash 'bin12'
                                             withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
                                                 sh '''#!/bin/bash -ex
                                                     mkdir -p "$WORKDIR"
@@ -55,11 +62,15 @@ pipeline {
                                                     python"$PYV" -m venv "$WORKDIR/venv"
                                                     source "$WORKDIR/venv/bin/activate"
 
-                                                    # Set LD_LIBRARY_PATH based on JAX CUDA flavor
-                                                    if [ "$CUV" = "cuda12" ]; then
-                                                        export LD_LIBRARY_PATH=""
+                                                    # Restore original env; set CUDA paths only for *-local variants
+                                                    ORIG_PATH="$PATH"
+                                                    ORIG_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
+                                                    if [ "$CUV" = "cuda12-local" ]; then
+                                                        export PATH="/usr/local/cuda/bin:$ORIG_PATH"
+                                                        export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$ORIG_LD_LIBRARY_PATH"
                                                     else
-                                                        export LD_LIBRARY_PATH="/usr/local/cuda/lib64"
+                                                        export PATH="$ORIG_PATH"
+                                                        export LD_LIBRARY_PATH="$ORIG_LD_LIBRARY_PATH"
                                                     fi
 
                                                     python -m pip install --upgrade pip build
@@ -70,7 +81,7 @@ pipeline {
 
                                                     # Do not quote the wildcard; allow shell globbing
                                                     python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
-                                                    python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
+                                                    python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices())"
                                                 '''
                                             }
                                         }
@@ -89,12 +100,6 @@ pipeline {
                                                             kill -9 "$pid" 2>/dev/null || sudo kill -9 "$pid" 2>/dev/null || echo "could not kill $pid"
                                                         done
                                                     }
-                                                    # Set LD_LIBRARY_PATH based on JAX CUDA flavor
-                                                    if [ "$CUV" = "cuda12" ]; then
-                                                        export LD_LIBRARY_PATH=""
-                                                    else
-                                                        export LD_LIBRARY_PATH="/usr/local/cuda/lib64"
-                                                    fi
 
                                                     # Ensure GPUs are free before running tests
                                                     nukegpu || true
@@ -130,18 +135,25 @@ pipeline {
                         PARALLEL = "${env.PARALLEL}"
                     }
                     steps {
-                        sh '''#!/bin/bash -ex
-                        export CUDA_ROOT=/usr/local/cuda
-                        export CUDNN_ROOT=/usr
-                        export PATH=/usr/local/cuda/bin:$PATH
-                        export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-                        mkdir -p build && cd build
-                        cmake -DCMAKE_BUILD_TYPE=Release ..
-                        cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
-                        echo "Built libs at $WORKSPACE/src/jaxmg/bin:"
-                        ls -la "$WORKSPACE/src/jaxmg/bin"
-                        '''
-                        stash name: 'compiled-bin', includes: 'src/jaxmg/bin/**', useDefaultExcludes: false
+                        withEnv([
+                            'CUDA_ROOT=/usr/local/cuda',
+                            'CUDNN_ROOT=/usr',
+                        ]) {
+                            sh '''#!/bin/bash -ex
+                            # Save original env, then set CUDA paths only for compilation
+                            ORIG_PATH="$PATH"
+                            ORIG_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
+                            export PATH="/usr/local/cuda/bin:$PATH"
+                            export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+
+                            mkdir -p build && cd build
+                            cmake -DCMAKE_BUILD_TYPE=Release ..
+                            cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
+                            echo "Built libs at $WORKSPACE/src/jaxmg/bin:"
+                            ls -la "$WORKSPACE/src/jaxmg/bin"
+                            '''
+                        }
+                        stash name: 'bin13', includes: 'src/jaxmg/bin/**', useDefaultExcludes: false
                     }
                 }
                 stage('Local') {
@@ -158,7 +170,7 @@ pipeline {
                                 for (p in pyVersions) {
                                     for (j in jaxVersions) {
                                         stage("Build ${c}-${p}-${j}") {
-                                            unstash 'compiled-bin'
+                                            unstash 'bin13'
                                             withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
                                                 sh '''#!/bin/bash -ex
                                                     mkdir -p "$WORKDIR"
@@ -166,11 +178,15 @@ pipeline {
                                                     python"$PYV" -m venv "$WORKDIR/venv"
                                                     source "$WORKDIR/venv/bin/activate"
 
-                                                    # Set LD_LIBRARY_PATH based on JAX CUDA flavor
-                                                    if [ "$CUV" = "cuda13" ]; then
-                                                        export LD_LIBRARY_PATH=""
+                                                    # Restore original env; set CUDA paths only for *-local variants
+                                                    ORIG_PATH="$PATH"
+                                                    ORIG_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
+                                                    if [ "$CUV" = "cuda13-local" ]; then
+                                                        export PATH="/usr/local/cuda/bin:$ORIG_PATH"
+                                                        export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$ORIG_LD_LIBRARY_PATH"
                                                     else
-                                                        export LD_LIBRARY_PATH="/usr/local/cuda/lib64"
+                                                        export PATH="$ORIG_PATH"
+                                                        export LD_LIBRARY_PATH="$ORIG_LD_LIBRARY_PATH"
                                                     fi
 
                                                     python -m pip install --upgrade pip build
@@ -181,7 +197,7 @@ pipeline {
 
                                                     # Do not quote the wildcard; allow shell globbing
                                                     python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
-                                                    python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}')"
+                                                    python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices())"
                                                 '''
                                             }
                                         }
@@ -200,13 +216,6 @@ pipeline {
                                                             kill -9 "$pid" 2>/dev/null || sudo kill -9 "$pid" 2>/dev/null || echo "could not kill $pid"
                                                         done
                                                     }
-                                                    # Set LD_LIBRARY_PATH based on JAX CUDA flavor
-                                                    if [ "$CUV" = "cuda12" ]; then
-                                                        export LD_LIBRARY_PATH=""
-                                                    else
-                                                        export LD_LIBRARY_PATH="/usr/local/cuda/lib64"
-                                                    fi
-
                                                     # Ensure GPUs are free before running tests
                                                     nukegpu || true
                                                     source "$WORKDIR/venv/bin/activate"
@@ -223,6 +232,5 @@ pipeline {
                 }
             }
         }
-
     }
 }
