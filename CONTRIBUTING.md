@@ -69,7 +69,7 @@ We make use of Jenkins to build and test the code. We test the following configu
 3. For CUDA 12:
    - JAX `0.6.2`, `0.7.1`, `0.8.1`
 
-   For CUDA 13
+   For CUDA 13 **currently only building code but no testing due to lack of availibility of CC > 7.0 GPUs. Locally tested on Blackwell.**
    - JAX `0.7.2`, `0.8.1`
 
 See `.jenkins/Jenkinsfile` for details
