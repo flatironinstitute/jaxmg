@@ -4,6 +4,7 @@ import ctypes
 import warnings
 import sys
 import os
+import re
 
 from .utils import JaxMgWarning
 
@@ -34,7 +35,18 @@ def _load(module, libraries):
 
 
 import jax
-
+import jax.extend
+# Determine CUDA backend
+backend = jax.extend.backend.get_backend()
+m = re.search(r"cuda[^0-9]*([0-9]+(?:\.[0-9]+)*)", backend.platform_version, re.I)
+cuda_major = ""
+if m:
+    cuda_major = m.group(1)[:2]
+    print(f"CUDA major: {cuda_major}")
+else:
+    raise OSError("Unable to parse CUDA version")
+bin_dir = f"cu{cuda_major}"
+# Load Cusolver
 _load("cusolver", ["libcusolverMg.so.11"])
 _load("cu13", ["libcusolverMg.so.12"])
 
@@ -60,23 +72,23 @@ if any("gpu" == d.platform for d in jax.devices()):
         # Load the shared libraries
 
         SHARED_LIBRARY_CYCLIC = os.path.join(
-            os.path.dirname(__file__), "bin/libcyclic.so"
+            os.path.dirname(__file__), f"{bin_dir}/libcyclic.so"
         )
         library_cyclic = ctypes.cdll.LoadLibrary(SHARED_LIBRARY_CYCLIC)
         SHARED_LIBRARY_POTRS = os.path.join(
-            os.path.dirname(__file__), "bin/libpotrs.so"
+            os.path.dirname(__file__), f"{bin_dir}/libpotrs.so"
         )
         library_potrs = ctypes.cdll.LoadLibrary(SHARED_LIBRARY_POTRS)
         SHARED_LIBRARY_POTRI = os.path.join(
-            os.path.dirname(__file__), "bin/libpotri.so"
+            os.path.dirname(__file__), f"{bin_dir}/libpotri.so"
         )
         library_potri = ctypes.cdll.LoadLibrary(SHARED_LIBRARY_POTRI)
         SHARED_LIBRARY_SYEVD = os.path.join(
-            os.path.dirname(__file__), "bin/libsyevd.so"
+            os.path.dirname(__file__), f"{bin_dir}/libsyevd.so"
         )
         library_syevd = ctypes.cdll.LoadLibrary(SHARED_LIBRARY_SYEVD)
         SHARED_LIBRARY_SYEVD_NO_V = os.path.join(
-            os.path.dirname(__file__), "bin/libsyevd_no_V.so"
+            os.path.dirname(__file__), f"{bin_dir}/libsyevd_no_V.so"
         )
         library_syevd_no_V = ctypes.cdll.LoadLibrary(SHARED_LIBRARY_SYEVD_NO_V)
         # Register FFI targets
@@ -101,7 +113,7 @@ if any("gpu" == d.platform for d in jax.devices()):
     else:
         # Load the shared library
         SHARED_LIBRARY_POTRS_MP = os.path.join(
-            os.path.dirname(__file__), "bin/libpotrs_mp.so"
+            os.path.dirname(__file__), f"{bin_dir}/libpotrs_mp.so"
         )
         library_potrs_mp = ctypes.cdll.LoadLibrary(SHARED_LIBRARY_POTRS_MP)
         # Register FFI targets

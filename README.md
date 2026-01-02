@@ -85,7 +85,16 @@ as expected.
 As of CUDA 13, there is a new distributed linear algebra library called [cuSolverMp](https://docs.nvidia.com/cuda/cusolvermp/) with similar capabilities as cuSolverMg, that does support multi-node computations as well as >16 devices. Given the similarities in syntax, it should be straightforward to eventually switch to this API. This will require sharding data into a cyclic 2D form and handling the solver orchestration with MPI.
 
 ## Citations
-(Citation details will be available soon.)
+```
+@software{Wiersema_JAXMg_distributed_linear_2025,
+author = {Wiersema, Roeland},
+month = dec,
+title = {{JAXMg: distributed linear solvers in JAX}},
+url = {https://github.com/flatironinstitute/jaxmg},
+version = {0.0.3},
+year = {2025}
+}
+```
 
 ## Acknowledgements
 I acknowledge support from the Flatiron Institute. The Flatiron Institute is a

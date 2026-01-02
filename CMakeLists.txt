@@ -44,6 +44,12 @@ message(STATUS "CUDA include directory: $ENV{CUDA_ROOT}")
 message(STATUS "CUDNN include directory: $ENV{CUDNN_ROOT}")
 # Enable CUDA 
 enable_language(CUDA)
+## Set backend install subdirectory based on CUDA major version
+string(REGEX MATCH "^([0-9]+)\.([0-9]+)" _cuda_ver_match "${CMAKE_CUDA_COMPILER_VERSION}")
+set(CUDA_MAJOR "${CMAKE_MATCH_1}")
+set(BIN_DST src/jaxmg/cu${CUDA_MAJOR})
+message(STATUS "Library install destination: ${CMAKE_SOURCE_DIR}/${BIN_DST}")
+
 # Ensure CUDA uses C++20 (required by this project)
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
@@ -236,22 +242,22 @@ target_link_libraries(syevd_no_V
 )
 # Make install targets
 install(TARGETS cyclic
-    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/src/jaxmg/bin
+    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/${BIN_DST}
 )
 install(TARGETS potrs
-    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/src/jaxmg/bin
+    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/${BIN_DST}
 )
 install(TARGETS potrs_mp
-    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/src/jaxmg/bin
+    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/${BIN_DST}
 )
 install(TARGETS potri
-    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/src/jaxmg/bin
+    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/${BIN_DST}
 )
 install(TARGETS syevd
-    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/src/jaxmg/bin
+    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/${BIN_DST}
 )
 install(TARGETS syevd_no_V
-    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/src/jaxmg/bin
+    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/${BIN_DST}
 )
 
 # module load gcc/11.5.0 cudnn/9.2.0.82-12 cuda/12.8.0

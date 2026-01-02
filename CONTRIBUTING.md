@@ -78,8 +78,7 @@ See `.jenkins/Jenkinsfile` for details
 
 See https://olgarithms.github.io/sphinx-tutorial/docs/7-hosting-on-github-pages.html
 
-# Deploying the MkDocs site
-
+Make sure you install `jaxmg[docs]` to be able to generate the documentation.
 Run 
 
 ```bash
@@ -87,3 +86,18 @@ mkdocs serve
 ```
 
 to serve the docs locally. On push to main, the docs are automatically deployed with the `.github/workflow/deploy-docs.yml` action.
+
+## Publish Package
+
+```bash
+mkdir dist && cd dist
+VERSION=0.0.2
+CUDA_FLAVOR=cuda12-local
+JAX_VERSION=0.8.1
+for PY in 3.11 3.12 3.13 3.14; do
+   PYTAG=cp${PY/./}
+   URL="https://jenkins.flatironinstitute.org/job/jaxmg/job/jenkins/lastBuild/artifact/${CUDA_FLAVOR}/${PY}/${JAX_VERSION}/dist/jaxmg-${VERSION}-${PYTAG}-${PYTAG}-linux_x86_64.whl"
+   echo "Downloading ${URL}"
+   wget -q --show-progress "${URL}"
+done
+```

@@ -27,12 +27,18 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 jaxmg = [
-    "bin/libcyclic.so",
-    "bin/libpotrs.so",
-    "bin/libpotrs_mp.so",
-    "bin/libpotri.so",
-    "bin/libsyevd.so",
-    "bin/libsyevd_no_V.so",
+    "cu12/libcyclic.so",
+    "cu12/libpotrs.so",
+    "cu12/libpotrs_mp.so",
+    "cu12/libpotri.so",
+    "cu12/libsyevd.so",
+    "cu12/libsyevd_no_V.so",
+    "cu13/libcyclic.so",
+    "cu13/libpotrs.so",
+    "cu13/libpotrs_mp.so",
+    "cu13/libpotri.so",
+    "cu13/libsyevd.so",
+    "cu13/libsyevd_no_V.so",
 ]
 
 [project.optional-dependencies]
