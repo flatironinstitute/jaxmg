@@ -8,3 +8,8 @@ RUN dnf -y install dnf-plugins-core && \
     dnf -y --nogpgcheck install libcudnn9-cuda-12 libcudnn9-devel-cuda-12 || true && \
     dnf -y install gcc-c++ make cmake git && \
     dnf clean all
+
+# Create symlink from extras/CUPTI/include to main include directory and list headers
+RUN mkdir -p /usr/local/cuda/extras/CUPTI && \
+    ln -sfn /usr/local/cuda/include /usr/local/cuda/extras/CUPTI/include && \
+    ls -la /usr/local/cuda/extras/CUPTI/include/cupti*.h || true
