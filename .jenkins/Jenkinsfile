@@ -29,10 +29,10 @@ pipeline {
                             mkdir -p build && cd build
                             cmake -DCMAKE_BUILD_TYPE=Release ..
                             cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
-                            echo "Built libs at $WORKSPACE/backends/cu12:"
-                            ls -la "$WORKSPACE/backends/cu12"
+                            echo "Built libs at $WORKSPACE/src/jaxmg/cu12:"
+                            ls -la "$WORKSPACE/src/jaxmg/cu12"
                             '''
-                        stash name: 'bin12', includes: 'backends/cu12/**', useDefaultExcludes: false
+                        stash name: 'bin12', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
                     }
                 }
             }
@@ -65,10 +65,10 @@ pipeline {
                             mkdir -p build && cd build
                             cmake -DCMAKE_BUILD_TYPE=Release ..
                             cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
-                            echo "Built libs at $WORKSPACE/backends/cu13:"
-                            ls -la "$WORKSPACE/backends/cu13"
+                            echo "Built libs at $WORKSPACE/src/jaxmg/cu13:"
+                            ls -la "$WORKSPACE/src/jaxmg/cu13"
                             '''
-                        stash name: 'bin13', includes: 'backends/cu13/**', useDefaultExcludes: false
+                        stash name: 'bin13', includes: 'src/jaxmg/cu13/**', useDefaultExcludes: false
                     }
                 }
             }
