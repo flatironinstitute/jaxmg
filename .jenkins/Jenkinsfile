@@ -120,17 +120,30 @@ pipeline {
                                                     python"$PYV" -m venv "$WORKDIR/venv"
                                                     source "$WORKDIR/venv/bin/activate"
 
-                                                    python -m pip install --upgrade pip build
+                                                    python -m pip install --upgrade pip build auditwheel
                                                     python -m pip install "jax[$CUV]==$JAXV"
 
                                                     # Build wheel from project root, output to the cell-specific dist
                                                     python -m build --wheel --outdir "$WORKDIR/dist"
+                                                    # Use auditwheel to create manylinux dist, excluding CUDA libs
+                                                    auditwheel repair \
+                                                            --plat manylinux_2_28_x86_64 \
+                                                            --exclude 'libcuda.so*' \
+                                                            --exclude 'libcusolver.so*' \
+                                                            --exclude 'libcusolverMg.so*' \
+                                                            --exclude 'libcupti.so*' \
+                                                            --exclude 'libcusparse.so*' \
+                                                            --exclude 'libcublasLt.so*' \
+                                                            --exclude 'libcublas.so*' \
+                                                            --exclude 'libnvJitLink.so*' \
+                                                            "$WORKDIR"/dist/jaxmg-*.whl -w "$WORKDIR/dist_repaired"
 
                                                     # Do not quote the wildcard; allow shell globbing
-                                                    python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
+                                                    python -m pip install --no-deps "$WORKDIR"/dist_repaired/jaxmg-*.whl
                                                     python -c "import sys, jax; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices()); import jaxmg"
                                                 '''
-                                                archiveArtifacts artifacts: "${WORKDIR}/dist/*.whl", onlyIfSuccessful: true
+                                                archiveArtifacts artifacts: "${WORKDIR}/dist_repaired/*.whl", onlyIfSuccessful: true
+                                            
                                             }
                                         }
                                         stage("Test ${c}-${p}-${j}") {
@@ -209,17 +222,29 @@ pipeline {
                                                     python"$PYV" -m venv "$WORKDIR/venv"
                                                     source "$WORKDIR/venv/bin/activate"
 
-                                                    python -m pip install --upgrade pip build
+                                                    python -m pip install --upgrade pip build auditwheel
                                                     python -m pip install "jax[$CUV]==$JAXV"
 
                                                     # Build wheel from project root, output to the cell-specific dist
                                                     python -m build --wheel --outdir "$WORKDIR/dist"
+                                                    # Use auditwheel to create manylinux dist, excluding CUDA libs
+                                                    auditwheel repair \
+                                                            --plat manylinux_2_28_x86_64 \
+                                                            --exclude 'libcuda.so*' \
+                                                            --exclude 'libcusolver.so*' \
+                                                            --exclude 'libcusolverMg.so*' \
+                                                            --exclude 'libcupti.so*' \
+                                                            --exclude 'libcusparse.so*' \
+                                                            --exclude 'libcublasLt.so*' \
+                                                            --exclude 'libcublas.so*' \
+                                                            --exclude 'libnvJitLink.so*' \
+                                                            "$WORKDIR"/dist/jaxmg-*.whl -w "$WORKDIR/dist_repaired"
 
                                                     # Do not quote the wildcard; allow shell globbing
-                                                    python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
-                                                    echo "Cannot test package on V100s"
+                                                    python -m pip install --no-deps "$WORKDIR"/dist_repaired/jaxmg-*.whl
+                                                    python -c "import sys, jax; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices()); import jaxmg"
                                                 '''
-                                                archiveArtifacts artifacts: "${WORKDIR}/dist/*.whl", onlyIfSuccessful: true
+                                                archiveArtifacts artifacts: "${WORKDIR}/dist_repaired/*.whl", onlyIfSuccessful: true
                                             }
                                         }
                                     // stage("Test ${c}-${p}-${j}") {
