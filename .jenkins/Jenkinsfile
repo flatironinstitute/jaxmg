@@ -73,5 +73,183 @@ pipeline {
                 }
             }
         }
+        stage('Test CUDA 12') {
+            agent {
+                dockerfile {
+                    filename '.jenkins/Dockerfile12'
+                    args '--gpus=2 --shm-size=4gb'
+                    label 'docker && v100'
+                }
+            }
+            options {
+                timeout(time: 60, unit: 'MINUTES')
+            }
+            stages {
+                stage('Build + Test') {
+                    environment {
+                        PARALLEL = "${env.PARALLEL}"
+                        CUDA_ROOT = '/usr/local/cuda'
+                        CUDNN_ROOT = '/usr'
+                        JAX_VERSION = '0.6.2'
+                        CUDA_VISIBLE_DEVICES = '0,1'
+                    }
+                    steps {
+                            sh '''#!/bin/bash -ex
+                            export PATH="/usr/local/cuda/bin:$PATH"
+                            export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+                            '''
+
+                            script {
+                            def cudaVersions = ['cuda12-local', ]
+                            def pyVersions = ['3.11', '3.12', '3.13', '3.14', ]
+                            def jaxVersions = ['0.6.2', '0.7.1', '0.8.1']
+                            for (c in cudaVersions) {
+                                for (p in pyVersions) {
+                                    for (j in jaxVersions) {
+                                        if (p == '3.14' && j == '0.6.2') {
+                                            echo "Skipping ${c}-${p}-${j}: python 3.14 with JAX 0.6.2 unsupported"
+                                            continue
+                                        }
+                                        stage("Build ${c}-${p}-${j}") {
+                                            unstash 'bin12'
+                                            withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
+                                                sh '''#!/bin/bash -ex
+                                                    mkdir -p "$WORKDIR"
+
+                                                    python"$PYV" -m venv "$WORKDIR/venv"
+                                                    source "$WORKDIR/venv/bin/activate"
+
+                                                    python -m pip install --upgrade pip build
+                                                    python -m pip install "jax[$CUV]==$JAXV"
+
+                                                    # Build wheel from project root, output to the cell-specific dist
+                                                    python -m build --wheel --outdir "$WORKDIR/dist"
+
+                                                    # Do not quote the wildcard; allow shell globbing
+                                                    python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
+                                                    python -c "import sys, jax; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices()); import jaxmg"
+                                                '''
+                                                archiveArtifacts artifacts: "${WORKDIR}/dist/*.whl", onlyIfSuccessful: true
+                                            }
+                                        }
+                                        stage("Test ${c}-${p}-${j}") {
+                                            withEnv(["WORKDIR=${c}/${p}/${j}"]) {
+                                                sh '''#!/bin/bash -ex
+                                                    nukegpu() {
+                                                        local pids
+                                                        pids=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | sed '/^$/d' | sort -u)
+                                                        if [ -z "$pids" ]; then
+                                                            echo "nukegpu_all: no GPU PIDs."
+                                                            return 0
+                                                        fi
+                                                        echo "nukegpu_all: killing ALL GPU PIDs -> $pids"
+                                                        for pid in $pids; do
+                                                            kill -9 "$pid" 2>/dev/null || sudo kill -9 "$pid" 2>/dev/null || echo "could not kill $pid"
+                                                        done
+                                                    }
+
+                                                    # Ensure GPUs are free before running tests
+                                                    nukegpu || true
+                                                    source "$WORKDIR/venv/bin/activate"
+                                                    python -m pip install pytest matplotlib
+                                                    python -m pytest -svv tests
+                                                '''
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            }
+                    }
+                }
+            }
+        }
+
+        stage('Test CUDA 13') {
+            agent {
+                dockerfile {
+                    filename '.jenkins/Dockerfile13'
+                    args '--gpus=2 --shm-size=4gb'
+                    label 'docker && v100'
+                }
+            }
+            options {
+                timeout(time: 60, unit: 'MINUTES')
+            }
+            stages {
+                stage('Build + Test') {
+                    environment {
+                        PARALLEL = "${env.PARALLEL}"
+                        CUDA_ROOT = '/usr/local/cuda'
+                        CUDNN_ROOT = '/usr'
+                        JAX_VERSION = '0.7.2'
+                        CUDA_VISIBLE_DEVICES = '0,1'
+                    }
+                    steps {
+                            sh '''#!/bin/bash -ex
+                            export PATH="/usr/local/cuda/bin:$PATH"
+                            export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+                            '''
+
+                            script {
+                            def cudaVersions = ['cuda13-local', ]
+                            def pyVersions = ['3.11', '3.12', '3.13', '3.14', ]
+                            def jaxVersions = ['0.7.2', '0.8.1']
+                            for (c in cudaVersions) {
+                                for (p in pyVersions) {
+                                    for (j in jaxVersions) {
+                                        stage("Build ${c}-${p}-${j}") {
+                                            unstash 'bin13'
+                                            withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
+                                                sh '''#!/bin/bash -ex
+                                                    mkdir -p "$WORKDIR"
+
+                                                    python"$PYV" -m venv "$WORKDIR/venv"
+                                                    source "$WORKDIR/venv/bin/activate"
+
+                                                    python -m pip install --upgrade pip build
+                                                    python -m pip install "jax[$CUV]==$JAXV"
+
+                                                    # Build wheel from project root, output to the cell-specific dist
+                                                    python -m build --wheel --outdir "$WORKDIR/dist"
+
+                                                    # Do not quote the wildcard; allow shell globbing
+                                                    python -m pip install --no-deps "$WORKDIR"/dist/jaxmg-*.whl
+                                                    echo "Cannot test package on V100s"
+                                                '''
+                                                archiveArtifacts artifacts: "${WORKDIR}/dist/*.whl", onlyIfSuccessful: true
+                                            }
+                                        }
+                                    // stage("Test ${c}-${p}-${j}") {
+                                    //     withEnv(["WORKDIR=${c}/${p}/${j}"]) {
+                                    //         sh '''#!/bin/bash -ex
+                                    //             nukegpu() {
+                                    //                 local pids
+                                    //                 pids=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | sed '/^$/d' | sort -u)
+                                    //                 if [ -z "$pids" ]; then
+                                    //                     echo "nukegpu_all: no GPU PIDs."
+                                    //                     return 0
+                                    //                 fi
+                                    //                 echo "nukegpu_all: killing ALL GPU PIDs -> $pids"
+                                    //                 for pid in $pids; do
+                                    //                     kill -9 "$pid" 2>/dev/null || sudo kill -9 "$pid" 2>/dev/null || echo "could not kill $pid"
+                                    //                 done
+                                    //             }
+                                    //             # Ensure GPUs are free before running tests
+                                    //             nukegpu || true
+                                    //             source "$WORKDIR/venv/bin/activate"
+                                    //             python -m pip install pytest matplotlib
+                                    //             python -m pytest -svv tests
+                                    //         '''
+                                    //     }
+                                    // }
+                                    }
+                                }
+                            }
+                            }
+                    }
+                }
+            }
+        }
     }
 }
