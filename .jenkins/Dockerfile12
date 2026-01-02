@@ -1,4 +1,4 @@
-FROM sameli/manylinux_2_28_x86_64_cuda_12.3
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
