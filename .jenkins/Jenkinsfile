@@ -112,6 +112,7 @@ pipeline {
                                         }
                                         stage("Build ${c}-${p}-${j}") {
                                             unstash 'bin12'
+                                            unstash 'bin13'
                                             withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
                                                 sh '''#!/bin/bash -ex
                                                     mkdir -p "$WORKDIR"
@@ -199,6 +200,7 @@ pipeline {
                                 for (p in pyVersions) {
                                     for (j in jaxVersions) {
                                         stage("Build ${c}-${p}-${j}") {
+                                            unstash 'bin12'
                                             unstash 'bin13'
                                             withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
                                                 sh '''#!/bin/bash -ex
