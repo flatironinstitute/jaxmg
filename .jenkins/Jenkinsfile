@@ -127,7 +127,7 @@ pipeline {
                                                     python -m build --wheel --outdir "$WORKDIR/dist"
                                                     # Use auditwheel to create manylinux dist, excluding CUDA libs
                                                     auditwheel repair \
-                                                            --plat manylinux_2_28_x86_64 \
+                                                            --plat manylinux_2_26_x86_64 \
                                                             --exclude 'libcuda.so*' \
                                                             --exclude 'libcusolver.so*' \
                                                             --exclude 'libcusolverMg.so*' \
@@ -229,7 +229,7 @@ pipeline {
                                                     python -m build --wheel --outdir "$WORKDIR/dist"
                                                     # Use auditwheel to create manylinux dist, excluding CUDA libs
                                                     auditwheel repair \
-                                                            --plat manylinux_2_28_x86_64 \
+                                                            --plat manylinux_2_26_x86_64 \
                                                             --exclude 'libcuda.so*' \
                                                             --exclude 'libcusolver.so*' \
                                                             --exclude 'libcusolverMg.so*' \
