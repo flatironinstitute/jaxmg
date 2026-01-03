@@ -25,7 +25,7 @@ pipeline {
                             sh '''#!/bin/bash -ex
                             export PATH="/usr/local/cuda/bin:$PATH"
                             export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
-                            nvidia-smi
+
                             mkdir -p build && cd build
                             cmake -DCMAKE_BUILD_TYPE=Release ..
                             cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
