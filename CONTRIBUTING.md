@@ -93,23 +93,22 @@ Get the latest built wheels from Jenkins:
 
 ```bash
 mkdir dist
-VERSION=0.0.2
+VERSION=0.0.3
 CUDA_FLAVOR=cuda12-local
 JAX_VERSION=0.8.1
 for PY in 3.11 3.12 3.13 3.14; do
    PYTAG=cp${PY/./}
-   URL="https://jenkins.flatironinstitute.org/job/jaxmg/job/jenkins/lastBuild/artifact/${CUDA_FLAVOR}/${PY}/${JAX_VERSION}/dist/jaxmg-${VERSION}-${PYTAG}-${PYTAG}-linux_x86_64.whl"
+   URL="https://jenkins.flatironinstitute.org/job/jaxmg/job/jenkins/lastBuild/artifact/${CUDA_FLAVOR}/${PY}/${JAX_VERSION}/dist_repaired/jaxmg-${VERSION}-${PYTAG}-${PYTAG}-manylinux_2_26_x86_64.whl"
    echo "Downloading ${URL}"
    wget -q -N --show-progress "${URL}" -P ./dist
 done
 ```
-Make many-linux wheel via `auditwheel` for manylinux distribution
+Install twine
 ```bash
 python -m pip install twine
-python -m pip install auditwheel patchelf
-python -m auditwheel repair --plat manylinux_2_38_x86_64 -w dist_repaired/ dist/*-linux_x86_64.whl
 ```
 Upload to testpypi
 ```bash
-twine upload --repository testpypi dist_repaired/*
+python -m twine upload --repository testpypi dist/*
 ```
+

@@ -33,6 +33,13 @@ This will install a GPU compatible version of JAX. By default we use `jax[cuda12
 
 3. `pip install "jaxmg[cuda13-local]"`: Use locally available CUDA 13 installation.
 
+The provided binaries are compiled with
+
+|**JAXMg** | **CUDA** | **cuDNN** |
+|---|---|---| 
+| `cuda12`,`cuda12-local` | 12.8.0 | 9.17.1.4|
+| `cuda13`,`cuda13-local` | 13.0.0 | 9.17.1.4|
+
 ## Example
 
 A minimal example that runs the code is:
