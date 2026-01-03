@@ -242,7 +242,7 @@ pipeline {
 
                                                     # Do not quote the wildcard; allow shell globbing
                                                     python -m pip install --no-deps "$WORKDIR"/dist_repaired/jaxmg-*.whl
-                                                    python -c "import sys, jax; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices()); import jaxmg"
+                                                    echo "Cannot CUDA 13 test package on V100s"
                                                 '''
                                                 archiveArtifacts artifacts: "${WORKDIR}/dist_repaired/*.whl", onlyIfSuccessful: true
                                             }
