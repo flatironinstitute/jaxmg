@@ -9,8 +9,7 @@ description = "JAXMg provides a C++ interface between JAX and cuSolverMg, NVIDIA
 authors = [{ name = "Roeland Wiersema" }]
 classifiers = ["Programming Language :: Python :: 3"]
 dependencies = [
-    "jax>=0.6.2; sys_platform == 'darwin'",
-    "jax[cuda12]>=0.6.2; sys_platform == 'linux'",
+    "jax>=0.6.2; sys_platform == 'linux'",
 ]
 readme = "README.md"
 requires-python = ">=3.11"
@@ -63,6 +62,10 @@ dev = [
     "mkdocs-exclude==1.0.2",
     "mkdocs-ipynb==0.1.1",
     "hippogriffe==0.2.2",
+]
+
+cuda12 = [
+    "jax[cuda13]>=0.7.2"
 ]
 
 cuda13 = [
