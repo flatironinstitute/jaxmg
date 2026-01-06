@@ -65,7 +65,7 @@ dev = [
 ]
 
 cuda12 = [
-    "jax[cuda13]>=0.7.2"
+    "jax[cuda12]>=0.7.2"
 ]
 
 cuda13 = [

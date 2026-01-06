@@ -111,4 +111,7 @@ Upload to testpypi
 ```bash
 python -m twine upload --repository testpypi dist/*
 ```
-
+Test the wheel
+```bash
+pip install -i https://test.pypi.org/simple/ "jaxmg[cuda12]==0.0.3" --extra-index-url https://pypi.org/simple
+```
