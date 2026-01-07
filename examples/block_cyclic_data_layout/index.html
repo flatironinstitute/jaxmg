@@ -888,7 +888,7 @@ have a <span class="arithmatex">\(100\times100\)</span> matrix distributed with 
         &lt;Axes: title={&#39;center&#39;: &#39;1D block-cyclic (tile size = 7)&#39;}, xlabel=&#39;Columns&#39;, ylabel=&#39;Rows&#39;&gt;],
        dtype=object))
 </code></pre></div>
-<p><img alt="img" src="../_data/42e44a1d6fe94bab89991e23c3b99f8b.png" /></p>
+<p><img alt="img" src="../_data/fe45f4b5a7eb445087547bb960f941d3.png" /></p>
 <p>Notice how we need to add extra padding to ensure that each GPU contains a number of columns that is a multiple of <code>T_A</code> (required by CusolverMg).
 When matrices get larger, it is important to choose <code>T_A</code> to be large enough, since the solver will slow down otherwise. Here we explore this impact for a setup with 3 GPUs.
 By increasing the tile size, we see that the performance saturates.</p>
@@ -939,7 +939,7 @@ Status 0 - Elapsed time 0.77534[s]
 Status 0 - Elapsed time 0.72692[s]
 Status 0 - Elapsed time 0.72381[s]
 </code></pre></div>
-<p><img alt="img" src="../_data/0ec0e721e2d14b9ca2483cdce4d71a6e.png" /></p>
+<p><img alt="img" src="../_data/4801d19272fd4c34aecd600c072ba1ad.png" /></p>
 <p>Notice that there is a massive slowdown for <code>T_A=2</code>. </p>
 <p>When we choose T_A, we want to make sure that we can equally pad each shard. For example, choosing <code>T_A=3**6</code> for a matrix of size <code>N=3**9</code> will ensure that we can pad it evenly.</p>
 <div class="highlight"><pre><span></span><code><span class="n">N</span> <span class="o">=</span> <span class="mi">3</span><span class="o">**</span><span class="mi">9</span>
@@ -952,7 +952,7 @@ Status 0 - Elapsed time 0.72381[s]
         &lt;Axes: title={&#39;center&#39;: &#39;1D block-cyclic (tile size = 729)&#39;}, xlabel=&#39;Columns&#39;, ylabel=&#39;Rows&#39;&gt;],
        dtype=object))
 </code></pre></div>
-<p><img alt="img" src="../_data/8aaf46207a744f4990049d6ad6db6222.png" /></p>
+<p><img alt="img" src="../_data/41093be2e4a64482b47570465fcad03f.png" /></p>
 <p>This avoids creating an additional copy of the matrix that is properly padded. </p>
 <div class="highlight"><pre><span></span><code>
 </code></pre></div>

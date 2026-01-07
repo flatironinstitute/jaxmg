@@ -957,7 +957,7 @@
 
 <h4 id="jaxmg.potrs" class="doc doc-heading">
   <code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potrs</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="p">,</span> <span class="n">in_specs</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
-  <a href="https://github.com/therooler/jaxmg/blob/e90110f5ea051be2e87ff6d09ba9f8f68952e183/src/jaxmg/_potrs.py#L15-L168"><code class='hippogriffe-repo-url'></code></a>
+  <a href="https://github.com/therooler/jaxmg/blob/4278f57120da487181aa7f8396742d6fdeff835d/src/jaxmg/_potrs.py#L15-L168"><code class='hippogriffe-repo-url'></code></a>
 
 
 <a href="#jaxmg.potrs" class="headerlink" title="Permanent link">¤</a></h4>
@@ -999,7 +999,7 @@ performance at the cost of memory, but depending on <code>N</code>, the performa
                 <code>a</code>
             </td>
             <td>
-                  <code><span title="jax.Array">Array</span></code>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -1017,7 +1017,7 @@ using a single <code>PartitionSpec</code>: <code>P(&lt;axis_name&gt;, None)</cod
                 <code>b</code>
             </td>
             <td>
-                  <code><span title="jax.Array">Array</span></code>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -1204,7 +1204,7 @@ patterns (<code>P(&lt;axis_name&gt;, None)</code> for <code>a</code> and
 
 <h4 id="jaxmg.potrs_shardmap_ctx" class="doc doc-heading">
   <code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potrs_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
-  <a href="https://github.com/therooler/jaxmg/blob/e90110f5ea051be2e87ff6d09ba9f8f68952e183/src/jaxmg/_potrs.py#L171-L272"><code class='hippogriffe-repo-url'></code></a>
+  <a href="https://github.com/therooler/jaxmg/blob/4278f57120da487181aa7f8396742d6fdeff835d/src/jaxmg/_potrs.py#L171-L272"><code class='hippogriffe-repo-url'></code></a>
 
 
 <a href="#jaxmg.potrs_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
@@ -1249,7 +1249,7 @@ performance at the cost of memory, but depending on <code>N</code>, the performa
                 <code>a</code>
             </td>
             <td>
-                  <code><span title="jax.Array">Array</span></code>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -1266,7 +1266,7 @@ symmetric for correct solver behavior.</p>
                 <code>b</code>
             </td>
             <td>
-                  <code><span title="jax.Array">Array</span></code>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
             </td>
             <td>
               <div class="doc-md-description">

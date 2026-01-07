@@ -874,18 +874,49 @@
 
 
 <h1 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">¤</a></h1>
-<p>Clone the repository and install with:</p>
-<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>jaxmg
+<p>The package is available on PyPi and can be installed with</p>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>jaxmg<span class="o">[</span>cuda12<span class="o">]</span>
 </code></pre></div>
 <p>This will install a GPU compatible version of JAX. </p>
-<p>To verify the installation (requires at least one GPU) run</p>
-<p><div class="highlight"><pre><span></span><code>pytest<span class="w"> </span>
-</code></pre></div>
-There are two types of tests:</p>
 <ol>
-<li>SPMD tests: Single Process Multiple GPU tests.</li>
-<li>MPMD: Multiple Processes Multiple GPU tests.</li>
+<li>
+<p><code>pip install "jaxmg[cuda12]"</code>: Use CUDA 12 (only works for <code>jax&gt;=0.6.2</code>).</p>
+</li>
+<li>
+<p><code>pip install "jaxmg[cuda12-local]"</code>: Use locally available CUDA 12 installation.</p>
+</li>
+<li>
+<p><code>pip install "jaxmg[cuda13]"</code>: Use CUDA 13 (only works for <code>jax&gt;=0.7.2</code>).</p>
+</li>
+<li>
+<p><code>pip install "jaxmg[cuda13-local]"</code>: Use locally available CUDA 13 installation.</p>
+</li>
 </ol>
+<p>The provided binaries are compiled with</p>
+<table>
+<thead>
+<tr>
+<th><strong>JAXMg</strong></th>
+<th><strong>CUDA</strong></th>
+<th><strong>cuDNN</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cuda12</code>,<code>cuda12-local</code></td>
+<td>12.8.0</td>
+<td>9.17.1.4</td>
+</tr>
+<tr>
+<td><code>cuda13</code>,<code>cuda13-local</code></td>
+<td>13.0.0</td>
+<td>9.17.1.4</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong><em>Note:</em></strong> <code>pip install jaxmg</code> will install a CPU-only version of JAX. Since <code>jaxmg</code> is a GPU-only package you will receive a warning to install a GPU-compatible version of jax. </p>
+</blockquote>
 
 
 
