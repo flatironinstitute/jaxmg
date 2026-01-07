@@ -71,7 +71,7 @@ plugins:
               - jax.Array
               - jax.sharding.Mesh
               - jax.sharding.PartitionSpec
-              - matplotlib.figure.Figure
+              - plt.Figure
               - numpy.ndarray
     - mkdocstrings:
           handlers:
