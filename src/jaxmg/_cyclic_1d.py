@@ -17,6 +17,10 @@ def cyclic_1d(a: Array, T_A: int, mesh: Mesh, in_specs: Tuple[P] | List[P], pad=
     FFI kernel under ``jax.jit`` and ``jax.shard_map``, and removal of any
     temporary padding.
 
+    Warning:
+        Multi-process multiple device (MPMD) mode is not supported right now but will
+        be in a future release.
+
     Tip:
         If the shards of the matrix cannot be padded with tiles of size `T_A`
         (``N / num_gpus % T_A != 0``) we have to add padding to fit the last tile.
