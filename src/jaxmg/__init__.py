@@ -30,8 +30,9 @@ def _load(module, libraries):
                 continue
             except OSError as e:
                 raise OSError(
-                    f"Unable to load CUDA library {lib}, make sure you install a version of JAX that is "
-                    "GPU compatible: jax[cuda12], jax[cuda12-local] (>=0.6.2) or jax[cuda13], jax[cuda13-local] (>=0.7.2)"
+                    f"Unable to load CUDA library {lib}, make sure you have a version of JAX that is "
+                    "GPU compatible: jax[cuda12], jax[cuda12-local] (>=0.6.2) or jax[cuda13], jax[cuda13-local] (>=0.7.2)."
+                    "This is guaranteed if you install JAXMg as: jaxmg[cuda12], jaxmg[cuda12-local], jaxmg[cuda13] or jaxmg[cuda13-local]"
                 ) from e
 
 
