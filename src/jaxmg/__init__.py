@@ -35,28 +35,27 @@ def _load(module, libraries):
                     "This is guaranteed if you install JAXMg as: jaxmg[cuda12], jaxmg[cuda12-local], jaxmg[cuda13] or jaxmg[cuda13-local]"
                 ) from e
 
-
 import jax
-import jax.extend
-# Determine CUDA backend
-backend = jax.extend.backend.get_backend()
-m = re.search(r"cuda[^0-9]*([0-9]+(?:\.[0-9]+)*)", backend.platform_version, re.I)
-cuda_major = ""
-if m:
-    cuda_major = m.group(1)[:2]
-    print(f"CUDA major: {cuda_major}")
-else:
-    raise OSError("Unable to parse CUDA version")
-bin_dir = f"cu{cuda_major}"
-# Load Cusolver
-_load("cusolver", ["libcusolverMg.so.11"])
-_load("cu13", ["libcusolverMg.so.12"])
-
-jax.config.update("jax_enable_x64", True)
-
-from .utils import determine_distributed_setup
-
+# Only import libraries for GPU compatible JAX
 if any("gpu" == d.platform for d in jax.devices()):
+    import jax.extend
+    # Determine CUDA backend
+    backend = jax.extend.backend.get_backend()
+    m = re.search(r"cuda[^0-9]*([0-9]+(?:\.[0-9]+)*)", backend.platform_version, re.I)
+    cuda_major = ""
+    if m:
+        cuda_major = m.group(1)[:2]
+        print(f"CUDA major: {cuda_major}")
+    else:
+        raise OSError("Unable to parse CUDA version")
+    bin_dir = f"cu{cuda_major}"
+    # Load Cusolver
+    _load("cusolver", ["libcusolverMg.so.11"])
+    _load("cu13", ["libcusolverMg.so.12"])
+
+    jax.config.update("jax_enable_x64", True)
+
+    from .utils import determine_distributed_setup
 
     n_machines, n_devices_per_node, n_devices_per_process, mode = (
         determine_distributed_setup()
