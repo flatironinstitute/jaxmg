@@ -1,4 +1,18 @@
 # Contributing
+## TODO (last updated: January 7th, 2026)
+
+### Small effort
+
+- **Implement multi-process variants of `potri` and `syevd`**. Right now we only have `potrs_mp.cu` which contains all the necessary machinery to also create multi-process equivalents of `potri.cu`, `syevd.cu` and `syevd_no_V.cu`.
+
+- **Get rid of compiler warnings** There is some unused code that needs to be removed. There are warnings due to things in JAXlib that we probably can't get rid of though.
+
+- **Better error handling**. There are parts of the code that simply throw `std::runtime_error`. We need to make the error handling compatible with the XLA_FFI error handlers like: `FFI_ASSIGN_OR_RETURN`, `JAX_FFI_RETURN_IF_GPU_ERROR`, etc... 
+
+### Large effort
+
+- Change to the CusolverMp API that's available for CUDA 13.
+
 ## Build from source
 
 To build from source:
@@ -30,12 +44,14 @@ pip install .
 To verify the installation (requires at least one GPU) run
 
 ```bash
-pytest 
+pytest tests
 ```
 There are two types of tests:
 
 1. SPMD tests: Single Process Multiple GPU tests.
 3. MPMD: Multiple Processes Multiple GPU tests.
+
+Use the `conftest.py` file in tests to turn on/off any tests you want to run. 
 
 ## JAX and CUDA
 
@@ -61,9 +77,8 @@ Jaxlib contains C++ headers that have to be compiled against. To compile against
 
 We make use of Jenkins to build and test the code. We test the following configurations:
 
-1. Two Linux docker images with CUDA 12 and 13 Toolkit installations:
-   - `nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04`
-   - `nvidia/cuda:13.0.0-cudnn-devel-ubuntu22.04`
+1. A manylinux docker images (quay.io/pypa/manylinux_2_28_x86_64) where we install CUDA, CUDNN and NCCL.
+
 2. Python `3.11`, `3.12`, `3.13`, `3.14`
 
 3. For CUDA 12:
