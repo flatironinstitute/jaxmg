@@ -36,7 +36,6 @@ def _load(module, libraries):
                 ) from e
 
 import jax
-
 # Only import libraries for GPU compatible JAX
 if any("gpu" == d.platform for d in jax.devices()):
     import jax.extend
