@@ -45,7 +45,7 @@ for requested_procs in requested_procs_list:
             tasks.append((requested_procs, name, dtype_name))
             task_ids.append(f"{name}-{dtype_name}-p{requested_procs}")
 
-
+@pytest.mark.multi_gpu
 @pytest.mark.parametrize(
     "requested_procs,name, dtype_name",
     tasks,
