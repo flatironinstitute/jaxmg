@@ -130,14 +130,8 @@ namespace jax
                 batch_a = T_A;
             }
 
-            const int lda = N; // leading dimension of local A
             /* CUDA */
             cudaDataType compute_type = traits<data_type>::cuda_data_type; // Data type for computation
-
-            int info = 0;                     // Info used by cusolverMg calls
-            cusolverStatus_t cusolver_status; // Return status of cusolverMg calls
-            int64_t lwork_potrf = 0;          // Workspace size used by cusolverMg calls
-            int64_t lwork_potrs = 0;
 
             /* Shared memory */
             static std::once_flag barrier_initialized; // Initialize barrier once between threads

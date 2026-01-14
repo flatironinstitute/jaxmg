@@ -129,7 +129,6 @@ namespace jax
             const int IA = 1; // index within a global matrix, base-1 (not used)
             const int JA = 1;
             const int T_A = std::min(tile_size, batch_a); // tile size of A
-            const int lda = N;                            // leading dimension of local A
 
             const int IB = 1; // index within a global matrix, base-1 (not used)
             const int JB = 1;
@@ -142,7 +141,6 @@ namespace jax
                                     source, NRHS));
             }
             const int T_B = static_cast<int>(NRHS); // tile size of B
-            const int ldb = N;                      // leading dimension of local b
 
             /* CUDA */
             cudaDataType compute_type = traits<data_type>::cuda_data_type; // Data type for computation
@@ -187,6 +185,7 @@ namespace jax
                     deviceList[j] = j;
                     cudaDeviceProp prop;
                     CUDA_CHECK_OR_RETURN(cudaGetDeviceProperties(&prop, j));
+                    enablePeerAccess(nbGpus, deviceList.data());
                 }
 
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDeviceSelect(cusolverH, nbGpus, deviceList.data()));
