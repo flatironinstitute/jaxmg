@@ -132,7 +132,6 @@ namespace jax
             const int IA = 1; // index within a global matrix, base-1 (not used)
             const int JA = 1;
             const int T_A = std::min(tile_size, batch_a); // tile size of A
-            const int lda = N;                            // leading dimension of local A
 
             const int IB = 1; // index within a global matrix, base-1 (not used)
             const int JB = 1;
@@ -145,7 +144,6 @@ namespace jax
                                     source, NRHS));
             }
             const int T_B = static_cast<int>(NRHS); // tile size of B
-            const int ldb = N;                      // leading dimension of local b
 
             /* CUDA */
             cudaDataType compute_type = traits<data_type>::cuda_data_type; // Data type for computation
@@ -238,7 +236,6 @@ namespace jax
 
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
-
             ipcGetHandleAndOffset(array_data_A, shmAipc[currentDevice], shmoffsetA[currentDevice]);
             ipcGetHandleAndOffset(array_data_b, shmBipc[currentDevice], shmoffsetB[currentDevice]);
             ipcGetHandleAndOffset(out_data, shmoutdataipc[currentDevice], shmoffsetoutdata[currentDevice]);
@@ -282,7 +279,6 @@ namespace jax
                                              /* input */
                                              shmA.data(), false);
             }
-
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
 
@@ -308,7 +304,6 @@ namespace jax
             }
 
             sync_point.arrive_and_wait();
-
             // Assign workspace
             size_t workspace_bytes = sizeof(data_type) * static_cast<size_t>(shmlwork[currentDevice]);
 
@@ -322,7 +317,6 @@ namespace jax
                                workspace_bytes, /* number of bytes per device */
                                reinterpret_cast<void **>(shmwork.data()));
             }
-
             // /* sync all devices */
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
@@ -359,7 +353,6 @@ namespace jax
                                                       &info);
                     /* sync all devices */
                     CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
-
                     for (int dev = 0; dev < nbGpus; dev++)
                     {
                         cusolver_status_host[dev] = static_cast<int32_t>(cusolver_status);
@@ -432,8 +425,7 @@ namespace jax
                 workspaceFree(nbGpus, deviceList.data(), reinterpret_cast<void **>(shmwork.data()));
             }
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
-            sync_point.arrive_and_wait();
-
+            sync_point.close_and_wait();
             return ffi::Error::Success();
         }
 
