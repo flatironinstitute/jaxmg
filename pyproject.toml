@@ -30,14 +30,20 @@ jaxmg = [
     "cu12/libpotrs.so",
     "cu12/libpotrs_mp.so",
     "cu12/libpotri.so",
+    "cu12/libpotri_mp.so",
     "cu12/libsyevd.so",
+    "cu12/libsyevd_mp.so",
     "cu12/libsyevd_no_V.so",
+    "cu12/libsyevd_no_V_mp.so",
     "cu13/libcyclic.so",
     "cu13/libpotrs.so",
     "cu13/libpotrs_mp.so",
     "cu13/libpotri.so",
+    "cu13/libpotri_mp.so",
     "cu13/libsyevd.so",
+    "cu13/libsyevd_mp.so",
     "cu13/libsyevd_no_V.so",
+    "cu13/libsyevd_no_V_mp.so",
 ]
 
 [project.optional-dependencies]

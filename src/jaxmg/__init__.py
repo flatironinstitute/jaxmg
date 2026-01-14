@@ -117,10 +117,37 @@ if any("gpu" == d.platform for d in jax.devices()):
             os.path.dirname(__file__), f"{bin_dir}/libpotrs_mp.so"
         )
         library_potrs_mp = ctypes.cdll.LoadLibrary(SHARED_LIBRARY_POTRS_MP)
+        SHARED_LIBRARY_POTRI_MP = os.path.join(
+            os.path.dirname(__file__), f"{bin_dir}/libpotri_mp.so"
+        )
+        library_potri_mp = ctypes.cdll.LoadLibrary(SHARED_LIBRARY_POTRI_MP)
+        SHARED_LIBRARY_SYEVD_MP = os.path.join(
+            os.path.dirname(__file__), f"{bin_dir}/libsyevd_mp.so"
+        )
+        library_syevd_mp = ctypes.cdll.LoadLibrary(SHARED_LIBRARY_SYEVD_MP)
+        SHARED_LIBRARY_SYEVD_NO_V_MP = os.path.join(
+            os.path.dirname(__file__), f"{bin_dir}/libsyevd_no_V_mp.so"
+        )
+        library_syevd_no_V_mp = ctypes.cdll.LoadLibrary(SHARED_LIBRARY_SYEVD_NO_V_MP)
         # Register FFI targets
         jax.ffi.register_ffi_target(
             "potrs_mg",
             jax.ffi.pycapsule(library_potrs_mp.PotrsMgMpFFI),
+            platform="CUDA",
+        )
+        jax.ffi.register_ffi_target(
+            "potri_mg",
+            jax.ffi.pycapsule(library_potri_mp.PotriMgMpFFI),
+            platform="CUDA",
+        )
+        jax.ffi.register_ffi_target(
+            "syevd_mg",
+            jax.ffi.pycapsule(library_syevd_mp.SyevdMgMpFFI),
+            platform="CUDA",
+        )
+        jax.ffi.register_ffi_target(
+            "syevd_no_V_mg",
+            jax.ffi.pycapsule(library_syevd_no_V_mp.SyevdNoVMgMpFFI),
             platform="CUDA",
         )
     from ._potrs import potrs, potrs_shardmap_ctx
