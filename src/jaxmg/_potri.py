@@ -191,10 +191,6 @@ def potri_shardmap_ctx(a: Array, T_A: int, pad=True) -> Union[Array, Tuple[Array
         To achieve the full inverse, call ``jaxmg.potri_symmetrize`` outside of
         the shardmap_context.
 
-    Warning:
-        Multi-process multiple device (MPMD) mode is not supported right now but will
-        be in a future release.
-
     Tip:
         If the shards of the matrix cannot be padded with tiles of size `T_A`
         (``N / num_gpus % T_A != 0``) we have to add padding to fit the last tile.

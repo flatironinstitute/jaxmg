@@ -241,10 +241,6 @@ def syevd_shardmap_ctx(
     ``syevd_no_V_mg`` FFI targets via ``jax.ffi.ffi_call`` instead of
     constructing an additional ``shard_map`` wrapper.
 
-    Warning:
-        Multi-process multiple device (MPMD) mode is not supported right now but will
-        be in a future release.
-
     Tip:
         If the shards of the matrix cannot be padded with tiles of size `T_A`
         (``N / num_gpus % T_A != 0``) we have to add padding to fit the last tile.
