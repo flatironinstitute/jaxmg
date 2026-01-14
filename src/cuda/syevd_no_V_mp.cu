@@ -66,17 +66,18 @@
 #include "jaxlib/gpu/vendor.h"
 // XLA
 #include "xla/ffi/api/ffi.h"
+#include "xla/ffi/api/c_api.h"
 // CUDA
 #include "third_party/gpus/cuda/include/cusolverMg.h"
 #include "third_party/gpus/cuda/include/cuda_runtime_api.h"
 #include "third_party/gpus/cuda/include/cuda_runtime.h"
+#include "third_party/gpus/cuda/include/cuda.h"
 // My Code
 #include "utils/jax_utils.h"
 #include "cusolver_utils.h"
-#include "thread_barrier.h"
+#include "process_barrier.h"
 #include "utils/shm.h"
-
-ThreadBarrier sync_point;
+#include "utils/ipc_utils.h"
 
 namespace jax
 {
@@ -98,21 +99,21 @@ namespace jax
     default:                                       \
         break;                                     \
     }
+
         template <typename data_type>
-        ffi::Error SyevdMgImpl(int64_t N, int64_t batch_a,
-                               gpuStream_t stream, ffi::ScratchAllocator &scratch,
-                               ffi::AnyBuffer a, int64_t tile_size,
-                               ffi::Result<ffi::AnyBuffer> eigenvalues,
-                               ffi::Result<ffi::AnyBuffer> V,
-                               ffi::Result<ffi::Buffer<ffi::S32>> status)
+        ffi::Error SyevdNoVMgImplMp(int64_t N, int64_t batch_a,
+                                    gpuStream_t stream, ffi::ScratchAllocator &scratch,
+                                    ffi::AnyBuffer a, int64_t tile_size,
+                                    ffi::Result<ffi::AnyBuffer> eigenvalues,
+                                    ffi::Result<ffi::Buffer<ffi::S32>> status)
         {
             /* misc */
-            const std::string &source = __FILE__; // file name for error messages
+            const std::string &source = __FILE__;
 
             /* GPU */
-            const int MAX_NUM_DEVICES = 16; // cusolverMg can handle 16 GPUs at most
-            int nbGpus = 0;                 // number of GPUs to use
-            int currentDevice = 0;          // current GPU
+            const int MAX_NUM_DEVICES = 16;
+            int nbGpus = 0;
+            int currentDevice = 0;
             CUDA_CHECK_OR_RETURN(cudaGetDeviceCount(&nbGpus));
             CUDA_CHECK_OR_RETURN(cudaGetDevice(&currentDevice));
             if (nbGpus > MAX_NUM_DEVICES)
@@ -120,55 +121,71 @@ namespace jax
                 return ffi::Error::InvalidArgument(
                     absl::StrFormat("%s: Number of Gpus must be <=16, received %d", source, nbGpus));
             }
-            std::vector<int> deviceList(nbGpus); // list of device IDs
+            std::vector<int> deviceList(nbGpus);
 
             /* data */
-            auto array_data_A = static_cast<data_type *>(a.untyped_data()); // XLA device pointer for a
+            auto array_data_A = static_cast<data_type *>(a.untyped_data());
             auto array_data_eigenvalues = static_cast<data_type *>(eigenvalues->untyped_data());
-            auto array_data_V = static_cast<data_type *>(V->untyped_data());
-            std::vector<typename traits<data_type>::S> eigenvalues_host(N, 0.); // Make vector of Real datatype
+            std::vector<typename traits<data_type>::S> eigenvalues_host(N, 0.);
 
             /* Tiling sizes */
-            const int IA = 1; // index within a global matrix, base-1 (not used)
+            const int IA = 1;
             const int JA = 1;
-            const int T_A = std::min(tile_size, batch_a); // tile size of A
+            const int T_A = std::min(tile_size, batch_a);
 
             /* CUDA */
-            cudaDataType compute_type = traits<data_type>::cuda_data_type;                        // Data type for computation
-            cudaDataType eigenvalue_type = traits<typename traits<data_type>::S>::cuda_data_type; // Real data type used
-            cudaLibMgMatrixDesc_t descrA;                                                         // CusolverMg matrix descriptors
-            cudaLibMgGrid_t gridA;                                                                // CusolverMg grid descriptors
-            cusolverMgGridMapping_t mapping = CUDALIBMG_GRID_MAPPING_COL_MAJOR;                   // Column major a la Scalapack
-            cusolverEigMode_t jobz = CUSOLVER_EIG_MODE_VECTOR;                                    // Wether to return both eigenvectors and eigenvalues
-            FFI_ASSIGN_OR_RETURN(auto cusolverHPool, SolverHandlePool::Borrow(stream));           // Assign a cusolver handle from the pool
-            cusolverMgHandle_t cusolverH = nullptr;                                               // cusolverHPool.get();
-            int info = 0;                                                                         // Info used by cusolverMg calls
-            cusolverStatus_t cusolver_status;                                                     // Return status of cusolverMg calls
-            auto status_data = status->typed_data();                                              // Status returned by syevd
-            int64_t lwork_syevd = 0;                                                              // Workspace size used by cusolverMg calls
+            cudaDataType compute_type = traits<data_type>::cuda_data_type;
+            cudaDataType eigenvalue_type = traits<typename traits<data_type>::S>::cuda_data_type;
+            cudaLibMgMatrixDesc_t descrA;
+            cudaLibMgGrid_t gridA;
+            cusolverMgGridMapping_t mapping = CUDALIBMG_GRID_MAPPING_COL_MAJOR;
+            cusolverEigMode_t jobz = CUSOLVER_EIG_MODE_NOVECTOR;
+            cusolverMgHandle_t cusolverH = nullptr;
+            int info = 0;
+            cusolverStatus_t cusolver_status;
+            auto status_data = status->typed_data();
+            int64_t lwork_syevd = 0;
 
-            /* Shared memory */
-            static std::once_flag barrier_initialized; // Initialize barrier once between threads
-            std::call_once(barrier_initialized, [&]()
-                           { sync_point.initialize(nbGpus); });
+            /* Shared memory (multi-process barrier) */
+            const pid_t ppid = getppid();
+            const std::string barrier_name = "/jaxmgbarrier_" + std::to_string(static_cast<long long>(ppid));
+            DynamicBarrier sync_point(nbGpus, barrier_name.c_str());
             sync_point.arrive_and_wait();
-            sharedMemoryInfo shminfoA;  // Shared memory info for device pointers to local matrices
-            sharedMemoryInfo shminfoev; // Shared memory info for device pointers to local matrices
-            sharedMemoryInfo shminfowork;
-            sharedMemoryInfo shminfolwork; // Shared memory info for lwork space nbytes
-            sharedMemoryInfo shmcsh;       // Shared memory info for cusolver status
+            CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
 
-            data_type **shmA = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfoA, "shmA");    // Actual shared memory
-            data_type **shmev = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfoev, "shmev"); // Actual shared memory
-            data_type **shmwork = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfowork, "shmwork");
+            sharedMemoryInfo shminfoAipc;        // Shared memory info for device pointers to local matrices A
+            sharedMemoryInfo shminfo_offsetA;    // Shared memory info for offsets of A pointers
+            sharedMemoryInfo shminfoevipc;       // Shared memory info for device pointers to eigenvalue arrays
+            sharedMemoryInfo shminfo_offsetev;   // Shared memory info for offsets of eigenvalue pointers
+            sharedMemoryInfo shminfoworkipc;     // Shared memory info for workspace pointers
+            sharedMemoryInfo shminfo_offsetwork; // Shared memory info for offsets of workspace pointers
+            sharedMemoryInfo shminfolwork;       // Shared memory info for lwork
+            sharedMemoryInfo shminfo_csh;        // Shared memory info for cusolver status
 
-            int32_t *cusolver_status_host = get_shm_lwork_ptr<int32_t, ThreadBarrier>(currentDevice, sync_point, shmcsh, "shmcsh");
-            int64_t *shmlwork = get_shm_lwork_ptr<int64_t, ThreadBarrier>(currentDevice, sync_point, shminfolwork, "shmlwork");
+            // Data handles A
+            std::vector<data_type *> shmA(nbGpus, nullptr);
+            IpcOpenResult<data_type> opened_ptrs_A;
+            cudaIpcMemHandle_t *shmAipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoAipc, "shmAipc");
+            uintptr_t *shmoffsetA = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetA, "shmoffsetA");
+
+            // Data handles eigenvalues
+            std::vector<data_type *> shmev(nbGpus, nullptr);
+            IpcOpenResult<data_type> opened_ptrs_ev;
+            cudaIpcMemHandle_t *shmevipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoevipc, "shmevipc");
+            uintptr_t *shmoffsetev = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetev, "shmoffsetev");
+
+            // Workspace
+            std::vector<data_type *> shmwork(nbGpus, nullptr);
+            IpcOpenResult<data_type> opened_ptrs_work;
+            cudaIpcMemHandle_t *shmworkipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoworkipc, "shmworkipc");
+            uintptr_t *shmoffsetwork = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetwork, "shmoffsetwork");
+
+            int32_t *cusolver_status_host = get_shm_lwork_ptr<int32_t>(currentDevice, sync_point, shminfo_csh, "shmcsh");
+            int64_t *shmlwork = get_shm_lwork_ptr<int64_t>(currentDevice, sync_point, shminfolwork, "shmlwork");
 
             if (currentDevice == 0)
             {
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgCreate(&cusolverH));
-
                 for (int j = 0; j < nbGpus; j++)
                 {
                     deviceList[j] = j;
@@ -177,35 +194,58 @@ namespace jax
                 }
 
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDeviceSelect(cusolverH, nbGpus, deviceList.data()));
-
+                
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgCreateDeviceGrid(&gridA, 1, nbGpus, deviceList.data(), mapping));
 
-                /* (global) A is N-by-N */
-                CUSOLVER_CHECK_OR_RETURN(cusolverMgCreateMatrixDesc(&descrA, N, /* number of rows of (global) A */
-                                                                    N,          /* number of columns of (global) A */
-                                                                    N,          /* number or rows in a tile */
-                                                                    T_A,        /* number of columns in a tile */
+                CUSOLVER_CHECK_OR_RETURN(cusolverMgCreateMatrixDesc(&descrA, N,
+                                                                    N,
+                                                                    N,
+                                                                    T_A,
                                                                     compute_type, gridA));
             }
 
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
-            shmA[currentDevice] = array_data_A;
             sync_point.arrive_and_wait();
+
+            // Export local device pointers via CUDA IPC
+            ipcGetHandleAndOffset(array_data_A, shmAipc[currentDevice], shmoffsetA[currentDevice]);
+            ipcGetHandleAndOffset(array_data_eigenvalues, shmevipc[currentDevice], shmoffsetev[currentDevice]);
+
+            CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
+            sync_point.arrive_and_wait();
+
             if (currentDevice == 0)
             {
+                opened_ptrs_A = ipcGetDevicePointers<data_type>(currentDevice, nbGpus, shmAipc, shmoffsetA);
+                opened_ptrs_ev = ipcGetDevicePointers<data_type>(currentDevice, nbGpus, shmevipc, shmoffsetev);
+
+                for (int dev = 1; dev < nbGpus; ++dev)
+                {
+                    shmA[dev] = opened_ptrs_A.ptrs[dev];
+                    shmev[dev] = opened_ptrs_ev.ptrs[dev];
+                }
+                shmA[0] = array_data_A;
+                shmev[0] = array_data_eigenvalues;
+            }
+
+            CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
+            sync_point.arrive_and_wait();
+
+            if (currentDevice == 0)
+            {
+                // Convert input layout to 1D block-cyclic layout across devices
                 memcpyCyclicShard<data_type>(nbGpus, stream, deviceList.data(),
                                              N, batch_a, T_A,
                                              /* input */
-                                             shmA, false);
+                                             shmA.data(), false);
             }
-
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
 
             if (currentDevice == 0)
             {
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgSyevd_bufferSize(cusolverH, jobz, CUBLAS_FILL_MODE_LOWER, N,
-                                                                    reinterpret_cast<void **>(shmA), IA, JA, descrA,
+                                                                    reinterpret_cast<void **>(shmA.data()), IA, JA, descrA,
                                                                     reinterpret_cast<void *>(eigenvalues_host.data()),
                                                                     eigenvalue_type, compute_type,
                                                                     &lwork_syevd));
@@ -215,15 +255,22 @@ namespace jax
                     shmlwork[dev] = lwork_syevd;
                 }
             }
+
             sync_point.arrive_and_wait();
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
 
-            /* array_d_work[j] points to device workspace of device j */
-            FFI_ASSIGN_OR_RETURN(auto workspace, AllocateWorkspaceBytes<data_type>(scratch, sizeof(data_type) * (shmlwork[currentDevice]), "workspace_syevd"));
-            shmwork[currentDevice] = workspace;
-            shmev[currentDevice] = array_data_eigenvalues;
+            // Workspace size in bytes for current device
+            size_t workspace_bytes = sizeof(data_type) * static_cast<size_t>(shmlwork[currentDevice]);
 
-            /* sync all devices */
+            sync_point.arrive_and_wait();
+            CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
+
+            if (currentDevice == 0)
+            {
+                workspaceAlloc(nbGpus, deviceList.data(),
+                               workspace_bytes,
+                               reinterpret_cast<void **>(shmwork.data()));
+            }
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
 
@@ -231,41 +278,40 @@ namespace jax
             {
                 cusolver_status = cusolverMgSyevd(
                     cusolverH, jobz, CUBLAS_FILL_MODE_LOWER, N,
-                    reinterpret_cast<void **>(shmA), IA, JA,
+                    reinterpret_cast<void **>(shmA.data()), IA, JA,
                     descrA, reinterpret_cast<void **>(eigenvalues_host.data()),
                     eigenvalue_type, compute_type,
-                    reinterpret_cast<void **>(shmwork), *shmlwork, &info);
+                    reinterpret_cast<void **>(shmwork.data()), shmlwork[currentDevice], &info);
 
-                /* sync all devices */
                 CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
-                // Copy status to all devices
                 for (int dev = 0; dev < nbGpus; dev++)
                 {
                     cusolver_status_host[dev] = static_cast<int32_t>(cusolver_status);
                 }
-                /* check if A is singular */
+
                 if (0 > info)
                 {
                     return ffi::Error::Internal(
                         absl::StrFormat("unexpected error in cusolverMgSyevd, %d-th input parameter is wrong \n", -info));
                 }
             }
-            /* sync all devices */
+
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
 
-            // Write status data
+            // Write status per device
             int32_t status_val = static_cast<int32_t>(cusolver_status_host[currentDevice]);
             JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(status_data, &status_val, sizeof(status_val), gpuMemcpyHostToDevice));
 
             if (currentDevice == 0)
             {
                 if (cusolver_status_host[0] == 0)
-                { // Copy solution to device 0
+                {
+                    // Copy eigenvalues to device 0 eigenvalue buffer
                     JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(
                         shmev[0], eigenvalues_host.data(), sizeof(data_type) * N, gpuMemcpyHostToDevice));
                     CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
-                    // Copy solution to all other devices
+                    // Broadcast eigenvalues to all other devices
                     for (int dev = 1; dev < nbGpus; dev++)
                     {
                         JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(shmev[dev], shmev[0], sizeof(data_type) * N, gpuMemcpyDeviceToDevice));
@@ -275,83 +321,67 @@ namespace jax
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
 
-            if (cusolver_status_host[currentDevice] == 0)
-            {
-                // Unshard eigenvectors from shmA back into V buffers
-                array_data_V = shmA[currentDevice];
-                if (currentDevice == 0)
-                {
-                    memcpyCyclicShard<data_type>(nbGpus, stream, deviceList.data(),
-                                                 N, batch_a, T_A,
-                                                 /* input */
-                                                 shmA, true);
-                }
-            }
-            else
+            if (cusolver_status_host[currentDevice] != 0)
             {
                 std::vector<typename traits<data_type>::T> host_ev_nan(N, traits<data_type>::nan());
-                std::vector<typename traits<data_type>::T> host_V_nan(N * batch_a, traits<data_type>::nan());
                 JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(array_data_eigenvalues, host_ev_nan.data(), sizeof(data_type) * N, gpuMemcpyHostToDevice));
-                JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(array_data_V, host_V_nan.data(), sizeof(data_type) * N * batch_a, gpuMemcpyHostToDevice));
             }
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
-
             if (currentDevice == 0)
             {
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroyMatrixDesc(descrA));
-
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroyGrid(gridA));
-
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroy(cusolverH));
 
-                sharedMemoryCleanup(&shminfoA, "shmA");
-                sharedMemoryCleanup(&shminfoev, "shmev");
-                sharedMemoryCleanup(&shminfowork, "shmwork");
-                sharedMemoryCleanup(&shmcsh, "shmcsh");
+                sharedMemoryCleanup(&shminfo_offsetA, "shmoffsetA");
+                sharedMemoryCleanup(&shminfoAipc, "shmAipc");
+                sharedMemoryCleanup(&shminfo_offsetev, "shmoffsetev");
+                sharedMemoryCleanup(&shminfoevipc, "shmevipc");
+                sharedMemoryCleanup(&shminfoworkipc, "shmworkipc");
+                sharedMemoryCleanup(&shminfo_offsetwork, "shmoffsetwork");
                 sharedMemoryCleanup(&shminfolwork, "shmlwork");
+                sharedMemoryCleanup(&shminfo_csh, "shmcsh");
+
+                ipcCloseDevicePointers(currentDevice, opened_ptrs_A.bases, nbGpus);
+                ipcCloseDevicePointers(currentDevice, opened_ptrs_ev.bases, nbGpus);
+                workspaceFree(nbGpus, deviceList.data(), reinterpret_cast<void **>(shmwork.data()));
             }
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
-            sync_point.arrive_and_wait();
+            sync_point.close_and_wait();
 
             return ffi::Error::Success();
         }
 
-        ffi::Error SyevdMgDispatch(gpuStream_t stream, ffi::ScratchAllocator scratch,
-                                   ffi::AnyBuffer a, int64_t tile_size,
-                                   ffi::Result<ffi::AnyBuffer> eigenvalues,
-                                   ffi::Result<ffi::AnyBuffer> V,
-                                   ffi::Result<ffi::Buffer<ffi::S32>> status)
+        ffi::Error SyevdNoVMgMpDispatch(gpuStream_t stream, ffi::ScratchAllocator scratch,
+                                        ffi::AnyBuffer a, int64_t tile_size,
+                                        ffi::Result<ffi::AnyBuffer> eigenvalues,
+                                        ffi::Result<ffi::Buffer<ffi::S32>> status)
         {
             auto dataType = a.element_type();
 
             // Rows are batched
             FFI_ASSIGN_OR_RETURN((const auto [batch_a, N]), SplitBatch1D(a.dimensions()));
 
-            if ((dataType != V->element_type()))
-            {
-                return ffi::Error::InvalidArgument(
-                    "The input matrix and output eigenvector dtype of syevd must have the same element type");
-            }
-            FFI_RETURN_IF_ERROR(CheckShape(status->dimensions(), 1, "status", "syevd"));
+            FFI_RETURN_IF_ERROR(CheckShape(status->dimensions(), 1, "status", "syevd_no_V"));
 
-            SOLVER_DISPATCH_IMPL(SyevdMgImpl, N, batch_a, stream, scratch, a, tile_size, eigenvalues, V, status);
+            SOLVER_DISPATCH_IMPL(SyevdNoVMgImplMp, N, batch_a, stream, scratch, a, tile_size, eigenvalues, status);
 
             return ffi::Error::InvalidArgument(absl::StrFormat(
-                "Unsupported data type%s for syevd", absl::FormatStreamed(dataType)));
+                "Unsupported data type%s for syevd_no_V", absl::FormatStreamed(dataType)));
         }
 
-        XLA_FFI_DEFINE_HANDLER_SYMBOL(SyevdMgFFI, SyevdMgDispatch,
+        XLA_FFI_DEFINE_HANDLER_SYMBOL(SyevdNoVMgMpFFI, SyevdNoVMgMpDispatch,
                                       ffi::Ffi::Bind()
                                           .Ctx<ffi::PlatformStream<gpuStream_t>>()
                                           .Ctx<ffi::ScratchAllocator>()
                                           .Arg<ffi::AnyBuffer>()        // A
                                           .Attr<int64_t>("T_A")         // tile size
                                           .Ret<ffi::AnyBuffer>()        // eigenvalues
-                                          .Ret<ffi::AnyBuffer>()        // V
                                           .Ret<ffi::Buffer<ffi::S32>>() // status
         );
 
 #undef SOLVER_DISPATCH_IMPL
+
     } // namespace JAX_GPU_NAMESPACE
 } // namespace jax

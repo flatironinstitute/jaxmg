@@ -138,12 +138,11 @@ namespace jax
             cudaLibMgGrid_t gridA;                                                                // CusolverMg grid descriptors
             cusolverMgGridMapping_t mapping = CUDALIBMG_GRID_MAPPING_COL_MAJOR;                   // Column major a la Scalapack
             cusolverEigMode_t jobz = CUSOLVER_EIG_MODE_NOVECTOR;                                  // Wether to return both eigenvectors and eigenvalues
-            // FFI_ASSIGN_OR_RETURN(auto cusolverHPool, SolverHandlePool::Borrow(stream));           // Assign a cusolver handle from the pool
-            cusolverMgHandle_t cusolverH = nullptr;  // cusolverHPool.get();
-            int info = 0;                            // Info used by cusolverMg calls
-            cusolverStatus_t cusolver_status;        // Return status of cusolverMg calls
-            auto status_data = status->typed_data(); // Status returned by syevd
-            int64_t lwork_syevd = 0;                 // Workspace size used by cusolverMg calls
+            cusolverMgHandle_t cusolverH = nullptr;                                               // cusolverHPool.get();
+            int info = 0;                                                                         // Info used by cusolverMg calls
+            cusolverStatus_t cusolver_status;                                                     // Return status of cusolverMg calls
+            auto status_data = status->typed_data();                                              // Status returned by syevd
+            int64_t lwork_syevd = 0;                                                              // Workspace size used by cusolverMg calls
 
             /* Shared memory */
             static std::once_flag barrier_initialized; // Initialize barrier once between threads
@@ -201,7 +200,6 @@ namespace jax
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
 
-            // std::printf("Step 9: Allocate workspace \n");
             if (currentDevice == 0)
             {
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgSyevd_bufferSize(cusolverH, jobz, CUBLAS_FILL_MODE_LOWER, N,
@@ -261,14 +259,17 @@ namespace jax
 
             if (currentDevice == 0)
             {
-                // Copy solution to device 0
-                JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(
-                    shmev[0], eigenvalues_host.data(), sizeof(data_type) * N, gpuMemcpyHostToDevice));
-                CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
-                // Copy solution to all other devices
-                for (int dev = 1; dev < nbGpus; dev++)
-                {
-                    JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(shmev[dev], shmev[0], sizeof(data_type) * N, gpuMemcpyDeviceToDevice));
+
+                if (cusolver_status_host[0] == 0)
+                { // Copy solution to device 0
+                    JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(
+                        shmev[0], eigenvalues_host.data(), sizeof(data_type) * N, gpuMemcpyHostToDevice));
+                    CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
+                    // Copy solution to all other devices
+                    for (int dev = 1; dev < nbGpus; dev++)
+                    {
+                        JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(shmev[dev], shmev[0], sizeof(data_type) * N, gpuMemcpyDeviceToDevice));
+                    }
                 }
             }
 
@@ -284,9 +285,7 @@ namespace jax
             if (currentDevice == 0)
             {
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroyMatrixDesc(descrA));
-
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroyGrid(gridA));
-
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroy(cusolverH));
 
                 sharedMemoryCleanup(&shminfoA, "shmA");
