@@ -333,9 +333,17 @@ namespace jax
             {
                 if (currentDevice == 0)
                 {
+                    // Convert result from 1D block-cyclic layout back to
+                    // a single-device layout on device 0, then broadcast.
+                    memcpyCyclicShard<data_type>(nbGpus, stream, deviceList.data(),
+                                                 N, batch_a, T_A,
+                                                 /* input */
+                                                 shmA.data(), true);
+
+                    // Set out pointers inplace
                     for (int dev = 0; dev < nbGpus; dev++)
                     {
-                        JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(shmoutdata[dev], shmA[0], a.size_bytes(), gpuMemcpyDeviceToDevice));
+                        shmoutdata[dev]= shmA[dev];
                     }
                 }
             }
