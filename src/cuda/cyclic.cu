@@ -130,9 +130,6 @@ namespace jax
                 batch_a = T_A;
             }
 
-            /* CUDA */
-            cudaDataType compute_type = traits<data_type>::cuda_data_type; // Data type for computation
-
             /* Shared memory */
             static std::once_flag barrier_initialized; // Initialize barrier once between threads
             std::call_once(barrier_initialized, [&]()
