@@ -344,10 +344,10 @@ namespace jax
                                                  /* input */
                                                  shmA.data(), true);
                     // After unsharding, shmA[0] should contain the full matrix in device 0 layout.
-                    // Broadcast to all V outputs
+                    // Set out pointers inplace
                     for (int dev = 0; dev < nbGpus; dev++)
                     {
-                        JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(shmV[dev], shmA[0], a.size_bytes(), gpuMemcpyDeviceToDevice));
+                        shmV[dev]= shmA[dev];
                     }
                 }
             }
