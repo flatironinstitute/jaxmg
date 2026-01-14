@@ -113,6 +113,13 @@ endif()
 
 # Set JAX_GPU_CUDA to 1 (this is required for jaxlib to compile correctly)
 add_definitions(-DJAX_GPU_CUDA=1)
+# Suppress host CUDA warning
+add_compile_options($<$<COMPILE_LANGUAGE:CUDA>:-diag-suppress=940,2473,2810>)
+# Suppress host C++ warnings from GCC/Clang (only for C++ sources)
+add_compile_options(
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-return-type>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-attributes>
+)
 # Add libraries
 add_library(cyclic SHARED
     src/cuda/cyclic.cu
