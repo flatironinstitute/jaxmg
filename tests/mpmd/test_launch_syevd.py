@@ -6,7 +6,7 @@ import jax
 from mpmd_helper import run_mpmd_test
 
 HERE = Path(__file__).parent
-MP_TEST = HERE / "run_potrs.py"
+MP_TEST = HERE / "run_syevd.py"
 
 if len(jax.devices("gpu")) == 0:
     pytest.skip("No GPUs found. Skipping")
@@ -15,33 +15,33 @@ if len(jax.devices("gpu")) == 0:
 # Build the parameter grid once at collection time and parametrize each
 # (requested_procs, test_name, N, T_A, dtype) as a separate pytest test so
 # each task appears individually in pytest's summary.
-gpu_count = jax.device_count("gpu")
-if gpu_count == 0:
+GPU_COUNT = jax.device_count("gpu")
+if GPU_COUNT == 0:
     pytest.skip("No GPUs found. Skipping")
 
 # Only run for the currently visible GPU count; the original test enumerated
 # requested_procs=(1,2,3,4) and skipped when mismatched. Here we parametrize
 # only for the local visible gpu count to keep collection stable.
-requested_procs_list = (gpu_count,)
+REQUESTED_PROCS_LIST = (GPU_COUNT,)
 
-dtypes = ["float32", "float64", "complex64", "complex128"]
-test_names = ["arange", "non_psd", "non_symm", "psd"]
+DTYPES = ["float32", "float64", "complex64", "complex128"]
+TEST_NAMES = ["arange", "psd", "arange_no_V", "psd_no_V"]
 
-tasks = []
-task_ids = []
-for requested_procs in requested_procs_list:
-    for name in test_names:
-        for dtype_name in dtypes:
-            tasks.append((requested_procs, name, dtype_name))
-            task_ids.append(f"{name}-{dtype_name}-p{requested_procs}")
+TASKS = []
+TASK_IDS = []
+for requested_procs in REQUESTED_PROCS_LIST:
+    for name in TEST_NAMES:
+        for dtype_name in DTYPES:
+            TASKS.append((requested_procs, name, dtype_name))
+            TASK_IDS.append(f"{name}-{dtype_name}-p{requested_procs}")
 
 
 @pytest.mark.parametrize(
     "requested_procs,name, dtype_name",
-    tasks,
-    ids=task_ids,
+    TASKS,
+    ids=TASK_IDS,
 )
-def test_task_mpmd(requested_procs, name, dtype_name):
-    """Run a single distributed potrs task as an individual pytest test."""
+def test_task_mpmd_syevd(requested_procs, name, dtype_name):
+    """Run a single distributed syevd task as an individual pytest test."""
 
     run_mpmd_test(MP_TEST, requested_procs, name, dtype_name)

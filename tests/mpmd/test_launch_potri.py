@@ -6,7 +6,7 @@ import jax
 from mpmd_helper import run_mpmd_test
 
 HERE = Path(__file__).parent
-MP_TEST = HERE / "run_potrs.py"
+MP_TEST = HERE / "run_potri.py"
 
 if len(jax.devices("gpu")) == 0:
     pytest.skip("No GPUs found. Skipping")
@@ -24,8 +24,10 @@ if gpu_count == 0:
 # only for the local visible gpu count to keep collection stable.
 requested_procs_list = (gpu_count,)
 
+
 dtypes = ["float32", "float64", "complex64", "complex128"]
 test_names = ["arange", "non_psd", "non_symm", "psd"]
+
 
 tasks = []
 task_ids = []
@@ -41,7 +43,7 @@ for requested_procs in requested_procs_list:
     tasks,
     ids=task_ids,
 )
-def test_task_mpmd(requested_procs, name, dtype_name):
-    """Run a single distributed potrs task as an individual pytest test."""
+def test_task_mpmd_potri(requested_procs, name, dtype_name):
+    """Run a single distributed potri task as an individual pytest test."""
 
     run_mpmd_test(MP_TEST, requested_procs, name, dtype_name)
