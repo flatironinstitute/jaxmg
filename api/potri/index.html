@@ -957,7 +957,7 @@
 
 <h4 id="jaxmg.potri" class="doc doc-heading">
   <code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potri</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="p">,</span> <span class="n">in_specs</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
-  <a href="https://github.com/therooler/jaxmg/blob/c8bd98a36172c217b8faa0130fedaaa08fb158a3/src/jaxmg/_potri.py#L15-L177"><code class='hippogriffe-repo-url'></code></a>
+  <a href="https://github.com/therooler/jaxmg/blob/c106e5b797cdd8af6dda44f52b91ebd1d78ae3ee/src/jaxmg/_potri.py#L15-L177"><code class='hippogriffe-repo-url'></code></a>
 
 
 <a href="#jaxmg.potri" class="headerlink" title="Permanent link">¤</a></h4>
@@ -1196,7 +1196,7 @@ when <code>pad=False</code>.</p>
 
 <h4 id="jaxmg.potri_shardmap_ctx" class="doc doc-heading">
   <code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potri_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
-  <a href="https://github.com/therooler/jaxmg/blob/c8bd98a36172c217b8faa0130fedaaa08fb158a3/src/jaxmg/_potri.py#L180-L295"><code class='hippogriffe-repo-url'></code></a>
+  <a href="https://github.com/therooler/jaxmg/blob/c106e5b797cdd8af6dda44f52b91ebd1d78ae3ee/src/jaxmg/_potri.py#L180-L291"><code class='hippogriffe-repo-url'></code></a>
 
 
 <a href="#jaxmg.potri_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
@@ -1217,12 +1217,6 @@ the native <code>potri_mg</code> FFI target directly via <code>jax.ffi.ffi_call<
   <p>On exit, we return the upper triangular part of <code>A_inv</code>.
 To achieve the full inverse, call <code>jaxmg.potri_symmetrize</code> outside of
 the shardmap_context.</p>
-</details>
-
-<details class="warning" open>
-  <summary>Warning</summary>
-  <p>Multi-process multiple device (MPMD) mode is not supported right now but will
-be in a future release.</p>
 </details>
 
 <details class="tip" open>

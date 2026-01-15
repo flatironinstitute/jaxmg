@@ -881,30 +881,30 @@ temporarily doubles memory), and how we can instead choose a sharding that
 avoids the extra copy by presenting per-device buffers already in the solver's
 expected column-major order.</p>
 <p>Row-major vs column-major
-- Row-major (C order): rows are laid out contiguously. For an <span class="arithmatex">\(m\\times n\)</span>
-    matrix <span class="arithmatex">\(A\)</span> the memory is the concatenation of rows <span class="arithmatex">\(1,2,\\dots,m\)</span>.
+- Row-major (C order): rows are laid out contiguously. For an <span class="arithmatex">\(m\times n\)</span>
+    matrix <span class="arithmatex">\(A\)</span> the memory is the concatenation of rows <span class="arithmatex">\(1,2,\dots,m\)</span>.
 - Column-major (Fortran order): columns are laid out contiguously. The
-    memory is the concatenation of columns <span class="arithmatex">\(1,2,\\dots,n\)</span>.</p>
-<p>Concretely, for a small <span class="arithmatex">\(4\\times 4\)</span> matrix</p>
+    memory is the concatenation of columns <span class="arithmatex">\(1,2,\dots,n\)</span>.</p>
+<p>Concretely, for a small <span class="arithmatex">\(4\times 4\)</span> matrix</p>
 <div class="arithmatex">\[
-A = \\begin{bmatrix}
-a_{11} &amp; a_{12} &amp; a_{13} &amp; a_{14} \\\\
-a_{21} &amp; a_{22} &amp; a_{23} &amp; a_{24} \\\\
-a_{31} &amp; a_{32} &amp; a_{33} &amp; a_{34} \\\\
+A = \begin{bmatrix}
+a_{11} &amp; a_{12} &amp; a_{13} &amp; a_{14} \\
+a_{21} &amp; a_{22} &amp; a_{23} &amp; a_{24} \\
+a_{31} &amp; a_{32} &amp; a_{33} &amp; a_{34} \\
 a_{41} &amp; a_{42} &amp; a_{43} &amp; a_{44}
-\\end{bmatrix}
+\end{bmatrix}
 \]</div>
 <ul>
 <li>Row-major flattening (C order) produces</li>
 </ul>
 <div class="arithmatex">\[
-\\operatorname{row\\_major}(A) = [a_{11}, a_{12}, a_{13}, a_{14},\\; a_{21}, a_{22},\\dots,a_{44}]
+\operatorname{row\_major}(A) = [a_{11}, a_{12}, a_{13}, a_{14},\; a_{21}, a_{22},\dots,a_{44}]
 \]</div>
 <ul>
 <li>Column-major flattening (Fortran order) produces</li>
 </ul>
 <div class="arithmatex">\[
-\\operatorname{col\\_major}(A) = [a_{11}, a_{21}, a_{31}, a_{41},\\; a_{12}, a_{22},\\dots,a_{44}]
+\operatorname{col\_major}(A) = [a_{11}, a_{21}, a_{31}, a_{41},\; a_{12}, a_{22},\dots,a_{44}]
 \]</div>
 <p>Why this matters for cuSolverMg
 - cuSolverMg (like many Fortran-style numerical libraries) expects matrix
@@ -925,21 +925,21 @@ a_{41} &amp; a_{42} &amp; a_{43} &amp; a_{44}
     matches the solver's expected column-major ordering. The key idea is to map
     global columns (or column tiles) to contiguous device-local memory.</p>
 <p>Example: split into two column-blocks</p>
-<p>Split <span class="arithmatex">\(A\)</span> into two column-blocks <span class="arithmatex">\(B\)</span> and <span class="arithmatex">\(C\)</span> (each <span class="arithmatex">\(4\\times 2\)</span>):</p>
+<p>Split <span class="arithmatex">\(A\)</span> into two column-blocks <span class="arithmatex">\(B\)</span> and <span class="arithmatex">\(C\)</span> (each <span class="arithmatex">\(4\times 2\)</span>):</p>
 <div class="arithmatex">\[
-A = [\\; B \\;|\\; C \\;],\\quad
-B=\\begin{bmatrix} a_{11} &amp; a_{12} \\\\
-a_{21} &amp; a_{22} \\\\
-a_{31} &amp; a_{32} \\\\
-a_{41} &amp; a_{42}\\end{bmatrix},\\quad
-C=\\begin{bmatrix} a_{13} &amp; a_{14} \\\\
-a_{23} &amp; a_{24} \\\\
-a_{33} &amp; a_{34} \\\\
-a_{43} &amp; a_{44}\\end{bmatrix}
+A = [\; B \;|\; C \;],\quad
+B=\begin{bmatrix} a_{11} &amp; a_{12} \\
+a_{21} &amp; a_{22} \\
+a_{31} &amp; a_{32} \\
+a_{41} &amp; a_{42}\end{bmatrix},\quad
+C=\begin{bmatrix} a_{13} &amp; a_{14} \\
+a_{23} &amp; a_{24} \\
+a_{33} &amp; a_{34} \\
+a_{43} &amp; a_{44}\end{bmatrix}
 \]</div>
 <p>In column-major flattening, <span class="arithmatex">\(B\)</span> appears as a contiguous chunk followed by <span class="arithmatex">\(C\)</span>:</p>
 <div class="arithmatex">\[
-\\operatorname{col\\_major}(A) = [\\operatorname{col\\_major}(B),\\; \\operatorname{col\\_major}(C)].
+\operatorname{col\_major}(A) = [\operatorname{col\_major}(B),\; \operatorname{col\_major}(C)].
 \]</div>
 <p>If device 0 stores <span class="arithmatex">\(B\)</span> and device 1 stores <span class="arithmatex">\(C\)</span> in their native local buffers
 then the solver can consume device-local memory directly in the expected
