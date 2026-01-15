@@ -37,7 +37,7 @@ def run_mpmd_test(mp_test: Path, requested_procs: int, name: str, dtype_name: st
     coord = f"127.0.0.1:{port}"
 
     env = os.environ.copy()
-    env.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+    env.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "platform")
 
     here = mp_test.parent
     print(f"[launcher] starting task {name}: dtype={dtype_name}, procs={requested_procs}")
