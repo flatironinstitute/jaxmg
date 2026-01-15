@@ -8,32 +8,32 @@ avoids the extra copy by presenting per-device buffers already in the solver's
 expected column-major order.
 
 Row-major vs column-major
-- Row-major (C order): rows are laid out contiguously. For an $m\\times n$
-	matrix $A$ the memory is the concatenation of rows $1,2,\\dots,m$.
+- Row-major (C order): rows are laid out contiguously. For an $m\times n$
+	matrix $A$ the memory is the concatenation of rows $1,2,\dots,m$.
 - Column-major (Fortran order): columns are laid out contiguously. The
-	memory is the concatenation of columns $1,2,\\dots,n$.
+	memory is the concatenation of columns $1,2,\dots,n$.
 
-Concretely, for a small $4\\times 4$ matrix
+Concretely, for a small $4\times 4$ matrix
 
 $$
-A = \\begin{bmatrix}
-a_{11} & a_{12} & a_{13} & a_{14} \\\\
-a_{21} & a_{22} & a_{23} & a_{24} \\\\
-a_{31} & a_{32} & a_{33} & a_{34} \\\\
+A = \begin{bmatrix}
+a_{11} & a_{12} & a_{13} & a_{14} \\
+a_{21} & a_{22} & a_{23} & a_{24} \\
+a_{31} & a_{32} & a_{33} & a_{34} \\
 a_{41} & a_{42} & a_{43} & a_{44}
-\\end{bmatrix}
+\end{bmatrix}
 $$
 
 - Row-major flattening (C order) produces
 
 $$
-\\operatorname{row\\_major}(A) = [a_{11}, a_{12}, a_{13}, a_{14},\\; a_{21}, a_{22},\\dots,a_{44}]
+\operatorname{row\_major}(A) = [a_{11}, a_{12}, a_{13}, a_{14},\; a_{21}, a_{22},\dots,a_{44}]
 $$
 
 - Column-major flattening (Fortran order) produces
 
 $$
-\\operatorname{col\\_major}(A) = [a_{11}, a_{21}, a_{31}, a_{41},\\; a_{12}, a_{22},\\dots,a_{44}]
+\operatorname{col\_major}(A) = [a_{11}, a_{21}, a_{31}, a_{41},\; a_{12}, a_{22},\dots,a_{44}]
 $$
 
 Why this matters for cuSolverMg
@@ -59,24 +59,24 @@ Avoiding the copy by matching sharding to column-major
 
 Example: split into two column-blocks
 
-Split $A$ into two column-blocks $B$ and $C$ (each $4\\times 2$):
+Split $A$ into two column-blocks $B$ and $C$ (each $4\times 2$):
 
 $$
-A = [\\; B \\;|\\; C \\;],\\quad
-B=\\begin{bmatrix} a_{11} & a_{12} \\\\
-a_{21} & a_{22} \\\\
-a_{31} & a_{32} \\\\
-a_{41} & a_{42}\\end{bmatrix},\\quad
-C=\\begin{bmatrix} a_{13} & a_{14} \\\\
-a_{23} & a_{24} \\\\
-a_{33} & a_{34} \\\\
-a_{43} & a_{44}\\end{bmatrix}
+A = [\; B \;|\; C \;],\quad
+B=\begin{bmatrix} a_{11} & a_{12} \\
+a_{21} & a_{22} \\
+a_{31} & a_{32} \\
+a_{41} & a_{42}\end{bmatrix},\quad
+C=\begin{bmatrix} a_{13} & a_{14} \\
+a_{23} & a_{24} \\
+a_{33} & a_{34} \\
+a_{43} & a_{44}\end{bmatrix}
 $$
 
 In column-major flattening, $B$ appears as a contiguous chunk followed by $C$:
 
 $$
-\\operatorname{col\\_major}(A) = [\\operatorname{col\\_major}(B),\\; \\operatorname{col\\_major}(C)].
+\operatorname{col\_major}(A) = [\operatorname{col\_major}(B),\; \operatorname{col\_major}(C)].
 $$
 
 If device 0 stores $B$ and device 1 stores $C$ in their native local buffers
