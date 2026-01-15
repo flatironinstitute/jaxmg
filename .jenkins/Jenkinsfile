@@ -1,5 +1,8 @@
 pipeline {
     agent none
+    options {
+        timeout(time: 2, unit: 'HOURS')
+    }
     triggers {
         cron '@monthly'
     }
@@ -11,10 +14,6 @@ pipeline {
                     args '--gpus=2 --shm-size=4gb'
                     label 'docker && v100'
                 }
-            }
-
-            options {
-                timeout(time: 120, unit: 'MINUTES')
             }
             stages {
                 stage('Compile') {
@@ -48,10 +47,6 @@ pipeline {
                     label 'docker && v100'
                 }
             }
-
-            options {
-                timeout(time: 120, unit: 'MINUTES')
-            }
             stages {
                 stage('Compile') {
                     environment {
@@ -83,9 +78,6 @@ pipeline {
                     args '--gpus=2 --shm-size=4gb'
                     label 'docker && v100'
                 }
-            }
-            options {
-                timeout(time: 60, unit: 'MINUTES')
             }
             stages {
                 stage('Build + Test') {
@@ -188,9 +180,6 @@ pipeline {
                     args '--gpus=2 --shm-size=4gb'
                     label 'docker && v100'
                 }
-            }
-            options {
-                timeout(time: 60, unit: 'MINUTES')
             }
             stages {
                 stage('Build + Test') {
