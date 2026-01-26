@@ -17,7 +17,7 @@ def potrs(
     b: Array,
     T_A: int,
     mesh: Mesh,
-    in_specs: Tuple[P,P] | List[P],
+    in_specs: Tuple[P, P] | List[P],
     return_status: bool = False,
     pad=True,
 ) -> Union[Array, Tuple[Array, int]]:
@@ -31,9 +31,9 @@ def potrs(
     Tip:
         If the shards of the matrix cannot be padded with tiles of size `T_A`
         (``N / num_gpus % T_A != 0``) we have to add padding to fit the last tile.
-        This requires copying the matrix, which we want to avoid at all costs for 
+        This requires copying the matrix, which we want to avoid at all costs for
         large ``N``. Make sure you pick ``T_A`` large enough (>=128) and such that it
-        can evenly cover the shards. In principle, increasing ``T_A`` will increase 
+        can evenly cover the shards. In principle, increasing ``T_A`` will increase
         performance at the cost of memory, but depending on ``N``, the performance
           will saturate.
 
@@ -43,10 +43,10 @@ def potrs(
             using a single ``PartitionSpec``: ``P(<axis_name>, None)``.
         b (Array): 2D right-hand side. Expected to be replicated across
             devices with ``PartitionSpec`` ``P(None, None)``.
-        T_A (int): Tile width used by the native solver. Each 
-            local shard length must be a multiple of ``T_A``. If the user provides a 
+        T_A (int): Tile width used by the native solver. Each
+            local shard length must be a multiple of ``T_A``. If the user provides a
             ``T_A`` that is incompatible with the shard size we pad the matrix
-            accordingly. For small tile sizes (``T_A``< 128), the solver can 
+            accordingly. For small tile sizes (``T_A``< 128), the solver can
             be extremely slow, so ensure that ``T_A`` is large enough. In principle,
             the larger ``T_A`` the faster the solver runs.
         mesh (Mesh): JAX Mesh object used for ``jax.shard_map``.
@@ -101,14 +101,36 @@ def potrs(
     assert b.ndim == 2, "b must be a 2D array."
     N_rows, N = a.shape
     axis_name = spec_a._partitions[0]
+
     shard_size = N_rows // ndev
 
     # Keep b in column-major layout
     input_layouts = ((0, 1), (1, 0))
-    output_layouts = ((1, 0), (0,))
+    output_layouts = ((0, 1), (1, 0), (0,))
 
     padding = calculate_padding(shard_size, T_A)
+
+    if not pad or padding == 0 or T_A >= N // ndev:
+        if T_A < N // ndev:
+            assert (
+                N_rows == N + ndev * padding
+            ), f"pad=False, but with T_A={T_A}, we need padding of {padding} rows per device."
+            f"Expected {N + ndev * padding} rows, but received {N_rows}"
+        # Identity padding
+        pad_fn = lambda _a: _a
+        padding = 0
+    else:
+        # Make padding fns
+        pad_fn = jax.shard_map(
+            partial(pad_rows, padding=padding),
+            mesh=mesh,
+            in_specs=P(axis_name, None),
+            out_specs=P(axis_name, None),
+            check_vma=True,
+        )
+
     out_type = (
+        jax.ShapeDtypeStruct((shard_size + padding, N), a.dtype),
         jax.ShapeDtypeStruct(b.shape, b.dtype),
         jax.ShapeDtypeStruct((1,), jnp.int32),
     )
@@ -120,48 +142,31 @@ def potrs(
             out_type,
             input_layouts=input_layouts,
             output_layouts=output_layouts,
+            input_output_aliases={0: 0, 1: 1},
         ),
         T_A=T_A,
     )
 
     # Jit with donate_argnums=0 is crucial for buffer sharing
-    @partial(jax.jit, donate_argnums=0)
+    @partial(jax.jit, donate_argnums=(0, 1))
     @partial(
         jax.shard_map,
         mesh=mesh,
         in_specs=(P(axis_name, None), P(None, None)),
-        out_specs=(P(None, None), P(None)),
+        out_specs=(P(axis_name, None), P(None, None), P(None)),
         check_vma=False,
     )
     def impl(_a, _b):
-        _a, _status = ffi_fn(_a, _b) 
-        return _a, _status
-
-    if not pad or padding == 0 or T_A >= N // ndev:
-        if T_A < N // ndev:
-            assert (
-                N_rows == N + ndev * padding
-            ), f"pad=False, but with T_A={T_A}, we need padding of {padding} rows per device."
-            f"Expected {N + ndev * padding} rows, but received {N_rows}"
-        # Identity padding
-        pad_fn = lambda _a: _a
-
-    else:
-        # Make padding fns
-        pad_fn = jax.shard_map(
-            partial(pad_rows, padding=padding),
-            mesh=mesh,
-            in_specs=P(axis_name, None),
-            out_specs=P(axis_name, None),
-            check_vma=True,
-        )
+        _a = _a.conj()
+        _out_a, _out_b, _status = ffi_fn(_a, _b)
+        return _out_a, _out_b, _status
 
     def fn(_a, _b):
         _a = pad_fn(_a)
-        _out, _status = impl(_a, _b)
-        return _out, _status
+        _out_a, _out_b, _status = impl(_a, _b)
+        return _out_b, _status
 
-    out, status = fn(a.conj(), b)
+    out, status = fn(a, b)
     if return_status:
         return out, status[0]
     else:
@@ -175,16 +180,16 @@ def potrs_shardmap_ctx(a: Array, b: Array, T_A: int, pad=True) -> Tuple[Array, A
     for contexts where the input ``a`` is already laid out and sharded at the
     application level (for example when running inside a custom
     ``shard_map``/pjit-managed context). It performs the same padding logic
-    driven by ``T_A`` and directly calls the native ``potrs_mg`` FFI targets 
+    driven by ``T_A`` and directly calls the native ``potrs_mg`` FFI targets
     via ``jax.ffi.ffi_call`` instead of constructing an additional ``shard_map``
     wrapper.
 
     Tip:
         If the shards of the matrix cannot be padded with tiles of size `T_A`
         (``N / num_gpus % T_A != 0``) we have to add padding to fit the last tile.
-        This requires copying the matrix, which we want to avoid at all costs for 
+        This requires copying the matrix, which we want to avoid at all costs for
         large ``N``. Make sure you pick ``T_A`` large enough (>=128) and such that it
-        can evenly cover the shards. In principle, increasing ``T_A`` will increase 
+        can evenly cover the shards. In principle, increasing ``T_A`` will increase
         performance at the cost of memory, but depending on ``N``, the performance
           will saturate.
 
@@ -193,10 +198,10 @@ def potrs_shardmap_ctx(a: Array, b: Array, T_A: int, pad=True) -> Tuple[Array, A
             symmetric for correct solver behavior.
         b (Array): 2D right-hand side. Its first dimension must equal the
             number of columns of ``a`` (i.e. ``a.shape[1] == b.shape[0]``).
-        T_A (int): Tile width used by the native solver. Each 
-            local shard length must be a multiple of ``T_A``. If the user provides a 
+        T_A (int): Tile width used by the native solver. Each
+            local shard length must be a multiple of ``T_A``. If the user provides a
             ``T_A`` that is incompatible with the shard size we pad the matrix
-            accordingly. For small tile sizes (``T_A``< 128), the solver can 
+            accordingly. For small tile sizes (``T_A``< 128), the solver can
             be extremely slow, so ensure that ``T_A`` is large enough. In principle,
             the larger ``T_A`` the faster the solver runs.
         pad (bool, optional): If True (default) apply per-device padding to
@@ -227,10 +232,26 @@ def potrs_shardmap_ctx(a: Array, b: Array, T_A: int, pad=True) -> Tuple[Array, A
 
     # Keep b in column-major layout
     input_layouts = ((0, 1), (1, 0))
-    output_layouts = ((1, 0), (0,))
+    output_layouts = ((0, 1), (1, 0), (0,))
 
     padding = calculate_padding(shard_size, T_A)
+
+    if not pad or padding == 0 or T_A >= N // ndev:
+        if T_A < N // ndev:
+            assert (
+                shard_size == (N + ndev * padding) // ndev
+            ), f"pad=False, but with T_A={T_A}, we need padding of {padding} rows per device."
+            f"Expected {N + ndev * padding} rows, but received {shard_size}"
+        # Identity padding
+        pad_fn = lambda _a: _a
+        padding = 0
+
+    else:
+        # Make padding fns
+        pad_fn = partial(pad_rows, padding=padding)
+
     out_type = (
+        jax.ShapeDtypeStruct((shard_size + padding, N), a.dtype),
         jax.ShapeDtypeStruct(b.shape, b.dtype),
         jax.ShapeDtypeStruct((1,), jnp.int32),
     )
@@ -242,31 +263,20 @@ def potrs_shardmap_ctx(a: Array, b: Array, T_A: int, pad=True) -> Tuple[Array, A
             out_type,
             input_layouts=input_layouts,
             output_layouts=output_layouts,
+            input_output_aliases={0: 0, 1: 1},
         ),
         T_A=T_A,
     )
 
     # Jit with donate_argnums=0 is crucial for buffer sharing
     def impl(_a, _b):
-        _a, _status = ffi_fn(_a, _b)
-        return _a, _status
-
-    if not pad or padding == 0 or T_A >= N // ndev:
-        if T_A < N // ndev:
-            assert (
-                shard_size == (N + ndev * padding) // ndev
-            ), f"pad=False, but with T_A={T_A}, we need padding of {padding} rows per device."
-            f"Expected {N + ndev * padding} rows, but received {shard_size}"
-        # Identity padding
-        pad_fn = lambda _a: _a
-
-    else:
-        # Make padding fns
-        pad_fn = partial(pad_rows, padding=padding)
+        _a = _a.conj()
+        _out_a, _out_b, _status = ffi_fn(_a, _b)
+        return _out_b, _status
 
     def fn(_a, _b):
         _a = pad_fn(_a)
         _out, _status = impl(_a, _b)
         return _out, _status
 
-    return fn(a.conj(), b)
+    return fn(a, b)

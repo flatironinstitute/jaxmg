@@ -103,7 +103,9 @@ namespace jax
         ffi::Error PotrsMgImpl(int64_t N, int64_t NRHS, int64_t batch_a,
                                gpuStream_t stream, ffi::ScratchAllocator &scratch,
                                ffi::AnyBuffer a, ffi::AnyBuffer b, int64_t tile_size,
-                               ffi::Result<ffi::AnyBuffer> out, ffi::Result<ffi::Buffer<ffi::S32>> status)
+                               ffi::Result<ffi::AnyBuffer> out_a, 
+                               ffi::Result<ffi::AnyBuffer> out_b, 
+                               ffi::Result<ffi::Buffer<ffi::S32>> status)
         {
             /* misc */
             const std::string &source = __FILE__; // file name for error messages
@@ -125,7 +127,8 @@ namespace jax
             /* data */
             auto array_data_A = static_cast<data_type *>(a.untyped_data()); // XLA device pointer for a
             auto array_data_b = static_cast<data_type *>(b.untyped_data());
-            auto out_data = static_cast<data_type *>(out->untyped_data());
+            auto out_data_a = static_cast<data_type *>(out_a->untyped_data());
+            auto out_data_b = static_cast<data_type *>(out_b->untyped_data());
 
             /* Tiling sizes */
             const int IA = 1; // index within a global matrix, base-1 (not used)
@@ -169,8 +172,10 @@ namespace jax
             sharedMemoryInfo shminfo_offsetA;       // Shared memory info for offsets of A pointers
             sharedMemoryInfo shminfoBipc;           // Shared memory info for device pointers to b matrices
             sharedMemoryInfo shminfo_offsetB;       // Shared memory info for offsets of b pointers
-            sharedMemoryInfo shminfooutdataipc;     // Shared memory info for device pointers to out matrices
-            sharedMemoryInfo shminfo_offsetoutdata; // Shared memory info for offsets of out pointers
+            sharedMemoryInfo shminfooutdataaipc;     // Shared memory info for device pointers to out_a matrices
+            sharedMemoryInfo shminfooutdatabipc;     // Shared memory info for device pointers to out_b matrices
+            sharedMemoryInfo shminfo_offsetoutdataa; // Shared memory info for offsets of out_a pointers
+            sharedMemoryInfo shminfo_offsetoutdatab; // Shared memory info for offsets of out_b pointers
             sharedMemoryInfo shminfoworkipc;        // Shared memory info for workspace pointers
             sharedMemoryInfo shminfo_offsetwork;    // Shared memory info for offsets of workspace pointers
             sharedMemoryInfo shminfolwork;          // Shared memory info for lwork
@@ -186,11 +191,16 @@ namespace jax
             IpcOpenResult<data_type> opened_ptrs_B;
             cudaIpcMemHandle_t *shmBipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoBipc, "shmBipc");
             uintptr_t *shmoffsetB = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetB, "shmoffsetB");
-            // Data handles out_data
-            std::vector<data_type *> shmoutdata(nbGpus, nullptr);
-            IpcOpenResult<data_type> opened_ptrs_outdata;
-            cudaIpcMemHandle_t *shmoutdataipc = get_shm_ipc_handles(currentDevice, sync_point, shminfooutdataipc, "shmoutdataipc");
-            uintptr_t *shmoffsetoutdata = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetoutdata, "shmoffsetoutdata");
+            // Data handles out_data_a
+            std::vector<data_type *> shmoutdataa(nbGpus, nullptr);
+            IpcOpenResult<data_type> opened_ptrs_outdataa;
+            cudaIpcMemHandle_t *shmoutdataaipc = get_shm_ipc_handles(currentDevice, sync_point, shminfooutdataaipc, "shmoutdataaipc");
+            uintptr_t *shmoffsetoutdataa = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetoutdataa, "shmoffsetoutdataa");
+            // Data handles out_data_b
+            std::vector<data_type *> shmoutdatab(nbGpus, nullptr);
+            IpcOpenResult<data_type> opened_ptrs_outdatab;
+            cudaIpcMemHandle_t *shmoutdatabipc = get_shm_ipc_handles(currentDevice, sync_point, shminfooutdatabipc, "shmoutdatabipc");
+            uintptr_t *shmoffsetoutdatab = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetoutdatab, "shmoffsetoutdatab");
             // Data handles shmwork
             std::vector<data_type *> shmwork(nbGpus, nullptr);
             IpcOpenResult<data_type> opened_ptrs_work;
@@ -234,7 +244,8 @@ namespace jax
             sync_point.arrive_and_wait();
             ipcGetHandleAndOffset(array_data_A, shmAipc[currentDevice], shmoffsetA[currentDevice]);
             ipcGetHandleAndOffset(array_data_b, shmBipc[currentDevice], shmoffsetB[currentDevice]);
-            ipcGetHandleAndOffset(out_data, shmoutdataipc[currentDevice], shmoffsetoutdata[currentDevice]);
+            ipcGetHandleAndOffset(out_data_a, shmoutdataaipc[currentDevice], shmoffsetoutdataa[currentDevice]);
+            ipcGetHandleAndOffset(out_data_b, shmoutdatabipc[currentDevice], shmoffsetoutdatab[currentDevice]);
 
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
@@ -244,17 +255,20 @@ namespace jax
             {
                 opened_ptrs_A = ipcGetDevicePointers<data_type>(currentDevice, nbGpus, shmAipc, shmoffsetA);
                 opened_ptrs_B = ipcGetDevicePointers<data_type>(currentDevice, nbGpus, shmBipc, shmoffsetB);
-                opened_ptrs_outdata = ipcGetDevicePointers<data_type>(currentDevice, nbGpus, shmoutdataipc, shmoffsetoutdata);
+                opened_ptrs_outdataa = ipcGetDevicePointers<data_type>(currentDevice, nbGpus, shmoutdataaipc, shmoffsetoutdatab);
+                opened_ptrs_outdatab = ipcGetDevicePointers<data_type>(currentDevice, nbGpus, shmoutdatabipc, shmoffsetoutdatab);
 
                 for (int dev = 1; dev < nbGpus; ++dev)
                 {
                     shmA[dev] = opened_ptrs_A.ptrs[dev];
                     shmB[dev] = opened_ptrs_B.ptrs[dev];
-                    shmoutdata[dev] = opened_ptrs_outdata.ptrs[dev];
+                    shmoutdataa[dev] = opened_ptrs_outdataa.ptrs[dev];
+                    shmoutdatab[dev] = opened_ptrs_outdatab.ptrs[dev];
                 }
                 shmA[0] = array_data_A;
                 shmB[0] = array_data_b;
-                shmoutdata[0] = out_data;
+                shmoutdataa[0] = out_data_a;
+                shmoutdatab[0] = out_data_b;
             }
 
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
@@ -376,16 +390,20 @@ namespace jax
             {
                 for (int dev = 0; dev < nbGpus; dev++)
                 {
-                    JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(shmoutdata[dev], shmB[0], b.size_bytes(), gpuMemcpyDeviceToDevice));
+                    JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(shmoutdatab[dev], shmB[0], b.size_bytes(), gpuMemcpyDeviceToDevice));
                 }
             }
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
+            // Set output pointers for A
+            if (cusolver_status_host[currentDevice] == 0){
+                shmoutdataa[currentDevice] = shmA[currentDevice];
+            }
             // Fill nans if solver failed
-            if (cusolver_status_host[currentDevice] != 0)
+            else
             {
                 std::vector<typename traits<data_type>::T> host_nan(N * NRHS, traits<data_type>::nan());
-                JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(out_data, host_nan.data(), sizeof(data_type) * N * NRHS, gpuMemcpyHostToDevice));
+                JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(out_data_b, host_nan.data(), sizeof(data_type) * N * NRHS, gpuMemcpyHostToDevice));
             }
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
@@ -403,8 +421,10 @@ namespace jax
                 sharedMemoryCleanup(&shminfoAipc, "shmAipc");
                 sharedMemoryCleanup(&shminfo_offsetB, "shmoffsetB");
                 sharedMemoryCleanup(&shminfoBipc, "shmBipc");
-                sharedMemoryCleanup(&shminfo_offsetoutdata, "shmoffsetoutdata");
-                sharedMemoryCleanup(&shminfooutdataipc, "shmoutdataipc");
+                sharedMemoryCleanup(&shminfo_offsetoutdataa, "shmoffsetoutdataa");
+                sharedMemoryCleanup(&shminfo_offsetoutdatab, "shmoffsetoutdatab");
+                sharedMemoryCleanup(&shminfooutdatabipc, "shmoutdataaipc");
+                sharedMemoryCleanup(&shminfooutdatabipc, "shmoutdatabipc");
                 sharedMemoryCleanup(&shminfoworkipc, "shmworkipc");
                 sharedMemoryCleanup(&shminfo_offsetwork, "shmoffsetwork");
                 sharedMemoryCleanup(&shminfolwork, "shmlwork");
@@ -412,7 +432,8 @@ namespace jax
                 // Close memory handles
                 ipcCloseDevicePointers(currentDevice, opened_ptrs_A.bases, nbGpus);
                 ipcCloseDevicePointers(currentDevice, opened_ptrs_B.bases, nbGpus);
-                ipcCloseDevicePointers(currentDevice, opened_ptrs_outdata.bases, nbGpus);
+                ipcCloseDevicePointers(currentDevice, opened_ptrs_outdataa.bases, nbGpus);
+                ipcCloseDevicePointers(currentDevice, opened_ptrs_outdatab.bases, nbGpus);
                 workspaceFree(nbGpus, deviceList.data(), reinterpret_cast<void **>(shmwork.data()));
             }
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
@@ -423,7 +444,9 @@ namespace jax
 
         ffi::Error PotrsMgDispatch(gpuStream_t stream, ffi::ScratchAllocator scratch,
                                    ffi::AnyBuffer a, ffi::AnyBuffer b, int64_t tile_size,
-                                   ffi::Result<ffi::AnyBuffer> out, ffi::Result<ffi::Buffer<ffi::S32>> status)
+                                   ffi::Result<ffi::AnyBuffer> out_a,
+                                   ffi::Result<ffi::AnyBuffer> out_b,
+                                    ffi::Result<ffi::Buffer<ffi::S32>> status)
         {
             auto dataType = a.element_type();
 
@@ -432,7 +455,12 @@ namespace jax
             FFI_ASSIGN_OR_RETURN((const auto [N_b, NRHS]), SplitBatch1D(b.dimensions()));
             FFI_RETURN_IF_ERROR(CheckShape(b.dimensions(), {N, NRHS}, "b", "potrf"));
 
-            if (dataType != out->element_type())
+            if (dataType != out_a->element_type())
+            {
+                return ffi::Error::InvalidArgument(
+                    "The input and output to potrs must have the same element type");
+            }
+            if (dataType != out_b->element_type())
             {
                 return ffi::Error::InvalidArgument(
                     "The input and output to potrs must have the same element type");
@@ -444,7 +472,7 @@ namespace jax
             }
             FFI_RETURN_IF_ERROR(CheckShape(status->dimensions(), 1, "status", "potrf"));
 
-            SOLVER_DISPATCH_IMPL(PotrsMgImpl, N, NRHS, batch_a, stream, scratch, a, b, tile_size, out, status);
+            SOLVER_DISPATCH_IMPL(PotrsMgImpl, N, NRHS, batch_a, stream, scratch, a, b, tile_size, out_a,out_b, status);
 
             return ffi::Error::InvalidArgument(absl::StrFormat(
                 "Unsupported data type%s for potrs", absl::FormatStreamed(dataType)));
@@ -457,7 +485,8 @@ namespace jax
                                           .Arg<ffi::AnyBuffer>()        // A
                                           .Arg<ffi::AnyBuffer>()        // b
                                           .Attr<int64_t>("T_A")         // tile size
-                                          .Ret<ffi::AnyBuffer>()        // x
+                                          .Ret<ffi::AnyBuffer>()        // A_out
+                                          .Ret<ffi::AnyBuffer>()        // b_out
                                           .Ret<ffi::Buffer<ffi::S32>>() // status
         );
 

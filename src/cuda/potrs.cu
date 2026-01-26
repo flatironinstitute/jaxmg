@@ -102,7 +102,9 @@ namespace jax
         ffi::Error PotrsMgImpl(int64_t N, int64_t NRHS, int64_t batch_a,
                                gpuStream_t stream, ffi::ScratchAllocator &scratch,
                                ffi::AnyBuffer a, ffi::AnyBuffer b, int64_t tile_size,
-                               ffi::Result<ffi::AnyBuffer> out, ffi::Result<ffi::Buffer<ffi::S32>> status)
+                               ffi::Result<ffi::AnyBuffer> out_a,
+                               ffi::Result<ffi::AnyBuffer> out_b, 
+                               ffi::Result<ffi::Buffer<ffi::S32>> status)
         {
             /* misc */
             const std::string &source = __FILE__; // file name for error messages
@@ -123,7 +125,8 @@ namespace jax
             /* data */
             auto array_data_A = static_cast<data_type *>(a.untyped_data()); // XLA device pointer for a
             auto array_data_b = static_cast<data_type *>(b.untyped_data());
-            auto out_data = static_cast<data_type *>(out->untyped_data());
+            auto out_data_a = static_cast<data_type *>(out_a->untyped_data());
+            auto out_data_b = static_cast<data_type *>(out_b->untyped_data());
 
             /* Tiling sizes */
             const int IA = 1; // index within a global matrix, base-1 (not used)
@@ -321,12 +324,13 @@ namespace jax
             // Collect solutions, fill nans if solver failed
             if (cusolver_status_host[currentDevice] == 0)
             {
-                JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(out_data, shmB[currentDevice], b.size_bytes(), gpuMemcpyDeviceToDevice));
+                out_data_a = shmA[currentDevice];
+                out_data_b = shmB[currentDevice];
             }
             else
             {
                 std::vector<typename traits<data_type>::T> host_nan(N * NRHS, traits<data_type>::nan());
-                JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(out_data, host_nan.data(), sizeof(data_type) * N * NRHS, gpuMemcpyHostToDevice));
+                JAX_FFI_RETURN_IF_GPU_ERROR(gpuMemcpy(out_data_b, host_nan.data(), sizeof(data_type) * N * NRHS, gpuMemcpyHostToDevice));
             }
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
@@ -354,7 +358,9 @@ namespace jax
 
         ffi::Error PotrsMgDispatch(gpuStream_t stream, ffi::ScratchAllocator scratch,
                                    ffi::AnyBuffer a, ffi::AnyBuffer b, int64_t tile_size,
-                                   ffi::Result<ffi::AnyBuffer> out, ffi::Result<ffi::Buffer<ffi::S32>> status)
+                                   ffi::Result<ffi::AnyBuffer> out_a, 
+                                   ffi::Result<ffi::AnyBuffer> out_b, 
+                                   ffi::Result<ffi::Buffer<ffi::S32>> status)
         {
             auto dataType = a.element_type();
 
@@ -363,7 +369,12 @@ namespace jax
             FFI_ASSIGN_OR_RETURN((const auto [N_b, NRHS]), SplitBatch1D(b.dimensions()));
             FFI_RETURN_IF_ERROR(CheckShape(b.dimensions(), {N, NRHS}, "b", "potrf"));
 
-            if (dataType != out->element_type())
+            if (dataType != out_a->element_type())
+            {
+                return ffi::Error::InvalidArgument(
+                    "The input and output to potrs must have the same element type");
+            }
+            if (dataType != out_b->element_type())
             {
                 return ffi::Error::InvalidArgument(
                     "The input and output to potrs must have the same element type");
@@ -375,7 +386,7 @@ namespace jax
             }
             FFI_RETURN_IF_ERROR(CheckShape(status->dimensions(), 1, "status", "potrf"));
 
-            SOLVER_DISPATCH_IMPL(PotrsMgImpl, N, NRHS, batch_a, stream, scratch, a, b, tile_size, out, status);
+            SOLVER_DISPATCH_IMPL(PotrsMgImpl, N, NRHS, batch_a, stream, scratch, a, b, tile_size, out_a, out_b, status);
 
             return ffi::Error::InvalidArgument(absl::StrFormat(
                 "Unsupported data type%s for potrs", absl::FormatStreamed(dataType)));
@@ -388,7 +399,8 @@ namespace jax
                                           .Arg<ffi::AnyBuffer>()        // A
                                           .Arg<ffi::AnyBuffer>()        // b
                                           .Attr<int64_t>("T_A")         // tile size
-                                          .Ret<ffi::AnyBuffer>()        // x
+                                          .Ret<ffi::AnyBuffer>()        // A_out
+                                          .Ret<ffi::AnyBuffer>()        // b_out
                                           .Ret<ffi::Buffer<ffi::S32>>() // status
         );
 
