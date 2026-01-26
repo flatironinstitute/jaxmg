@@ -2,54 +2,54 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://therooler.github.io/jaxmg/</loc>
-         <lastmod>2026-01-15</lastmod>
+         <lastmod>2026-01-26</lastmod>
     </url>
     <url>
          <loc>https://therooler.github.io/jaxmg/install/</loc>
-         <lastmod>2026-01-15</lastmod>
+         <lastmod>2026-01-26</lastmod>
     </url>
     <url>
          <loc>https://therooler.github.io/jaxmg/api/</loc>
-         <lastmod>2026-01-15</lastmod>
+         <lastmod>2026-01-26</lastmod>
     </url>
     <url>
          <loc>https://therooler.github.io/jaxmg/api/cyclic_1d/</loc>
-         <lastmod>2026-01-15</lastmod>
+         <lastmod>2026-01-26</lastmod>
     </url>
     <url>
          <loc>https://therooler.github.io/jaxmg/api/potri/</loc>
-         <lastmod>2026-01-15</lastmod>
+         <lastmod>2026-01-26</lastmod>
     </url>
     <url>
          <loc>https://therooler.github.io/jaxmg/api/potrs/</loc>
-         <lastmod>2026-01-15</lastmod>
+         <lastmod>2026-01-26</lastmod>
     </url>
     <url>
          <loc>https://therooler.github.io/jaxmg/api/syevd/</loc>
-         <lastmod>2026-01-15</lastmod>
+         <lastmod>2026-01-26</lastmod>
     </url>
     <url>
          <loc>https://therooler.github.io/jaxmg/technical_details/col_maj/</loc>
-         <lastmod>2026-01-15</lastmod>
+         <lastmod>2026-01-26</lastmod>
     </url>
     <url>
          <loc>https://therooler.github.io/jaxmg/technical_details/mpmd/</loc>
-         <lastmod>2026-01-15</lastmod>
+         <lastmod>2026-01-26</lastmod>
     </url>
     <url>
          <loc>https://therooler.github.io/jaxmg/technical_details/spmd/</loc>
-         <lastmod>2026-01-15</lastmod>
+         <lastmod>2026-01-26</lastmod>
     </url>
     <url>
          <loc>https://therooler.github.io/jaxmg/examples/block_cyclic_data_layout/</loc>
-         <lastmod>2026-01-15</lastmod>
+         <lastmod>2026-01-26</lastmod>
     </url>
     <url>
          <loc>https://therooler.github.io/jaxmg/examples/potrs_example/</loc>
-         <lastmod>2026-01-15</lastmod>
+         <lastmod>2026-01-26</lastmod>
     </url>
     <url>
          <loc>https://therooler.github.io/jaxmg/examples/spmd_mpmd/</loc>
-         <lastmod>2026-01-15</lastmod>
+         <lastmod>2026-01-26</lastmod>
     </url>
 </urlset>
