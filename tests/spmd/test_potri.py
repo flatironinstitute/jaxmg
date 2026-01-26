@@ -141,3 +141,22 @@ def test_cusolver_solve_non_psd_dev_1(N, T_A, dtype):
 @pytest.mark.parametrize("N", N_list)
 def test_cusolver_solve_non_symm_dev_1(N, T_A, dtype):
     cusolver_solve_non_symm(N, T_A, dtype)
+
+
+@pytest.mark.parametrize(
+    "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
+)
+def test_cusolver_inplace_check(dtype):
+    N = ndev * 2
+    T_A = 1
+    A = random_psd(N, dtype=dtype, seed=1234)
+    expected_out = jnp.linalg.inv(A)
+    # Make mesh and place data
+    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+    A_inv = jitted_potri(_A, T_A)
+    norm_potri = jnp.linalg.norm(A @ A_inv - jnp.eye(N, dtype=dtype))
+    norm_lax = jnp.linalg.norm(A @ expected_out - jnp.eye(N, dtype=dtype))
+    assert jnp.isclose(norm_potri, norm_lax, rtol=10, atol=1e-8)
+    A_inv = jitted_potri(_A, T_A)
+    norm_potri = jnp.linalg.norm(A @ A_inv - jnp.eye(N, dtype=dtype))
+    assert jnp.isclose(norm_potri, norm_lax, rtol=10, atol=1e-8)

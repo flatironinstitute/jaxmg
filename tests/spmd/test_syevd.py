@@ -151,3 +151,18 @@ def test_cusolver_solve_arange_no_v(N, T_A, dtype):
 @pytest.mark.parametrize("N", N_list)
 def test_cusolver_solve_psd_no_v(N, T_A, dtype):
     cusolver_solve_psd_no_V(N, T_A, dtype)
+
+@pytest.mark.parametrize(
+    "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
+)
+def test_cusolver_inplace_check(dtype):
+    N = ndev * 2
+    T_A = 1
+    A = random_psd(N, dtype=dtype, seed=1234)
+    # Make mesh and place data
+    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+    expected = jnp.linalg.eigvalsh(A)
+    eigenvalues, _ = jitted_syevd(_A, T_A)
+    assert jnp.allclose(expected, eigenvalues, atol=1e-4)
+    eigenvalues, _ = jitted_syevd(_A, T_A)
+    assert jnp.allclose(expected, eigenvalues, atol=1e-4)
