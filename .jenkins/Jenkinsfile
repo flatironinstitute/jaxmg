@@ -22,6 +22,7 @@ pipeline {
                         CUDA_ROOT = '/usr/local/cuda'
                         CUDNN_ROOT = '/usr'
                         JAX_VERSION = '0.6.2'
+                        XLA_PYTHON_CLIENT_ALLOCATOR = 'platform'
                     }
                     steps {
                             sh '''#!/bin/bash -ex
