@@ -60,22 +60,24 @@ def _initialize():
 
         jax.config.update("jax_enable_x64", True)
 
-        # Necessary to ensure jaxmg can be imported during compile time.
-        with jax.ensure_compile_time_eval():
-            n_machines, n_devices_per_node, _, mode = (
-                determine_distributed_setup()
-            )
+        if not jax.distributed.is_initialized():
+            n_machines = 1
+            n_devices_per_node = jax.local_device_count()
+            mode = "SPMD"
+        else:
+            # Necessary to ensure jaxmg can be imported during compile time.
+            with jax.ensure_compile_time_eval():
+                n_machines, n_devices_per_node, _, mode = determine_distributed_setup()
+            if n_machines > 1:
+                warnings.warn(
+                    "Computation seems to be running on multiple machines.\n"
+                    "Ensure that jaxmg is only called over a local device mesh, otherwise process might hang.\n"
+                    "See examples for how this can be safely achieved.",
+                    JaxMgWarning,
+                    stacklevel=4,  # _initialize -> ensure_init_jaxmg_backend -> public fn -> user code
+                )
 
         os.environ["JAXMG_NUMBER_OF_DEVICES"] = str(n_devices_per_node)
-
-        if n_machines > 1:
-            warnings.warn(
-                "Computation seems to be running on multiple machines.\n"
-                "Ensure that jaxmg is only called over a local device mesh, otherwise process might hang.\n"
-                "See examples for how this can be safely achieved.",
-                JaxMgWarning,
-                stacklevel=4,  # _initialize -> ensure_init_jaxmg_backend -> public fn -> user code
-            )
 
         if mode == "SPMD":
             library_cyclic = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libcyclic.so"))
