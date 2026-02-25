@@ -127,7 +127,7 @@ def syevd(
     assert a.ndim == 2, "a must be a 2D array."
     if T_A > 1024:
         raise ValueError(
-            "T_A has a maximum value of 1024 for SyevdMg, received T_A={T_A}"
+            f"T_A has a maximum value of 1024 for SyevdMg, received T_A={T_A}"
         )
     axis_name = in_specs._partitions[0]
     N_rows, N = a.shape
@@ -299,7 +299,7 @@ def syevd_shardmap_ctx(
     assert a.ndim == 2, "a must be a 2D array."
     if T_A > 1024:
         raise ValueError(
-            "T_A has a maximum value of 1024 for SyevdMg, received T_A={T_A}"
+            f"T_A has a maximum value of 1024 for SyevdMg, received T_A={T_A}"
         )
     shard_size, N = a.shape
 
