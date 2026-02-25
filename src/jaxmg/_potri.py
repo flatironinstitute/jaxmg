@@ -1,5 +1,4 @@
 import os
-import ctypes
 import jax
 import jax.numpy as jnp
 
@@ -10,6 +9,7 @@ from functools import partial
 from typing import Tuple, Union
 
 from ._cyclic_1d import calculate_padding, pad_rows, unpad_rows
+from ._setup import ensure_init_jaxmg_backend
 
 
 def potri(
@@ -75,6 +75,7 @@ def potri(
         - If the native solver fails the output may contain NaNs and ``status``
           will be non-zero.
     """
+    ensure_init_jaxmg_backend()
 
     ndev = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
     # Normalize in_specs so it's a single PartitionSpec instance (not an iterable)
@@ -236,6 +237,7 @@ def potri_shardmap_ctx(a: Array, T_A: int, pad=True) -> Union[Array, Tuple[Array
         - If the native solver fails the output may contain NaNs and the
           returned ``status`` will be non-zero.
     """
+    ensure_init_jaxmg_backend()
 
     ndev = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
     # Normalize in_specs so it's a single PartitionSpec instance (not an iterable)

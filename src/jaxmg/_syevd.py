@@ -18,7 +18,6 @@ and packaging of the extension are useful for testing.
 """
 
 import os
-import ctypes
 
 import jax
 import jax.numpy as jnp
@@ -30,6 +29,7 @@ from typing import Tuple, Union
 
 from .utils import maybe_real_dtype_from_complex
 from ._cyclic_1d import calculate_padding, pad_rows, unpad_rows
+from ._setup import ensure_init_jaxmg_backend
 
 
 def syevd(
@@ -107,6 +107,7 @@ def syevd(
         - If the native solver fails the outputs may contain NaNs and the
           status (when requested) will be non-zero.
     """
+    ensure_init_jaxmg_backend()
     ndev = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
     # Normalize in_specs so it's a single PartitionSpec instance (not an iterable)
     if isinstance(in_specs, (list, tuple)):
@@ -292,6 +293,7 @@ def syevd_shardmap_ctx(
         - If the native solver fails the outputs may contain NaNs and the
           returned ``status`` (when present) will be non-zero.
     """
+    ensure_init_jaxmg_backend()
     ndev = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
     # Normalize in_specs so it's a single PartitionSpec instance (not an iterable)
     assert a.ndim == 2, "a must be a 2D array."

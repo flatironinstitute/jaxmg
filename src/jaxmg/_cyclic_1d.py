@@ -8,6 +8,9 @@ from typing import Tuple, List, Union
 
 from functools import partial
 
+from ._setup import ensure_init_jaxmg_backend
+
+
 def cyclic_1d(a: Array, T_A: int, mesh: Mesh, in_specs: Tuple[P] | List[P], pad=True)-> Union[Array, Tuple[Array, int]]:
     """
     Prepare and run the 1D block-cyclic remapping FFI kernel for row-sharded arrays.
@@ -72,6 +75,7 @@ def cyclic_1d(a: Array, T_A: int, mesh: Mesh, in_specs: Tuple[P] | List[P], pad=
         - The function assumes the mesh/device count evenly partitions the
           first (row) dimension; local shard size is computed as ``N_rows // ndev``.
     """
+    ensure_init_jaxmg_backend()
 
     ndev = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
     # Normalize in_specs so it's a single PartitionSpec instance (not an iterable)
