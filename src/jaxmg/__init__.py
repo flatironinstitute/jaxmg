@@ -1,5 +1,3 @@
-from ._setup import ensure_init_jaxmg_backend
-
 from ._potrs import potrs, potrs_shardmap_ctx
 from ._potri import potri, potri_shardmap_ctx, potri_symmetrize
 from ._syevd import syevd, syevd_shardmap_ctx
@@ -12,7 +10,6 @@ from ._cyclic_1d import (
     get_cols_cyclic,
     plot_block_to_cyclic,
 )
-from .utils import determine_distributed_setup
 
 __all__ = [
     "potrs",
@@ -29,6 +26,4 @@ __all__ = [
     "calculate_padding",
     "get_cols_cyclic",
     "plot_block_to_cyclic",
-    "determine_distributed_setup",
-    "ensure_init_jaxmg_backend",
 ]
