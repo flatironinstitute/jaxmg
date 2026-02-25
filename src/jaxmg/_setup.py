@@ -58,9 +58,11 @@ if any("gpu" == d.platform for d in jax.devices()):
 
     jax.config.update("jax_enable_x64", True)
 
-    n_machines, n_devices_per_node, n_devices_per_process, mode = (
-        determine_distributed_setup()
-    )
+    # Necessary to ensure jaxmg can be imported during compile time.
+    with jax.ensure_compile_time_eval():
+        n_machines, n_devices_per_node, n_devices_per_process, mode = (
+            determine_distributed_setup()
+        )
 
     os.environ["JAXMG_NUMBER_OF_DEVICES"] = str(n_devices_per_node)
 
