@@ -15,9 +15,9 @@ from jaxmg.utils import random_psd
 
 from functools import partial
 
-if len(jax.devices("gpu"))==0:
+if len(jax.devices("gpu")) == 0:
     pytest.skip("No GPUs found. Skipping test...")
-    
+
 devices = [d for d in jax.devices() if d.platform == "gpu"]
 ndev = len(devices)
 mesh = jax.make_mesh((ndev,), ("x",))
@@ -29,16 +29,14 @@ T_A_list = [1, 2, 3, 5]
 
 @partial(jax.jit, static_argnames=("_T_A",))
 def jitted_potrs(_a, _b, _T_A):
-    out = partial(potrs, mesh=mesh, in_specs=(P("x", None),), pad=True)(
-        _a, _b, _T_A
-    )
+    out = partial(potrs, mesh=mesh, in_specs=(P("x", None),), pad=True)(_a, _b, _T_A)
     return out
 
 
 @partial(jax.jit, static_argnames=("_T_A",))
 def jitted_potrs_status(_a, _b, _T_A):
     out = partial(
-        potrs, mesh=mesh, in_specs=(P("x", None), ), pad=True, return_status=True
+        potrs, mesh=mesh, in_specs=(P("x", None),), pad=True, return_status=True
     )(_a, _b, _T_A)
     return out
 
@@ -152,6 +150,7 @@ def test_cusolver_solve_non_psd(N, T_A, dtype):
 def test_cusolver_solve_non_symm(N, T_A, dtype):
     cusolver_solve_non_symm(N, T_A, dtype)
 
+
 @pytest.mark.parametrize(
     "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
 )
@@ -168,5 +167,20 @@ def test_cusolver_inplace_check(dtype):
 
     out = jitted_potrs(_A, _b, T_A)
     assert jnp.allclose(out, expected_out, atol=1e-4)
+    out = jitted_potrs(_A, _b, T_A)
+    assert jnp.allclose(out, expected_out, atol=1e-4)
+
+
+def test_potrs_multiple_rhs():
+    """Test potrs with multiple right-hand sides (b shape (N, 3))."""
+    N = ndev * 2
+    T_A = 1
+    dtype = jnp.float64
+    A = random_psd(N, dtype=dtype, seed=5678)
+    b = jnp.arange(N * 3, dtype=dtype).reshape(N, 3) + 1
+    cfac = jax.scipy.linalg.cho_factor(A)
+    expected_out = jax.scipy.linalg.cho_solve(cfac, b)
+    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+    _b = jax.device_put(b, NamedSharding(mesh, P(None, None)))
     out = jitted_potrs(_A, _b, T_A)
     assert jnp.allclose(out, expected_out, atol=1e-4)
