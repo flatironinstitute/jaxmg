@@ -88,7 +88,7 @@ def test_potrs_examples():
     A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
     b = jax.device_put(b, NamedSharding(mesh, P(None, None)))
     # Call potrs
-    out = potrs(A, b, T_A=T_A, mesh=mesh, in_specs=(P("x", None), P(None, None)))
+    out = potrs(A, b, T_A=T_A, mesh=mesh, in_specs=(P("x", None),))
     print(out.block_until_ready())
     expected_out = 1.0 / (jnp.arange(N, dtype=dtype) + 1)
     assert jnp.allclose(out.flatten(), expected_out)
