@@ -107,9 +107,9 @@ def cusolver_solve_psd(N, T_A, dtype):
     norm_lax = jnp.linalg.norm(
         V_expected @ A - jnp.diag(eigenvalues_expected) @ V_expected.T
     )
-    assert jnp.isclose(norm_syevd, norm_lax, rtol=10, atol=1e-8)
+    assert jnp.isclose(norm_syevd, norm_lax, rtol=10, atol=0.0)
     eigenvalues_no_shm, V_no_shm, _ = jitted_syevd_no_shardmap(_A.copy(), T_A)
-    assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm, rtol=10, atol=1e-10)
+    assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm, rtol=10, atol=0.0)
 
 
 def cusolver_solve_arange_no_V(N, T_A, dtype):
