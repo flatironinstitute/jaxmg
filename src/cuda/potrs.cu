@@ -173,12 +173,12 @@ namespace jax
             sharedMemoryInfo shminfolwork; // Shared memory info for lwork space nbytes
             sharedMemoryInfo shmcsh;       // Shared memory info for cusolver status
 
-            data_type **shmA = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfoA, "shmA"); // Actual shared memory
-            data_type **shmB = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfoB, "shmB");
-            data_type **shmwork = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfowork, "shmwork");
+            data_type **shmA = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfoA, "jaxmg_shmA"); // Actual shared memory
+            data_type **shmB = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfoB, "jaxmg_shmB");
+            data_type **shmwork = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfowork, "jaxmg_shmwork");
 
-            int32_t *cusolver_status_host = get_shm_lwork_ptr<int32_t, ThreadBarrier>(currentDevice, sync_point, shmcsh, "shmcsh");
-            int64_t *shmlwork = get_shm_lwork_ptr<int64_t, ThreadBarrier>(currentDevice, sync_point, shminfolwork, "shmlwork");
+            int32_t *cusolver_status_host = get_shm_lwork_ptr<int32_t, ThreadBarrier>(currentDevice, sync_point, shmcsh, "jaxmg_shmcsh");
+            int64_t *shmlwork = get_shm_lwork_ptr<int64_t, ThreadBarrier>(currentDevice, sync_point, shminfolwork, "jaxmg_shmlwork");
 
             if (currentDevice == 0)
             {
@@ -334,21 +334,26 @@ namespace jax
             }
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
+            // Close file descriptors
+            sharedMemoryClose(&shminfoA);
+            sharedMemoryClose(&shminfoB);
+            sharedMemoryClose(&shminfowork);
+            sharedMemoryClose(&shmcsh);
+            sharedMemoryClose(&shminfolwork);
+            sync_point.arrive_and_wait();
             if (currentDevice == 0)
             {
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroyMatrixDesc(descrA));
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroyMatrixDesc(descrB));
-
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroyGrid(gridA));
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroyGrid(gridB));
-
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroy(cusolverH));
-
-                sharedMemoryCleanup(&shminfoA, "shmA");
-                sharedMemoryCleanup(&shminfoB, "shmB");
-                sharedMemoryCleanup(&shminfowork, "shmwork");
-                sharedMemoryCleanup(&shmcsh, "shmcsh");
-                sharedMemoryCleanup(&shminfolwork, "shmlwork");
+                // Unlink file descriptors
+                sharedMemoryUnlink("jaxmg_shmA");
+                sharedMemoryUnlink("jaxmg_shmB");
+                sharedMemoryUnlink("jaxmg_shmwork");
+                sharedMemoryUnlink("jaxmg_shmcsh");
+                sharedMemoryUnlink("jaxmg_shmlwork");
             }
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();

@@ -162,23 +162,23 @@ namespace jax
             // Data handles A
             std::vector<data_type *> shmA(nbGpus, nullptr);
             IpcOpenResult<data_type> opened_ptrs_A;
-            cudaIpcMemHandle_t *shmAipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoAipc, "shmAipc");
-            uintptr_t *shmoffsetA = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetA, "shmoffsetA");
+            cudaIpcMemHandle_t *shmAipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoAipc, "jaxmg_shmAipc");
+            uintptr_t *shmoffsetA = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetA, "jaxmg_shmoffsetA");
 
             // Data handles out_data
             std::vector<data_type *> shmoutdata(nbGpus, nullptr);
             IpcOpenResult<data_type> opened_ptrs_outdata;
-            cudaIpcMemHandle_t *shmoutdataipc = get_shm_ipc_handles(currentDevice, sync_point, shminfooutdataipc, "shmoutdataipc");
-            uintptr_t *shmoffsetoutdata = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetoutdata, "shmoffsetoutdata");
+            cudaIpcMemHandle_t *shmoutdataipc = get_shm_ipc_handles(currentDevice, sync_point, shminfooutdataipc, "jaxmg_shmoutdataipc");
+            uintptr_t *shmoffsetoutdata = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetoutdata, "jaxmg_shmoffsetoutdata");
 
             // Data handles workspace
             std::vector<data_type *> shmwork(nbGpus, nullptr);
             IpcOpenResult<data_type> opened_ptrs_work;
-            cudaIpcMemHandle_t *shmworkipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoworkipc, "shmworkipc");
-            uintptr_t *shmoffsetwork = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetwork, "shmoffsetwork");
+            cudaIpcMemHandle_t *shmworkipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoworkipc, "jaxmg_shmworkipc");
+            uintptr_t *shmoffsetwork = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetwork, "jaxmg_shmoffsetwork");
 
-            int32_t *cusolver_status_host = get_shm_lwork_ptr<int32_t>(currentDevice, sync_point, shminfo_csh, "shmcsh");
-            int64_t *shmlwork = get_shm_lwork_ptr<int64_t>(currentDevice, sync_point, shminfolwork, "shmlwork");
+            int32_t *cusolver_status_host = get_shm_lwork_ptr<int32_t>(currentDevice, sync_point, shminfo_csh, "jaxmg_shmcsh");
+            int64_t *shmlwork = get_shm_lwork_ptr<int64_t>(currentDevice, sync_point, shminfolwork, "jaxmg_shmlwork");
 
             if (currentDevice == 0)
             {
@@ -354,7 +354,16 @@ namespace jax
             }
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();
-
+            // Close file descriptors
+            sharedMemoryClose(&shminfo_offsetA);
+            sharedMemoryClose(&shminfoAipc);
+            sharedMemoryClose(&shminfo_offsetoutdata);
+            sharedMemoryClose(&shminfooutdataipc);
+            sharedMemoryClose(&shminfoworkipc);
+            sharedMemoryClose(&shminfo_offsetwork);
+            sharedMemoryClose(&shminfolwork);
+            sharedMemoryClose(&shminfo_csh);
+            sync_point.arrive_and_wait();
             if (currentDevice == 0)
             {
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroyMatrixDesc(descrA));
@@ -362,15 +371,15 @@ namespace jax
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroyGrid(gridA));
 
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroy(cusolverH));
-                // Shared memory close
-                sharedMemoryCleanup(&shminfo_offsetA, "shmoffsetA");
-                sharedMemoryCleanup(&shminfoAipc, "shmAipc");
-                sharedMemoryCleanup(&shminfo_offsetoutdata, "shmoffsetoutdata");
-                sharedMemoryCleanup(&shminfooutdataipc, "shmoutdataipc");
-                sharedMemoryCleanup(&shminfoworkipc, "shmworkipc");
-                sharedMemoryCleanup(&shminfo_offsetwork, "shmoffsetwork");
-                sharedMemoryCleanup(&shminfolwork, "shmlwork");
-                sharedMemoryCleanup(&shminfo_csh, "shmcsh");
+                // Shared memory unlink
+                sharedMemoryUnlink("jaxmg_shmoffsetA");
+                sharedMemoryUnlink("jaxmg_shmAipc");
+                sharedMemoryUnlink("jaxmg_shmoffsetoutdata");
+                sharedMemoryUnlink("jaxmg_shmoutdataipc");
+                sharedMemoryUnlink("jaxmg_shmworkipc");
+                sharedMemoryUnlink("jaxmg_shmoffsetwork");
+                sharedMemoryUnlink("jaxmg_shmlwork");
+                sharedMemoryUnlink("jaxmg_shmcsh");
                 // Close memory handles
                 ipcCloseDevicePointers(currentDevice, opened_ptrs_A.bases, nbGpus);
                 ipcCloseDevicePointers(currentDevice, opened_ptrs_outdata.bases, nbGpus);
