@@ -1,13 +1,12 @@
 import os
-import ctypes
+
 import jax
 import jax.numpy as jnp
-
 from jax import Array
 from jax.sharding import PartitionSpec as P, Mesh
 
 from functools import partial
-from typing import Tuple, Union
+from typing import Tuple, Union, List
 
 from ._cyclic_1d import calculate_padding, pad_rows, unpad_rows
 
@@ -16,7 +15,7 @@ def potri(
     a: Array,
     T_A: int,
     mesh: Mesh,
-    in_specs: Tuple[P] | P,
+    in_specs: Tuple[P] | List[P] | P,
     return_status: bool = False,
     pad=True,
 ) -> Union[Array, Tuple[Array, int]]:
@@ -45,7 +44,8 @@ def potri(
             ``T_A`` that is incompatible with the shard size we pad the matrix
             accordingly. For small tile sizes (``T_A``< 128), the solver can 
             be extremely slow, so ensure that ``T_A`` is large enough. In principle,
-            the larger ``T_A`` the faster the solver runs.
+            the larger ``T_A`` the faster the solver runs. See https://arxiv.org/abs/2601.14466
+            for more details.
         mesh (Mesh): JAX device mesh used for ``jax.shard_map``.
         in_specs (PartitionSpec or tuple/list[PartitionSpec]): PartitionSpec
             describing the input sharding (row sharding). May be provided as a
