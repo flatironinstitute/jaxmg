@@ -1,6 +1,6 @@
 import os
-import jax
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 from jax.sharding import PartitionSpec as P, Mesh
