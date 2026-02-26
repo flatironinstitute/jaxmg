@@ -29,7 +29,7 @@ T_A_list = [1, 2, 3, 5]
 
 @partial(jax.jit, static_argnames=("_T_A",))
 def jitted_potrs(_a, _b, _T_A):
-    out = partial(potrs, mesh=mesh, in_specs=(P("x", None), P(None, None)), pad=True)(
+    out = partial(potrs, mesh=mesh, in_specs=(P("x", None),), pad=True)(
         _a, _b, _T_A
     )
     return out
@@ -38,7 +38,7 @@ def jitted_potrs(_a, _b, _T_A):
 @partial(jax.jit, static_argnames=("_T_A",))
 def jitted_potrs_status(_a, _b, _T_A):
     out = partial(
-        potrs, mesh=mesh, in_specs=(P("x", None), P(None, None)), pad=True, return_status=True
+        potrs, mesh=mesh, in_specs=(P("x", None), ), pad=True, return_status=True
     )(_a, _b, _T_A)
     return out
 
@@ -77,7 +77,7 @@ def cusolver_solve_psd(N, T_A, dtype):
     _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
     _b = jax.device_put(b, NamedSharding(mesh, P(None, None)))
 
-    out = jitted_potrs(_A.copy(), _b.copy(), T_A)
+    out = jitted_potrs(_A.copy(), _b.copy().squeeze(), T_A)
     norm_scipy = jnp.linalg.norm(b - A @ expected_out)
     norm_potrf = jnp.linalg.norm(b - A @ out)
     assert jnp.isclose(norm_scipy, norm_potrf, atol=1e-4)
