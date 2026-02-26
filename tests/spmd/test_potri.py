@@ -160,3 +160,16 @@ def test_cusolver_inplace_check(dtype):
     A_inv = jitted_potri(_A, T_A)
     norm_potri = jnp.linalg.norm(A @ A_inv - jnp.eye(N, dtype=dtype))
     assert jnp.isclose(norm_potri, norm_lax, rtol=10, atol=1e-8)
+
+def test_potri_loop_shm():
+    N = ndev * 2
+    T_A = 1
+    dtype = jnp.float64
+    A = random_psd(N, dtype=dtype, seed=5678)
+    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+    fd_start = len(os.listdir("/proc/self/fd"))
+    for i in range(100):
+        out = jitted_potri(_A,  T_A)
+        out.block_until_ready()
+    fd_end = len(os.listdir("/proc/self/fd"))
+    assert fd_end - fd_start < 100

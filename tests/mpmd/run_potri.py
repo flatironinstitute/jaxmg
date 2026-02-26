@@ -129,6 +129,21 @@ def cusolver_solve_non_symm(N, T_A, dtype):
     assert jnp.all(jnp.isnan(out))
 
 
+def cusolver_potri_loop_shm(N, T_A, dtype):
+    T_A = 1
+    dtype = jnp.float64
+    A = random_psd(N, dtype=dtype, seed=5678)
+
+    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+    fd_start = len(os.listdir("/proc/self/fd"))
+    for i in range(100):
+        print(i, len(os.listdir("/proc/self/fd")))
+        out = jitted_potri(_A, T_A)
+        out.block_until_ready()
+    fd_end = len(os.listdir("/proc/self/fd"))
+    assert fd_end - fd_start < 100
+
+
 def _build_registry() -> Dict[str, Callable]:
     # Map test names to callables that accept (N, T_A, dtype)
     return {
@@ -136,6 +151,7 @@ def _build_registry() -> Dict[str, Callable]:
         "non_psd": cusolver_solve_non_psd,
         "non_symm": cusolver_solve_non_symm,
         "psd": cusolver_solve_psd,
+        "loop_shm": cusolver_potri_loop_shm,
     }
 
 

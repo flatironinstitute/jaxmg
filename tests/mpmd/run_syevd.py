@@ -134,6 +134,36 @@ def cusolver_solve_psd_no_V(N, T_A, dtype):
     assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm, rtol=10, atol=0.0)
 
 
+def cusolver_syevd_loop_shm(N, T_A, dtype):
+    T_A = 1
+    dtype = jnp.float64
+    A = random_psd(N, dtype=dtype, seed=5678)
+
+    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+    fd_start = len(os.listdir("/proc/self/fd"))
+    for i in range(100):
+        print(i, len(os.listdir("/proc/self/fd")))
+        out,_ = jitted_syevd(_A, T_A)
+        out.block_until_ready()
+    fd_end = len(os.listdir("/proc/self/fd"))
+    assert fd_end - fd_start < 100
+
+
+def cusolver_syevd_no_V_loop_shm(N, T_A, dtype):
+    T_A = 1
+    dtype = jnp.float64
+    A = random_psd(N, dtype=dtype, seed=5678)
+
+    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+    fd_start = len(os.listdir("/proc/self/fd"))
+    for i in range(100):
+        print(i, len(os.listdir("/proc/self/fd")))
+        out = jitted_syevd_no_V(_A, T_A)
+        out.block_until_ready()
+    fd_end = len(os.listdir("/proc/self/fd"))
+    assert fd_end - fd_start < 100
+
+
 def _build_registry() -> Dict[str, Callable]:
     # Map test names to callables that accept (N, T_A, dtype)
     return {
@@ -141,6 +171,8 @@ def _build_registry() -> Dict[str, Callable]:
         "psd": cusolver_solve_psd,
         "arange_no_V": cusolver_solve_arange_no_V,
         "psd_no_V": cusolver_solve_psd_no_V,
+        "loop_shm": cusolver_syevd_loop_shm,
+        "loop_shm_no_V": cusolver_syevd_no_V_loop_shm,
     }
 
 

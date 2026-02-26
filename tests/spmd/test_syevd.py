@@ -166,3 +166,30 @@ def test_cusolver_inplace_check(dtype):
     assert jnp.allclose(expected, eigenvalues, atol=1e-4)
     eigenvalues, _ = jitted_syevd(_A, T_A)
     assert jnp.allclose(expected, eigenvalues, atol=1e-4)
+
+
+def test_syevd_loop_shm():
+    N = ndev * 2
+    T_A = 1
+    dtype = jnp.float64
+    A = random_psd(N, dtype=dtype, seed=5678)
+    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+    fd_start = len(os.listdir("/proc/self/fd"))
+    for i in range(100):
+        out,_ = jitted_syevd(_A,  T_A)
+        out.block_until_ready()
+    fd_end = len(os.listdir("/proc/self/fd"))
+    assert fd_end - fd_start < 100
+
+def test_syevd_no_V_loop_shm():
+    N = ndev * 2
+    T_A = 1
+    dtype = jnp.float64
+    A = random_psd(N, dtype=dtype, seed=5678)
+    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+    fd_start = len(os.listdir("/proc/self/fd"))
+    for i in range(100):
+        out = jitted_syevd_no_V(_A,  T_A)
+        out.block_until_ready()
+    fd_end = len(os.listdir("/proc/self/fd"))
+    assert fd_end - fd_start < 100

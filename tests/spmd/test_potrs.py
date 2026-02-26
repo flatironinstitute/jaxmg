@@ -172,7 +172,6 @@ def test_cusolver_inplace_check(dtype):
 
 
 def test_potrs_multiple_rhs():
-    """Test potrs with multiple right-hand sides (b shape (N, 3))."""
     N = ndev * 2
     T_A = 1
     dtype = jnp.float64
@@ -184,3 +183,20 @@ def test_potrs_multiple_rhs():
     _b = jax.device_put(b, NamedSharding(mesh, P(None, None)))
     out = jitted_potrs(_A, _b, T_A)
     assert jnp.allclose(out, expected_out, atol=1e-4)
+
+
+def test_potrs_loop_shm():
+    N = ndev * 2
+    T_A = 1
+    dtype = jnp.float64
+    A = random_psd(N, dtype=dtype, seed=5678)
+    b = jnp.arange(N, dtype=dtype)
+
+    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+    _b = jax.device_put(b, NamedSharding(mesh, P(None)))
+    fd_start = len(os.listdir("/proc/self/fd"))
+    for i in range(100):
+        out = jitted_potrs(_A, _b, T_A)
+        out.block_until_ready()
+    fd_end = len(os.listdir("/proc/self/fd"))
+    assert fd_end - fd_start < 100
