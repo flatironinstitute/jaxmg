@@ -1,3 +1,6 @@
+# Register the 'mpmd' marker for pytest
+def pytest_configure(config):
+    config.addinivalue_line("markers", "mpmd: mark test as mpmd-related")
 def pytest_collection_modifyitems(config, items):
     selected = []
     deselected = []

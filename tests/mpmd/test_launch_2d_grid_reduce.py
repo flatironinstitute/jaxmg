@@ -1,3 +1,5 @@
+import pytest
+pytestmark = pytest.mark.mpmd
 import os
 import sys
 import subprocess

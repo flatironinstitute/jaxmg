@@ -13,12 +13,11 @@ from functools import partial
 import time
 import matplotlib.pyplot as plt
 
-if len(jax.devices("gpu"))==0:
-    pytest.skip("No GPUs found. Skipping test...")
+platforms = set(d.platform for d in jax.devices())
+if "gpu" not in platforms:
+    pytest.skip("No GPUs found. Skipping", allow_module_level=True)
     
-devices = [d for d in jax.devices() if d.platform == "gpu"]
-ndev = len(devices)
-gpu_count = jax.device_count("gpu")
+ndev = jax.device_count()
 
 
 def test_block_cyclic_data_layout_plot_1():
@@ -29,8 +28,8 @@ def test_block_cyclic_data_layout_plot_1():
 
 
 def test_block_cyclic_data_layout_syevd_timing():
-    if gpu_count != 3:
-        pytest.skip(f"Only testing when 4 GPUS are detected, round only {gpu_count}")
+    if ndev != 3:
+        pytest.skip(f"Only testing when 4 GPUS are detected, round only {ndev}")
 
     print(f"Devices: {jax.devices()}")
     # Assumes we have at least one GPU available

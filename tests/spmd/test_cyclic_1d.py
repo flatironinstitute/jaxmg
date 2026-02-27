@@ -16,11 +16,11 @@ from jaxmg import cyclic_1d, verify_cyclic
 from jaxmg.utils import random_psd
 from functools import partial
 
-if len(jax.devices("gpu"))==0:
-    pytest.skip("No GPUs found. Skipping test...")
+platforms = set(d.platform for d in jax.devices())
+if "gpu" not in platforms:
+    pytest.skip("No GPUs found. Skipping", allow_module_level=True)
     
-devices = [d for d in jax.devices() if d.platform == "gpu"]
-ndev = len(devices)
+ndev = jax.device_count()
 mesh = jax.make_mesh((ndev,), ("x",))
 # Test cases
 N_list = list(i * ndev for i in [2, 3, 4, 10])
