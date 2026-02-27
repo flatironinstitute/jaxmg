@@ -73,6 +73,8 @@ else:
         # Make mesh and place data
         _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
         eigenvalues, V = jitted_syevd(_A.copy(), T_A)
+        eigenvalues.block_until_ready()
+        V.block_until_ready()
         assert jnp.allclose(eigenvalues_expected, eigenvalues)
         eigenvalus_VtAV = jnp.diag(V @ A @ V.T)
         assert jnp.allclose(eigenvalus_VtAV, eigenvalues_expected)
@@ -86,6 +88,8 @@ else:
         # Make mesh and place data
         _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
         eigenvalues, V = jitted_syevd(_A.copy(), T_A)
+        eigenvalues.block_until_ready()
+        V.block_until_ready()
         norm_syevd = jnp.linalg.norm(V @ A - jnp.diag(eigenvalues) @ V.T)
         norm_lax = jnp.linalg.norm(
             V_expected @ A - jnp.diag(eigenvalues_expected) @ V_expected.T
@@ -101,6 +105,7 @@ else:
         # Make mesh and place data
         _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
         eigenvalues = jitted_syevd_no_V(_A.copy(), T_A)
+        eigenvalues.block_until_ready()
         assert jnp.allclose(eigenvalues_expected, eigenvalues)
         eigenvalues_no_shm, _ = jitted_syevd_no_V_no_shardmap(_A.copy(), T_A)
         assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm)
@@ -112,6 +117,7 @@ else:
         # Make mesh and place data
         _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
         eigenvalues = jitted_syevd_no_V(A.copy(), T_A)
+        eigenvalues.block_until_ready()
         assert jnp.allclose(eigenvalues, eigenvalues_expected, rtol=10, atol=0.0)
         eigenvalues_no_shm, _ = jitted_syevd_no_V_no_shardmap(_A.copy(), T_A)
         assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm, rtol=10, atol=0.0)

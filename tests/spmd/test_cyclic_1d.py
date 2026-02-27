@@ -36,6 +36,7 @@ def cusolver_solve_arange(N, T_A, dtype):
     out = jax.jit(
         partial(cyclic_1d, mesh=mesh, in_specs=(P("x", None),)), static_argnums=1
     )(A, T_A=T_A)
+    out.block_until_ready()
     verify_cyclic(A_before, out, T_A=T_A)
 
 
@@ -47,6 +48,7 @@ def cusolver_solve_psd(N, T_A, dtype):
     out = jax.jit(
         partial(cyclic_1d, mesh=mesh, in_specs=(P("x", None),)), static_argnums=1
     )(_A, T_A=T_A)
+    out.block_until_ready()
     verify_cyclic(A_before, out, T_A=T_A)
 
 

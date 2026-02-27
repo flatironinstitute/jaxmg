@@ -56,7 +56,6 @@ else:
         A = jnp.diag(jnp.arange(N, dtype=dtype) + 1)
         # Make mesh and place data
         _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-
         out = jitted_potri(_A.copy(), T_A)
         out.block_until_ready()
         expected_out = jnp.diag(1.0 / (jnp.arange(N, dtype=dtype) + 1))

@@ -83,6 +83,7 @@ def cusolver_solve_arange(N, T_A, dtype):
     _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
     _b = jax.device_put(b, NamedSharding(mesh, P(None, None)))
     out = jitted_potrs(_A.copy(), _b.copy(), T_A)
+    out.block_until_ready()
     expected_out = 1.0 / (jnp.arange(N, dtype=dtype) + 1)
     assert jnp.allclose(out.flatten(), expected_out)
     out_no_shm, _ = jitted_potrs_no_shardmap(_A.copy(), _b.copy(), T_A)
@@ -99,6 +100,7 @@ def cusolver_solve_psd(N, T_A, dtype):
     _b = jax.device_put(b, NamedSharding(mesh, P(None, None)))
 
     out = jitted_potrs(_A.copy(), _b.copy(), T_A)
+    out.block_until_ready()
     norm_scipy = jnp.linalg.norm(b - A @ expected_out)
     norm_potrf = jnp.linalg.norm(b - A @ out)
     print(norm_scipy, norm_potrf)
