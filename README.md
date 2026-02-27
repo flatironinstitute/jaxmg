@@ -43,6 +43,8 @@ The provided binaries are compiled with
 | `cuda12`,`cuda12-local` | 12.8.0 | 9.17.1.4|
 | `cuda13`,`cuda13-local` | 13.0.0 | 9.17.1.4|
 
+Details for compiling the from source code can be found in `CONTRIBUTING.md`.
+
 > **_Note:_** `pip install jaxmg` will install a CPU-only version of JAX. Since `jaxmg` is a GPU-only package you will receive a warning to install a GPU-compatible version of jax. 
 
 ## Example

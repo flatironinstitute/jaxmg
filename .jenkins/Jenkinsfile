@@ -150,13 +150,13 @@ pipeline {
                                         }
                                         stage("Test ${c}-${p}-${j}") {
                                             withEnv(["WORKDIR=${c}/${p}/${j}"]) {
-                                                sh '''#!/bin/bash -ex
+                                                sh """#!/bin/bash -ex
                                                     source .jenkins/scripts/gpu_utils.sh
                                                     killgpu
                                                     source "$WORKDIR/venv/bin/activate"
                                                     python -m pip install pytest matplotlib
-                                                    $pytest_cmd
-                                                '''
+                                                    ${pytest_cmd}
+                                                """
                                             }
                                         }
                                     }
