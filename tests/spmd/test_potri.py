@@ -58,6 +58,7 @@ else:
         _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
 
         out = jitted_potri(_A.copy(), T_A)
+        out.block_until_ready()
         expected_out = jnp.diag(1.0 / (jnp.arange(N, dtype=dtype) + 1))
         assert jnp.allclose(out, expected_out)
         expected_out_no_shm, _ = jitted_potri_no_shardmap(_A, T_A)
@@ -71,6 +72,7 @@ else:
         # Make mesh and place data
         _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
         out = jitted_potri(_A, T_A)
+        out.block_until_ready()
         assert jnp.allclose(A.conj().T, A)
         norm_potri = jnp.linalg.norm(A @ out - jnp.eye(N, dtype=dtype))
         norm_lax = jnp.linalg.norm(A @ expected_out - jnp.eye(N, dtype=dtype))
