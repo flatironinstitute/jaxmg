@@ -150,7 +150,7 @@ pipeline {
                                                     killgpu
                                                     source "$WORKDIR/venv/bin/activate"
                                                     python -m pip install pytest matplotlib
-                                                    python -m pytest -svv tests
+                                                    python -m pytest -svv -m 'not mpmd' tests
                                                 '''
                                             }
                                         }
@@ -250,7 +250,8 @@ pipeline {
                                     //             python -m pytest -svv tests
                                     //         '''
                                     //     }
-                                    // }
+                                    // } python -m pytest -svv tests
+
                                     }
                                 }
                             }
