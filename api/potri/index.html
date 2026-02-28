@@ -956,9 +956,7 @@
 
 
 <h4 id="jaxmg.potri" class="doc doc-heading">
-  <code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potri</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="p">,</span> <span class="n">in_specs</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
-  <a href="https://github.com/therooler/jaxmg/blob/af88ad93d2619cbd0170097d92266239d9345c75/src/jaxmg/_potri.py#L15-L177"><code class='hippogriffe-repo-url'></code></a>
-
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potri</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="p">,</span> <span class="n">in_specs</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
 <a href="#jaxmg.potri" class="headerlink" title="Permanent link">¤</a></h4>
 
@@ -1026,7 +1024,8 @@ local shard length must be a multiple of <code>T_A</code>. If the user provides 
 <code>T_A</code> that is incompatible with the shard size we pad the matrix
 accordingly. For small tile sizes (<code>T_A</code>&lt; 128), the solver can 
 be extremely slow, so ensure that <code>T_A</code> is large enough. In principle,
-the larger <code>T_A</code> the faster the solver runs.</p>
+the larger <code>T_A</code> the faster the solver runs. See https://arxiv.org/abs/2601.14466
+for more details.</p>
               </div>
             </td>
             <td>
@@ -1118,7 +1117,7 @@ padded shapes.</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                  <code>jax.Array | tuple[jax.Array, int]</code>
+                  <code><span title="typing.Union">Union</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>]]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -1195,9 +1194,7 @@ when <code>pad=False</code>.</p>
 
 
 <h4 id="jaxmg.potri_shardmap_ctx" class="doc doc-heading">
-  <code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potri_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
-  <a href="https://github.com/therooler/jaxmg/blob/af88ad93d2619cbd0170097d92266239d9345c75/src/jaxmg/_potri.py#L180-L291"><code class='hippogriffe-repo-url'></code></a>
-
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potri_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
 <a href="#jaxmg.potri_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
 
@@ -1314,7 +1311,7 @@ provided local shape already meets kernel requirements.</p>
       <tbody>
           <tr class="doc-section-item">
 <td><code>tuple</code></td>            <td>
-                  <code>jax.Array | tuple[jax.Array, int]</code>
+                  <code><span title="typing.Union">Union</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>]]</code>
             </td>
             <td>
               <div class="doc-md-description">

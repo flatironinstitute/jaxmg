@@ -956,9 +956,7 @@
 
 
 <h4 id="jaxmg.syevd" class="doc doc-heading">
-  <code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="p">,</span> <span class="n">in_specs</span><span class="p">,</span> <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
-  <a href="https://github.com/therooler/jaxmg/blob/af88ad93d2619cbd0170097d92266239d9345c75/src/jaxmg/_syevd.py#L35-L225"><code class='hippogriffe-repo-url'></code></a>
-
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="p">,</span> <span class="n">in_specs</span><span class="p">,</span> <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
 <a href="#jaxmg.syevd" class="headerlink" title="Permanent link">¤</a></h4>
 
@@ -1028,7 +1026,8 @@ local shard length must be a multiple of <code>T_A</code>. If the user provides 
 accordingly. For small tile sizes (<code>T_A</code>&lt; 128), the solver can 
 be extremely slow, so ensure that <code>T_A</code> is large enough. 
 The Cusolver implementation enforces an upper bound of
-<code>T_A &lt;= 1024</code>.</p>
+<code>T_A &lt;= 1024</code>. See https://arxiv.org/abs/2601.14466
+for more details.</p>
               </div>
             </td>
             <td>
@@ -1138,7 +1137,7 @@ correct shapes.</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                  <code>jax.Array | tuple[jax.Array, jax.Array] | tuple[jax.Array, jax.Array, int] | tuple[jax.Array, int]</code>
+                  <code><span title="typing.Union">Union</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>]]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -1221,9 +1220,7 @@ when <code>pad=False</code>.</p>
 
 
 <h4 id="jaxmg.syevd_shardmap_ctx" class="doc doc-heading">
-  <code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
-  <a href="https://github.com/therooler/jaxmg/blob/af88ad93d2619cbd0170097d92266239d9345c75/src/jaxmg/_syevd.py#L228-L360"><code class='hippogriffe-repo-url'></code></a>
-
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
 <a href="#jaxmg.syevd_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
 
@@ -1355,7 +1352,7 @@ provided local shape already meets kernel requirements.</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                  <code>jax.Array | tuple[jax.Array, jax.Array] | tuple[jax.Array, jax.Array, int] | tuple[jax.Array, int]</code>
+                  <code><span title="typing.Union">Union</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>]]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -1365,7 +1362,7 @@ provided local shape already meets kernel requirements.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                  <code>jax.Array | tuple[jax.Array, jax.Array] | tuple[jax.Array, jax.Array, int] | tuple[jax.Array, int]</code>
+                  <code><span title="typing.Union">Union</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>]]</code>
             </td>
             <td>
               <div class="doc-md-description">

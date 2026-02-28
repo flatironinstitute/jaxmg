@@ -956,9 +956,7 @@
 
 
 <h4 id="jaxmg.potrs" class="doc doc-heading">
-  <code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potrs</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="p">,</span> <span class="n">in_specs</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
-  <a href="https://github.com/therooler/jaxmg/blob/af88ad93d2619cbd0170097d92266239d9345c75/src/jaxmg/_potrs.py#L15-L173"><code class='hippogriffe-repo-url'></code></a>
-
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potrs</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="p">,</span> <span class="n">in_specs</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
 <a href="#jaxmg.potrs" class="headerlink" title="Permanent link">¤</a></h4>
 
@@ -1022,7 +1020,7 @@ using a single <code>PartitionSpec</code>: <code>P(&lt;axis_name&gt;, None)</cod
             <td>
               <div class="doc-md-description">
                 <p>2D right-hand side. Expected to be replicated across
-devices with <code>PartitionSpec</code> <code>P(None, None)</code>.</p>
+devices with <code>PartitionSpec</code> <code>P(None, None)</code> or <code>P(None)</code>.</p>
               </div>
             </td>
             <td>
@@ -1043,7 +1041,8 @@ local shard length must be a multiple of <code>T_A</code>. If the user provides 
 <code>T_A</code> that is incompatible with the shard size we pad the matrix
 accordingly. For small tile sizes (<code>T_A</code>&lt; 128), the solver can
 be extremely slow, so ensure that <code>T_A</code> is large enough. In principle,
-the larger <code>T_A</code> the faster the solver runs.</p>
+the larger <code>T_A</code> the faster the solver runs. See https://arxiv.org/abs/2601.14466
+for more details.</p>
               </div>
             </td>
             <td>
@@ -1071,12 +1070,13 @@ the larger <code>T_A</code> the faster the solver runs.</p>
                 <code>in_specs</code>
             </td>
             <td>
-                  <code><span title="tuple">tuple</span>[<span title="list">list</span>][<span title="PartitionSpec">PartitionSpec</span>]</code>
+                  <code><span title="PartitionSpec">PartitionSpec</span> or <span title="tuple">tuple</span> / <span title="list">list</span>[<span title="PartitionSpec">PartitionSpec</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>The sharding specifications for
-<code>(a, b)</code>. Expected to be <code>(P(&lt;axis_name&gt;, None), P(None, None))</code>.</p>
+                <p>PartitionSpec
+describing the input sharding (row sharding). May be provided as a
+single <code>PartitionSpec</code> or a single-element container containing one.</p>
               </div>
             </td>
             <td>
@@ -1135,7 +1135,7 @@ requirements.</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                  <code>jax.Array | tuple[jax.Array, int]</code>
+                  <code><span title="typing.Union">Union</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>]]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -1163,8 +1163,8 @@ If <code>return_status=True</code> also return the native solver status.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If <code>a</code> or <code>b</code> are not 2D, or their shapes are
-incompatible.</p>
+                <p>If <code>a</code> or <code>b</code> are not the correct shape, or if their shapes
+are incompatible.</p>
               </div>
             </td>
           </tr>
@@ -1174,26 +1174,20 @@ incompatible.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If <code>in_specs</code> is not a 2-element sequence or if the
-provided <code>PartitionSpec</code> objects do not match the required
-patterns (<code>P(&lt;axis_name&gt;, None)</code> for <code>a</code> and
-<code>P(None, None)</code> for <code>b</code>).</p>
+                <p>If <code>in_specs</code> is not a 1-element sequence or if the provided
+<code>PartitionSpec</code> objects do not match the required patterns
+(<code>P(&lt;axis_name&gt;, None)</code> for <code>a</code>).</p>
               </div>
             </td>
           </tr>
       </tbody>
     </table>
+        <p>Notes:
+    - The FFI call may donate the <code>a</code> buffer (<code>donate_argnums=0</code>) for
+      zero-copy interaction with the native library.
+    - If the native solver fails the returned solution may contain NaNs and
+      <code>status</code> will be non-zero.</p>
 
-
-<details class="notes" open>
-  <summary>Notes</summary>
-  <ul>
-<li>The FFI call may donate the <code>a</code> buffer (<code>donate_argnums=0</code>) for
-  zero-copy interaction with the native library.</li>
-<li>If the native solver fails the returned solution may contain NaNs and
-  <code>status</code> will be non-zero.</li>
-</ul>
-</details>
 
     </div>
 
@@ -1203,9 +1197,7 @@ patterns (<code>P(&lt;axis_name&gt;, None)</code> for <code>a</code> and
 
 
 <h4 id="jaxmg.potrs_shardmap_ctx" class="doc doc-heading">
-  <code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potrs_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
-  <a href="https://github.com/therooler/jaxmg/blob/af88ad93d2619cbd0170097d92266239d9345c75/src/jaxmg/_potrs.py#L176-L282"><code class='hippogriffe-repo-url'></code></a>
-
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potrs_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
 <a href="#jaxmg.potrs_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
 
@@ -1333,7 +1325,7 @@ requirements.</p>
       <tbody>
           <tr class="doc-section-item">
 <td><code>tuple</code></td>            <td>
-                  <code>tuple[jax.Array, jax.Array]</code>
+                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
