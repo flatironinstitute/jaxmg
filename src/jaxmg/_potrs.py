@@ -66,12 +66,11 @@ def potrs(
             If ``return_status=True`` also return the native solver status.
 
     Raises:
-        AssertionError: If ``a`` or ``b`` are not the correct shape, or if 
-        their shapes are incompatible.
-        ValueError: If ``in_specs`` is not a 1-element sequence or if the
-            provided ``PartitionSpec`` objects do not match the required
-            patterns (``P(<axis_name>, None)`` for ``a``.
-
+        AssertionError: If ``a`` or ``b`` are not the correct shape, or if their shapes
+            are incompatible.
+        ValueError: If ``in_specs`` is not a 1-element sequence or if the provided
+            ``PartitionSpec`` objects do not match the required patterns
+            (``P(<axis_name>, None)`` for ``a``).
     Notes:
         - The FFI call may donate the ``a`` buffer (``donate_argnums=0``) for
           zero-copy interaction with the native library.
