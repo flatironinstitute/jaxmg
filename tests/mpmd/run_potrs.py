@@ -43,9 +43,10 @@ mesh = jax.make_mesh((jax.device_count(),), ("x",))
 from jaxmg import potrs, potrs_shardmap_ctx
 from jaxmg.utils import random_psd
 
+
 @partial(jax.jit, static_argnames=("_T_A",))
 def jitted_potrs(_a, _b, _T_A):
-    out = partial(potrs, mesh=mesh, in_specs=(P("x", None), P(None, None)), pad=True)(
+    out = partial(potrs, mesh=mesh, in_specs=(P("x", None),), pad=True)(
         _a, _b, _T_A
     )
     return out
@@ -54,7 +55,11 @@ def jitted_potrs(_a, _b, _T_A):
 @partial(jax.jit, static_argnames=("_T_A",))
 def jitted_potrs_status(_a, _b, _T_A):
     out = partial(
-        potrs, mesh=mesh, in_specs=(P("x", None), P(None, None)), pad=True, return_status=True
+        potrs,
+        mesh=mesh,
+        in_specs=(P("x", None), ),
+        pad=True,
+        return_status=True,
     )(_a, _b, _T_A)
     return out
 
@@ -78,6 +83,7 @@ def cusolver_solve_arange(N, T_A, dtype):
     _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
     _b = jax.device_put(b, NamedSharding(mesh, P(None, None)))
     out = jitted_potrs(_A.copy(), _b.copy(), T_A)
+    out.block_until_ready()
     expected_out = 1.0 / (jnp.arange(N, dtype=dtype) + 1)
     assert jnp.allclose(out.flatten(), expected_out)
     out_no_shm, _ = jitted_potrs_no_shardmap(_A.copy(), _b.copy(), T_A)
@@ -94,6 +100,7 @@ def cusolver_solve_psd(N, T_A, dtype):
     _b = jax.device_put(b, NamedSharding(mesh, P(None, None)))
 
     out = jitted_potrs(_A.copy(), _b.copy(), T_A)
+    out.block_until_ready()
     norm_scipy = jnp.linalg.norm(b - A @ expected_out)
     norm_potrf = jnp.linalg.norm(b - A @ out)
     print(norm_scipy, norm_potrf)
@@ -134,6 +141,23 @@ def cusolver_solve_non_symm(N, T_A, dtype):
     assert jnp.all(jnp.isnan(out))
 
 
+def cusolver_potrs_loop_shm(N, T_A, dtype):
+    T_A = 1
+    dtype = jnp.float64
+    A = random_psd(N, dtype=dtype, seed=5678)
+    b = jnp.arange(N, dtype=dtype)
+
+    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+    _b = jax.device_put(b, NamedSharding(mesh, P(None)))
+    fd_start = len(os.listdir("/proc/self/fd"))
+    for i in range(100):
+        print(i, len(os.listdir("/proc/self/fd")))
+        out = jitted_potrs(_A, _b, T_A)
+        out.block_until_ready()
+    fd_end = len(os.listdir("/proc/self/fd"))
+    assert fd_end - fd_start < 100
+
+
 def _build_registry() -> Dict[str, Callable]:
     # Map test names to callables that accept (N, T_A, dtype)
     return {
@@ -141,19 +165,20 @@ def _build_registry() -> Dict[str, Callable]:
         "non_psd": cusolver_solve_non_psd,
         "non_symm": cusolver_solve_non_symm,
         "psd": cusolver_solve_psd,
+        "loop_shm": cusolver_potrs_loop_shm,
     }
 
 
 def main(argv: List[str]):
     # Single-task only: expect arguments
     # run_potrs.py <coord_addr> <proc_id> <num_procs> <test_name> <dtype_name>
-    
+
     task_name = argv[4]
     task_dtype_name = argv[5]
     registry = _build_registry()
 
     # Parameter grid metadata (for discover message)
-    ndev= len(devices)
+    ndev = len(devices)
     dtypes = [jnp.float32, jnp.float64, jnp.complex64, jnp.complex128]
     N_list = list(i * ndev for i in [2, 3, 4, 10])
     T_A_list = [1, 2, 3, 5]
@@ -189,7 +214,11 @@ def main(argv: List[str]):
                         "proc": proc_id,
                         "name": task_name,
                         "status": "ok",
-                        "params": {"N": task_N, "T_A": task_T_A, "dtype": task_dtype_name},
+                        "params": {
+                            "N": task_N,
+                            "T_A": task_T_A,
+                            "dtype": task_dtype_name,
+                        },
                     },
                 )
                 n_ok += 1
@@ -201,13 +230,20 @@ def main(argv: List[str]):
                         "proc": proc_id,
                         "name": task_name,
                         "status": "fail",
-                        "params": {"N": task_N, "T_A": task_T_A, "dtype": task_dtype_name},
+                        "params": {
+                            "N": task_N,
+                            "T_A": task_T_A,
+                            "dtype": task_dtype_name,
+                        },
                         "traceback": tb,
                     },
                 )
                 n_fail += 1
 
-            _println("MPTEST_SUMMARY", {"proc": proc_id, "ok": n_ok, "fail": n_fail, "total": n_ok + n_fail})
+            _println(
+                "MPTEST_SUMMARY",
+                {"proc": proc_id, "ok": n_ok, "fail": n_fail, "total": n_ok + n_fail},
+            )
             return 0
 
 

@@ -1,6 +1,5 @@
 import os
 import jax
-
 import jax.numpy as jnp
 from jax import Array
 from jax.sharding import PartitionSpec as P, Mesh
@@ -17,7 +16,7 @@ def potrs(
     b: Array,
     T_A: int,
     mesh: Mesh,
-    in_specs: Tuple[P, P] | List[P],
+    in_specs: Tuple[P] | List[P] | P,
     return_status: bool = False,
     pad=True,
 ) -> Union[Array, Tuple[Array, int]]:
@@ -42,16 +41,18 @@ def potrs(
             Expected to be sharded across the mesh along the first (row) axis
             using a single ``PartitionSpec``: ``P(<axis_name>, None)``.
         b (Array): 2D right-hand side. Expected to be replicated across
-            devices with ``PartitionSpec`` ``P(None, None)``.
+            devices with ``PartitionSpec`` ``P(None, None)`` or ``P(None)``.
         T_A (int): Tile width used by the native solver. Each
             local shard length must be a multiple of ``T_A``. If the user provides a
             ``T_A`` that is incompatible with the shard size we pad the matrix
             accordingly. For small tile sizes (``T_A``< 128), the solver can
             be extremely slow, so ensure that ``T_A`` is large enough. In principle,
-            the larger ``T_A`` the faster the solver runs.
+            the larger ``T_A`` the faster the solver runs. See https://arxiv.org/abs/2601.14466
+            for more details.
         mesh (Mesh): JAX Mesh object used for ``jax.shard_map``.
-        in_specs (tuple[list][PartitionSpec]): The sharding specifications for
-            ``(a, b)``. Expected to be ``(P(<axis_name>, None), P(None, None))``.
+        in_specs (PartitionSpec or tuple/list[PartitionSpec]): PartitionSpec
+            describing the input sharding (row sharding). May be provided as a
+            single ``PartitionSpec`` or a single-element container containing one.
         return_status (bool, optional): If True return ``(x, status)`` where
             ``status`` is a host-replicated int32 from the native solver. If
             False return ``x`` only. Default is False.
@@ -65,12 +66,11 @@ def potrs(
             If ``return_status=True`` also return the native solver status.
 
     Raises:
-        AssertionError: If ``a`` or ``b`` are not 2D, or their shapes are
-            incompatible.
-        ValueError: If ``in_specs`` is not a 2-element sequence or if the
+        AssertionError: If ``a`` or ``b`` are not the correct shape, or if 
+        their shapes are incompatible.
+        ValueError: If ``in_specs`` is not a 1-element sequence or if the
             provided ``PartitionSpec`` objects do not match the required
-            patterns (``P(<axis_name>, None)`` for ``a`` and
-            ``P(None, None)`` for ``b``).
+            patterns (``P(<axis_name>, None)`` for ``a``.
 
     Notes:
         - The FFI call may donate the ``a`` buffer (``donate_argnums=0``) for
@@ -82,26 +82,30 @@ def potrs(
 
     ndev = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
 
-    assert isinstance(
-        in_specs, (tuple, list)
-    ), f"expected `in_specs` to be a tuple or list of `PartitionSpec` objects, received {in_specs}"
-    assert len(in_specs) == 2, f"expected two `in_specs`, received {in_specs}"
-
-    spec_a, spec_b = in_specs
-    if (spec_a._partitions[0] == None) or (spec_a._partitions[1] != None):
+    if isinstance(in_specs, (list, tuple)):
+        if len(in_specs) != 1:
+            raise ValueError(
+                "in_specs must be a single PartitionSpec or a 1-element list/tuple."
+            )
+        in_specs = in_specs[0]
+    if not isinstance(in_specs, P):
+        raise TypeError(
+            "in_specs must be a PartitionSpec or a 1-element list/tuple containing one."
+        )
+    if (in_specs._partitions[0] == None) or (in_specs._partitions[1] != None):
         raise ValueError(
             "A must be sharded along the columns with PartitionSpec P(None, str)."
-        )
-    if spec_b != P(None, None):
-        raise ValueError(
-            "b must be replicated along all shards with PartitionSpec P(None, None)."
         )
 
     assert a.shape[1] == b.shape[0], "A and b must have the same number of columns."
     assert a.ndim == 2, "a must be a 2D array."
-    assert b.ndim == 2, "b must be a 2D array."
+    assert b.ndim <= 2, "b must be a 1D or 2D array."
+    # ensure b is always 2D
+    if b.ndim == 1:
+        b = jnp.expand_dims(b, axis=1)
+
     N_rows, N = a.shape
-    axis_name = spec_a._partitions[0]
+    axis_name = in_specs._partitions[0]
 
     shard_size = N_rows // ndev
 

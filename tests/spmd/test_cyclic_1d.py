@@ -16,11 +16,11 @@ from jaxmg import cyclic_1d, verify_cyclic
 from jaxmg.utils import random_psd
 from functools import partial
 
-if len(jax.devices("gpu"))==0:
-    pytest.skip("No GPUs found. Skipping test...")
+platforms = set(d.platform for d in jax.devices())
+if "gpu" not in platforms:
+    pytest.skip("No GPUs found. Skipping", allow_module_level=True)
     
-devices = [d for d in jax.devices() if d.platform == "gpu"]
-ndev = len(devices)
+ndev = jax.device_count()
 mesh = jax.make_mesh((ndev,), ("x",))
 # Test cases
 N_list = list(i * ndev for i in [2, 3, 4, 10])
@@ -36,6 +36,7 @@ def cusolver_solve_arange(N, T_A, dtype):
     out = jax.jit(
         partial(cyclic_1d, mesh=mesh, in_specs=(P("x", None),)), static_argnums=1
     )(A, T_A=T_A)
+    out.block_until_ready()
     verify_cyclic(A_before, out, T_A=T_A)
 
 
@@ -47,6 +48,7 @@ def cusolver_solve_psd(N, T_A, dtype):
     out = jax.jit(
         partial(cyclic_1d, mesh=mesh, in_specs=(P("x", None),)), static_argnums=1
     )(_A, T_A=T_A)
+    out.block_until_ready()
     verify_cyclic(A_before, out, T_A=T_A)
 
 

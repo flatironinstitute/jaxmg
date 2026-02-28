@@ -18,16 +18,17 @@ and packaging of the extension are useful for testing.
 """
 
 import os
-
 import jax
 import jax.numpy as jnp
 from jax import Array
 from jax.sharding import PartitionSpec as P, Mesh
 
 from functools import partial
-from typing import Tuple, Union
+from typing import Tuple, Union, List
 
-from .utils import maybe_real_dtype_from_complex
+import warnings
+
+from .utils import maybe_real_dtype_from_complex, JaxMgWarning
 from ._cyclic_1d import calculate_padding, pad_rows, unpad_rows
 from ._setup import ensure_init_jaxmg_backend
 
@@ -36,7 +37,7 @@ def syevd(
     a: Array,
     T_A: int,
     mesh: Mesh,
-    in_specs: Tuple[P],
+    in_specs: Tuple[P] | List[P] | P,
     return_eigenvectors: bool = True,
     return_status: bool = False,
     pad=True,
@@ -68,7 +69,8 @@ def syevd(
             accordingly. For small tile sizes (``T_A``< 128), the solver can 
             be extremely slow, so ensure that ``T_A`` is large enough. 
             The Cusolver implementation enforces an upper bound of
-            ``T_A <= 1024``.
+            ``T_A <= 1024``. See https://arxiv.org/abs/2601.14466
+            for more details.
         mesh (Mesh): JAX device mesh used for ``jax.shard_map``.
         in_specs (PartitionSpec or tuple/list[PartitionSpec]): PartitionSpec
             describing the input sharding (row sharding). May be provided as a
@@ -126,9 +128,13 @@ def syevd(
         )
     assert a.ndim == 2, "a must be a 2D array."
     if T_A > 1024:
-        raise ValueError(
-            f"T_A has a maximum value of 1024 for SyevdMg, received T_A={T_A}"
+        warnings.warn(
+        f"T_A has a maximum value of 1024 for SyevdMg, received T_A={T_A}, T_A is lowered to 1024",
+        JaxMgWarning,
+        stacklevel=2,
         )
+        T_A = 1024
+        
     axis_name = in_specs._partitions[0]
     N_rows, N = a.shape
 

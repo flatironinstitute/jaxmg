@@ -136,31 +136,20 @@ void sharedMemoryUnlink(const char *name)
   }
 }
 
-void sharedMemoryCleanup(sharedMemoryInfo *info, const char *name)
-{
-  std::string lshmName = std::string("/jaxmg_") + name;
-  /* Close any mapping / fd owned in info. */
-  sharedMemoryClose(info);
-
-  /* Unlink the named shm (sharedMemoryUnlink returns 0 on success or errno). */
-  sharedMemoryUnlink(lshmName.c_str());
-}
-
 template <typename T>
 T **get_shm_device_ptrs(int currentDevice, ThreadBarrier &sync_point, sharedMemoryInfo &info, const char *shmName)
 {
   T **shm = nullptr;
   pid_t pid = getppid();
   const int MAX_NUM_DEVICES = 16;
-  std::string lshmName = std::string("/jaxmg_") + shmName;
 
   size_t shmSize = MAX_NUM_DEVICES * sizeof(T *);
 
   if (currentDevice == 0)
   {
-    if (sharedMemoryCreate(lshmName.c_str(), shmSize, &info) != 0)
+    if (sharedMemoryCreate(shmName, shmSize, &info) != 0)
     {
-      printf("Failed to create shared memory '%s'\n", lshmName.c_str());
+      printf("Failed to create shared memory '%s'\n", shmName);
       exit(EXIT_FAILURE); // #TODO: replace this with proper JAX error handling
     }
     shm = (T **)info.addr;
@@ -171,7 +160,7 @@ T **get_shm_device_ptrs(int currentDevice, ThreadBarrier &sync_point, sharedMemo
 
   if (currentDevice != 0)
   {
-    if (sharedMemoryOpen(lshmName.c_str(), shmSize, &info) != 0)
+    if (sharedMemoryOpen(shmName, shmSize, &info) != 0)
     {
       printf("Failed to open shared memory in dev %d\n", currentDevice);
       exit(EXIT_FAILURE);
@@ -194,13 +183,12 @@ T *get_shm_lwork_ptr(int currentDevice, barrier &sync_point, sharedMemoryInfo &i
 {
   pid_t pid = getppid();
   const int MAX_NUM_DEVICES = 16;
-  std::string lshmName = std::string("/jaxmg_") + shmName;
 
   size_t shmSize = MAX_NUM_DEVICES * sizeof(T);
   T *shm = nullptr;
   if (currentDevice == 0)
   {
-    if (sharedMemoryCreate(lshmName.c_str(), shmSize, &info) != 0)
+    if (sharedMemoryCreate(shmName, shmSize, &info) != 0)
     {
       printf("Failed to create shared memory\n");
       exit(EXIT_FAILURE); // #TODO: Replace this with proper JAX error handling
@@ -214,9 +202,9 @@ T *get_shm_lwork_ptr(int currentDevice, barrier &sync_point, sharedMemoryInfo &i
 
   if (currentDevice != 0)
   {
-    if (sharedMemoryOpen(lshmName.c_str(), shmSize, &info) != 0)
+    if (sharedMemoryOpen(shmName, shmSize, &info) != 0)
     {
-      printf("Failed to open shared memory '%s'\n", lshmName.c_str());
+      printf("Failed to open shared memory '%s'\n", shmName);
       exit(EXIT_FAILURE);
     }
     shm = reinterpret_cast<T *>(info.addr);
@@ -240,12 +228,11 @@ cudaIpcMemHandle_t *get_shm_ipc_handles(int currentDevice, DynamicBarrier &sync_
   const int MAX_NUM_DEVICES = 16;
 
   // Use a stable, shared name (not PID)
-  std::string name = std::string("/jaxmg") + shmName;       // e.g., "/shmA" – include your session suffix if you have one
   size_t sz = sizeof(cudaIpcMemHandle_t) * MAX_NUM_DEVICES; // nbGpus must be visible here
 
   if (currentDevice == 0)
   {
-    int rc = sharedMemoryCreate(name.c_str(), sz, &info);
+    int rc = sharedMemoryCreate(shmName, sz, &info);
     if (rc)
     {
 
@@ -259,7 +246,7 @@ cudaIpcMemHandle_t *get_shm_ipc_handles(int currentDevice, DynamicBarrier &sync_
 
   if (currentDevice != 0)
   {
-    int rc = sharedMemoryOpen(name.c_str(), sz, &info);
+    int rc = sharedMemoryOpen(shmName, sz, &info);
     if (rc)
     {
       printf("Failed to open shared memory IPC\n");

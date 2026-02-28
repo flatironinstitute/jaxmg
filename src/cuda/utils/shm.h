@@ -31,8 +31,6 @@ void sharedMemoryClose(sharedMemoryInfo *info);
 
 void sharedMemoryUnlink(const char *name);
 
-void sharedMemoryCleanup(sharedMemoryInfo *info, const char *name);
-
 template <typename T>
 T **get_shm_device_ptrs(int currentDevice, ThreadBarrier &sync_point, sharedMemoryInfo &info, const char *shmName);
 

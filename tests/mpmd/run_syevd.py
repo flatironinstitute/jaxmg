@@ -90,6 +90,8 @@ def cusolver_solve_arange(N, T_A, dtype):
     # Make mesh and place data
     _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
     eigenvalues, V = jitted_syevd(_A.copy(), T_A)
+    eigenvalues.block_until_ready()
+    V.block_until_ready()
     assert jnp.allclose(eigenvalues_expected, eigenvalues)
     eigenvalues_VtAV = jnp.diag(V @ A @ V.T)
     assert jnp.allclose(eigenvalues_VtAV, eigenvalues_expected)
@@ -103,13 +105,15 @@ def cusolver_solve_psd(N, T_A, dtype):
     # Make mesh and place data
     _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
     eigenvalues, V = jitted_syevd(_A.copy(), T_A)
+    eigenvalues.block_until_ready()
+    V.block_until_ready()
     norm_syevd = jnp.linalg.norm(V @ A - jnp.diag(eigenvalues) @ V.T)
     norm_lax = jnp.linalg.norm(
         V_expected @ A - jnp.diag(eigenvalues_expected) @ V_expected.T
     )
-    assert jnp.isclose(norm_syevd, norm_lax, rtol=10, atol=1e-8)
+    assert jnp.isclose(norm_syevd, norm_lax, rtol=10, atol=0.0)
     eigenvalues_no_shm, V_no_shm, _ = jitted_syevd_no_shardmap(_A.copy(), T_A)
-    assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm, rtol=10, atol=1e-10)
+    assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm, rtol=10, atol=0.0)
 
 
 def cusolver_solve_arange_no_V(N, T_A, dtype):
@@ -118,6 +122,7 @@ def cusolver_solve_arange_no_V(N, T_A, dtype):
     # Make mesh and place data
     _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
     eigenvalues = jitted_syevd_no_V(_A.copy(), T_A)
+    eigenvalues.block_until_ready()
     assert jnp.allclose(eigenvalues_expected, eigenvalues)
     eigenvalues_no_shm, _ = jitted_syevd_no_V_no_shardmap(_A.copy(), T_A)
     assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm)
@@ -129,9 +134,40 @@ def cusolver_solve_psd_no_V(N, T_A, dtype):
     # Make mesh and place data
     _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
     eigenvalues = jitted_syevd_no_V(_A.copy(), T_A)
+    eigenvalues.block_until_ready()
     assert jnp.allclose(eigenvalues, eigenvalues_expected, rtol=10, atol=0.0)
     eigenvalues_no_shm, _ = jitted_syevd_no_V_no_shardmap(_A.copy(), T_A)
     assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm, rtol=10, atol=0.0)
+
+
+def cusolver_syevd_loop_shm(N, T_A, dtype):
+    T_A = 1
+    dtype = jnp.float64
+    A = random_psd(N, dtype=dtype, seed=5678)
+
+    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+    fd_start = len(os.listdir("/proc/self/fd"))
+    for i in range(100):
+        print(i, len(os.listdir("/proc/self/fd")))
+        out,_ = jitted_syevd(_A, T_A)
+        out.block_until_ready()
+    fd_end = len(os.listdir("/proc/self/fd"))
+    assert fd_end - fd_start < 100
+
+
+def cusolver_syevd_no_V_loop_shm(N, T_A, dtype):
+    T_A = 1
+    dtype = jnp.float64
+    A = random_psd(N, dtype=dtype, seed=5678)
+
+    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+    fd_start = len(os.listdir("/proc/self/fd"))
+    for i in range(100):
+        print(i, len(os.listdir("/proc/self/fd")))
+        out = jitted_syevd_no_V(_A, T_A)
+        out.block_until_ready()
+    fd_end = len(os.listdir("/proc/self/fd"))
+    assert fd_end - fd_start < 100
 
 
 def _build_registry() -> Dict[str, Callable]:
@@ -141,6 +177,8 @@ def _build_registry() -> Dict[str, Callable]:
         "psd": cusolver_solve_psd,
         "arange_no_V": cusolver_solve_arange_no_V,
         "psd_no_V": cusolver_solve_psd_no_V,
+        "loop_shm": cusolver_syevd_loop_shm,
+        "loop_shm_no_V": cusolver_syevd_no_V_loop_shm,
     }
 
 

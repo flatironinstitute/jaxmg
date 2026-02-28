@@ -77,6 +77,7 @@ def cusolver_solve_arange(N, T_A, dtype):
     _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
 
     out = jitted_potri(_A.copy(), T_A)
+    out.block_until_ready()
     expected_out = jnp.diag(1.0 / (jnp.arange(N, dtype=dtype) + 1))
     assert jnp.allclose(out, expected_out)
 
@@ -92,6 +93,7 @@ def cusolver_solve_psd(N, T_A, dtype):
     _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
 
     out = jitted_potri(_A.copy(), T_A)
+    out.block_until_ready()
     assert jnp.allclose(A.conj().T, A)
     norm_potri = jnp.linalg.norm(A @ out - jnp.eye(N, dtype=dtype))
     norm_lax = jnp.linalg.norm(A @ expected_out - jnp.eye(N, dtype=dtype))
@@ -129,6 +131,21 @@ def cusolver_solve_non_symm(N, T_A, dtype):
     assert jnp.all(jnp.isnan(out))
 
 
+def cusolver_potri_loop_shm(N, T_A, dtype):
+    T_A = 1
+    dtype = jnp.float64
+    A = random_psd(N, dtype=dtype, seed=5678)
+
+    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
+    fd_start = len(os.listdir("/proc/self/fd"))
+    for i in range(100):
+        print(i, len(os.listdir("/proc/self/fd")))
+        out = jitted_potri(_A, T_A)
+        out.block_until_ready()
+    fd_end = len(os.listdir("/proc/self/fd"))
+    assert fd_end - fd_start < 100
+
+
 def _build_registry() -> Dict[str, Callable]:
     # Map test names to callables that accept (N, T_A, dtype)
     return {
@@ -136,6 +153,7 @@ def _build_registry() -> Dict[str, Callable]:
         "non_psd": cusolver_solve_non_psd,
         "non_symm": cusolver_solve_non_symm,
         "psd": cusolver_solve_psd,
+        "loop_shm": cusolver_potri_loop_shm,
     }
 
 

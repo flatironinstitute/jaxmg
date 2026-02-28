@@ -12,7 +12,7 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from jax.sharding import PartitionSpec as P
 from jaxmg import syevd
-
+from jaxmg.utils import JaxMgWarning
 
 # These tests exercise the argument-validation paths in `syevd` and avoid
 # invoking the native FFI. They match the current implementation in
@@ -65,5 +65,5 @@ def test_T_A_too_large_raises_valueerror():
     a = jnp.eye(4)
     T_A = 2048
     mesh = mesh_for_tests()
-    with pytest.raises(ValueError, match="T_A has a maximum value of 1024"):
+    with pytest.warns(JaxMgWarning, match="T_A has a maximum value of 1024"):
         syevd(a, T_A, mesh, (P("x", None),))
