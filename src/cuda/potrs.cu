@@ -174,11 +174,11 @@ namespace jax
             sharedMemoryInfo shminfolwork; // Shared memory info for lwork space nbytes
             sharedMemoryInfo shmcsh;       // Shared memory info for cusolver status
 
-            const std::string shmA_name = absl::StrFormat("/jaxmg_shmA_%d", getppid());
-            const std::string shmB_name = absl::StrFormat("/jaxmg_shmB_%d", getppid());
-            const std::string shmwork_name = absl::StrFormat("/jaxmg_shmwork_%d", getppid());
-            const std::string shmcsh_name = absl::StrFormat("/jaxmg_shmcsh_%d", getppid());
-            const std::string shmlwork_name = absl::StrFormat("/jaxmg_shmlwork_%d", getppid());
+            const std::string shmA_name = absl::StrFormat("/jaxmg_potrs_shmA_%d", getppid());
+            const std::string shmB_name = absl::StrFormat("/jaxmg_potrs_shmB_%d", getppid());
+            const std::string shmwork_name = absl::StrFormat("/jaxmg_potrs_shmwork_%d", getppid());
+            const std::string shmcsh_name = absl::StrFormat("/jaxmg_potrs_shmcsh_%d", getppid());
+            const std::string shmlwork_name = absl::StrFormat("/jaxmg_potrs_shmlwork_%d", getppid());
             
             data_type **shmA = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfoA, shmA_name.c_str()); // Actual shared memory
             data_type **shmB = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfoB, shmB_name.c_str());

@@ -147,14 +147,14 @@ namespace jax
             /* Shared memory & barriers (multi-process) */
             const pid_t ppid = getppid();
             const std::string barrier_name = "/jaxmgbarrier_" + std::to_string(static_cast<long long>(ppid));
-            const std::string shmAipc_name = absl::StrFormat("/jaxmg_shmAipc_%d", ppid);
-            const std::string shmoffsetA_name = absl::StrFormat("/jaxmg_shmoffsetA_%d", ppid);
-            const std::string shmoutdataipc_name = absl::StrFormat("/jaxmg_shmoutdataipc_%d", ppid);
-            const std::string shmoffsetoutdata_name = absl::StrFormat("/jaxmg_shmoffsetoutdata_%d", ppid);
-            const std::string shmworkipc_name = absl::StrFormat("/jaxmg_shmworkipc_%d", ppid);
-            const std::string shmoffsetwork_name = absl::StrFormat("/jaxmg_shmoffsetwork_%d", ppid);
-            const std::string shmlwork_name = absl::StrFormat("/jaxmg_shmlwork_%d", ppid);
-            const std::string shmcsh_name = absl::StrFormat("/jaxmg_shmcsh_%d", ppid);
+            const std::string shmAipc_name = absl::StrFormat("/jaxmg_potri_mp_shmAipc_%d", ppid);
+            const std::string shmoffsetA_name = absl::StrFormat("/jaxmg_potri_mp_shmoffsetA_%d", ppid);
+            const std::string shmoutdataipc_name = absl::StrFormat("/jaxmg_potri_mp_shmoutdataipc_%d", ppid);
+            const std::string shmoffsetoutdata_name = absl::StrFormat("/jaxmg_potri_mp_shmoffsetoutdata_%d", ppid);
+            const std::string shmworkipc_name = absl::StrFormat("/jaxmg_potri_mp_shmworkipc_%d", ppid);
+            const std::string shmoffsetwork_name = absl::StrFormat("/jaxmg_potri_mp_shmoffsetwork_%d", ppid);
+            const std::string shmlwork_name = absl::StrFormat("/jaxmg_potri_mp_shmlwork_%d", ppid);
+            const std::string shmcsh_name = absl::StrFormat("/jaxmg_potri_mp_shmcsh_%d", ppid);
             DynamicBarrier sync_point(nbGpus, barrier_name.c_str());
             sync_point.arrive_and_wait();
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());

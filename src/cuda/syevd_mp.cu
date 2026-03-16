@@ -153,16 +153,16 @@ namespace jax
             /* Shared memory (multi-process barrier) */
             const pid_t ppid = getppid();
             const std::string barrier_name = "/jaxmgbarrier_" + std::to_string(static_cast<long long>(ppid));
-            const std::string shmAipc_name = absl::StrFormat("/jaxmg_shmAipc_%d", ppid);
-            const std::string shmoffsetA_name = absl::StrFormat("/jaxmg_shmoffsetA_%d", ppid);
-            const std::string shmevipc_name = absl::StrFormat("/jaxmg_shmevipc_%d", ppid);
-            const std::string shmoffsetev_name = absl::StrFormat("/jaxmg_shmoffsetev_%d", ppid);
-            const std::string shmVipc_name = absl::StrFormat("/jaxmg_shmVipc_%d", ppid);
-            const std::string shmoffsetV_name = absl::StrFormat("/jaxmg_shmoffsetV_%d", ppid);
-            const std::string shmworkipc_name = absl::StrFormat("/jaxmg_shmworkipc_%d", ppid);
-            const std::string shmoffsetwork_name = absl::StrFormat("/jaxmg_shmoffsetwork_%d", ppid);
-            const std::string shmlwork_name = absl::StrFormat("/jaxmg_shmlwork_%d", ppid);
-            const std::string shmcsh_name = absl::StrFormat("/jaxmg_shmcsh_%d", ppid);
+            const std::string shmAipc_name = absl::StrFormat("/jaxmg_syevd_mp_shmAipc_%d", ppid);
+            const std::string shmoffsetA_name = absl::StrFormat("/jaxmg_syevd_mp_shmoffsetA_%d", ppid);
+            const std::string shmevipc_name = absl::StrFormat("/jaxmg_syevd_mp_shmevipc_%d", ppid);
+            const std::string shmoffsetev_name = absl::StrFormat("/jaxmg_syevd_mp_shmoffsetev_%d", ppid);
+            const std::string shmVipc_name = absl::StrFormat("/jaxmg_syevd_mp_shmVipc_%d", ppid);
+            const std::string shmoffsetV_name = absl::StrFormat("/jaxmg_syevd_mp_shmoffsetV_%d", ppid);
+            const std::string shmworkipc_name = absl::StrFormat("/jaxmg_syevd_mp_shmworkipc_%d", ppid);
+            const std::string shmoffsetwork_name = absl::StrFormat("/jaxmg_syevd_mp_shmoffsetwork_%d", ppid);
+            const std::string shmlwork_name = absl::StrFormat("/jaxmg_syevd_mp_shmlwork_%d", ppid);
+            const std::string shmcsh_name = absl::StrFormat("/jaxmg_syevd_mp_shmcsh_%d", ppid);
             DynamicBarrier sync_point(nbGpus, barrier_name.c_str());
             sync_point.arrive_and_wait();
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
