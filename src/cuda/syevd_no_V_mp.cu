@@ -56,6 +56,7 @@
 #include <string>
 #include <cstdio>
 #include <iostream>
+#include <unistd.h>
 // Abseil
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -150,6 +151,14 @@ namespace jax
             /* Shared memory (multi-process barrier) */
             const pid_t ppid = getppid();
             const std::string barrier_name = "/jaxmgbarrier_" + std::to_string(static_cast<long long>(ppid));
+            const std::string shmAipc_name = absl::StrFormat("/jaxmg_shmAipc_%d", ppid);
+            const std::string shmoffsetA_name = absl::StrFormat("/jaxmg_shmoffsetA_%d", ppid);
+            const std::string shmevipc_name = absl::StrFormat("/jaxmg_shmevipc_%d", ppid);
+            const std::string shmoffsetev_name = absl::StrFormat("/jaxmg_shmoffsetev_%d", ppid);
+            const std::string shmworkipc_name = absl::StrFormat("/jaxmg_shmworkipc_%d", ppid);
+            const std::string shmoffsetwork_name = absl::StrFormat("/jaxmg_shmoffsetwork_%d", ppid);
+            const std::string shmlwork_name = absl::StrFormat("/jaxmg_shmlwork_%d", ppid);
+            const std::string shmcsh_name = absl::StrFormat("/jaxmg_shmcsh_%d", ppid);
             DynamicBarrier sync_point(nbGpus, barrier_name.c_str());
             sync_point.arrive_and_wait();
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
@@ -166,23 +175,23 @@ namespace jax
             // Data handles A
             std::vector<data_type *> shmA(nbGpus, nullptr);
             IpcOpenResult<data_type> opened_ptrs_A;
-            cudaIpcMemHandle_t *shmAipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoAipc, "jaxmg_shmAipc");
-            uintptr_t *shmoffsetA = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetA, "jaxmg_shmoffsetA");
+            cudaIpcMemHandle_t *shmAipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoAipc, shmAipc_name.c_str());
+            uintptr_t *shmoffsetA = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetA, shmoffsetA_name.c_str());
 
             // Data handles eigenvalues
             std::vector<eigenvalue_type *> shmev(nbGpus, nullptr);
             IpcOpenResult<eigenvalue_type> opened_ptrs_ev;
-            cudaIpcMemHandle_t *shmevipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoevipc, "jaxmg_shmevipc");
-            uintptr_t *shmoffsetev = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetev, "jaxmg_shmoffsetev");
+            cudaIpcMemHandle_t *shmevipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoevipc, shmevipc_name.c_str());
+            uintptr_t *shmoffsetev = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetev, shmoffsetev_name.c_str());
 
             // Workspace
             std::vector<data_type *> shmwork(nbGpus, nullptr);
             IpcOpenResult<data_type> opened_ptrs_work;
-            cudaIpcMemHandle_t *shmworkipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoworkipc, "jaxmg_shmworkipc");
-            uintptr_t *shmoffsetwork = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetwork, "jaxmg_shmoffsetwork");
+            cudaIpcMemHandle_t *shmworkipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoworkipc, shmworkipc_name.c_str());
+            uintptr_t *shmoffsetwork = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetwork, shmoffsetwork_name.c_str());
 
-            int32_t *cusolver_status_host = get_shm_lwork_ptr<int32_t>(currentDevice, sync_point, shminfo_csh, "jaxmg_shmcsh");
-            int64_t *shmlwork = get_shm_lwork_ptr<int64_t>(currentDevice, sync_point, shminfolwork, "jaxmg_shmlwork");
+            int32_t *cusolver_status_host = get_shm_lwork_ptr<int32_t>(currentDevice, sync_point, shminfo_csh, shmcsh_name.c_str());
+            int64_t *shmlwork = get_shm_lwork_ptr<int64_t>(currentDevice, sync_point, shminfolwork, shmlwork_name.c_str());
 
             if (currentDevice == 0)
             {
@@ -344,14 +353,14 @@ namespace jax
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroyGrid(gridA));
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroy(cusolverH));
                 // Shared memory unlink
-                sharedMemoryUnlink("jaxmg_shmoffsetA");
-                sharedMemoryUnlink("jaxmg_shmAipc");
-                sharedMemoryUnlink("jaxmg_shmoffsetev");
-                sharedMemoryUnlink("jaxmg_shmevipc");
-                sharedMemoryUnlink("jaxmg_shmworkipc");
-                sharedMemoryUnlink("jaxmg_shmoffsetwork");
-                sharedMemoryUnlink("jaxmg_shmlwork");
-                sharedMemoryUnlink("jaxmg_shmcsh");
+                sharedMemoryUnlink(shmoffsetA_name.c_str());
+                sharedMemoryUnlink(shmAipc_name.c_str());
+                sharedMemoryUnlink(shmoffsetev_name.c_str());
+                sharedMemoryUnlink(shmevipc_name.c_str());
+                sharedMemoryUnlink(shmworkipc_name.c_str());
+                sharedMemoryUnlink(shmoffsetwork_name.c_str());
+                sharedMemoryUnlink(shmlwork_name.c_str());
+                sharedMemoryUnlink(shmcsh_name.c_str());
 
                 ipcCloseDevicePointers(currentDevice, opened_ptrs_A.bases, nbGpus);
                 ipcCloseDevicePointers(currentDevice, opened_ptrs_ev.bases, nbGpus);

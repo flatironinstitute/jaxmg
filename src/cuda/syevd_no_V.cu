@@ -56,6 +56,7 @@
 #include <string>
 #include <cstdio>
 #include <iostream>
+#include <unistd.h>
 // Abseil
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -156,12 +157,18 @@ namespace jax
             sharedMemoryInfo shminfolwork; // Shared memory info for lwork space nbytes
             sharedMemoryInfo shmcsh;       // Shared memory info for cusolver status
 
-            data_type **shmA = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfoA, "jaxmg_shmA");                // Actual shared memory
-            eigenvalue_type **shmev = get_shm_device_ptrs<eigenvalue_type>(currentDevice, sync_point, shminfoev, "jaxmg_shmev"); // Actual shared memory
-            data_type **shmwork = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfowork, "jaxmg_shmwork");
+            const std::string shmA_name = absl::StrFormat("/jaxmg_shmA_%d", getppid());
+            const std::string shmev_name = absl::StrFormat("/jaxmg_shmev_%d", getppid());
+            const std::string shmwork_name = absl::StrFormat("/jaxmg_shmwork_%d", getppid());
+            const std::string shmcsh_name = absl::StrFormat("/jaxmg_shmcsh_%d", getppid());
+            const std::string shmlwork_name = absl::StrFormat("/jaxmg_shmlwork_%d", getppid());
 
-            int32_t *cusolver_status_host = get_shm_lwork_ptr<int32_t, ThreadBarrier>(currentDevice, sync_point, shmcsh, "jaxmg_shmcsh");
-            int64_t *shmlwork = get_shm_lwork_ptr<int64_t, ThreadBarrier>(currentDevice, sync_point, shminfolwork, "jaxmg_shmlwork");
+            data_type **shmA = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfoA, shmA_name.c_str());                // Actual shared memory
+            eigenvalue_type **shmev = get_shm_device_ptrs<eigenvalue_type>(currentDevice, sync_point, shminfoev, shmev_name.c_str()); // Actual shared memory
+            data_type **shmwork = get_shm_device_ptrs<data_type>(currentDevice, sync_point, shminfowork, shmwork_name.c_str());
+
+            int32_t *cusolver_status_host = get_shm_lwork_ptr<int32_t, ThreadBarrier>(currentDevice, sync_point, shmcsh, shmcsh_name.c_str());
+            int64_t *shmlwork = get_shm_lwork_ptr<int64_t, ThreadBarrier>(currentDevice, sync_point, shminfolwork, shmlwork_name.c_str());
 
             if (currentDevice == 0)
             {
@@ -296,11 +303,11 @@ namespace jax
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroyGrid(gridA));
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroy(cusolverH));
                 // Unlink file descriptors
-                sharedMemoryUnlink("jaxmg_shmA");
-                sharedMemoryUnlink("jaxmg_shmev");
-                sharedMemoryUnlink("jaxmg_shmwork");
-                sharedMemoryUnlink("jaxmg_shmcsh");
-                sharedMemoryUnlink("jaxmg_shmlwork");
+                sharedMemoryUnlink(shmA_name.c_str());
+                sharedMemoryUnlink(shmev_name.c_str());
+                sharedMemoryUnlink(shmwork_name.c_str());
+                sharedMemoryUnlink(shmcsh_name.c_str());
+                sharedMemoryUnlink(shmlwork_name.c_str());
             }
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
             sync_point.arrive_and_wait();

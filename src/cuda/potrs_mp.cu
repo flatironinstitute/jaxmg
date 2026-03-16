@@ -56,6 +56,7 @@
 #include <string>
 #include <cstdio>
 #include <iostream>
+#include <unistd.h>
 // Abseil
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -164,6 +165,18 @@ namespace jax
             /* Shared memory */
             const pid_t ppid = getppid();
             const std::string barrier_name = "/jaxmgbarrier_" + std::to_string(static_cast<long long>(ppid));
+            const std::string shmAipc_name = absl::StrFormat("/jaxmg_shmAipc_%d", ppid);
+            const std::string shmoffsetA_name = absl::StrFormat("/jaxmg_shmoffsetA_%d", ppid);
+            const std::string shmBipc_name = absl::StrFormat("/jaxmg_shmBipc_%d", ppid);
+            const std::string shmoffsetB_name = absl::StrFormat("/jaxmg_shmoffsetB_%d", ppid);
+            const std::string shmoutdataaipc_name = absl::StrFormat("/jaxmg_shmoutdataaipc_%d", ppid);
+            const std::string shmoffsetoutdataa_name = absl::StrFormat("/jaxmg_shmoffsetoutdataa_%d", ppid);
+            const std::string shmoutdatabipc_name = absl::StrFormat("/jaxmg_shmoutdatabipc_%d", ppid);
+            const std::string shmoffsetoutdatab_name = absl::StrFormat("/jaxmg_shmoffsetoutdatab_%d", ppid);
+            const std::string shmworkipc_name = absl::StrFormat("/jaxmg_shmworkipc_%d", ppid);
+            const std::string shmoffsetwork_name = absl::StrFormat("/jaxmg_shmoffsetwork_%d", ppid);
+            const std::string shmlwork_name = absl::StrFormat("/jaxmg_shmlwork_%d", ppid);
+            const std::string shmcsh_name = absl::StrFormat("/jaxmg_shmcsh_%d", ppid);
             DynamicBarrier sync_point(nbGpus, barrier_name.c_str());
             sync_point.arrive_and_wait();
             CUDA_CHECK_OR_RETURN(cudaDeviceSynchronize());
@@ -184,31 +197,31 @@ namespace jax
             // Data handles A
             std::vector<data_type *> shmA(nbGpus, nullptr);
             IpcOpenResult<data_type> opened_ptrs_A;
-            cudaIpcMemHandle_t *shmAipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoAipc, "jaxmg_shmAipc");
-            uintptr_t *shmoffsetA = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetA, "jaxmg_shmoffsetA");
+            cudaIpcMemHandle_t *shmAipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoAipc, shmAipc_name.c_str());
+            uintptr_t *shmoffsetA = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetA, shmoffsetA_name.c_str());
             // Data handles b
             std::vector<data_type *> shmB(nbGpus, nullptr);
             IpcOpenResult<data_type> opened_ptrs_B;
-            cudaIpcMemHandle_t *shmBipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoBipc, "jaxmg_shmBipc");
-            uintptr_t *shmoffsetB = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetB, "jaxmg_shmoffsetB");
+            cudaIpcMemHandle_t *shmBipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoBipc, shmBipc_name.c_str());
+            uintptr_t *shmoffsetB = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetB, shmoffsetB_name.c_str());
             // Data handles out_data_a
             std::vector<data_type *> shmoutdataa(nbGpus, nullptr);
             IpcOpenResult<data_type> opened_ptrs_outdataa;
-            cudaIpcMemHandle_t *shmoutdataaipc = get_shm_ipc_handles(currentDevice, sync_point, shminfooutdataaipc, "jaxmg_shmoutdataaipc");
-            uintptr_t *shmoffsetoutdataa = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetoutdataa, "jaxmg_shmoffsetoutdataa");
+            cudaIpcMemHandle_t *shmoutdataaipc = get_shm_ipc_handles(currentDevice, sync_point, shminfooutdataaipc, shmoutdataaipc_name.c_str());
+            uintptr_t *shmoffsetoutdataa = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetoutdataa, shmoffsetoutdataa_name.c_str());
             // Data handles out_data_b
             std::vector<data_type *> shmoutdatab(nbGpus, nullptr);
             IpcOpenResult<data_type> opened_ptrs_outdatab;
-            cudaIpcMemHandle_t *shmoutdatabipc = get_shm_ipc_handles(currentDevice, sync_point, shminfooutdatabipc, "jaxmg_shmoutdatabipc");
-            uintptr_t *shmoffsetoutdatab = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetoutdatab, "jaxmg_shmoffsetoutdatab");
+            cudaIpcMemHandle_t *shmoutdatabipc = get_shm_ipc_handles(currentDevice, sync_point, shminfooutdatabipc, shmoutdatabipc_name.c_str());
+            uintptr_t *shmoffsetoutdatab = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetoutdatab, shmoffsetoutdatab_name.c_str());
             // Data handles shmwork
             std::vector<data_type *> shmwork(nbGpus, nullptr);
             IpcOpenResult<data_type> opened_ptrs_work;
-            cudaIpcMemHandle_t *shmworkipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoworkipc, "jaxmg_shmworkipc");
-            uintptr_t *shmoffsetwork = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetwork, "jaxmg_shmoffsetwork");
+            cudaIpcMemHandle_t *shmworkipc = get_shm_ipc_handles(currentDevice, sync_point, shminfoworkipc, shmworkipc_name.c_str());
+            uintptr_t *shmoffsetwork = get_shm_lwork_ptr<uintptr_t>(currentDevice, sync_point, shminfo_offsetwork, shmoffsetwork_name.c_str());
 
-            int32_t *cusolver_status_host = get_shm_lwork_ptr<int32_t>(currentDevice, sync_point, shminfo_csh, "jaxmg_shmcsh");
-            int64_t *shmlwork = get_shm_lwork_ptr<int64_t>(currentDevice, sync_point, shminfolwork, "jaxmg_shmlwork");
+            int32_t *cusolver_status_host = get_shm_lwork_ptr<int32_t>(currentDevice, sync_point, shminfo_csh, shmcsh_name.c_str());
+            int64_t *shmlwork = get_shm_lwork_ptr<int64_t>(currentDevice, sync_point, shminfolwork, shmlwork_name.c_str());
 
             if (currentDevice == 0)
             {
@@ -432,18 +445,18 @@ namespace jax
 
                 CUSOLVER_CHECK_OR_RETURN(cusolverMgDestroy(cusolverH));
                 // Shared memory unlink
-                sharedMemoryUnlink("jaxmg_shmoffsetA");
-                sharedMemoryUnlink("jaxmg_shmAipc");
-                sharedMemoryUnlink("jaxmg_shmoffsetB");
-                sharedMemoryUnlink("jaxmg_shmBipc");
-                sharedMemoryUnlink("jaxmg_shmoffsetoutdataa");
-                sharedMemoryUnlink("jaxmg_shmoffsetoutdatab");
-                sharedMemoryUnlink("jaxmg_shmoutdataaipc");
-                sharedMemoryUnlink("jaxmg_shmoutdatabipc");
-                sharedMemoryUnlink("jaxmg_shmworkipc");
-                sharedMemoryUnlink("jaxmg_shmoffsetwork");
-                sharedMemoryUnlink("jaxmg_shmlwork");
-                sharedMemoryUnlink("jaxmg_shmcsh");
+                sharedMemoryUnlink(shmoffsetA_name.c_str());
+                sharedMemoryUnlink(shmAipc_name.c_str());
+                sharedMemoryUnlink(shmoffsetB_name.c_str());
+                sharedMemoryUnlink(shmBipc_name.c_str());
+                sharedMemoryUnlink(shmoffsetoutdataa_name.c_str());
+                sharedMemoryUnlink(shmoffsetoutdatab_name.c_str());
+                sharedMemoryUnlink(shmoutdataaipc_name.c_str());
+                sharedMemoryUnlink(shmoutdatabipc_name.c_str());
+                sharedMemoryUnlink(shmworkipc_name.c_str());
+                sharedMemoryUnlink(shmoffsetwork_name.c_str());
+                sharedMemoryUnlink(shmlwork_name.c_str());
+                sharedMemoryUnlink(shmcsh_name.c_str());
                 // Close memory handles
                 ipcCloseDevicePointers(currentDevice, opened_ptrs_A.bases, nbGpus);
                 ipcCloseDevicePointers(currentDevice, opened_ptrs_B.bases, nbGpus);
