@@ -111,7 +111,6 @@ pipeline {
                                         } else {
                                             pytest_cmd = "python -m pytest -svv -m 'not mpmd' tests"
                                         }
-                                        pytest_cmd = "python -m pytest -svv tests"
                                         stage("Build ${c}-${p}-${j}") {
                                             unstash 'bin12'
                                             unstash 'bin13'
