@@ -106,6 +106,7 @@ pipeline {
                                             echo "Skipping ${c}-${p}-${j}: python 3.14 with JAX 0.6.2 unsupported"
                                             continue
                                         }
+                                        pytest_cmd = "python -m pytest -svv tests"
                                         stage("Build ${c}-${p}-${j}") {
                                             unstash 'bin12'
                                             unstash 'bin13'
