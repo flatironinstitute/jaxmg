@@ -1068,14 +1068,18 @@ shard
  [0. 8.]]
 </code></pre></div></p>
 <p>We went from a matrix that was column sharded over all 8 global devices, to a matrix that was column sharded over the 4 gpus in each process.</p>
-<p>In this host-replicated layout we can safely call <code>jaxmg.potrs</code> on the array with a 2D mesh (the code below only works if we are actually performing this computation with access to GPUs):</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">potrs</span>
+<p>In this host-replicated layout we can safely call <code>jaxmg.potrs</code> on the array with a 2D mesh as long as we specify how many local devices there are in each node with the environment variable <code>JAXMG_NUMBER_OF_DEVICES</code> (the code below only works if we are actually performing this computation with access to GPUs):</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">potrs</span>
+<span class="c1"># Must set this environment variable to tell JAXMg that there are 4 local GPUs per node.</span>
+<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;JAXMG_NUMBER_OF_DEVICES&quot;</span><span class="p">]</span><span class="o">=</span><span class="s2">&quot;4&quot;</span>
+
 <span class="n">out</span><span class="o">=</span> <span class="n">potrs</span><span class="p">(</span>
     <span class="n">A</span><span class="p">,</span>
     <span class="n">jnp</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">jax</span><span class="o">.</span><span class="n">device_count</span><span class="p">(),</span> <span class="mi">1</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
     <span class="n">T_A</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
     <span class="n">mesh</span><span class="o">=</span><span class="n">mesh2d</span><span class="p">,</span>
-    <span class="n">in_specs</span><span class="o">=</span><span class="p">(</span><span class="n">P</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;T&quot;</span><span class="p">),</span> <span class="n">P</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)),</span>
+    <span class="n">in_specs</span><span class="o">=</span><span class="p">(</span><span class="n">P</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;T&quot;</span><span class="p">),</span> <span class="p">),</span>
 <span class="p">)</span>
 </code></pre></div>
 
