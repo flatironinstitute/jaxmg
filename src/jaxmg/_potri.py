@@ -2,7 +2,7 @@ import os
 import jax
 import jax.numpy as jnp
 from jax import Array
-from jax.sharding import PartitionSpec as P, Mesh
+from jax.sharding import PartitionSpec as P, Mesh, NamedSharding
 
 from functools import partial
 from typing import Tuple, Union, List
@@ -29,9 +29,9 @@ def potri(
     Tip:
         If the shards of the matrix cannot be padded with tiles of size `T_A`
         (``N / num_gpus % T_A != 0``) we have to add padding to fit the last tile.
-        This requires copying the matrix, which we want to avoid at all costs for 
+        This requires copying the matrix, which we want to avoid at all costs for
         large ``N``. Make sure you pick ``T_A`` large enough (>=128) and such that it
-        can evenly cover the shards. In principle, increasing ``T_A`` will increase 
+        can evenly cover the shards. In principle, increasing ``T_A`` will increase
         performance at the cost of memory, but depending on ``N``, the performance
           will saturate.
 
@@ -39,10 +39,10 @@ def potri(
         a (Array): A 2D JAX array of shape ``(N_rows, N)``. Must be symmetric and
             is expected to be sharded across the mesh along the first (row)
             axis using ``P(<axis_name>, None)``.
-        T_A (int): Tile width used by the native solver. Each 
-            local shard length must be a multiple of ``T_A``. If the user provides a 
+        T_A (int): Tile width used by the native solver. Each
+            local shard length must be a multiple of ``T_A``. If the user provides a
             ``T_A`` that is incompatible with the shard size we pad the matrix
-            accordingly. For small tile sizes (``T_A``< 128), the solver can 
+            accordingly. For small tile sizes (``T_A``< 128), the solver can
             be extremely slow, so ensure that ``T_A`` is large enough. In principle,
             the larger ``T_A`` the faster the solver runs. See https://arxiv.org/abs/2601.14466
             for more details.
@@ -195,9 +195,9 @@ def potri_shardmap_ctx(a: Array, T_A: int, pad=True) -> Union[Array, Tuple[Array
     Tip:
         If the shards of the matrix cannot be padded with tiles of size `T_A`
         (``N / num_gpus % T_A != 0``) we have to add padding to fit the last tile.
-        This requires copying the matrix, which we want to avoid at all costs for 
+        This requires copying the matrix, which we want to avoid at all costs for
         large ``N``. Make sure you pick ``T_A`` large enough (>=128) and such that it
-        can evenly cover the shards. In principle, increasing ``T_A`` will increase 
+        can evenly cover the shards. In principle, increasing ``T_A`` will increase
         performance at the cost of memory, but depending on ``N``, the performance
           will saturate.
 
@@ -206,10 +206,10 @@ def potri_shardmap_ctx(a: Array, T_A: int, pad=True) -> Union[Array, Tuple[Array
             ``(shard_size, N)`` where ``shard_size`` is the per-device local
             row count and ``N`` is the global matrix dimension. The matrix
             should be symmetric.
-        T_A (int): Tile width used by the native solver. Each 
-            local shard length must be a multiple of ``T_A``. If the user provides a 
+        T_A (int): Tile width used by the native solver. Each
+            local shard length must be a multiple of ``T_A``. If the user provides a
             ``T_A`` that is incompatible with the shard size we pad the matrix
-            accordingly. For small tile sizes (``T_A``< 128), the solver can 
+            accordingly. For small tile sizes (``T_A``< 128), the solver can
             be extremely slow, so ensure that ``T_A`` is large enough. In principle,
             the larger ``T_A`` the faster the solver runs.
         pad (bool, optional): If True (default) apply per-device padding to
@@ -293,7 +293,45 @@ def potri_shardmap_ctx(a: Array, T_A: int, pad=True) -> Union[Array, Tuple[Array
     return out, status
 
 
-@partial(jax.jit, donate_argnums=0)
 def potri_symmetrize(_a):
-    _a = jnp.triu(_a)
-    return _a + _a.T.conj() - jnp.diag(jnp.diag(_a))
+    sharding = jax.typeof(_a).sharding
+    mesh = sharding.mesh
+    axis_name = sharding.spec[0]
+    if isinstance(sharding, NamedSharding) and sharding.spec[0] is not None:
+        @partial(jax.jit, donate_argnums=0)
+        @partial(
+            jax.shard_map,
+            mesh=mesh,
+            in_specs=P(axis_name, None),
+            out_specs=P(axis_name, None),
+            check_vma=False,
+        )
+        def _impl(_a_local):
+            s, N = _a_local.shape
+            # jnp.triu uses local row indices, but the global diagonal for device k
+            # sits at local column k*s + local_row. Build global-coordinate masks
+            # dynamically using axis_index so every device gets the right offset.
+            k_offset = jax.lax.axis_index(axis_name) * s
+            rows = jnp.arange(s)[:, None]
+            cols = jnp.arange(N)[None, :]
+            upper_local = jnp.where(cols >= rows + k_offset, _a_local, 0)
+            strictly_upper_local = jnp.where(cols > rows + k_offset, _a_local, 0)
+            # all_to_all transposes sharding P(x,None)->P(None,x) without an all-gather:
+            col_slice = jax.lax.all_to_all(
+                jnp.conj(strictly_upper_local),
+                axis_name,
+                split_axis=1,
+                concat_axis=0,
+                tiled=True,
+            )
+            # Local transpose gives strictly-lower triangle rows for this device: shape (s, N)
+            lower_local = col_slice.T
+            return upper_local + lower_local
+    else: # revert to standard jit if we are in single device mode
+        @partial(jax.jit, donate_argnums=0)
+        def _impl(_a):
+            _a = jnp.triu(_a)
+            return _a + _a.T.conj() - jnp.diag(jnp.diag(_a))
+
+        return _impl(_a)
+    return _impl(_a)
