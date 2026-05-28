@@ -98,7 +98,7 @@ pipeline {
                             script {
                             def cudaVersions = ['cuda12-local', ]
                             def pyVersions = ['3.11', '3.12', '3.13', '3.14', ]
-                            def jaxVersions = ['0.6.2', '0.7.1', '0.8.1']
+                            def jaxVersions = ['0.6.2', '0.7.1', '0.8.1', '0.9.2']
                             for (c in cudaVersions) {
                                 for (p in pyVersions) {
                                     for (j in jaxVersions) {
