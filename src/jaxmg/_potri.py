@@ -295,43 +295,24 @@ def potri_shardmap_ctx(a: Array, T_A: int, pad=True) -> Union[Array, Tuple[Array
 
 def potri_symmetrize(_a):
     sharding = jax.typeof(_a).sharding
-    mesh = sharding.mesh
-    axis_name = sharding.spec[0]
-    if isinstance(sharding, NamedSharding) and sharding.spec[0] is not None:
-        @partial(jax.jit, donate_argnums=0)
+    # explicitly reshard for newer versions of JAX
+    if hasattr(jax, "reshard"):
         @partial(
-            jax.shard_map,
-            mesh=mesh,
-            in_specs=P(axis_name, None),
-            out_specs=P(axis_name, None),
-            check_vma=False,
+            jax.jit,
+            donate_argnums=0
         )
-        def _impl(_a_local):
-            s, N = _a_local.shape
-            # jnp.triu uses local row indices, but the global diagonal for device k
-            # sits at local column k*s + local_row. Build global-coordinate masks
-            # dynamically using axis_index so every device gets the right offset.
-            k_offset = jax.lax.axis_index(axis_name) * s
-            rows = jnp.arange(s)[:, None]
-            cols = jnp.arange(N)[None, :]
-            upper_local = jnp.where(cols >= rows + k_offset, _a_local, 0)
-            strictly_upper_local = jnp.where(cols > rows + k_offset, _a_local, 0)
-            # all_to_all transposes sharding P(x,None)->P(None,x) without an all-gather:
-            col_slice = jax.lax.all_to_all(
-                jnp.conj(strictly_upper_local),
-                axis_name,
-                split_axis=1,
-                concat_axis=0,
-                tiled=True,
-            )
-            # Local transpose gives strictly-lower triangle rows for this device: shape (s, N)
-            lower_local = col_slice.T
-            return upper_local + lower_local
-    else: # revert to standard jit if we are in single device mode
-        @partial(jax.jit, donate_argnums=0)
         def _impl(_a):
             _a = jnp.triu(_a)
-            return _a + _a.T.conj() - jnp.diag(jnp.diag(_a))
-
-        return _impl(_a)
+            _lower = jnp.triu(_a, k=1)
+            lower = jax.reshard(_lower.T.conj(), sharding)
+            return _a + lower
+    else:
+        @partial(
+            jax.jit,
+            donate_argnums=0
+        )
+        def _impl(_a):
+            _a1 = jnp.triu(_a)
+            lower = jnp.triu(_a, k=1)
+            return _a1.conj().T + lower
     return _impl(_a)
