@@ -15,6 +15,10 @@
 
 There has been a discussion with the cuSOLVERMp team at NVIDIA who can potentially assist with this. The main problem is communicating between the different threads/processes that launch cuSOLVERMp from JAX. Since JAX launches a thread/process for each GPU, we need to be able to synchronize these processes and orchestrate calls to cuSOLVER from a designated master process. In JAXMg this is handled by creating shared memory, and sharing GPU pointers between the processes. However, for cuSOLVERMp, where GPUs can be on different nodes, this would be quite a challenge to set up in a robust way. This could be resolved if it was possible to pass the underlying XLA communicator through from JAX to the foreign function interface, so that multi process synchronization collectives are accessible on the C++ side.
 
+**Update May 28th:**
+There seems to be a pathway to use the XLA-communicator directly, which is discussed here: 
+https://github.com/openxla/xla/discussions/42689
+
 ## Build from source
 
 To build from source:
