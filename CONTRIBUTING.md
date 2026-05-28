@@ -114,7 +114,7 @@ Get the latest built wheels from Jenkins:
 
 ```bash
 mkdir dist
-VERSION=0.0.7
+VERSION=0.0.8
 CUDA_FLAVOR=cuda12-local
 JAX_VERSION=0.8.1
 for PY in 3.11 3.12 3.13 3.14; do
@@ -134,5 +134,5 @@ python -m twine upload --repository testpypi dist/*
 ```
 Test the wheel
 ```bash
-pip install -i https://test.pypi.org/simple/ "jaxmg[cuda12]==0.0.7" --extra-index-url https://pypi.org/simple
+pip install -i https://test.pypi.org/simple/ "jaxmg[cuda12]==0.0.8" --extra-index-url https://pypi.org/simple
 ```
