@@ -974,9 +974,9 @@ returning.</p>
   <summary>Tip</summary>
   <p>If the shards of the matrix cannot be padded with tiles of size <code>T_A</code>
 (<code>N / num_gpus % T_A != 0</code>) we have to add padding to fit the last tile.
-This requires copying the matrix, which we want to avoid at all costs for 
+This requires copying the matrix, which we want to avoid at all costs for
 large <code>N</code>. Make sure you pick <code>T_A</code> large enough (&gt;=128) and such that it
-can evenly cover the shards. In principle, increasing <code>T_A</code> will increase 
+can evenly cover the shards. In principle, increasing <code>T_A</code> will increase
 performance at the cost of memory, but depending on <code>N</code>, the performance
   will saturate.</p>
 </details>
@@ -1019,10 +1019,10 @@ axis using <code>P(&lt;axis_name&gt;, None)</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Tile width used by the native solver. Each 
-local shard length must be a multiple of <code>T_A</code>. If the user provides a 
+                <p>Tile width used by the native solver. Each
+local shard length must be a multiple of <code>T_A</code>. If the user provides a
 <code>T_A</code> that is incompatible with the shard size we pad the matrix
-accordingly. For small tile sizes (<code>T_A</code>&lt; 128), the solver can 
+accordingly. For small tile sizes (<code>T_A</code>&lt; 128), the solver can
 be extremely slow, so ensure that <code>T_A</code> is large enough. In principle,
 the larger <code>T_A</code> the faster the solver runs. See https://arxiv.org/abs/2601.14466
 for more details.</p>
@@ -1220,9 +1220,9 @@ the shardmap_context.</p>
   <summary>Tip</summary>
   <p>If the shards of the matrix cannot be padded with tiles of size <code>T_A</code>
 (<code>N / num_gpus % T_A != 0</code>) we have to add padding to fit the last tile.
-This requires copying the matrix, which we want to avoid at all costs for 
+This requires copying the matrix, which we want to avoid at all costs for
 large <code>N</code>. Make sure you pick <code>T_A</code> large enough (&gt;=128) and such that it
-can evenly cover the shards. In principle, increasing <code>T_A</code> will increase 
+can evenly cover the shards. In principle, increasing <code>T_A</code> will increase
 performance at the cost of memory, but depending on <code>N</code>, the performance
   will saturate.</p>
 </details>
@@ -1266,10 +1266,10 @@ should be symmetric.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Tile width used by the native solver. Each 
-local shard length must be a multiple of <code>T_A</code>. If the user provides a 
+                <p>Tile width used by the native solver. Each
+local shard length must be a multiple of <code>T_A</code>. If the user provides a
 <code>T_A</code> that is incompatible with the shard size we pad the matrix
-accordingly. For small tile sizes (<code>T_A</code>&lt; 128), the solver can 
+accordingly. For small tile sizes (<code>T_A</code>&lt; 128), the solver can
 be extremely slow, so ensure that <code>T_A</code> is large enough. In principle,
 the larger <code>T_A</code> the faster the solver runs.</p>
               </div>
