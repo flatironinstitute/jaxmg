@@ -116,7 +116,7 @@ else:
         eigenvalues_expected = jnp.linalg.eigvalsh(A)
         # Make mesh and place data
         _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-        eigenvalues = jitted_syevd_no_V(A.copy(), T_A)
+        eigenvalues = jitted_syevd_no_V(_A.copy(), T_A)
         eigenvalues.block_until_ready()
         assert jnp.allclose(eigenvalues, eigenvalues_expected, rtol=10, atol=0.0)
         eigenvalues_no_shm, _ = jitted_syevd_no_V_no_shardmap(_A.copy(), T_A)
