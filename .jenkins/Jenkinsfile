@@ -1,30 +1,22 @@
-pipeline {
-    agent none
-    options {
-        timeout(time: 2, unit: 'HOURS')
-    }
-    triggers {
-        cron '@monthly'
-    }
-    stages {
+properties([
+  disableConcurrentBuilds(),
+  buildDiscarder(logRotator(numToKeepStr: '8', daysToKeepStr: '30')),
+  pipelineTriggers([cron('@monthly')])
+])
+
+timeout(time: 2, unit: 'HOURS') {
+  buildPod(tag: '12',
+    context: '.jenkins',
+    dockerfile: 'Dockerfile12',
+    //devShm: true,
+    gpus: 0) {
         stage('Compile CUDA 12') {
-            agent {
-                dockerfile {
-                    filename '.jenkins/Dockerfile12'
-                    args '--gpus=2 --shm-size=4gb'
-                    label 'docker && v100'
-                }
-            }
-            stages {
-                stage('Compile') {
-                    environment {
-                        PARALLEL = "${env.PARALLEL}"
-                        CUDA_ROOT = '/usr/local/cuda'
-                        CUDNN_ROOT = '/usr'
-                        JAX_VERSION = '0.6.2'
-                        XLA_PYTHON_CLIENT_ALLOCATOR = 'platform'
-                    }
-                    steps {
+                    withEnv([
+                        "CUDA_ROOT=/usr/local/cuda",
+                        "CUDNN_ROOT=/usr",
+                        "JAX_VERSION=0.6.2",
+                        "XLA_PYTHON_CLIENT_ALLOCATOR=platform"
+                      ]) {
                             sh '''#!/bin/bash -ex
                             export PATH="/usr/local/cuda/bin:$PATH"
                             export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
@@ -37,26 +29,20 @@ pipeline {
                             '''
                         stash name: 'bin12', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
                     }
-                }
-            }
         }
+  }
+
+  buildPod(tag: '13',
+    context: '.jenkins',
+    dockerfile: 'Dockerfile13',
+    //devShm: true,
+    gpus: 0) {
         stage('Compile CUDA 13') {
-            agent {
-                dockerfile {
-                    filename '.jenkins/Dockerfile13'
-                    args '--gpus=2 --shm-size=4gb'
-                    label 'docker && v100'
-                }
-            }
-            stages {
-                stage('Compile') {
-                    environment {
-                        PARALLEL = "${env.PARALLEL}"
-                        CUDA_ROOT = '/usr/local/cuda'
-                        CUDNN_ROOT = '/usr'
-                        JAX_VERSION = '0.7.2'
-                    }
-                    steps {
+                    withEnv([
+                        "CUDA_ROOT=/usr/local/cuda",
+                        "CUDNN_ROOT=/usr",
+                        "JAX_VERSION=0.7.2"
+                      ]) {
                             sh '''#!/bin/bash -ex
                             export PATH="/usr/local/cuda/bin:$PATH"
                             export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
@@ -69,33 +55,24 @@ pipeline {
                             '''
                         stash name: 'bin13', includes: 'src/jaxmg/cu13/**', useDefaultExcludes: false
                     }
-                }
-            }
         }
+  }
+
+  runPod(tag: '12',
+    devShm: true,
+    gpus: 2) {
         stage('Test CUDA 12') {
-            agent {
-                dockerfile {
-                    filename '.jenkins/Dockerfile12'
-                    args '--gpus=2 --shm-size=4gb'
-                    label 'docker && v100'
-                }
-            }
-            stages {
-                stage('Build + Test') {
-                    environment {
-                        PARALLEL = "${env.PARALLEL}"
-                        CUDA_ROOT = '/usr/local/cuda'
-                        CUDNN_ROOT = '/usr'
-                        JAX_VERSION = '0.6.2'
-                        CUDA_VISIBLE_DEVICES = '0,1'
-                    }
-                    steps {
+                    withEnv([
+                        "CUDA_ROOT=/usr/local/cuda",
+                        "CUDNN_ROOT=/usr",
+                        "JAX_VERSION=0.6.2",
+                        "CUDA_VISIBLE_DEVICES=0,1"
+                      ]) {
                             sh '''#!/bin/bash -ex
                             export PATH="/usr/local/cuda/bin:$PATH"
                             export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
                             '''
 
-                            script {
                             def cudaVersions = ['cuda12-local', ]
                             def pyVersions = ['3.11', '3.12', '3.13', '3.14', ]
                             def jaxVersions = ['0.6.2', '0.7.1', '0.8.1', '0.9.1']
@@ -113,7 +90,6 @@ pipeline {
                                         }
                                         stage("Build ${c}-${p}-${j}") {
                                             unstash 'bin12'
-                                            unstash 'bin13'
                                             withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
                                                 sh '''#!/bin/bash -ex
                                                     mkdir -p "$WORKDIR"
@@ -162,36 +138,25 @@ pipeline {
                                     }
                                 }
                             }
-                            }
                     }
-                }
-            }
-        }
+      }
+  }
 
+  runPod(tag: '13',
+    devShm: true,
+    gpus: 2) {
         stage('Test CUDA 13') {
-            agent {
-                dockerfile {
-                    filename '.jenkins/Dockerfile13'
-                    args '--gpus=2 --shm-size=4gb'
-                    label 'docker && v100'
-                }
-            }
-            stages {
-                stage('Build + Test') {
-                    environment {
-                        PARALLEL = "${env.PARALLEL}"
-                        CUDA_ROOT = '/usr/local/cuda'
-                        CUDNN_ROOT = '/usr'
-                        JAX_VERSION = '0.7.2'
-                        CUDA_VISIBLE_DEVICES = '0,1'
-                    }
-                    steps {
+                    withEnv([
+                        "CUDA_ROOT=/usr/local/cuda",
+                        "CUDNN_ROOT=/usr",
+                        "JAX_VERSION=0.6.2",
+                        "CUDA_VISIBLE_DEVICES=0,1"
+                      ]) {
                             sh '''#!/bin/bash -ex
                             export PATH="/usr/local/cuda/bin:$PATH"
                             export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
                             '''
 
-                            script {
                             def cudaVersions = ['cuda13-local', ]
                             def pyVersions = ['3.11', '3.12', '3.13', '3.14', ]
                             def jaxVersions = ['0.7.2', '0.8.1']
@@ -199,7 +164,6 @@ pipeline {
                                 for (p in pyVersions) {
                                     for (j in jaxVersions) {
                                         stage("Build ${c}-${p}-${j}") {
-                                            unstash 'bin12'
                                             unstash 'bin13'
                                             withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
                                                 sh '''#!/bin/bash -ex
@@ -260,10 +224,7 @@ pipeline {
                                     }
                                 }
                             }
-                            }
                     }
-                }
-            }
         }
     }
 }
