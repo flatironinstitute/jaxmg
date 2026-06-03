@@ -5,12 +5,11 @@ properties([
 ])
 
 timeout(time: 2, unit: 'HOURS') {
-  buildPod(tag: '12',
-    context: '.jenkins',
-    dockerfile: 'Dockerfile12',
-    //devShm: true,
-    gpus: 0) {
-        stage('Compile CUDA 12') {
+  parallel cuda12: {
+    buildPod(tag: '12',
+      context: '.jenkins',
+      dockerfile: 'Dockerfile12') {
+          stage('Compile CUDA 12') {
                     withEnv([
                         "CUDA_ROOT=/usr/local/cuda",
                         "CUDNN_ROOT=/usr",
@@ -29,38 +28,12 @@ timeout(time: 2, unit: 'HOURS') {
                             '''
                         stash name: 'bin12', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
                     }
-        }
-  }
+          }
+    }
 
-  buildPod(tag: '13',
-    context: '.jenkins',
-    dockerfile: 'Dockerfile13',
-    //devShm: true,
-    gpus: 0) {
-        stage('Compile CUDA 13') {
-                    withEnv([
-                        "CUDA_ROOT=/usr/local/cuda",
-                        "CUDNN_ROOT=/usr",
-                        "JAX_VERSION=0.7.2"
-                      ]) {
-                            sh '''#!/bin/bash -ex
-                            export PATH="/usr/local/cuda/bin:$PATH"
-                            export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
-
-                            mkdir -p build && cd build
-                            cmake -DCMAKE_BUILD_TYPE=Release ..
-                            cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
-                            echo "Built libs at $WORKSPACE/src/jaxmg/cu13:"
-                            ls -la "$WORKSPACE/src/jaxmg/cu13"
-                            '''
-                        stash name: 'bin13', includes: 'src/jaxmg/cu13/**', useDefaultExcludes: false
-                    }
-        }
-  }
-
-  runPod(tag: '12',
-    devShm: true,
-    gpus: 2) {
+    runPod(tag: '12',
+      devShm: true,
+      gpus: 2) {
         stage('Test CUDA 12') {
                     withEnv([
                         "CUDA_ROOT=/usr/local/cuda",
@@ -139,13 +112,37 @@ timeout(time: 2, unit: 'HOURS') {
                                 }
                             }
                     }
-      }
-  }
+        }
+    }
+  }, cuda13: {
+    buildPod(tag: '13',
+      context: '.jenkins',
+      dockerfile: 'Dockerfile13') {
+          stage('Compile CUDA 13') {
+                    withEnv([
+                        "CUDA_ROOT=/usr/local/cuda",
+                        "CUDNN_ROOT=/usr",
+                        "JAX_VERSION=0.7.2"
+                      ]) {
+                            sh '''#!/bin/bash -ex
+                            export PATH="/usr/local/cuda/bin:$PATH"
+                            export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
 
-  runPod(tag: '13',
-    devShm: true,
-    gpus: 2) {
-        stage('Test CUDA 13') {
+                            mkdir -p build && cd build
+                            cmake -DCMAKE_BUILD_TYPE=Release ..
+                            cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
+                            echo "Built libs at $WORKSPACE/src/jaxmg/cu13:"
+                            ls -la "$WORKSPACE/src/jaxmg/cu13"
+                            '''
+                        stash name: 'bin13', includes: 'src/jaxmg/cu13/**', useDefaultExcludes: false
+                    }
+        }
+    }
+
+    runPod(tag: '13',
+      devShm: true,
+      gpus: 2) {
+          stage('Test CUDA 13') {
                     withEnv([
                         "CUDA_ROOT=/usr/local/cuda",
                         "CUDNN_ROOT=/usr",
@@ -225,6 +222,7 @@ timeout(time: 2, unit: 'HOURS') {
                                 }
                             }
                     }
-        }
-    }
+          }
+      }
+  }
 }
