@@ -42,6 +42,85 @@ def _load(module, libraries):
                 ) from e
 
 
+def _register_optional_cuda_target_bundle(bin_dir, library_name, ffi_name, symbols):
+    path = os.path.join(_lib_dir, f"{bin_dir}/{library_name}")
+    if not os.path.exists(path):
+        return
+    library = ctypes.cdll.LoadLibrary(path)
+    try:
+        bundle = {
+            stage: jax.ffi.pycapsule(getattr(library, symbol_name))
+            for stage, symbol_name in symbols.items()
+        }
+    except AttributeError:
+        return
+    jax.ffi.register_ffi_target(ffi_name, bundle, platform="CUDA")
+
+
+def _register_cuda_target_bundle(bin_dir, library_name, ffi_name, symbols):
+    path = os.path.join(_lib_dir, f"{bin_dir}/{library_name}")
+    if not os.path.exists(path):
+        raise OSError(
+            f"Required JAXMg CUDA library is missing: {path}. "
+            "Build the XLA communicator backend before using the CUDA package."
+        )
+    library = ctypes.cdll.LoadLibrary(path)
+    bundle = {
+        stage: jax.ffi.pycapsule(getattr(library, symbol_name))
+        for stage, symbol_name in symbols.items()
+    }
+    jax.ffi.register_ffi_target(ffi_name, bundle, platform="CUDA")
+
+
+def _register_xla_comm_cusolvermg_targets(bin_dir):
+    library_name = "libxla_comm_collective_probe.so"
+    _register_cuda_target_bundle(
+        bin_dir,
+        library_name,
+        "xla_comm_matrix_column_native_plan",
+        {
+            "prepare": "XlaCommMatrixColumnNativePlanPrepareFFI",
+            "execute": "XlaCommMatrixColumnNativePlanFFI",
+        },
+    )
+    _register_cuda_target_bundle(
+        bin_dir,
+        library_name,
+        "potrs_mg",
+        {
+            "prepare": "XlaCommPotrsMgNativePlanPrepareFFI",
+            "execute": "XlaCommPotrsMgNativePlanFFI",
+        },
+    )
+    _register_cuda_target_bundle(
+        bin_dir,
+        library_name,
+        "potri_mg",
+        {
+            "prepare": "XlaCommPotriMgNativePlanPrepareFFI",
+            "execute": "XlaCommPotriMgNativePlanFFI",
+        },
+    )
+    _register_cuda_target_bundle(
+        bin_dir,
+        library_name,
+        "syevd_mg",
+        {
+            "prepare": "XlaCommSyevdMgNativePlanPrepareFFI",
+            "execute": "XlaCommSyevdMgNativePlanFFI",
+        },
+    )
+    _register_cuda_target_bundle(
+        bin_dir,
+        library_name,
+        "syevd_no_V_mg",
+        {
+            "prepare": "XlaCommSyevdNoVMgNativePlanPrepareFFI",
+            "execute": "XlaCommSyevdNoVMgNativePlanFFI",
+        },
+    )
+
+
 def _initialize():
     if any("gpu" == d.platform for d in jax.devices()):
         # Determine CUDA backend
@@ -61,60 +140,70 @@ def _initialize():
 
         if not jax.distributed.is_initialized():
             n_devices_per_node = jax.local_device_count()
-            mode = "SPMD"
         else:
-            if "JAXMG_NUMBER_OF_DEVICES" in os.environ:
-                n_devices_per_node = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
-                n_machines = jax.device_count() // int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
-                warnings.warn(
-                    f"Running in MPMD mode, with JAXMG_NUMBER_OF_DEVICES={n_devices_per_node}."
-                    f"JAXMg is running on {n_machines} machines and {n_devices_per_node} devices per node."
-                    "If this configuation is incorrect, the code will hang or error.",
-                    JaxMgWarning,
-                    stacklevel=4,  # _initialize -> ensure_init_jaxmg_backend -> public fn -> user code
-                )
-            else:
-                n_devices_per_node = jax.device_count()
-                warnings.warn(
-                    f"Running in MPMD mode with {n_devices_per_node} devices. "
-                    "By default, we assume that computation is running in a single node. "
-                    "To run JAXMg in a setting with multiple nodes, manually set JAXMG_NUMBER_OF_DEVICES to the number of devices per node"
-                    " (see https://flatironinstitute.github.io/jaxmg/examples/spmd_mpmd/ for more details)",
-                    JaxMgWarning,
-                    stacklevel=4,  # _initialize -> ensure_init_jaxmg_backend -> public fn -> user code
-                )
-            mode = "MPMD"
+            raise NotImplementedError(
+                "The XLA communicator cuSolverMg backend is currently supported "
+                "only for single-node SPMD execution."
+            )
                 
         # set if not set already
         os.environ.setdefault("JAXMG_NUMBER_OF_DEVICES", str(n_devices_per_node))
 
-        if mode == "SPMD":
-            library_cyclic = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libcyclic.so"))
-            library_potrs = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libpotrs.so"))
-            library_potri = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libpotri.so"))
-            library_syevd = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libsyevd.so"))
-            library_syevd_no_V = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libsyevd_no_V.so"))
-
-            jax.ffi.register_ffi_target("cyclic_mg", jax.ffi.pycapsule(library_cyclic.CyclicMgFFI), platform="CUDA")
-            jax.ffi.register_ffi_target("potrs_mg", jax.ffi.pycapsule(library_potrs.PotrsMgFFI), platform="CUDA")
-            jax.ffi.register_ffi_target("potri_mg", jax.ffi.pycapsule(library_potri.PotriMgFFI), platform="CUDA")
-            jax.ffi.register_ffi_target("syevd_mg", jax.ffi.pycapsule(library_syevd.SyevdMgFFI), platform="CUDA")
-            jax.ffi.register_ffi_target(
-                "syevd_no_V_mg", jax.ffi.pycapsule(library_syevd_no_V.SyevdMgFFI), platform="CUDA"
-            )
-
-        else:
-            library_potrs_mp = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libpotrs_mp.so"))
-            library_potri_mp = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libpotri_mp.so"))
-            library_syevd_mp = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libsyevd_mp.so"))
-            library_syevd_no_V_mp = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libsyevd_no_V_mp.so"))
-
-            jax.ffi.register_ffi_target("potrs_mg", jax.ffi.pycapsule(library_potrs_mp.PotrsMgMpFFI), platform="CUDA")
-            jax.ffi.register_ffi_target("potri_mg", jax.ffi.pycapsule(library_potri_mp.PotriMgMpFFI), platform="CUDA")
-            jax.ffi.register_ffi_target("syevd_mg", jax.ffi.pycapsule(library_syevd_mp.SyevdMgMpFFI), platform="CUDA")
-            jax.ffi.register_ffi_target(
-                "syevd_no_V_mg", jax.ffi.pycapsule(library_syevd_no_V_mp.SyevdNoVMgMpFFI), platform="CUDA"
-            )
+        _register_xla_comm_cusolvermg_targets(bin_dir)
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            "libxla_comm_collective_probe.so",
+            "xla_comm_collective_probe",
+            {
+                "prepare": "XlaCommCollectiveProbePrepareFFI",
+                "execute": "XlaCommCollectiveProbeFFI",
+            },
+        )
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            "libxla_comm_collective_probe.so",
+            "xla_comm_allreduce_probe",
+            {
+                "prepare": "XlaCommAllReduceProbePrepareFFI",
+                "execute": "XlaCommAllReduceProbeFFI",
+            },
+        )
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            "libxla_comm_collective_probe.so",
+            "xla_comm_ring_permute_probe",
+            {
+                "prepare": "XlaCommRingPermuteProbePrepareFFI",
+                "execute": "XlaCommRingPermuteProbeFFI",
+            },
+        )
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            "libxla_comm_collective_probe.so",
+            "xla_comm_shift_permute_probe",
+            {
+                "prepare": "XlaCommShiftPermuteProbePrepareFFI",
+                "execute": "XlaCommShiftPermuteProbeFFI",
+            },
+        )
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            "libxla_comm_collective_probe.so",
+            "xla_comm_permute_probe",
+            {
+                "prepare": "XlaCommPermuteProbePrepareFFI",
+                "execute": "XlaCommPermuteProbeFFI",
+            },
+        )
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            "libxla_comm_collective_probe.so",
+            "xla_comm_chunk_permute_probe",
+            {
+                "prepare": "XlaCommChunkPermuteProbePrepareFFI",
+                "execute": "XlaCommChunkPermuteProbeFFI",
+            },
+        )
 
     else:
         warnings.warn(
