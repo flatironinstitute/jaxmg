@@ -29,7 +29,13 @@ from typing import Tuple, Union, List
 import warnings
 
 from .utils import maybe_real_dtype_from_complex, JaxMgWarning
-from ._cyclic_1d import calculate_padding, pad_rows, unpad_rows
+from ._cyclic_1d import (
+    calculate_padding,
+    pad_rows,
+    unpad_rows,
+    validate_padded_matrix_rows,
+    validate_padded_shard_rows,
+)
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -84,7 +90,6 @@ def syevd(
         pad (bool, optional): If True (default) apply per-device padding to meet
             ``T_A`` requirements; if False the caller must supply already-
             correct shapes.
-
     Returns:
         Depending on ``return_eigenvectors`` and ``return_status``, one of:
             - eigenvalues (Array of shape ``(N,)``)
@@ -142,12 +147,10 @@ def syevd(
 
     padding = calculate_padding(shard_size, T_A)
     input_layouts = ((0, 1),)
+
     if not pad or padding == 0 or T_A >= N // ndev:
         if T_A < N // ndev:
-            assert (
-                N_rows == N + ndev * padding
-            ), f"pad=False, but with T_A={T_A}, we need padding of {padding} rows per device."
-            f"Expected {N + ndev * padding} rows, but received {N_rows}"
+            validate_padded_matrix_rows(N_rows, N, ndev, T_A)
 
         # Identity padding
         pad_fn = lambda _a: _a
@@ -214,7 +217,7 @@ def syevd(
 
     def fn(_a):
         _a = pad_fn(_a)
-        if target_name == "syevd_mg":
+        if return_eigenvectors:
             _ev, _V, _status = impl(_a)
             return _ev, unpad_fn(_V).T, _status
         else:
@@ -313,10 +316,7 @@ def syevd_shardmap_ctx(
     input_layouts = ((0, 1),)
     if not pad or padding == 0 or T_A >= N // ndev:
         if T_A < N // ndev:
-            assert (
-                shard_size == (N + ndev * padding) // ndev
-            ), f"pad=False, but with T_A={T_A}, we need padding of {padding} rows per device."
-            f"Expected {N + ndev * padding} rows, but received {shard_size}"
+            validate_padded_shard_rows(shard_size, N, ndev, T_A)
 
         # Identity padding
         pad_fn = lambda _a: _a

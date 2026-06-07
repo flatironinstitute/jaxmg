@@ -11,7 +11,7 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from jax.sharding import PartitionSpec as P
-from jaxmg import syevd
+from jaxmg import syevd, syevd_shardmap_ctx
 from jaxmg.utils import JaxMgWarning
 
 # These tests exercise the argument-validation paths in `syevd` and avoid
@@ -48,7 +48,7 @@ def test_spec_a_invalid_partition_raises_valueerror():
     # invalid when second partition is not None or first partition is None
     bad_specs = [P(None, "x"), P(None, None), P("x", "y")]
     for spec in bad_specs:
-        with pytest.raises(ValueError, match="A must be sharded along the rows with PartitionSpec P\(str, None\)"):
+        with pytest.raises(ValueError, match=r"A must be sharded along the rows with PartitionSpec P\(str, None\)"):
             syevd(a, T_A, mesh, (spec,))
 
 
@@ -70,3 +70,27 @@ def test_T_A_too_large_raises_valueerror():
             syevd(a, T_A, mesh, (P("x", None),))
     except ValueError:
         pass
+
+
+def test_syevd_input_aliases_eigenvector_output(monkeypatch):
+    a = jnp.eye(4)
+    T_A = 4
+    mesh = mesh_for_tests()
+    captured = []
+
+    class StopAfterFfiConstruction(RuntimeError):
+        pass
+
+    def fake_ffi_call(*args, **kwargs):
+        captured.append(kwargs.get("input_output_aliases"))
+        raise StopAfterFfiConstruction
+
+    monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi_call)
+
+    with pytest.raises(StopAfterFfiConstruction):
+        syevd(a, T_A, mesh, P("x", None), return_eigenvectors=True, pad=False)
+
+    with pytest.raises(StopAfterFfiConstruction):
+        syevd_shardmap_ctx(a, T_A, return_eigenvectors=True, pad=False)
+
+    assert captured == [{0: 1}, {0: 1}]
