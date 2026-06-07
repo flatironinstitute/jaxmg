@@ -7,7 +7,12 @@ from jax.sharding import PartitionSpec as P, Mesh
 from typing import Tuple, List, Union
 from functools import partial
 
-from ._cyclic_1d import calculate_padding, pad_rows
+from ._cyclic_1d import (
+    calculate_padding,
+    pad_rows,
+    validate_padded_matrix_rows,
+    validate_padded_shard_rows,
+)
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -60,7 +65,6 @@ def potrs(
             ``a`` so each local shard length is compatible with ``T_A``; if
             False the caller must ensure shapes already match the kernel's
             requirements.
-
     Returns:
         Array or (Array, int): The solution ``x`` (replicated across devices).
             If ``return_status=True`` also return the native solver status.
@@ -105,6 +109,7 @@ def potrs(
 
     N_rows, N = a.shape
     axis_name = in_specs._partitions[0]
+    target_name = "potrs_mg"
 
     shard_size = N_rows // ndev
 
@@ -116,10 +121,7 @@ def potrs(
 
     if not pad or padding == 0 or T_A >= N // ndev:
         if T_A < N // ndev:
-            assert (
-                N_rows == N + ndev * padding
-            ), f"pad=False, but with T_A={T_A}, we need padding of {padding} rows per device."
-            f"Expected {N + ndev * padding} rows, but received {N_rows}"
+            validate_padded_matrix_rows(N_rows, N, ndev, T_A)
         # Identity padding
         pad_fn = lambda _a: _a
         padding = 0
@@ -142,7 +144,7 @@ def potrs(
     # Prepare ffi call
     ffi_fn = partial(
         jax.ffi.ffi_call(
-            "potrs_mg",
+            target_name,
             out_type,
             input_layouts=input_layouts,
             output_layouts=output_layouts,
@@ -243,10 +245,7 @@ def potrs_shardmap_ctx(a: Array, b: Array, T_A: int, pad=True) -> Tuple[Array, A
 
     if not pad or padding == 0 or T_A >= N // ndev:
         if T_A < N // ndev:
-            assert (
-                shard_size == (N + ndev * padding) // ndev
-            ), f"pad=False, but with T_A={T_A}, we need padding of {padding} rows per device."
-            f"Expected {N + ndev * padding} rows, but received {shard_size}"
+            validate_padded_shard_rows(shard_size, N, ndev, T_A)
         # Identity padding
         pad_fn = lambda _a: _a
         padding = 0
