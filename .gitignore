@@ -1,0 +1,5 @@
+codex_records/
+.DS_Store
+__pycache__/
+*.py[cod]
+.bazel-cache/
