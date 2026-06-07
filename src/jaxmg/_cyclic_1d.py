@@ -11,7 +11,13 @@ from functools import partial
 from ._setup import ensure_init_jaxmg_backend
 
 
-def cyclic_1d(a: Array, T_A: int, mesh: Mesh, in_specs: Tuple[P] | List[P], pad=True)-> Union[Array, Tuple[Array, int]]:
+def cyclic_1d(
+    a: Array,
+    T_A: int,
+    mesh: Mesh,
+    in_specs: Tuple[P] | List[P] | P,
+    pad=True,
+) -> Union[Array, Tuple[Array, int]]:
     """
     Prepare and run the 1D block-cyclic remapping FFI kernel for row-sharded arrays.
 
@@ -21,8 +27,8 @@ def cyclic_1d(a: Array, T_A: int, mesh: Mesh, in_specs: Tuple[P] | List[P], pad=
     temporary padding.
 
     Warning:
-        Multi-process multiple device (MPMD) mode is not supported right now but will
-        be in a future release.
+        Distributed/multi-node execution is not supported in this 1D cuSOLVERMg
+        migration path.
 
     Tip:
         If the shards of the matrix cannot be padded with tiles of size `T_A`
@@ -51,7 +57,6 @@ def cyclic_1d(a: Array, T_A: int, mesh: Mesh, in_specs: Tuple[P] | List[P], pad=
             local shard size is not a multiple of ``T_A``. If False the caller
             must provide an input whose shape already meets the kernel
             requirements.
-
     Returns:
         Array: The remapped 2D array with the same logical shape and dtype as
             ``a``. Any temporary padding is removed before returning. The
@@ -99,17 +104,12 @@ def cyclic_1d(a: Array, T_A: int, mesh: Mesh, in_specs: Tuple[P] | List[P], pad=
 
     shard_size = N_rows // ndev
 
-    input_layouts = ((0, 1),)
-
     # Calculate padding
     padding = calculate_padding(shard_size, T_A)
 
     if not pad or padding == 0 or T_A >= N // ndev:
         if T_A < N // ndev:
-            assert (
-                N_rows == N + ndev * padding
-            ), f"pad=False, but with T_A={T_A}, we need padding of {padding} rows per device."
-            f"Expected {N + ndev * padding} rows, but received {N_rows}"
+            validate_padded_matrix_rows(N_rows, N, ndev, T_A)
 
         pad_fn = lambda _a: _a
         unpad_fn = lambda _a: _a
@@ -132,37 +132,31 @@ def cyclic_1d(a: Array, T_A: int, mesh: Mesh, in_specs: Tuple[P] | List[P], pad=
             check_vma=True,
         )
 
-    out_type = (jax.ShapeDtypeStruct((shard_size + padding, N), a.dtype),)
-    output_layouts = ((0, 1),)
+    scratch_specs = P(axis_name)
     out_specs = P(axis_name, None)
-    # Prepare ffi call
-    ffi_fn = partial(
-        jax.ffi.ffi_call(
-            "cyclic_mg",
-            out_type,
-            input_layouts=input_layouts,
-            output_layouts=output_layouts,
-            input_output_aliases={0: 0},  # Crucial for buffer sharing
-        ),
-        T_A=T_A,
-    )
 
     # Jit with donate_argnums=0 is crucial for buffer sharing
-    @partial(jax.jit, donate_argnums=0)
+    @partial(jax.jit, donate_argnums=(0, 1))
     @partial(
         jax.shard_map,
         mesh=mesh,
-        in_specs=P(axis_name, None),
-        out_specs=out_specs,
+        in_specs=(P(axis_name, None), scratch_specs),
+        out_specs=(out_specs, scratch_specs),
         check_vma=True,
     )
-    def impl(_a):
-        (_a,) = ffi_fn(_a)
-        return _a
+    def impl(_a, _scratch):
+        from ._xla_comm_probe import xla_comm_matrix_column_native_plan
+
+        return xla_comm_matrix_column_native_plan(_a, _scratch, tile_size=T_A)
 
     def fn(_a):
         _a = pad_fn(_a)
-        return impl(_a)
+        _scratch = jax.device_put(
+            np.zeros((ndev * N,), dtype=a.dtype),
+            jax.sharding.NamedSharding(mesh, scratch_specs),
+        )
+        _a, _scratch = impl(_a, _scratch)
+        return _a
 
     return fn(a)
 
@@ -182,6 +176,47 @@ def unpad_rows(_a: Array, padding: int):
 def calculate_padding(shard_size: int, T_A: int) -> int:
     """Return number of padding columns required so ``shard_size + padding`` is a multiple of ``T_A * ndev``."""
     return (-shard_size) % T_A
+
+
+def validate_padded_matrix_rows(
+    physical_rows: int, logical_size: int, num_devices: int, T_A: int
+) -> int:
+    """Validate a possibly padded global row count and return required per-device padding."""
+    if logical_size % num_devices != 0:
+        raise ValueError(
+            "The logical matrix size must be divisible by the number of devices."
+        )
+    logical_shard_size = logical_size // num_devices
+    required_padding = calculate_padding(logical_shard_size, T_A)
+    if T_A < logical_shard_size:
+        expected_rows = logical_size + num_devices * required_padding
+        if physical_rows != expected_rows:
+            raise ValueError(
+                f"pad=False, but with T_A={T_A}, we need padding of "
+                f"{required_padding} rows per device. Expected {expected_rows} "
+                f"rows, but received {physical_rows}."
+            )
+    return required_padding
+
+
+def validate_padded_shard_rows(
+    physical_shard_rows: int, logical_size: int, num_devices: int, T_A: int
+) -> int:
+    """Validate a possibly padded local shard row count and return required padding."""
+    required_padding = validate_padded_matrix_rows(
+        physical_shard_rows * num_devices, logical_size, num_devices, T_A
+    )
+    logical_shard_size = logical_size // num_devices
+    if T_A < logical_shard_size:
+        expected_shard_rows = logical_shard_size + required_padding
+        if physical_shard_rows != expected_shard_rows:
+            raise ValueError(
+                f"pad=False, but with T_A={T_A}, we need padding of "
+                f"{required_padding} rows per device. Expected "
+                f"{expected_shard_rows} local rows, but received "
+                f"{physical_shard_rows}."
+            )
+    return required_padding
 
 
 def get_cols_cyclic(N, N_batch, T_A, num_devices):
