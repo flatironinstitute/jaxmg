@@ -1,0 +1,278 @@
+// Copyright 2026 JAXMg contributors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Exported XLA FFI symbols for the XLA communicator cuSolverMg backend.
+//
+// Keeping the bindings in one translation unit makes Python registration names
+// easy to audit and keeps solver implementation files focused on execution
+// logic.
+
+#include "include/xla_comm_backend.h"
+
+namespace xla::gpu {
+
+// Diagnostic communicator handlers.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommCollectiveProbePrepareFFI, XlaCommCollectiveProbePrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommCollectiveProbeFFI, XlaCommCollectiveProbeDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommAllReduceProbePrepareFFI, XlaCommAllReduceProbePrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommAllReduceProbeFFI, XlaCommAllReduceProbeDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<0>>()
+        .Arg<ffi::BufferR1<U32>>()
+        .Ret<ffi::BufferR1<U32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommRingPermuteProbePrepareFFI, XlaCommRingPermuteProbePrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommRingPermuteProbeFFI, XlaCommRingPermuteProbeDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Arg<ffi::BufferR1<U32>>()
+        .Ret<ffi::BufferR1<U32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommShiftPermuteProbePrepareFFI, XlaCommShiftPermuteProbePrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommShiftPermuteProbeFFI, XlaCommShiftPermuteProbeDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Attr<int64_t>("shift")
+        .Arg<ffi::BufferR1<U32>>()
+        .Ret<ffi::BufferR1<U32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommPermuteProbePrepareFFI, XlaCommPermuteProbePrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommPermuteProbeFFI, XlaCommPermuteProbeDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Attr<absl::Span<const int64_t>>("targets")
+        .Arg<ffi::BufferR1<U32>>()
+        .Ret<ffi::BufferR1<U32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommChunkPermuteProbePrepareFFI, XlaCommChunkPermuteProbePrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommChunkPermuteProbeFFI, XlaCommChunkPermuteProbeDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Attr<absl::Span<const int64_t>>("targets")
+        .Attr<absl::Span<const int64_t>>("src_offsets")
+        .Attr<absl::Span<const int64_t>>("dst_offsets")
+        .Attr<int64_t>("count")
+        .Arg<ffi::BufferR1<U32>>()
+        .Ret<ffi::BufferR1<U32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+// Redistribution handlers used directly by tests and by fused solvers.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommMatrixColumnStepPrepareFFI, XlaCommMatrixColumnStepPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommMatrixColumnStepFFI, XlaCommMatrixColumnStepDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Attr<int64_t>("kind")
+        .Attr<int64_t>("source_rank")
+        .Attr<int64_t>("target_rank")
+        .Attr<int64_t>("source_col")
+        .Attr<int64_t>("target_col")
+        .Arg<ffi::AnyBuffer>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommMatrixColumnBatchPrepareFFI, XlaCommMatrixColumnBatchPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommMatrixColumnBatchFFI, XlaCommMatrixColumnBatchDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Attr<absl::Span<const int64_t>>("kinds")
+        .Attr<absl::Span<const int64_t>>("source_ranks")
+        .Attr<absl::Span<const int64_t>>("target_ranks")
+        .Attr<absl::Span<const int64_t>>("source_cols")
+        .Attr<absl::Span<const int64_t>>("target_cols")
+        .Attr<absl::Span<const int64_t>>("scratch_slots")
+        .Arg<ffi::AnyBuffer>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommMatrixColumnNativePlanPrepareFFI, XlaCommMatrixColumnBatchPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommMatrixColumnNativePlanFFI, XlaCommMatrixColumnNativePlanDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Attr<int64_t>("tile_size")
+        .Arg<ffi::AnyBuffer>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+// Production cuSolverMg handlers registered under the historical Python names.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommPotrsMgNativePlanPrepareFFI, XlaCommMatrixColumnBatchPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommPotrsMgNativePlanFFI, XlaCommPotrsMgNativePlanDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Ctx<ffi::ScratchAllocator>()
+        .Attr<int64_t>("T_A")
+        .Arg<ffi::AnyBuffer>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommPotriMgNativePlanPrepareFFI, XlaCommMatrixColumnBatchPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommPotriMgNativePlanFFI, XlaCommPotriMgNativePlanDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Ctx<ffi::ScratchAllocator>()
+        .Attr<int64_t>("T_A")
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommSyevdMgNativePlanPrepareFFI, XlaCommMatrixColumnBatchPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommSyevdMgNativePlanFFI, XlaCommSyevdMgNativePlanDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Ctx<ffi::ScratchAllocator>()
+        .Attr<int64_t>("T_A")
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommSyevdNoVMgNativePlanPrepareFFI, XlaCommMatrixColumnBatchPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommSyevdNoVMgNativePlanFFI, XlaCommSyevdNoVMgNativePlanDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Ctx<ffi::ScratchAllocator>()
+        .Attr<int64_t>("T_A")
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+}  // namespace xla::gpu
