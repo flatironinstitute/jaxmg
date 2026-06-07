@@ -1,9 +1,7 @@
 # Contributing
-## TODO (last updated: January 7th, 2026)
+## TODO (last updated: June 6th, 2026)
 
 ### Small effort
-
-- ~~**Implement multi-process variants of `potri` and `syevd`**. Right now we only have `potrs_mp.cu` which contains all the necessary machinery to also create multi-process equivalents of `potri.cu`, `syevd.cu` and `syevd_no_V.cu`.~~ (#10)
 
 - ~~**Get rid of compiler warnings** There is some unused code that needs to be removed. There are warnings due to things in JAXlib that we probably can't get rid of though.~~ (#10)
 
@@ -13,7 +11,7 @@
 
 - Change to the CusolverMp API that's available for CUDA 13.
 
-There has been a discussion with the cuSOLVERMp team at NVIDIA who can potentially assist with this. The main problem is communicating between the different threads/processes that launch cuSOLVERMp from JAX. Since JAX launches a thread/process for each GPU, we need to be able to synchronize these processes and orchestrate calls to cuSOLVER from a designated master process. In JAXMg this is handled by creating shared memory, and sharing GPU pointers between the processes. However, for cuSOLVERMp, where GPUs can be on different nodes, this would be quite a challenge to set up in a robust way. This could be resolved if it was possible to pass the underlying XLA communicator through from JAX to the foreign function interface, so that multi process synchronization collectives are accessible on the C++ side.
+There has been a discussion with the cuSOLVERMp team at NVIDIA who can potentially assist with this. The main problem is communicating between the different threads/processes that launch cuSOLVERMp from JAX. Since JAX launches a thread/process for each GPU, we need to synchronize these invocations and orchestrate calls to cuSOLVER from a designated master process. The current migration branch now uses the XLA-owned communicator from FFI for the single-node 1D cuSOLVERMg path instead of the old shared-memory/cudaMemcpyPeerAsync shuffler. Multi-node cuSOLVERMp support still needs the 2D block-cyclic redistribution and a multi-node validation path.
 
 **Update May 28th:**
 There seems to be a pathway to use the XLA-communicator directly, which is discussed here: 
@@ -21,43 +19,43 @@ https://github.com/openxla/xla/discussions/42689
 
 ## Build from source
 
-To build from source:
+This branch pins JAX/JAXLIB to `0.10.1` and builds the native CUDA backend as a
+Bazel target inside the matching OpenXLA source tree. CMake is only used to
+materialize the pinned JAX/OpenXLA sources and hand off to Bazel.
+
+On CSD3, the expected source build is:
 
 ```bash
-mkdir build
-cd build
-cmake ..
-cmake --build . --target install
+module purge
+module load gcc/11 cuda/12.1 cudnn/8.9_cuda-12.1
+
+export CUDA_ROOT=/usr/local/software/cuda/12.1
+export CUDA_HOME="${CUDA_ROOT}"
+export JAX_VERSION=0.10.1
+export BAZEL="${PWD}/tools/bazelisk"
+
+python -m pip install "jax[cuda12]==0.10.1"
+python -m pip install --no-deps -e .
+
+cmake -S . -B build-cu12-jax0101-absl20240722 -DJAX_VERSION="${JAX_VERSION}"
+cmake --build build-cu12-jax0101-absl20240722 --target xla_comm_cusolvermg_backend
 ```
 
-This installs the CUDA binaries into `src/jaxmg/bin`
+This installs `src/jaxmg/cu12/libxla_comm_collective_probe.so`, which registers
+the production `potrs_mg`, `potri_mg`, `syevd_mg`, `syevd_no_V_mg`, and
+`xla_comm_matrix_column_native_plan` FFI targets.
 
-Dependencies are managed with [CPM-CMAKE](https://github.com/cpm-cmake/CPM.cmake),
-including **abseil-cpp**, **jaxlib**, **XLA** for compilation. Compilation requires C++20 or later and an installation of CUDA Toolkit 12.x or 13.x. See the Docker images in `.jenkins` for an environment that can compile the code.
-
-To build specific targets only, for example potrs:
-```bash
-cmake ..
-cmake --build . --target potrs && cmake --install .
-```
-
-then install the package with 
-
-```bash
-pip install .
-```
-
-To verify the installation (requires at least one GPU) run
+The equivalent Slurm build helper is:
 
 ```bash
-pytest tests
+sbatch tools/csd3_build_native_cuda12.sbatch
 ```
-There are two types of tests:
 
-1. SPMD tests: Single Process Multiple GPU tests.
-3. MPMD: Multiple Processes Multiple GPU tests. Marked using the PyTest mark `mpmd`.
+To verify the single-node 1D backend on four GPUs:
 
-Use the `conftest.py` file in tests to turn on/off any tests you want to run. 
+```bash
+sbatch tools/csd3_test_single_node_1d_production.sbatch
+```
 
 ## JAX and CUDA
 

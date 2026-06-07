@@ -97,7 +97,6 @@ nav:
     - Examples:
         - "examples/potrs_example.ipynb"
         - "examples/block_cyclic_data_layout.ipynb"
-        - "examples/spmd_mpmd.ipynb"
     - API:
         - "api/index.md"
         - "api/potrs.md"
@@ -106,4 +105,3 @@ nav:
     - Technical Details:
         - "technical_details/col_maj.md"
         - "technical_details/spmd.md"
-        - "technical_details/mpmd.md"
