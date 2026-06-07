@@ -23,16 +23,13 @@ This branch pins JAX/JAXLIB to `0.10.1` and builds the native CUDA backend as a
 Bazel target inside the matching OpenXLA source tree. CMake is only used to
 materialize the pinned JAX/OpenXLA sources and hand off to Bazel.
 
-On CSD3, the expected source build is:
+The expected source build is:
 
 ```bash
-module purge
-module load gcc/11 cuda/12.1 cudnn/8.9_cuda-12.1
-
-export CUDA_ROOT=/usr/local/software/cuda/12.1
+export CUDA_ROOT=/path/to/cuda
 export CUDA_HOME="${CUDA_ROOT}"
 export JAX_VERSION=0.10.1
-export BAZEL="${PWD}/tools/bazelisk"
+export BAZEL=/path/to/bazel-or-bazelisk
 
 python -m pip install "jax[cuda12]==0.10.1"
 python -m pip install --no-deps -e .
@@ -45,16 +42,11 @@ This installs `src/jaxmg/cu12/libxla_comm_collective_probe.so`, which registers
 the production `potrs_mg`, `potri_mg`, `syevd_mg`, `syevd_no_V_mg`, and
 `xla_comm_matrix_column_native_plan` FFI targets.
 
-The equivalent Slurm build helper is:
+The generic backend build helper can also be called directly after CMake has
+materialized the pinned JAX/OpenXLA source tree:
 
 ```bash
-sbatch tools/csd3_build_native_cuda12.sbatch
-```
-
-To verify the single-node 1D backend on four GPUs:
-
-```bash
-sbatch tools/csd3_test_single_node_1d_production.sbatch
+tools/build_xla_collective_probe_bazel.sh
 ```
 
 ## JAX and CUDA
