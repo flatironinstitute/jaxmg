@@ -9,7 +9,7 @@ description = "JAXMg provides a C++ interface between JAX and cuSolverMg, NVIDIA
 authors = [{ name = "Roeland Wiersema" }]
 classifiers = ["Programming Language :: Python :: 3"]
 dependencies = [
-    "jax>=0.6.2; sys_platform == 'linux'",
+    "jax==0.10.1; sys_platform == 'linux'",
 ]
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,24 +26,8 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 jaxmg = [
-    "cu12/libcyclic.so",
-    "cu12/libpotrs.so",
-    "cu12/libpotrs_mp.so",
-    "cu12/libpotri.so",
-    "cu12/libpotri_mp.so",
-    "cu12/libsyevd.so",
-    "cu12/libsyevd_mp.so",
-    "cu12/libsyevd_no_V.so",
-    "cu12/libsyevd_no_V_mp.so",
-    "cu13/libcyclic.so",
-    "cu13/libpotrs.so",
-    "cu13/libpotrs_mp.so",
-    "cu13/libpotri.so",
-    "cu13/libpotri_mp.so",
-    "cu13/libsyevd.so",
-    "cu13/libsyevd_mp.so",
-    "cu13/libsyevd_no_V.so",
-    "cu13/libsyevd_no_V_mp.so",
+    "cu12/libxla_comm_collective_probe.so",
+    "cu13/libxla_comm_collective_probe.so",
 ]
 
 [project.optional-dependencies]
@@ -60,7 +44,7 @@ docs = [
 
 dev = [
     "matplotlib>=3.10.3",
-    "jax[cuda12]>=0.6.2",
+    "jax[cuda12]==0.10.1",
     "pytest==8.2.1",
     "mkdocs==1.6.1",
     "mkdocs-material==9.6.23",
@@ -71,17 +55,17 @@ dev = [
 ]
 
 cuda12 = [
-    "jax[cuda12]>=0.6.2"
+    "jax[cuda12]==0.10.1"
 ]
 
 cuda13 = [
-    "jax[cuda13]>=0.7.2"
+    "jax[cuda13]==0.10.1"
 ]
 
 cuda12-local = [
-    "jax[cuda12-local]>=0.6.2"
+    "jax[cuda12-local]==0.10.1"
 ]
 
 cuda13-local = [
-    "jax[cuda13-local]>=0.7.2"
+    "jax[cuda13-local]==0.10.1"
 ]
