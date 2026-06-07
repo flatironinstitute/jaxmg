@@ -7,7 +7,13 @@ from jax.sharding import PartitionSpec as P, Mesh, NamedSharding
 from functools import partial
 from typing import Tuple, Union, List
 
-from ._cyclic_1d import calculate_padding, pad_rows, unpad_rows
+from ._cyclic_1d import (
+    calculate_padding,
+    pad_rows,
+    unpad_rows,
+    validate_padded_matrix_rows,
+    validate_padded_shard_rows,
+)
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -56,7 +62,6 @@ def potri(
         pad (bool, optional): If True (default) apply per-device padding to meet
             ``T_A`` requirements; if False the caller must supply already-
             padded shapes.
-
     Returns:
         Array or (Array, int): The inverted matrix (row-sharded). If
             ``return_status=True`` also return the native solver status code.
@@ -103,13 +108,11 @@ def potri(
 
     # Calculate padding
     padding = calculate_padding(shard_size, T_A)
+    target_name = "potri_mg"
 
     if not pad or padding == 0 or T_A >= N // ndev:
         if T_A < N // ndev:
-            assert (
-                N_rows == N + ndev * padding
-            ), f"pad=False, but with T_A={T_A}, we need padding of {padding} rows per device."
-            f"Expected {N + ndev * padding} rows, but received {N_rows}"
+            validate_padded_matrix_rows(N_rows, N, ndev, T_A)
 
         pad_fn = lambda _a: _a
         unpad_fn = lambda _a: _a
@@ -144,7 +147,7 @@ def potri(
     # Prepare ffi call
     ffi_fn = partial(
         jax.ffi.ffi_call(
-            "potri_mg",
+            target_name,
             out_type,
             input_layouts=input_layouts,
             output_layouts=output_layouts,
@@ -252,10 +255,7 @@ def potri_shardmap_ctx(a: Array, T_A: int, pad=True) -> Union[Array, Tuple[Array
 
     if not pad or padding == 0 or T_A >= N // ndev:
         if T_A < N // ndev:
-            assert (
-                shard_size == (N + ndev * padding) // ndev
-            ), f"pad=False, but with T_A={T_A}, we need padding of {padding} rows per device."
-            f"Expected {N + ndev * padding} rows, but received {shard_size}"
+            validate_padded_shard_rows(shard_size, N, ndev, T_A)
 
         pad_fn = lambda _a: _a
         unpad_fn = lambda _a: _a
