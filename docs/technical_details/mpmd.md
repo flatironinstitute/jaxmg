@@ -38,6 +38,20 @@ CUDA IPC handle exchange:
 4. all ranks synchronize workspace allocation and solver completion;
 5. all opened IPC handles are closed before returning to JAX.
 
+The reusable building blocks for this are `mpmd_ipc.h` and `mpmd_ipc.cc`.
+They provide:
+
+1. CUDA IPC export/open/close helpers that preserve the byte offset of a JAX
+   buffer inside the underlying CUDA allocation;
+2. a POSIX shared-memory array for exchanging IPC handles, workspace sizes, and
+   solver status values between local ranks;
+3. a process-shared barrier for synchronizing the rank-0 cuSOLVERMg host call
+   with the other one-process-per-GPU FFI invocations.
+
+Those utilities do not move matrix data. Matrix redistribution remains on the
+XLA communicator path. CUDA IPC is only for making peer device pointers visible
+to the single cuSOLVERMg host call used by the compatibility backend.
+
 The intended MPMD checkpoint order is therefore:
 
 1. validate XLA communicator probes in a `jax.distributed` one-process-per-GPU

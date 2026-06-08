@@ -46,8 +46,12 @@ PROBE_PKG="${XLA_SRC}/jaxmg_probe"
 mkdir -p "${PROBE_PKG}/include" "${PROBE_PKG}/utils"
 ln -sfn "${ROOT}/src/cuda/include/xla_comm_backend.h" \
   "${PROBE_PKG}/include/xla_comm_backend.h"
+ln -sfn "${ROOT}/src/cuda/include/mpmd_ipc.h" \
+  "${PROBE_PKG}/include/mpmd_ipc.h"
 ln -sfn "${ROOT}/src/cuda/utils/xla_comm_common.cc" \
   "${PROBE_PKG}/utils/xla_comm_common.cc"
+ln -sfn "${ROOT}/src/cuda/utils/mpmd_ipc.cc" \
+  "${PROBE_PKG}/utils/mpmd_ipc.cc"
 for src in \
   collective_diagnostics.cc \
   cyclic_1d.cc \
@@ -71,7 +75,9 @@ cc_binary(
         "potrs.cc",
         "syevd.cc",
         "include/xla_comm_backend.h",
+        "include/mpmd_ipc.h",
         "utils/xla_comm_common.cc",
+        "utils/mpmd_ipc.cc",
     ],
     linkshared = True,
     linkstatic = True,
