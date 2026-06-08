@@ -110,11 +110,23 @@ def _run_case(case_name, dtype, a_host, tile_size, return_eigenvectors):
         return False
 
     if return_eigenvectors and dtype is np.float64:
-        residual = jnp.linalg.norm(
-            vectors @ a - jnp.diag(eigenvalues) @ vectors.T
+        # `syevd` returns eigenvectors transposed relative to cuSolverMg's
+        # column-eigenvector storage: rows of the public `vectors` result are
+        # eigenvectors. Check that convention directly and also check
+        # orthogonality plus reconstruction to catch row/column layout errors.
+        diag = jnp.diag(eigenvalues)
+        eigen_residual = jnp.linalg.norm(vectors @ a - diag @ vectors)
+        orthogonality = jnp.linalg.norm(
+            vectors @ vectors.T - jnp.eye(a_host.shape[0], dtype=vectors.dtype)
         )
-        residual_local = _addressable_values(residual.reshape((1,)))[0]
-        if not np.isfinite(residual_local) or residual_local > 1e-5:
+        reconstruction = jnp.linalg.norm(vectors.T @ diag @ vectors - a)
+        residual_local = _addressable_values(
+            jnp.asarray(
+                [eigen_residual, orthogonality, reconstruction],
+                dtype=jnp.float64,
+            )
+        )
+        if not np.all(np.isfinite(residual_local)) or np.max(residual_local) > 1e-5:
             _emit(
                 "fail",
                 check="syevd_vector_residual",
@@ -122,8 +134,8 @@ def _run_case(case_name, dtype, a_host, tile_size, return_eigenvectors):
                 dtype=str(dtype),
                 n=int(a_host.shape[0]),
                 tile_size=int(tile_size),
-                got=float(residual_local),
-                expected=0.0,
+                got=residual_local.tolist(),
+                expected=[0.0, 0.0, 0.0],
             )
             return False
 

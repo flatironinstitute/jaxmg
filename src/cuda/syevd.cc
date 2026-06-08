@@ -258,20 +258,6 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
   cudaLibMgMatrixDesc_t descr_a = nullptr;
   int info = 0;
   cusolverStatus_t solver_status = CUSOLVER_STATUS_SUCCESS;
-  auto synchronize_solver_devices = [&]() -> absl::Status {
-    if (!mpmd_mode) {
-      JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
-      return absl::OkStatus();
-    }
-    int saved_device = 0;
-    JAXMG_RETURN_IF_CUDA_ERROR(cudaGetDevice(&saved_device));
-    for (int dev = 0; dev < num_ranks; ++dev) {
-      JAXMG_RETURN_IF_CUDA_ERROR(cudaSetDevice(dev));
-      JAXMG_RETURN_IF_CUDA_ERROR(cudaDeviceSynchronize());
-    }
-    JAXMG_RETURN_IF_CUDA_ERROR(cudaSetDevice(saved_device));
-    return absl::OkStatus();
-  };
 
   if (current_device == 0) {
     // cuSolverMg is driven from one host invocation. Rank 0 creates the handle,
@@ -359,7 +345,7 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
         descr_a, reinterpret_cast<void*>(eigenvalues_host.data()),
         eigenvalue_type, compute_type, work_ptrs.data(),
         mpmd_mode ? (*mpmd_lwork)[0] : state.lwork[0], &info);
-    JAXMG_RETURN_IF_ERROR(synchronize_solver_devices());
+    JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
     timer.Mark(compute_vectors ? "syevd" : "syevd_no_v");
     for (int dev = 0; dev < num_ranks; ++dev) {
       if (mpmd_mode) {
