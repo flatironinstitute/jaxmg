@@ -110,16 +110,15 @@ def _run_case(case_name, dtype, a_host, tile_size, return_eigenvectors):
         return False
 
     if return_eigenvectors and dtype is np.float64:
-        # `syevd` returns eigenvectors transposed relative to cuSolverMg's
-        # column-eigenvector storage: rows of the public `vectors` result are
+        # Match the public JAX/NumPy convention: columns of `vectors` are
         # eigenvectors. Check that convention directly and also check
-        # orthogonality plus reconstruction to catch row/column layout errors.
+        # orthogonality plus reconstruction to catch layout errors.
         diag = jnp.diag(eigenvalues)
-        eigen_residual = jnp.linalg.norm(vectors @ a - diag @ vectors)
+        eigen_residual = jnp.linalg.norm(a @ vectors - vectors @ diag)
         orthogonality = jnp.linalg.norm(
-            vectors @ vectors.T - jnp.eye(a_host.shape[0], dtype=vectors.dtype)
+            vectors.T @ vectors - jnp.eye(a_host.shape[0], dtype=vectors.dtype)
         )
-        reconstruction = jnp.linalg.norm(vectors.T @ diag @ vectors - a)
+        reconstruction = jnp.linalg.norm(vectors @ diag @ vectors.T - a)
         residual_local = _addressable_values(
             jnp.asarray(
                 [eigen_residual, orthogonality, reconstruction],
