@@ -232,6 +232,22 @@ absl::StatusOr<ReplicaGroup> NodeScopedReplicaGroup(
   return group;
 }
 
+absl::StatusOr<int> NodeScopedGroupOrdinal(const CollectiveParams& params) {
+  std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
+  std::sort(devices.begin(), devices.end(),
+            [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
+              return a.global_device_id.value() < b.global_device_id.value();
+            });
+  const int devices_per_node =
+      EnvDevicesPerNodeOrDefault(static_cast<int>(devices.size()));
+  absl::StatusOr<std::pair<int, int>> range =
+      NodeScopedIndexRange(params, devices_per_node);
+  if (!range.ok()) {
+    return range.status();
+  }
+  return range->first / devices_per_node;
+}
+
 absl::StatusOr<GpuCliqueKey> LocalDevicesCliqueKey(
     const CollectiveParams& params) {
   // Flattened-id mode matches the 1D mesh used by the Python wrappers.

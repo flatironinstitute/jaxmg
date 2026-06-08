@@ -46,6 +46,8 @@ struct OpenedIpcPointer {
 absl::StatusOr<IpcHandleWithOffset> ExportIpcHandleWithOffset(void* ptr);
 absl::StatusOr<OpenedIpcPointer> OpenIpcHandleWithOffset(
     const IpcHandleWithOffset& handle);
+absl::StatusOr<OpenedIpcPointer> OpenIpcHandleWithOffsetOnDevice(
+    const IpcHandleWithOffset& handle, int device);
 absl::Status CloseIpcPointer(const OpenedIpcPointer& opened);
 
 class MpmdProcessBarrier {
@@ -94,7 +96,8 @@ class SharedMemoryArray {
   absl::Status status_;
 };
 
-std::string MpmdSharedName(const char* prefix, int run_id, int node_group_id);
+std::string MpmdSharedName(const char* prefix, int64_t run_id,
+                           int node_group_id);
 
 }  // namespace xla::gpu
 

@@ -82,6 +82,12 @@ absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
     if (!_jaxmg_cusolver_status.ok()) return _jaxmg_cusolver_status;  \
   } while (0)
 
+#define JAXMG_RETURN_IF_ERROR(expr)                         \
+  do {                                                      \
+    absl::Status _jaxmg_status = (expr);                    \
+    if (!_jaxmg_status.ok()) return _jaxmg_status;          \
+  } while (0)
+
 // cuSolverMg APIs are typed by cudaDataType at runtime, while XLA FFI exposes
 // primitive element types. The solver traits keep the C++ template type, the
 // cuSolverMg data type, the eigenvalue data type, and the failure fill value in
@@ -267,6 +273,7 @@ absl::StatusOr<std::vector<GlobalDeviceId>> NodeScopedGlobalDeviceGroup(
     const CollectiveParams& params);
 absl::StatusOr<ReplicaGroup> NodeScopedReplicaGroup(
     const CollectiveParams& params);
+absl::StatusOr<int> NodeScopedGroupOrdinal(const CollectiveParams& params);
 absl::StatusOr<GpuCliqueKey> LocalDevicesCliqueKey(
     const CollectiveParams& params);
 absl::StatusOr<GpuCliqueKey> LocalDevicesP2PCliqueKey(

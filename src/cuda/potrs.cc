@@ -20,6 +20,7 @@
 // XLA-owned communicator path.
 
 #include "include/xla_comm_backend.h"
+#include "include/mpmd_ipc.h"
 
 namespace xla::gpu {
 
@@ -128,6 +129,10 @@ absl::Status XlaCommPotrsMgNativePlanImpl(
         "XLA communicator rank %d does not match CUDA device %d",
         rank->value(), current_device));
   }
+  const int rank_value = static_cast<int>(rank->value());
+  const bool mpmd_mode =
+      collective_params->local_device_count > 0 &&
+      collective_params->local_device_count < num_ranks;
   PotrsPhaseTimer timer("xla_comm_potrs_mg_native_plan", current_device,
                         static_cast<int>(num_ranks), n, nrhs, tile_size,
                         timing_start);
@@ -160,11 +165,65 @@ absl::Status XlaCommPotrsMgNativePlanImpl(
   JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
   timer.Mark("cyclic_reshape_stream_sync");
 
-  // Each FFI invocation runs on one local device. The rank-0 invocation owns the
-  // cuSolverMg handle and consumes the per-device pointers published here.
-  fused_potrs_state.a[current_device] = out_a->untyped_data();
-  fused_potrs_state.b[current_device] = b.untyped_data();
-  fused_potrs_barrier.ArriveAndWait(static_cast<int>(num_ranks));
+  std::optional<MpmdProcessBarrier> mpmd_barrier;
+  std::optional<SharedMemoryArray<IpcHandleWithOffset>> mpmd_a_ipc;
+  std::optional<SharedMemoryArray<IpcHandleWithOffset>> mpmd_b_ipc;
+  std::optional<SharedMemoryArray<IpcHandleWithOffset>> mpmd_work_ipc;
+  std::optional<SharedMemoryArray<int64_t>> mpmd_lwork;
+  std::optional<SharedMemoryArray<int32_t>> mpmd_solver_status;
+  auto shared_barrier = [&]() -> absl::Status {
+    if (mpmd_mode) {
+      return mpmd_barrier->ArriveAndWait();
+    }
+    fused_potrs_barrier.ArriveAndWait(static_cast<int>(num_ranks));
+    return absl::OkStatus();
+  };
+
+  if (mpmd_mode) {
+    absl::StatusOr<int> node_group =
+        NodeScopedGroupOrdinal(*collective_params);
+    if (!node_group.ok()) {
+      return node_group.status();
+    }
+    const int64_t run_id = collective_params->run_id.ToInt();
+    mpmd_barrier.emplace(static_cast<int>(num_ranks),
+                         MpmdSharedName("potrs_barrier", run_id, *node_group));
+    if (!mpmd_barrier->ok()) {
+      return mpmd_barrier->status();
+    }
+    mpmd_a_ipc.emplace(rank_value, static_cast<int>(num_ranks),
+                       MpmdSharedName("potrs_a", run_id, *node_group));
+    mpmd_b_ipc.emplace(rank_value, static_cast<int>(num_ranks),
+                       MpmdSharedName("potrs_b", run_id, *node_group));
+    mpmd_work_ipc.emplace(rank_value, static_cast<int>(num_ranks),
+                          MpmdSharedName("potrs_work", run_id, *node_group));
+    mpmd_lwork.emplace(rank_value, static_cast<int>(num_ranks),
+                       MpmdSharedName("potrs_lwork", run_id, *node_group));
+    mpmd_solver_status.emplace(
+        rank_value, static_cast<int>(num_ranks),
+        MpmdSharedName("potrs_status", run_id, *node_group));
+    if (!mpmd_a_ipc->ok()) return mpmd_a_ipc->status();
+    if (!mpmd_b_ipc->ok()) return mpmd_b_ipc->status();
+    if (!mpmd_work_ipc->ok()) return mpmd_work_ipc->status();
+    if (!mpmd_lwork->ok()) return mpmd_lwork->status();
+    if (!mpmd_solver_status->ok()) return mpmd_solver_status->status();
+
+    absl::StatusOr<IpcHandleWithOffset> a_handle =
+        ExportIpcHandleWithOffset(out_a->untyped_data());
+    if (!a_handle.ok()) return a_handle.status();
+    absl::StatusOr<IpcHandleWithOffset> b_handle =
+        ExportIpcHandleWithOffset(b.untyped_data());
+    if (!b_handle.ok()) return b_handle.status();
+    (*mpmd_a_ipc)[rank_value] = *a_handle;
+    (*mpmd_b_ipc)[rank_value] = *b_handle;
+  } else {
+    // Each FFI invocation runs on one local device. The rank-0 invocation owns
+    // the cuSolverMg handle and consumes the per-device pointers published
+    // here.
+    fused_potrs_state.a[current_device] = out_a->untyped_data();
+    fused_potrs_state.b[current_device] = b.untyped_data();
+  }
+  JAXMG_RETURN_IF_ERROR(shared_barrier());
   timer.Mark("pointer_share_barrier");
 
   const int ia = 1;
@@ -179,6 +238,9 @@ absl::Status XlaCommPotrsMgNativePlanImpl(
   std::array<void*, 16> a_ptrs{};
   std::array<void*, 16> b_ptrs{};
   std::array<void*, 16> work_ptrs{};
+  std::array<OpenedIpcPointer, 16> opened_a{};
+  std::array<OpenedIpcPointer, 16> opened_b{};
+  std::array<OpenedIpcPointer, 16> opened_work{};
 
   cusolverMgHandle_t cusolver = nullptr;
   cudaLibMgGrid_t grid_a = nullptr;
@@ -194,8 +256,23 @@ absl::Status XlaCommPotrsMgNativePlanImpl(
     // the workspace size required on every participating device.
     for (int dev = 0; dev < num_ranks; ++dev) {
       device_list[dev] = dev;
-      a_ptrs[dev] = fused_potrs_state.a[dev];
-      b_ptrs[dev] = fused_potrs_state.b[dev];
+      if (mpmd_mode && dev != current_device) {
+        absl::StatusOr<OpenedIpcPointer> opened =
+            OpenIpcHandleWithOffsetOnDevice((*mpmd_a_ipc)[dev], dev);
+        if (!opened.ok()) return opened.status();
+        opened_a[dev] = *opened;
+        a_ptrs[dev] = opened_a[dev].ptr;
+
+        opened = OpenIpcHandleWithOffsetOnDevice((*mpmd_b_ipc)[dev], dev);
+        if (!opened.ok()) return opened.status();
+        opened_b[dev] = *opened;
+        b_ptrs[dev] = opened_b[dev].ptr;
+      } else {
+        a_ptrs[dev] =
+            mpmd_mode ? out_a->untyped_data() : fused_potrs_state.a[dev];
+        b_ptrs[dev] =
+            mpmd_mode ? b.untyped_data() : fused_potrs_state.b[dev];
+      }
     }
 
     JAXMG_RETURN_IF_CUSOLVER_ERROR(cusolverMgCreate(&cusolver));
@@ -223,40 +300,68 @@ absl::Status XlaCommPotrsMgNativePlanImpl(
         descr_a, b_ptrs.data(), ib, jb, descr_b, compute_type, &lwork_potrs));
     const int64_t lwork = std::max(lwork_potrf, lwork_potrs);
     for (int dev = 0; dev < num_ranks; ++dev) {
-      fused_potrs_state.lwork[dev] = lwork;
+      if (mpmd_mode) {
+        (*mpmd_lwork)[dev] = lwork;
+      } else {
+        fused_potrs_state.lwork[dev] = lwork;
+      }
     }
     timer.Mark("cusolver_setup_and_workspace_query");
   }
 
-  fused_potrs_barrier.ArriveAndWait(static_cast<int>(num_ranks));
+  JAXMG_RETURN_IF_ERROR(shared_barrier());
   timer.Mark("lwork_barrier");
   // Scratch allocation is per FFI invocation, hence per local device. The
   // pointer is then shared back to rank 0 before the cuSolverMg call.
+  const int64_t local_lwork =
+      mpmd_mode ? (*mpmd_lwork)[rank_value]
+                : fused_potrs_state.lwork[current_device];
   absl::StatusOr<void*> solver_work = AllocateFfiScratch(
-      scratch, sizeof(DataType) * fused_potrs_state.lwork[current_device],
+      scratch, sizeof(DataType) * local_lwork,
       "cusolvermg_potrs_workspace");
   if (!solver_work.ok()) {
     return solver_work.status();
   }
-  fused_potrs_state.work[current_device] = *solver_work;
+  if (mpmd_mode) {
+    absl::StatusOr<IpcHandleWithOffset> work_handle =
+        ExportIpcHandleWithOffset(*solver_work);
+    if (!work_handle.ok()) return work_handle.status();
+    (*mpmd_work_ipc)[rank_value] = *work_handle;
+  } else {
+    fused_potrs_state.work[current_device] = *solver_work;
+  }
   timer.Mark("workspace_alloc");
-  fused_potrs_barrier.ArriveAndWait(static_cast<int>(num_ranks));
+  JAXMG_RETURN_IF_ERROR(shared_barrier());
   timer.Mark("workspace_barrier");
 
   if (current_device == 0) {
     // This preserves the old JAXMg potrs sequence: factor A in-place with
     // potrf, then solve using potrs and the replicated RHS pointers.
     for (int dev = 0; dev < num_ranks; ++dev) {
-      work_ptrs[dev] = fused_potrs_state.work[dev];
+      if (mpmd_mode && dev != current_device) {
+        absl::StatusOr<OpenedIpcPointer> opened =
+            OpenIpcHandleWithOffsetOnDevice((*mpmd_work_ipc)[dev], dev);
+        if (!opened.ok()) return opened.status();
+        opened_work[dev] = *opened;
+        work_ptrs[dev] = opened_work[dev].ptr;
+      } else {
+        work_ptrs[dev] =
+            mpmd_mode ? *solver_work : fused_potrs_state.work[dev];
+      }
     }
     solver_status = cusolverMgPotrf(
         cusolver, CUBLAS_FILL_MODE_LOWER, n, a_ptrs.data(), ia, ja, descr_a,
-        compute_type, work_ptrs.data(), fused_potrs_state.lwork[0], &info);
+        compute_type, work_ptrs.data(),
+        mpmd_mode ? (*mpmd_lwork)[0] : fused_potrs_state.lwork[0], &info);
     JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
     timer.Mark("potrf");
     for (int dev = 0; dev < num_ranks; ++dev) {
-      fused_potrs_state.solver_status[dev] =
-          static_cast<int32_t>(solver_status);
+      if (mpmd_mode) {
+        (*mpmd_solver_status)[dev] = static_cast<int32_t>(solver_status);
+      } else {
+        fused_potrs_state.solver_status[dev] =
+            static_cast<int32_t>(solver_status);
+      }
     }
     if (info < 0) {
       return absl::InternalError(absl::StrFormat(
@@ -268,12 +373,17 @@ absl::Status XlaCommPotrsMgNativePlanImpl(
       solver_status = cusolverMgPotrs(
           cusolver, CUBLAS_FILL_MODE_LOWER, n, nrhs, a_ptrs.data(), ia, ja,
           descr_a, b_ptrs.data(), ib, jb, descr_b, compute_type,
-          work_ptrs.data(), fused_potrs_state.lwork[0], &info);
+          work_ptrs.data(),
+          mpmd_mode ? (*mpmd_lwork)[0] : fused_potrs_state.lwork[0], &info);
       JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
       timer.Mark("potrs");
       for (int dev = 0; dev < num_ranks; ++dev) {
-        fused_potrs_state.solver_status[dev] =
-            static_cast<int32_t>(solver_status);
+        if (mpmd_mode) {
+          (*mpmd_solver_status)[dev] = static_cast<int32_t>(solver_status);
+        } else {
+          fused_potrs_state.solver_status[dev] =
+              static_cast<int32_t>(solver_status);
+        }
       }
       if (info < 0) {
         return absl::InternalError(absl::StrFormat(
@@ -298,12 +408,24 @@ absl::Status XlaCommPotrsMgNativePlanImpl(
     if (cusolver != nullptr) {
       JAXMG_RETURN_IF_CUSOLVER_ERROR(cusolverMgDestroy(cusolver));
     }
+    if (mpmd_mode) {
+      for (int dev = 0; dev < num_ranks; ++dev) {
+        if (dev == current_device) {
+          continue;
+        }
+        JAXMG_RETURN_IF_ERROR(CloseIpcPointer(opened_work[dev]));
+        JAXMG_RETURN_IF_ERROR(CloseIpcPointer(opened_b[dev]));
+        JAXMG_RETURN_IF_ERROR(CloseIpcPointer(opened_a[dev]));
+      }
+    }
     timer.Mark("cleanup");
   }
 
-  fused_potrs_barrier.ArriveAndWait(static_cast<int>(num_ranks));
+  JAXMG_RETURN_IF_ERROR(shared_barrier());
   timer.Mark("solver_barrier");
-  const int32_t status_value = fused_potrs_state.solver_status[current_device];
+  const int32_t status_value =
+      mpmd_mode ? (*mpmd_solver_status)[rank_value]
+                : fused_potrs_state.solver_status[current_device];
   if (status_value == 0) {
     // B is replicated at the Python level. cuSolverMg updates the rank-0 host
     // path's B pointer, so the result is redistributed with the same XLA
@@ -333,8 +455,16 @@ absl::Status XlaCommPotrsMgNativePlanImpl(
   }
   JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
   timer.Mark("status_write");
-  fused_potrs_barrier.ArriveAndWait(static_cast<int>(num_ranks));
+  JAXMG_RETURN_IF_ERROR(shared_barrier());
   timer.Mark("final_barrier");
+  if (mpmd_mode) {
+    JAXMG_RETURN_IF_ERROR(mpmd_a_ipc->CloseAndUnlink());
+    JAXMG_RETURN_IF_ERROR(mpmd_b_ipc->CloseAndUnlink());
+    JAXMG_RETURN_IF_ERROR(mpmd_work_ipc->CloseAndUnlink());
+    JAXMG_RETURN_IF_ERROR(mpmd_lwork->CloseAndUnlink());
+    JAXMG_RETURN_IF_ERROR(mpmd_solver_status->CloseAndUnlink());
+    JAXMG_RETURN_IF_ERROR(mpmd_barrier->CloseAndUnlink());
+  }
   return absl::OkStatus();
 }
 

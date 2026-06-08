@@ -153,6 +153,26 @@ absl::StatusOr<OpenedIpcPointer> OpenIpcHandleWithOffset(
   return OpenedIpcPointer{base, logical};
 }
 
+absl::StatusOr<OpenedIpcPointer> OpenIpcHandleWithOffsetOnDevice(
+    const IpcHandleWithOffset& handle, int device) {
+  int current_device = 0;
+  absl::Status status =
+      CudaRuntimeStatus(cudaGetDevice(&current_device), "cudaGetDevice");
+  if (!status.ok()) {
+    return status;
+  }
+  status = CudaRuntimeStatus(cudaSetDevice(device), "cudaSetDevice");
+  if (!status.ok()) {
+    return status;
+  }
+  absl::StatusOr<OpenedIpcPointer> opened = OpenIpcHandleWithOffset(handle);
+  status = CudaRuntimeStatus(cudaSetDevice(current_device), "cudaSetDevice");
+  if (!status.ok()) {
+    return status;
+  }
+  return opened;
+}
+
 absl::Status CloseIpcPointer(const OpenedIpcPointer& opened) {
   if (opened.base == nullptr) {
     return absl::OkStatus();
@@ -281,8 +301,10 @@ absl::Status SharedMemoryArray<T>::CloseAndUnlink() {
   return absl::OkStatus();
 }
 
-std::string MpmdSharedName(const char* prefix, int run_id, int node_group_id) {
-  return absl::StrFormat("/jaxmg_%s_%d_%d", prefix, run_id, node_group_id);
+std::string MpmdSharedName(const char* prefix, int64_t run_id,
+                           int node_group_id) {
+  return absl::StrFormat("/jaxmg_%s_%lld_%d", prefix,
+                         static_cast<long long>(run_id), node_group_id);
 }
 
 template class SharedMemoryArray<IpcHandleWithOffset>;
