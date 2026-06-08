@@ -35,6 +35,14 @@ def _emit(status, **payload):
     )
 
 
+def _addressable_values(array):
+    """Returns the flattened process-local shards of a global JAX array."""
+    array.block_until_ready()
+    return np.concatenate(
+        [np.asarray(shard.data).reshape(-1) for shard in array.addressable_shards]
+    )
+
+
 def main():
     try:
         devices = jax.devices("gpu")
@@ -43,25 +51,29 @@ def main():
         token = jax.device_put(jnp.arange(num_procs, dtype=jnp.uint32), sharding)
 
         allreduce = xla_comm_allreduce_probe_shardmap(token, mesh, P("x"))
-        allreduce.block_until_ready()
-        expected_sum = jnp.full((num_procs,), num_procs * (num_procs - 1) // 2, jnp.uint32)
-        if not jnp.array_equal(jax.device_get(allreduce), expected_sum):
+        expected_sum = np.full(
+            (1,), num_procs * (num_procs - 1) // 2, dtype=np.uint32
+        )
+        allreduce_local = _addressable_values(allreduce)
+        if not np.array_equal(allreduce_local, expected_sum):
             _emit(
                 "fail",
                 check="allreduce",
-                got=jax.device_get(allreduce).tolist(),
+                got=allreduce_local.tolist(),
                 expected=expected_sum.tolist(),
             )
             return
 
         ring = xla_comm_ring_permute_probe_shardmap(token, mesh, P("x"))
-        ring.block_until_ready()
-        expected_ring = jnp.roll(jnp.arange(num_procs, dtype=jnp.uint32), 1)
-        if not jnp.array_equal(jax.device_get(ring), expected_ring):
+        expected_ring = np.roll(np.arange(num_procs, dtype=np.uint32), 1)[
+            proc_id : proc_id + 1
+        ]
+        ring_local = _addressable_values(ring)
+        if not np.array_equal(ring_local, expected_ring):
             _emit(
                 "fail",
                 check="ring_permute",
-                got=jax.device_get(ring).tolist(),
+                got=ring_local.tolist(),
                 expected=expected_ring.tolist(),
             )
             return
