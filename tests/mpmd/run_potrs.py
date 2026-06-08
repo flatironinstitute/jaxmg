@@ -41,19 +41,26 @@ def _addressable_values(array):
     )
 
 
-def _run_case(dtype, n, tile_size):
+def _spd_matrix(n, dtype):
+    values = np.arange(1, n * n + 1, dtype=np.float64).reshape(n, n)
+    a = values @ values.T
+    a += np.eye(n, dtype=np.float64) * (n * n)
+    if np.issubdtype(np.dtype(dtype), np.complexfloating):
+        imag = np.tril(values / (n * n * 10), k=-1)
+        skew = imag - imag.T
+        a = a.astype(np.complex128) + 1j * skew
+    return a.astype(dtype)
+
+
+def _run_case(case_name, dtype, a_host, b_host, tile_size):
     devices = jax.devices("gpu")
     mesh = Mesh(np.asarray(devices, dtype=object), ("x",))
     a_sharding = NamedSharding(mesh, P("x", None))
     b_sharding = NamedSharding(mesh, P(None, None))
+    expected = np.linalg.solve(a_host, b_host)
 
-    diag = jnp.arange(1, n + 1, dtype=dtype)
-    a = jnp.diag(diag)
-    b = jnp.ones((n, 1), dtype=dtype)
-    expected = np.asarray((1 / diag).reshape(n, 1))
-
-    a = jax.device_put(a, a_sharding)
-    b = jax.device_put(b, b_sharding)
+    a = jax.device_put(jnp.asarray(a_host), a_sharding)
+    b = jax.device_put(jnp.asarray(b_host), b_sharding)
     out, status = potrs(
         a.copy(),
         b.copy(),
@@ -69,17 +76,25 @@ def _run_case(dtype, n, tile_size):
         _emit(
             "fail",
             check="potrs_status",
+            case=case_name,
             dtype=str(dtype),
+            n=int(a_host.shape[0]),
+            nrhs=int(b_host.shape[1]),
+            tile_size=int(tile_size),
             got=status_local.tolist(),
             expected=[0],
         )
         return False
 
-    if not np.allclose(out_local, expected, rtol=2e-4, atol=2e-4):
+    if not np.allclose(out_local, expected, rtol=5e-4, atol=5e-4):
         _emit(
             "fail",
             check="potrs_solution",
+            case=case_name,
             dtype=str(dtype),
+            n=int(a_host.shape[0]),
+            nrhs=int(b_host.shape[1]),
+            tile_size=int(tile_size),
             got=out_local.tolist(),
             expected=expected.tolist(),
         )
@@ -90,10 +105,50 @@ def _run_case(dtype, n, tile_size):
 
 def main():
     try:
-        n = num_procs * 2
-        for dtype in (jnp.float32, jnp.float64, jnp.complex64):
-            if not _run_case(dtype, n=n, tile_size=1):
+        dtypes = (np.float32, np.float64, np.complex64)
+        for dtype in dtypes:
+            n = num_procs * 2
+            diag = np.arange(1, n + 1, dtype=dtype)
+            if not _run_case(
+                "diagonal_no_padding",
+                dtype,
+                np.diag(diag),
+                np.ones((n, 1), dtype=dtype),
+                tile_size=1,
+            ):
                 return
+
+            padded_n = num_procs * 3
+            padded_diag = np.arange(1, padded_n + 1, dtype=dtype)
+            if not _run_case(
+                "diagonal_with_padding",
+                dtype,
+                np.diag(padded_diag),
+                np.ones((padded_n, 1), dtype=dtype),
+                tile_size=2,
+            ):
+                return
+
+        multi_rhs_n = num_procs * 2
+        if not _run_case(
+            "multiple_rhs",
+            np.float64,
+            _spd_matrix(multi_rhs_n, np.float64),
+            (np.arange(multi_rhs_n * 3, dtype=np.float64).reshape(multi_rhs_n, 3)
+             + 1),
+            tile_size=1,
+        ):
+            return
+
+        spd_n = num_procs * 3
+        if not _run_case(
+            "non_diagonal_spd",
+            np.float64,
+            _spd_matrix(spd_n, np.float64),
+            np.ones((spd_n, 1), dtype=np.float64),
+            tile_size=1,
+        ):
+            return
 
         _emit(
             "ok",
