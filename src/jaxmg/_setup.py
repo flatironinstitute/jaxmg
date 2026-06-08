@@ -13,6 +13,7 @@ from .utils import JaxMgWarning
 
 _lib_dir = os.path.dirname(__file__)
 _initialized = False
+_runtime_mode = None
 
 if not sys.platform.startswith("linux"):
     warnings.warn(
@@ -121,7 +122,34 @@ def _register_xla_comm_cusolvermg_targets(bin_dir):
     )
 
 
+def _detect_runtime_mode():
+    """Return ``(mode, devices_per_node)`` for the current JAX runtime.
+
+    JAXMg has two single-node cuSolverMg orchestration modes:
+
+    - SPMD: one Python process controls all local GPUs.
+    - MPMD: one Python process participates per GPU/rank through
+      ``jax.distributed``. cuSolverMg is still single-node, so the number of
+      participating local ranks must be supplied by ``JAXMG_NUMBER_OF_DEVICES``
+      when it cannot be inferred from a non-distributed local device set.
+    """
+    if not jax.distributed.is_initialized():
+        return "SPMD", jax.local_device_count()
+
+    if "JAXMG_NUMBER_OF_DEVICES" in os.environ:
+        devices_per_node = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
+        if devices_per_node <= 0:
+            raise ValueError("JAXMG_NUMBER_OF_DEVICES must be positive.")
+        return "MPMD", devices_per_node
+
+    # In a multi-process JAX runtime, local_device_count is commonly one. Keep
+    # the old package's conservative default but warn loudly because a wrong
+    # value can make collective clique construction hang.
+    return "MPMD", jax.device_count()
+
+
 def _initialize():
+    global _runtime_mode
     if any("gpu" == d.platform for d in jax.devices()):
         # Determine CUDA backend
         backend = jax.extend.backend.get_backend()
@@ -138,16 +166,22 @@ def _initialize():
 
         jax.config.update("jax_enable_x64", True)
 
-        if not jax.distributed.is_initialized():
-            n_devices_per_node = jax.local_device_count()
-        else:
-            raise NotImplementedError(
-                "The XLA communicator cuSolverMg backend is currently supported "
-                "only for single-node SPMD execution."
+        mode, n_devices_per_node = _detect_runtime_mode()
+        if mode == "MPMD":
+            warnings.warn(
+                "Running the XLA communicator backend in experimental MPMD "
+                f"mode with JAXMG_NUMBER_OF_DEVICES={n_devices_per_node}. "
+                "The XLA communicator probes are expected to work first; "
+                "fused cuSolverMg solvers still require the MPMD IPC pointer "
+                "sharing layer to be enabled.",
+                JaxMgWarning,
+                stacklevel=4,
             )
+        _runtime_mode = mode
                 
         # set if not set already
         os.environ.setdefault("JAXMG_NUMBER_OF_DEVICES", str(n_devices_per_node))
+        os.environ.setdefault("JAXMG_EXECUTION_MODE", mode)
 
         _register_xla_comm_cusolvermg_targets(bin_dir)
         _register_optional_cuda_target_bundle(

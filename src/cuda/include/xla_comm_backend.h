@@ -57,6 +57,7 @@
 #include "xla/ffi/ffi.h"
 #include "xla/future.h"
 #include "xla/runtime/device_id.h"
+#include "xla/service/computation_placer.h"
 #include "xla/stream_executor/stream.h"
 #include "xla/xla_data.pb.h"
 
@@ -254,14 +255,25 @@ absl::StatusOr<void*> AllocateFfiScratch(se::ScratchAllocator& scratch,
 
 // Build the XLA collective groups used by this backend. The current production
 // path is single-process/single-node and therefore uses the local device set.
+// The node-scoped helpers are the MPMD migration point: they keep cuSolverMg
+// single-node by grouping ranks in chunks of JAXMG_NUMBER_OF_DEVICES, while
+// still using XLA communicator contexts for collectives inside that node.
 // LocalDevicesCliqueKey is for ordinary collectives; LocalDevicesP2PCliqueKey
 // uses a communication id for point-to-point style CollectivePermute calls.
 ReplicaGroup LocalDevicesReplicaGroup(const CollectiveParams& params);
 std::vector<GlobalDeviceId> LocalGlobalDeviceGroup(
     const CollectiveParams& params);
+absl::StatusOr<std::vector<GlobalDeviceId>> NodeScopedGlobalDeviceGroup(
+    const CollectiveParams& params);
+absl::StatusOr<ReplicaGroup> NodeScopedReplicaGroup(
+    const CollectiveParams& params);
 absl::StatusOr<GpuCliqueKey> LocalDevicesCliqueKey(
     const CollectiveParams& params);
 absl::StatusOr<GpuCliqueKey> LocalDevicesP2PCliqueKey(
+    const CollectiveParams& params);
+absl::StatusOr<GpuCliqueKey> NodeScopedCliqueKey(
+    const CollectiveParams& params);
+absl::StatusOr<GpuCliqueKey> NodeScopedP2PCliqueKey(
     const CollectiveParams& params);
 
 absl::Status BroadcastBufferFromRank0(

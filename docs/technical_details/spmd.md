@@ -6,9 +6,10 @@ invocation receives its local JAX-owned shard as an FFI buffer.
 
 The native backend is `libxla_comm_collective_probe.so`, built with Bazel
 against the pinned OpenXLA source for the selected JAX/JAXLIB version. During
-the FFI prepare phase, the handler requests the local-device collective clique.
-During execution, it looks up the XLA-owned GPU communicator for the current
-rank and uses that communicator for GPU-to-GPU column movement.
+the FFI prepare phase, the handler requests a node-scoped collective clique.
+In ordinary SPMD execution this is the same as the local-device clique. During
+execution, it looks up the XLA-owned GPU communicator for the current rank and
+uses that communicator for GPU-to-GPU column movement.
 
 The production single-node flow is:
 
@@ -25,9 +26,9 @@ The production single-node flow is:
    communicator.
 
 The old shared-memory and `cudaMemcpyPeerAsync` shuffler is intentionally not
-part of this branch. Distributed/multi-node execution is also not enabled yet;
-that work belongs to the cuSOLVERMp migration and the future 2D block-cyclic
-redistribution path.
+part of the SPMD path. Multi-process execution is being reintroduced through
+the XLA communicator probes first; fused cuSOLVERMg solver support still needs
+the CUDA IPC pointer-sharing layer described in `mpmd.md`.
 
 The native source is split by responsibility under `src/cuda`: shared XLA and
 cuSolverMg declarations live in `include/xla_comm_backend.h`, common helper

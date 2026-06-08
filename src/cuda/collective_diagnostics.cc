@@ -36,14 +36,17 @@ absl::Status XlaCommCollectiveProbePrepare(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesCliqueKey(*collective_params);
+      NodeScopedCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
 
-  std::vector<GlobalDeviceId> device_group =
-      LocalGlobalDeviceGroup(*collective_params);
-  return clique_requests->RequestClique(*clique_key, {device_group});
+  absl::StatusOr<std::vector<GlobalDeviceId>> device_group =
+      NodeScopedGlobalDeviceGroup(*collective_params);
+  if (!device_group.ok()) {
+    return device_group.status();
+  }
+  return clique_requests->RequestClique(*clique_key, {*device_group});
 }
 
 absl::Status XlaCommCollectiveProbeDispatch(
@@ -84,7 +87,7 @@ absl::Status XlaCommCollectiveProbeDispatch(
     probe[4] = static_cast<int32_t>(collective_params->local_device_count);
 
     absl::StatusOr<GpuCliqueKey> clique_key =
-        LocalDevicesCliqueKey(*collective_params);
+        NodeScopedCliqueKey(*collective_params);
     if (!clique_key.ok()) {
       probe[0] = 2;
     } else {
@@ -111,14 +114,17 @@ absl::Status XlaCommAllReduceProbePrepare(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesCliqueKey(*collective_params);
+      NodeScopedCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
 
-  std::vector<GlobalDeviceId> device_group =
-      LocalGlobalDeviceGroup(*collective_params);
-  return clique_requests->RequestClique(*clique_key, {device_group});
+  absl::StatusOr<std::vector<GlobalDeviceId>> device_group =
+      NodeScopedGlobalDeviceGroup(*collective_params);
+  if (!device_group.ok()) {
+    return device_group.status();
+  }
+  return clique_requests->RequestClique(*clique_key, {*device_group});
 }
 
 absl::Status XlaCommAllReduceProbeDispatch(
@@ -141,7 +147,7 @@ absl::Status XlaCommAllReduceProbeDispatch(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesCliqueKey(*collective_params);
+      NodeScopedCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
@@ -182,14 +188,17 @@ absl::Status XlaCommRingPermuteProbePrepare(
   // CollectivePermute uses the point-to-point clique key. This mirrors the
   // production reshuffler, which uses CollectivePermute for column movement.
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesP2PCliqueKey(*collective_params);
+      NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
 
-  std::vector<GlobalDeviceId> device_group =
-      LocalGlobalDeviceGroup(*collective_params);
-  return clique_requests->RequestClique(*clique_key, {device_group});
+  absl::StatusOr<std::vector<GlobalDeviceId>> device_group =
+      NodeScopedGlobalDeviceGroup(*collective_params);
+  if (!device_group.ok()) {
+    return device_group.status();
+  }
+  return clique_requests->RequestClique(*clique_key, {*device_group});
 }
 
 absl::Status XlaCommRingPermuteProbeDispatch(
@@ -212,7 +221,7 @@ absl::Status XlaCommRingPermuteProbeDispatch(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesP2PCliqueKey(*collective_params);
+      NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
@@ -276,14 +285,17 @@ absl::Status XlaCommShiftPermuteProbePrepare(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesP2PCliqueKey(*collective_params);
+      NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
 
-  std::vector<GlobalDeviceId> device_group =
-      LocalGlobalDeviceGroup(*collective_params);
-  return clique_requests->RequestClique(*clique_key, {device_group});
+  absl::StatusOr<std::vector<GlobalDeviceId>> device_group =
+      NodeScopedGlobalDeviceGroup(*collective_params);
+  if (!device_group.ok()) {
+    return device_group.status();
+  }
+  return clique_requests->RequestClique(*clique_key, {*device_group});
 }
 
 absl::Status XlaCommShiftPermuteProbeDispatch(
@@ -306,7 +318,7 @@ absl::Status XlaCommShiftPermuteProbeDispatch(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesP2PCliqueKey(*collective_params);
+      NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
@@ -369,14 +381,17 @@ absl::Status XlaCommPermuteProbePrepare(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesP2PCliqueKey(*collective_params);
+      NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
 
-  std::vector<GlobalDeviceId> device_group =
-      LocalGlobalDeviceGroup(*collective_params);
-  return clique_requests->RequestClique(*clique_key, {device_group});
+  absl::StatusOr<std::vector<GlobalDeviceId>> device_group =
+      NodeScopedGlobalDeviceGroup(*collective_params);
+  if (!device_group.ok()) {
+    return device_group.status();
+  }
+  return clique_requests->RequestClique(*clique_key, {*device_group});
 }
 
 absl::Status XlaCommPermuteProbeDispatch(
@@ -400,7 +415,7 @@ absl::Status XlaCommPermuteProbeDispatch(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesP2PCliqueKey(*collective_params);
+      NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
@@ -493,14 +508,17 @@ absl::Status XlaCommChunkPermuteProbePrepare(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesP2PCliqueKey(*collective_params);
+      NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
 
-  std::vector<GlobalDeviceId> device_group =
-      LocalGlobalDeviceGroup(*collective_params);
-  return clique_requests->RequestClique(*clique_key, {device_group});
+  absl::StatusOr<std::vector<GlobalDeviceId>> device_group =
+      NodeScopedGlobalDeviceGroup(*collective_params);
+  if (!device_group.ok()) {
+    return device_group.status();
+  }
+  return clique_requests->RequestClique(*clique_key, {*device_group});
 }
 
 absl::Status XlaCommChunkPermuteProbeDispatch(
@@ -530,7 +548,7 @@ absl::Status XlaCommChunkPermuteProbeDispatch(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesP2PCliqueKey(*collective_params);
+      NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }

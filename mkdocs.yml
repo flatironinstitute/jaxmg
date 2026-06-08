@@ -105,3 +105,4 @@ nav:
     - Technical Details:
         - "technical_details/col_maj.md"
         - "technical_details/spmd.md"
+        - "technical_details/mpmd.md"

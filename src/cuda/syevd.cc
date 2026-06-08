@@ -73,7 +73,7 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesP2PCliqueKey(*collective_params);
+      NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }

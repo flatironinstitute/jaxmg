@@ -21,6 +21,91 @@
 #include "../include/xla_comm_backend.h"
 
 namespace xla::gpu {
+namespace {
+
+int EnvDevicesPerNodeOrDefault(int fallback) {
+  const char* env = std::getenv("JAXMG_NUMBER_OF_DEVICES");
+  if (env == nullptr || env[0] == '\0') {
+    return std::max(fallback, 1);
+  }
+  char* end = nullptr;
+  long parsed = std::strtol(env, &end, 10);
+  if (end == env || parsed <= 0 || parsed > 16) {
+    return std::max(fallback, 1);
+  }
+  return static_cast<int>(parsed);
+}
+
+struct AssignedDeviceEntry {
+  int replica_id;
+  GlobalDeviceId global_device_id;
+};
+
+std::vector<AssignedDeviceEntry> AssignedDevices(
+    const CollectiveParams& params) {
+  std::vector<AssignedDeviceEntry> devices;
+  if (params.device_assn != nullptr) {
+    const int replica_count = params.device_assn->replica_count();
+    const int computation_count = params.device_assn->computation_count();
+    devices.reserve(static_cast<size_t>(replica_count) *
+                    static_cast<size_t>(computation_count));
+    for (int replica = 0; replica < replica_count; ++replica) {
+      for (int computation = 0; computation < computation_count;
+           ++computation) {
+        const int flattened_id = replica * computation_count + computation;
+        devices.push_back(AssignedDeviceEntry{
+            flattened_id,
+            GlobalDeviceId((*params.device_assn)(replica, computation))});
+      }
+    }
+    return devices;
+  }
+
+  if (params.global_device_id_map != nullptr &&
+      !params.global_device_id_map->empty()) {
+    devices.reserve(params.global_device_id_map->size());
+    for (const auto& entry : *params.global_device_id_map) {
+      devices.push_back(AssignedDeviceEntry{entry.first, entry.second});
+    }
+    return devices;
+  }
+
+  const int device_count = std::max(params.local_device_count, 1);
+  devices.reserve(device_count);
+  for (int i = 0; i < device_count; ++i) {
+    devices.push_back(AssignedDeviceEntry{i, GlobalDeviceId(i)});
+  }
+  return devices;
+}
+
+absl::StatusOr<std::pair<int, int>> NodeScopedIndexRange(
+    const CollectiveParams& params, int device_count) {
+  std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
+  std::sort(devices.begin(), devices.end(),
+            [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
+              return a.global_device_id.value() < b.global_device_id.value();
+            });
+  auto self = std::find_if(
+      devices.begin(), devices.end(), [&](const AssignedDeviceEntry& entry) {
+        return entry.global_device_id == params.global_device_id;
+      });
+  if (self == devices.end()) {
+    return absl::InvalidArgumentError(
+        "Could not find this device in XLA device assignment");
+  }
+
+  const int self_index = static_cast<int>(self - devices.begin());
+  const int node_start = (self_index / device_count) * device_count;
+  const int node_end =
+      std::min(node_start + device_count, static_cast<int>(devices.size()));
+  if (node_end <= node_start) {
+    return absl::InvalidArgumentError(
+        "Computed an empty node-scoped XLA communicator group");
+  }
+  return std::pair<int, int>(node_start, node_end);
+}
+
+}  // namespace
 
 absl::Status CudaToStatus(cudaError_t err, const char* file, int line) {
   if (err == cudaSuccess) {
@@ -102,6 +187,51 @@ std::vector<GlobalDeviceId> LocalGlobalDeviceGroup(
   return device_group;
 }
 
+absl::StatusOr<std::vector<GlobalDeviceId>> NodeScopedGlobalDeviceGroup(
+    const CollectiveParams& params) {
+  std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
+  std::sort(devices.begin(), devices.end(),
+            [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
+              return a.global_device_id.value() < b.global_device_id.value();
+            });
+  const int devices_per_node =
+      EnvDevicesPerNodeOrDefault(static_cast<int>(devices.size()));
+  absl::StatusOr<std::pair<int, int>> range =
+      NodeScopedIndexRange(params, devices_per_node);
+  if (!range.ok()) {
+    return range.status();
+  }
+
+  std::vector<GlobalDeviceId> device_group;
+  device_group.reserve(range->second - range->first);
+  for (int i = range->first; i < range->second; ++i) {
+    device_group.push_back(devices[i].global_device_id);
+  }
+  return device_group;
+}
+
+absl::StatusOr<ReplicaGroup> NodeScopedReplicaGroup(
+    const CollectiveParams& params) {
+  std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
+  std::sort(devices.begin(), devices.end(),
+            [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
+              return a.global_device_id.value() < b.global_device_id.value();
+            });
+  const int devices_per_node =
+      EnvDevicesPerNodeOrDefault(static_cast<int>(devices.size()));
+  absl::StatusOr<std::pair<int, int>> range =
+      NodeScopedIndexRange(params, devices_per_node);
+  if (!range.ok()) {
+    return range.status();
+  }
+
+  ReplicaGroup group;
+  for (int i = range->first; i < range->second; ++i) {
+    group.add_replica_ids(devices[i].replica_id);
+  }
+  return group;
+}
+
 absl::StatusOr<GpuCliqueKey> LocalDevicesCliqueKey(
     const CollectiveParams& params) {
   // Flattened-id mode matches the 1D mesh used by the Python wrappers.
@@ -117,6 +247,31 @@ absl::StatusOr<GpuCliqueKey> LocalDevicesP2PCliqueKey(
   // separate from LocalDevicesCliqueKey so all move-style handlers request the
   // same clique shape.
   std::vector<ReplicaGroup> replica_groups = {LocalDevicesReplicaGroup(params)};
+  return GetGpuCliqueKey(
+      params, replica_groups,
+      CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID,
+      CommunicationId(1));
+}
+
+absl::StatusOr<GpuCliqueKey> NodeScopedCliqueKey(
+    const CollectiveParams& params) {
+  absl::StatusOr<ReplicaGroup> replica_group = NodeScopedReplicaGroup(params);
+  if (!replica_group.ok()) {
+    return replica_group.status();
+  }
+  std::vector<ReplicaGroup> replica_groups = {*replica_group};
+  return GetGpuCliqueKey(
+      params, replica_groups,
+      CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID, false);
+}
+
+absl::StatusOr<GpuCliqueKey> NodeScopedP2PCliqueKey(
+    const CollectiveParams& params) {
+  absl::StatusOr<ReplicaGroup> replica_group = NodeScopedReplicaGroup(params);
+  if (!replica_group.ok()) {
+    return replica_group.status();
+  }
+  std::vector<ReplicaGroup> replica_groups = {*replica_group};
   return GetGpuCliqueKey(
       params, replica_groups,
       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID,

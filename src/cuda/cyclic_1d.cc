@@ -33,14 +33,17 @@ absl::Status XlaCommMatrixColumnStepPrepare(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesP2PCliqueKey(*collective_params);
+      NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
 
-  std::vector<GlobalDeviceId> device_group =
-      LocalGlobalDeviceGroup(*collective_params);
-  return clique_requests->RequestClique(*clique_key, {device_group});
+  absl::StatusOr<std::vector<GlobalDeviceId>> device_group =
+      NodeScopedGlobalDeviceGroup(*collective_params);
+  if (!device_group.ok()) {
+    return device_group.status();
+  }
+  return clique_requests->RequestClique(*clique_key, {*device_group});
 }
 
 absl::Status XlaCommMatrixColumnStepDispatch(
@@ -105,7 +108,7 @@ absl::Status XlaCommMatrixColumnStepDispatch(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesP2PCliqueKey(*collective_params);
+      NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
@@ -253,14 +256,17 @@ absl::Status XlaCommMatrixColumnBatchPrepare(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesP2PCliqueKey(*collective_params);
+      NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
 
-  std::vector<GlobalDeviceId> device_group =
-      LocalGlobalDeviceGroup(*collective_params);
-  return clique_requests->RequestClique(*clique_key, {device_group});
+  absl::StatusOr<std::vector<GlobalDeviceId>> device_group =
+      NodeScopedGlobalDeviceGroup(*collective_params);
+  if (!device_group.ok()) {
+    return device_group.status();
+  }
+  return clique_requests->RequestClique(*clique_key, {*device_group});
 }
 
 absl::Status ExecuteMatrixColumnTransferStep(
@@ -472,7 +478,7 @@ absl::Status XlaCommMatrixColumnBatchDispatch(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesP2PCliqueKey(*collective_params);
+      NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
@@ -596,7 +602,7 @@ absl::Status XlaCommMatrixColumnNativePlanDispatch(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      LocalDevicesP2PCliqueKey(*collective_params);
+      NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
