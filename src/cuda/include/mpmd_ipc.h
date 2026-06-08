@@ -23,6 +23,8 @@
 #define JAXMG_MPMD_IPC_H_
 
 #include <cstdint>
+#include <initializer_list>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -98,6 +100,65 @@ class SharedMemoryArray {
 
 std::string MpmdSharedName(const char* prefix, int64_t run_id,
                            int node_group_id);
+
+struct MpmdSolverExchangeConfig {
+  int rank = 0;
+  int count = 0;
+  int64_t run_id = 0;
+  int node_group_id = 0;
+  const char* prefix = nullptr;
+  bool include_b = false;
+};
+
+class MpmdSolverExchange {
+ public:
+  explicit MpmdSolverExchange(const MpmdSolverExchangeConfig& config);
+  MpmdSolverExchange(const MpmdSolverExchange&) = delete;
+  MpmdSolverExchange& operator=(const MpmdSolverExchange&) = delete;
+
+  bool ok() const { return status_.ok(); }
+  const absl::Status& status() const { return status_; }
+
+  absl::Status ArriveAndWait();
+  absl::Status PublishA(void* ptr);
+  absl::Status PublishB(void* ptr);
+  absl::Status PublishWork(void* ptr);
+  absl::StatusOr<void*> OpenAOnDevice(int device,
+                                      OpenedIpcPointer* opened) const;
+  absl::StatusOr<void*> OpenBOnDevice(int device,
+                                      OpenedIpcPointer* opened) const;
+  absl::StatusOr<void*> OpenWorkOnDevice(int device,
+                                         OpenedIpcPointer* opened) const;
+
+  void SetLwork(int device, int64_t lwork);
+  int64_t Lwork(int device) const;
+  void SetSolverStatus(int device, int32_t solver_status);
+  int32_t SolverStatus(int device) const;
+
+  absl::Status CloseAndUnlink();
+
+ private:
+  absl::Status PublishPointer(
+      std::optional<SharedMemoryArray<IpcHandleWithOffset>>& handles,
+      const char* label, void* ptr);
+  absl::StatusOr<void*> OpenPointerOnDevice(
+      const std::optional<SharedMemoryArray<IpcHandleWithOffset>>& handles,
+      const char* label, int device, OpenedIpcPointer* opened) const;
+
+  int rank_ = 0;
+  int count_ = 0;
+  absl::Status status_;
+  std::optional<MpmdProcessBarrier> barrier_;
+  std::optional<SharedMemoryArray<IpcHandleWithOffset>> a_ipc_;
+  std::optional<SharedMemoryArray<IpcHandleWithOffset>> b_ipc_;
+  std::optional<SharedMemoryArray<IpcHandleWithOffset>> work_ipc_;
+  std::optional<SharedMemoryArray<int64_t>> lwork_;
+  std::optional<SharedMemoryArray<int32_t>> solver_status_;
+};
+
+absl::Status CloseOpenedRemoteIpcPointers(
+    int num_ranks, int current_device,
+    std::initializer_list<OpenedIpcPointer*> opened_sets);
 
 }  // namespace xla::gpu
 

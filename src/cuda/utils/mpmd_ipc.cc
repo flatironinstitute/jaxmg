@@ -307,6 +307,204 @@ std::string MpmdSharedName(const char* prefix, int64_t run_id,
                          static_cast<long long>(run_id), node_group_id);
 }
 
+namespace {
+
+std::string MpmdSolverSharedName(const char* prefix, const char* suffix,
+                                 int64_t run_id, int node_group_id) {
+  std::string full_prefix = absl::StrFormat("%s_%s", prefix, suffix);
+  return MpmdSharedName(full_prefix.c_str(), run_id, node_group_id);
+}
+
+absl::Status FirstError(absl::Status current, absl::Status next) {
+  if (!current.ok()) {
+    return current;
+  }
+  return next;
+}
+
+}  // namespace
+
+MpmdSolverExchange::MpmdSolverExchange(
+    const MpmdSolverExchangeConfig& config)
+    : rank_(config.rank), count_(config.count), status_(absl::OkStatus()) {
+  if (rank_ < 0 || count_ <= 0 || rank_ >= count_) {
+    status_ = absl::InvalidArgumentError(absl::StrFormat(
+        "MPMD solver exchange rank/count mismatch: rank=%d count=%d", rank_,
+        count_));
+    return;
+  }
+  if (config.prefix == nullptr || config.prefix[0] == '\0') {
+    status_ = absl::InvalidArgumentError(
+        "MPMD solver exchange requires a non-empty prefix");
+    return;
+  }
+
+  const int64_t run_id = config.run_id;
+  const int node_group_id = config.node_group_id;
+  barrier_.emplace(
+      count_, MpmdSolverSharedName(config.prefix, "barrier", run_id,
+                                   node_group_id));
+  if (!barrier_->ok()) {
+    status_ = barrier_->status();
+    return;
+  }
+  a_ipc_.emplace(rank_, count_,
+                 MpmdSolverSharedName(config.prefix, "a", run_id,
+                                      node_group_id));
+  if (config.include_b) {
+    b_ipc_.emplace(rank_, count_,
+                   MpmdSolverSharedName(config.prefix, "b", run_id,
+                                        node_group_id));
+  }
+  work_ipc_.emplace(rank_, count_,
+                    MpmdSolverSharedName(config.prefix, "work", run_id,
+                                         node_group_id));
+  lwork_.emplace(rank_, count_,
+                 MpmdSolverSharedName(config.prefix, "lwork", run_id,
+                                      node_group_id));
+  solver_status_.emplace(
+      rank_, count_,
+      MpmdSolverSharedName(config.prefix, "status", run_id, node_group_id));
+
+  if (!a_ipc_->ok()) status_ = a_ipc_->status();
+  if (b_ipc_.has_value() && !b_ipc_->ok()) status_ = b_ipc_->status();
+  if (!work_ipc_->ok()) status_ = work_ipc_->status();
+  if (!lwork_->ok()) status_ = lwork_->status();
+  if (!solver_status_->ok()) status_ = solver_status_->status();
+}
+
+absl::Status MpmdSolverExchange::ArriveAndWait() {
+  if (!status_.ok()) {
+    return status_;
+  }
+  if (!barrier_.has_value()) {
+    return absl::InternalError("MPMD solver exchange barrier is not set");
+  }
+  return barrier_->ArriveAndWait();
+}
+
+absl::Status MpmdSolverExchange::PublishPointer(
+    std::optional<SharedMemoryArray<IpcHandleWithOffset>>& handles,
+    const char* label, void* ptr) {
+  if (!status_.ok()) {
+    return status_;
+  }
+  if (!handles.has_value()) {
+    return absl::InternalError(
+        absl::StrFormat("MPMD solver exchange has no %s handle array", label));
+  }
+  absl::StatusOr<IpcHandleWithOffset> handle =
+      ExportIpcHandleWithOffset(ptr);
+  if (!handle.ok()) {
+    return handle.status();
+  }
+  (*handles)[rank_] = *handle;
+  return absl::OkStatus();
+}
+
+absl::Status MpmdSolverExchange::PublishA(void* ptr) {
+  return PublishPointer(a_ipc_, "A", ptr);
+}
+
+absl::Status MpmdSolverExchange::PublishB(void* ptr) {
+  return PublishPointer(b_ipc_, "B", ptr);
+}
+
+absl::Status MpmdSolverExchange::PublishWork(void* ptr) {
+  return PublishPointer(work_ipc_, "workspace", ptr);
+}
+
+absl::StatusOr<void*> MpmdSolverExchange::OpenPointerOnDevice(
+    const std::optional<SharedMemoryArray<IpcHandleWithOffset>>& handles,
+    const char* label, int device, OpenedIpcPointer* opened) const {
+  if (!status_.ok()) {
+    return status_;
+  }
+  if (!handles.has_value()) {
+    return absl::InternalError(
+        absl::StrFormat("MPMD solver exchange has no %s handle array", label));
+  }
+  if (opened == nullptr) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("MPMD %s open requires an output slot", label));
+  }
+  absl::StatusOr<OpenedIpcPointer> remote =
+      OpenIpcHandleWithOffsetOnDevice((*handles)[device], device);
+  if (!remote.ok()) {
+    return remote.status();
+  }
+  *opened = *remote;
+  return opened->ptr;
+}
+
+absl::StatusOr<void*> MpmdSolverExchange::OpenAOnDevice(
+    int device, OpenedIpcPointer* opened) const {
+  return OpenPointerOnDevice(a_ipc_, "A", device, opened);
+}
+
+absl::StatusOr<void*> MpmdSolverExchange::OpenBOnDevice(
+    int device, OpenedIpcPointer* opened) const {
+  return OpenPointerOnDevice(b_ipc_, "B", device, opened);
+}
+
+absl::StatusOr<void*> MpmdSolverExchange::OpenWorkOnDevice(
+    int device, OpenedIpcPointer* opened) const {
+  return OpenPointerOnDevice(work_ipc_, "workspace", device, opened);
+}
+
+void MpmdSolverExchange::SetLwork(int device, int64_t lwork) {
+  (*lwork_)[device] = lwork;
+}
+
+int64_t MpmdSolverExchange::Lwork(int device) const {
+  return (*lwork_)[device];
+}
+
+void MpmdSolverExchange::SetSolverStatus(int device, int32_t solver_status) {
+  (*solver_status_)[device] = solver_status;
+}
+
+int32_t MpmdSolverExchange::SolverStatus(int device) const {
+  return (*solver_status_)[device];
+}
+
+absl::Status MpmdSolverExchange::CloseAndUnlink() {
+  absl::Status status = absl::OkStatus();
+  if (a_ipc_.has_value()) status = FirstError(status, a_ipc_->CloseAndUnlink());
+  if (b_ipc_.has_value()) status = FirstError(status, b_ipc_->CloseAndUnlink());
+  if (work_ipc_.has_value()) {
+    status = FirstError(status, work_ipc_->CloseAndUnlink());
+  }
+  if (lwork_.has_value()) status = FirstError(status, lwork_->CloseAndUnlink());
+  if (solver_status_.has_value()) {
+    status = FirstError(status, solver_status_->CloseAndUnlink());
+  }
+  if (barrier_.has_value()) {
+    status = FirstError(status, barrier_->CloseAndUnlink());
+  }
+  return status;
+}
+
+absl::Status CloseOpenedRemoteIpcPointers(
+    int num_ranks, int current_device,
+    std::initializer_list<OpenedIpcPointer*> opened_sets) {
+  for (int dev = 0; dev < num_ranks; ++dev) {
+    if (dev == current_device) {
+      continue;
+    }
+    for (OpenedIpcPointer* opened_set : opened_sets) {
+      if (opened_set == nullptr) {
+        continue;
+      }
+      absl::Status status = CloseIpcPointer(opened_set[dev]);
+      if (!status.ok()) {
+        return status;
+      }
+    }
+  }
+  return absl::OkStatus();
+}
+
 template class SharedMemoryArray<IpcHandleWithOffset>;
 template class SharedMemoryArray<int64_t>;
 template class SharedMemoryArray<int32_t>;

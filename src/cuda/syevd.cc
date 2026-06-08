@@ -169,14 +169,10 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
   JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
   timer.Mark("cyclic_reshape_stream_sync");
 
-  std::optional<MpmdProcessBarrier> mpmd_barrier;
-  std::optional<SharedMemoryArray<IpcHandleWithOffset>> mpmd_a_ipc;
-  std::optional<SharedMemoryArray<IpcHandleWithOffset>> mpmd_work_ipc;
-  std::optional<SharedMemoryArray<int64_t>> mpmd_lwork;
-  std::optional<SharedMemoryArray<int32_t>> mpmd_solver_status;
+  std::optional<MpmdSolverExchange> mpmd_exchange;
   auto shared_barrier = [&]() -> absl::Status {
     if (mpmd_mode) {
-      return mpmd_barrier->ArriveAndWait();
+      return mpmd_exchange->ArriveAndWait();
     }
     barrier.ArriveAndWait(static_cast<int>(num_ranks));
     return absl::OkStatus();
@@ -189,42 +185,14 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
       return node_group.status();
     }
     const int64_t run_id = collective_params->run_id.ToInt();
-    const char* barrier_name =
-        compute_vectors ? "syevd_barrier" : "syevd_no_v_barrier";
-    const char* a_name = compute_vectors ? "syevd_a" : "syevd_no_v_a";
-    const char* work_name =
-        compute_vectors ? "syevd_work" : "syevd_no_v_work";
-    const char* lwork_name =
-        compute_vectors ? "syevd_lwork" : "syevd_no_v_lwork";
-    const char* status_name =
-        compute_vectors ? "syevd_status" : "syevd_no_v_status";
-    mpmd_barrier.emplace(
-        static_cast<int>(num_ranks),
-        MpmdSharedName(barrier_name, run_id, *node_group));
-    if (!mpmd_barrier->ok()) {
-      return mpmd_barrier->status();
+    const char* exchange_prefix = compute_vectors ? "syevd" : "syevd_no_v";
+    mpmd_exchange.emplace(MpmdSolverExchangeConfig{
+        rank_value, static_cast<int>(num_ranks), run_id, *node_group,
+        exchange_prefix, /*include_b=*/false});
+    if (!mpmd_exchange->ok()) {
+      return mpmd_exchange->status();
     }
-    mpmd_a_ipc.emplace(
-        rank_value, static_cast<int>(num_ranks),
-        MpmdSharedName(a_name, run_id, *node_group));
-    mpmd_work_ipc.emplace(
-        rank_value, static_cast<int>(num_ranks),
-        MpmdSharedName(work_name, run_id, *node_group));
-    mpmd_lwork.emplace(
-        rank_value, static_cast<int>(num_ranks),
-        MpmdSharedName(lwork_name, run_id, *node_group));
-    mpmd_solver_status.emplace(
-        rank_value, static_cast<int>(num_ranks),
-        MpmdSharedName(status_name, run_id, *node_group));
-    if (!mpmd_a_ipc->ok()) return mpmd_a_ipc->status();
-    if (!mpmd_work_ipc->ok()) return mpmd_work_ipc->status();
-    if (!mpmd_lwork->ok()) return mpmd_lwork->status();
-    if (!mpmd_solver_status->ok()) return mpmd_solver_status->status();
-
-    absl::StatusOr<IpcHandleWithOffset> a_handle =
-        ExportIpcHandleWithOffset(cyclic_matrix_ptr);
-    if (!a_handle.ok()) return a_handle.status();
-    (*mpmd_a_ipc)[rank_value] = *a_handle;
+    JAXMG_RETURN_IF_ERROR(mpmd_exchange->PublishA(cyclic_matrix_ptr));
   } else {
     // Each FFI invocation runs on one local device. The rank-0 invocation owns
     // the cuSolverMg handle and consumes the per-device pointers published
@@ -266,11 +234,10 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
     for (int dev = 0; dev < num_ranks; ++dev) {
       device_list[dev] = dev;
       if (mpmd_mode && dev != current_device) {
-        absl::StatusOr<OpenedIpcPointer> opened =
-            OpenIpcHandleWithOffsetOnDevice((*mpmd_a_ipc)[dev], dev);
-        if (!opened.ok()) return opened.status();
-        opened_a[dev] = *opened;
-        a_ptrs[dev] = opened_a[dev].ptr;
+        absl::StatusOr<void*> remote_a =
+            mpmd_exchange->OpenAOnDevice(dev, &opened_a[dev]);
+        if (!remote_a.ok()) return remote_a.status();
+        a_ptrs[dev] = *remote_a;
       } else {
         a_ptrs[dev] = mpmd_mode ? cyclic_matrix_ptr : state.a[dev];
       }
@@ -293,7 +260,7 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
         eigenvalue_type, compute_type, &lwork_syevd));
     for (int dev = 0; dev < num_ranks; ++dev) {
       if (mpmd_mode) {
-        (*mpmd_lwork)[dev] = lwork_syevd;
+        mpmd_exchange->SetLwork(dev, lwork_syevd);
       } else {
         state.lwork[dev] = lwork_syevd;
       }
@@ -306,7 +273,8 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
   // Scratch allocation is per FFI invocation, hence per local device. The
   // pointer is then shared back to rank 0 before the cuSolverMg call.
   const int64_t local_lwork =
-      mpmd_mode ? (*mpmd_lwork)[rank_value] : state.lwork[current_device];
+      mpmd_mode ? mpmd_exchange->Lwork(rank_value)
+                : state.lwork[current_device];
   absl::StatusOr<void*> solver_work = AllocateFfiScratch(
       scratch, sizeof(DataType) * local_lwork,
       compute_vectors ? "cusolvermg_syevd_workspace"
@@ -315,10 +283,7 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
     return solver_work.status();
   }
   if (mpmd_mode) {
-    absl::StatusOr<IpcHandleWithOffset> work_handle =
-        ExportIpcHandleWithOffset(*solver_work);
-    if (!work_handle.ok()) return work_handle.status();
-    (*mpmd_work_ipc)[rank_value] = *work_handle;
+    JAXMG_RETURN_IF_ERROR(mpmd_exchange->PublishWork(*solver_work));
   } else {
     state.work[current_device] = *solver_work;
   }
@@ -331,11 +296,10 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
     // them to device memory and broadcasts them to the replicated JAX result.
     for (int dev = 0; dev < num_ranks; ++dev) {
       if (mpmd_mode && dev != current_device) {
-        absl::StatusOr<OpenedIpcPointer> opened =
-            OpenIpcHandleWithOffsetOnDevice((*mpmd_work_ipc)[dev], dev);
-        if (!opened.ok()) return opened.status();
-        opened_work[dev] = *opened;
-        work_ptrs[dev] = opened_work[dev].ptr;
+        absl::StatusOr<void*> remote_work =
+            mpmd_exchange->OpenWorkOnDevice(dev, &opened_work[dev]);
+        if (!remote_work.ok()) return remote_work.status();
+        work_ptrs[dev] = *remote_work;
       } else {
         work_ptrs[dev] = mpmd_mode ? *solver_work : state.work[dev];
       }
@@ -344,12 +308,13 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
         cusolver, jobz, CUBLAS_FILL_MODE_LOWER, n, a_ptrs.data(), ia, ja,
         descr_a, reinterpret_cast<void*>(eigenvalues_host.data()),
         eigenvalue_type, compute_type, work_ptrs.data(),
-        mpmd_mode ? (*mpmd_lwork)[0] : state.lwork[0], &info);
+        mpmd_mode ? mpmd_exchange->Lwork(0) : state.lwork[0], &info);
     JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
     timer.Mark(compute_vectors ? "syevd" : "syevd_no_v");
     for (int dev = 0; dev < num_ranks; ++dev) {
       if (mpmd_mode) {
-        (*mpmd_solver_status)[dev] = static_cast<int32_t>(solver_status);
+        mpmd_exchange->SetSolverStatus(dev,
+                                       static_cast<int32_t>(solver_status));
       } else {
         state.solver_status[dev] = static_cast<int32_t>(solver_status);
       }
@@ -377,13 +342,9 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
       JAXMG_RETURN_IF_CUSOLVER_ERROR(cusolverMgDestroy(cusolver));
     }
     if (mpmd_mode) {
-      for (int dev = 0; dev < num_ranks; ++dev) {
-        if (dev == current_device) {
-          continue;
-        }
-        JAXMG_RETURN_IF_ERROR(CloseIpcPointer(opened_work[dev]));
-        JAXMG_RETURN_IF_ERROR(CloseIpcPointer(opened_a[dev]));
-      }
+      JAXMG_RETURN_IF_ERROR(CloseOpenedRemoteIpcPointers(
+          static_cast<int>(num_ranks), current_device,
+          {opened_work.data(), opened_a.data()}));
     }
     timer.Mark("cleanup");
   }
@@ -391,7 +352,7 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
   JAXMG_RETURN_IF_ERROR(shared_barrier());
   timer.Mark("solver_barrier");
   const int32_t status_value =
-      mpmd_mode ? (*mpmd_solver_status)[rank_value]
+      mpmd_mode ? mpmd_exchange->SolverStatus(rank_value)
                 : state.solver_status[current_device];
   if (status_value == 0) {
     // Eigenvalues are replicated at the Python level, so every local device
@@ -447,11 +408,7 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
   JAXMG_RETURN_IF_ERROR(shared_barrier());
   timer.Mark("final_barrier");
   if (mpmd_mode) {
-    JAXMG_RETURN_IF_ERROR(mpmd_a_ipc->CloseAndUnlink());
-    JAXMG_RETURN_IF_ERROR(mpmd_work_ipc->CloseAndUnlink());
-    JAXMG_RETURN_IF_ERROR(mpmd_lwork->CloseAndUnlink());
-    JAXMG_RETURN_IF_ERROR(mpmd_solver_status->CloseAndUnlink());
-    JAXMG_RETURN_IF_ERROR(mpmd_barrier->CloseAndUnlink());
+    JAXMG_RETURN_IF_ERROR(mpmd_exchange->CloseAndUnlink());
   }
   return absl::OkStatus();
 }
