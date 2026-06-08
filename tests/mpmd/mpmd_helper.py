@@ -52,7 +52,7 @@ def run_mpmd_script(script: Path, requested_procs: int, name: str) -> None:
         )
 
     logs = []
-    deadline = time.time() + 180
+    deadline = time.time() + float(os.environ.get("JAXMG_MPMD_TIMEOUT", "300"))
     for proc in procs:
         chunks = []
         while proc.poll() is None and time.time() < deadline:
