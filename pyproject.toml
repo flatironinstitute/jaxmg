@@ -30,6 +30,11 @@ jaxmg = [
     "cu13/libxla_comm_collective_probe.so",
 ]
 
+[tool.pytest.ini_options]
+markers = [
+    "mpmd: multi-process multi-device GPU tests",
+]
+
 [project.optional-dependencies]
 
 docs = [
