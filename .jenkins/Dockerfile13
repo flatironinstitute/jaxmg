@@ -1,5 +1,7 @@
 FROM quay.io/pypa/manylinux_2_28_x86_64
 
+ARG BAZELISK_VERSION=v1.26.0
+
 # Install NVIDIA CUDA Toolkit 13.0 and optional cuDNN on RHEL8 baseline
 RUN dnf -y install dnf-plugins-core && \
     dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo && \
@@ -7,8 +9,14 @@ RUN dnf -y install dnf-plugins-core && \
     dnf -y --nogpgcheck install cuda-toolkit-13-0 && \
     dnf -y --nogpgcheck install libnccl-2.28.9-1+cuda13.0 libnccl-devel-2.28.9-1+cuda13.0 && \
     dnf -y --nogpgcheck install libcudnn9-cuda-13 libcudnn9-devel-cuda-13 || true && \
-    dnf -y install gcc-c++ make cmake git && \
+    dnf -y install gcc-c++ make cmake git curl ca-certificates && \
     dnf clean all
+
+# Bazelisk follows the pinned Bazel version requested by OpenXLA's .bazelversion.
+RUN curl -fsSL \
+        "https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-amd64" \
+        -o /usr/local/bin/bazel && \
+    chmod +x /usr/local/bin/bazel
 
 # Create symlink from extras/CUPTI/include to main include directory and list headers
 RUN mkdir -p /usr/local/cuda/extras/CUPTI && \

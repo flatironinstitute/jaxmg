@@ -56,4 +56,24 @@ add_custom_target(xla_comm_cusolvermg_backend
         "${CMAKE_SOURCE_DIR}/tools/build_xla_collective_probe_bazel.sh"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     COMMENT "Build the JAXMg XLA communicator/cuSolverMg backend with Bazel"
+    USES_TERMINAL
 )
+
+# Preserve the historical CMake/Jenkins contract:
+#
+#   cmake --build <build-dir> --target install
+#
+# The native backend is now built by Bazel, but the maintainer CI still expects
+# the CMake install target to populate src/jaxmg/cu*/ with package data.
+install(CODE "
+message(STATUS \"Building and installing the JAXMg XLA communicator/cuSolverMg backend\")
+execute_process(
+    COMMAND \"${CMAKE_COMMAND}\" -E env \"XLA_SRC=${XLA_SOURCE_DIR}\"
+            \"${CMAKE_SOURCE_DIR}/tools/build_xla_collective_probe_bazel.sh\"
+    WORKING_DIRECTORY \"${CMAKE_SOURCE_DIR}\"
+    RESULT_VARIABLE JAXMG_XLA_BACKEND_RESULT
+)
+if(NOT JAXMG_XLA_BACKEND_RESULT EQUAL 0)
+    message(FATAL_ERROR \"JAXMg XLA communicator/cuSolverMg backend build failed\")
+endif()
+")
