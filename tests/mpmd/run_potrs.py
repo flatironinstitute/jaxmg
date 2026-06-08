@@ -69,7 +69,7 @@ def _run_case(case_name, dtype, a_host, b_host, tile_size):
         in_specs=(P("x", None),),
         return_status=True,
     )
-    out_local = _addressable_values(out).reshape(n, 1)
+    out_local = _addressable_values(out).reshape(b_host.shape)
     status_local = _addressable_values(status.reshape((1,)))
 
     if not np.array_equal(status_local, np.zeros((1,), dtype=np.int32)):
