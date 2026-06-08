@@ -77,10 +77,24 @@ def main():
         a = jax.device_put(jnp.asarray(a_host), a_sharding)
         b = jax.device_put(jnp.asarray(b_host), b_sharding)
 
-        fd_start = len(os.listdir("/proc/self/fd")) if os.path.isdir("/proc/self/fd") else -1
+        # Warm up once before measuring process resources. In MPMD, process 0
+        # owns the JAX distributed coordinator and opens extra sockets on first
+        # use that are unrelated to JAXMg shared-memory cleanup.
+        last_out, last_status = potrs(
+            a.copy(),
+            b.copy(),
+            tile_size,
+            mesh=mesh,
+            in_specs=(P("x", None),),
+            return_status=True,
+        )
+        last_out.block_until_ready()
+        last_status.block_until_ready()
+
+        fd_start = (
+            len(os.listdir("/proc/self/fd")) if os.path.isdir("/proc/self/fd") else -1
+        )
         shm_start = _shm_snapshot()
-        last_out = None
-        last_status = None
 
         for _ in range(iterations):
             last_out, last_status = potrs(

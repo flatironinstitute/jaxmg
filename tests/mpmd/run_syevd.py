@@ -111,7 +111,7 @@ def _run_case(case_name, dtype, a_host, tile_size, return_eigenvectors):
 
     if return_eigenvectors and dtype is np.float64:
         residual = jnp.linalg.norm(
-            vectors @ jnp.asarray(a_host) - jnp.diag(eigenvalues) @ vectors.T
+            vectors @ a - jnp.diag(eigenvalues) @ vectors.T
         )
         residual_local = _addressable_values(residual.reshape((1,)))[0]
         if not np.isfinite(residual_local) or residual_local > 1e-5:
