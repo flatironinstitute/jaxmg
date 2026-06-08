@@ -65,7 +65,8 @@ std::vector<AssignedDeviceEntry> AssignedDevices(
       !params.global_device_id_map->empty()) {
     devices.reserve(params.global_device_id_map->size());
     for (const auto& entry : *params.global_device_id_map) {
-      devices.push_back(AssignedDeviceEntry{entry.first, entry.second});
+      devices.push_back(AssignedDeviceEntry{entry.first.value(),
+                                            entry.second});
     }
     return devices;
   }
