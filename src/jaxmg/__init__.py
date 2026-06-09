@@ -4,8 +4,6 @@ from ._syevd import syevd, syevd_shardmap_ctx
 from ._xla_comm_probe import (
     xla_comm_collective_probe,
     xla_comm_collective_probe_shardmap,
-    xla_comm_nccl_handle_probe,
-    xla_comm_nccl_handle_probe_shardmap,
     xla_comm_allreduce_probe,
     xla_comm_allreduce_probe_shardmap,
     xla_comm_ring_permute_probe,
@@ -39,8 +37,6 @@ __all__ = [
     "syevd_shardmap_ctx",
     "xla_comm_collective_probe",
     "xla_comm_collective_probe_shardmap",
-    "xla_comm_nccl_handle_probe",
-    "xla_comm_nccl_handle_probe_shardmap",
     "xla_comm_allreduce_probe",
     "xla_comm_allreduce_probe_shardmap",
     "xla_comm_ring_permute_probe",

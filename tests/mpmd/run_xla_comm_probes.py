@@ -23,7 +23,6 @@ from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
 from jaxmg import (
     xla_comm_allreduce_probe_shardmap,
-    xla_comm_nccl_handle_probe_shardmap,
     xla_comm_ring_permute_probe_shardmap,
 )
 
@@ -50,32 +49,6 @@ def main():
         mesh = Mesh(np.asarray(devices, dtype=object), ("x",))
         sharding = NamedSharding(mesh, P("x"))
         token = jax.device_put(jnp.arange(num_procs, dtype=jnp.uint32), sharding)
-
-        nccl_handle = xla_comm_nccl_handle_probe_shardmap(token, mesh, P("x"))
-        nccl_local = _addressable_values(nccl_handle).astype(np.int32)
-        if nccl_local[0] != 0:
-            _emit("fail", check="nccl_handle_status", got=nccl_local.tolist())
-            return
-        if not np.array_equal(nccl_local[[6, 7, 8]], np.ones(3, dtype=np.int32)):
-            _emit(
-                "fail",
-                check="nccl_handle_identity",
-                got=nccl_local.tolist(),
-                expected_flags={
-                    "has_platform_handle": 1,
-                    "tostring_has_nccl_communicator": 1,
-                    "tostring_has_nccl_comm_t": 1,
-                },
-            )
-            return
-        if nccl_local[11] != num_procs:
-            _emit(
-                "fail",
-                check="nccl_handle_num_ranks",
-                got=nccl_local.tolist(),
-                expected_num_ranks=num_procs,
-            )
-            return
 
         allreduce = xla_comm_allreduce_probe_shardmap(token, mesh, P("x"))
         expected_sum = np.full(

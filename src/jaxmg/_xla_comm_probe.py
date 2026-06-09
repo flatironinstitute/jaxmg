@@ -53,58 +53,6 @@ def xla_comm_collective_probe_shardmap(token: Array, mesh: Mesh, in_specs: P) ->
     return impl(token)
 
 
-def xla_comm_nccl_handle_probe(token: Array) -> Array:
-    """Inspect whether XLA's GPU communicator is NCCL-backed.
-
-    Returns ``[status, local_device_id, global_device_id, local_device_count,
-    clique_num_devices, rank_in_clique, has_platform_handle,
-    tostring_has_nccl_communicator, tostring_has_nccl_comm_t,
-    supports_device_comm, supports_one_sided_comm, communicator_num_ranks]``.
-
-    A zero status with entries 6, 7, and 8 equal to one means the FFI handler
-    reached an XLA GPU communicator whose platform handle is non-null and whose
-    runtime description identifies it as ``NcclCommunicator(ncclComm_t=...)``.
-    This is a diagnostic for future cuSolverMp work; the current cuSolverMg
-    backend does not directly consume the raw handle.
-    """
-    ensure_init_jaxmg_backend()
-
-    out_type = (jax.ShapeDtypeStruct((12,), jnp.int32),)
-    ffi_fn = jax.ffi.ffi_call(
-        "xla_comm_nccl_handle_probe",
-        out_type,
-        input_layouts=((0,),),
-        output_layouts=((0,),),
-    )
-    (out,) = ffi_fn(token)
-    return out
-
-
-def xla_comm_nccl_handle_probe_shardmap(
-    token: Array, mesh: Mesh, in_specs: P
-) -> Array:
-    """Run :func:`xla_comm_nccl_handle_probe` once per shard over ``mesh``."""
-    if not isinstance(in_specs, P):
-        raise TypeError("in_specs must be a PartitionSpec.")
-    if len(in_specs._partitions) != 1 or in_specs._partitions[0] is None:
-        raise ValueError("token must be sharded with PartitionSpec P(<axis_name>).")
-
-    axis_name = in_specs._partitions[0]
-
-    @partial(jax.jit)
-    @partial(
-        jax.shard_map,
-        mesh=mesh,
-        in_specs=in_specs,
-        out_specs=P(axis_name),
-        check_vma=False,
-    )
-    def impl(_token):
-        return xla_comm_nccl_handle_probe(_token)
-
-    return impl(token)
-
-
 def xla_comm_allreduce_probe(token: Array) -> Array:
     """Run a tiny SUM all-reduce through the XLA-owned GPU communicator.
 

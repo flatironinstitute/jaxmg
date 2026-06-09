@@ -35,8 +35,6 @@
 
 #include "include/xla_comm_backend.h"
 
-#include <string>
-
 namespace xla::gpu {
 
 // Every collective FFI handler has a prepare stage and an execute stage. The
@@ -119,105 +117,6 @@ absl::Status XlaCommCollectiveProbeDispatch(
     }
   }
 
-  se::DeviceAddress<int32_t> dst = out->device_memory();
-  return stream->MemcpyH2D(absl::MakeConstSpan(probe), &dst);
-}
-
-// NCCL handle provenance probe. The production backend intentionally uses
-// XLA's communicator API instead of directly touching the raw platform handle.
-// This diagnostic answers the next cuSolverMp question: on a CUDA build, is
-// the XLA-owned GPU communicator actually backed by an NCCL communicator whose
-// platform handle is non-null?
-//
-// The probe avoids depending on XLA's private nccl_communicator Bazel target.
-// Instead it checks the virtual communicator description. In the pinned XLA
-// revision, the CUDA implementation reports itself as:
-//
-//   NcclCommunicator(ncclComm_t=<pointer>)
-//
-// That is enough to establish that the communicator object is XLA's NCCL
-// wrapper without destabilizing the build graph.
-absl::Status XlaCommNcclHandleProbePrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests) {
-  return XlaCommCollectiveProbePrepare(collective_params, clique_requests);
-}
-
-absl::Status XlaCommNcclHandleProbeDispatch(
-    se::Stream* stream, ffi::AnyBuffer token,
-    ffi::Result<ffi::BufferR1<S32>> out,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
-  if (stream == nullptr) {
-    return absl::InvalidArgumentError(
-        "xla_comm_nccl_handle_probe requires an XLA stream context");
-  }
-  if (out->dimensions().size() != 1 || out->dimensions()[0] != 12) {
-    return absl::InvalidArgumentError(absl::StrFormat(
-        "xla_comm_nccl_handle_probe expects output shape (12,), got rank %d",
-        out->dimensions().size()));
-  }
-
-  std::array<int32_t, 12> probe = {
-      0,   // status
-      -1,  // local_device_id
-      -1,  // global_device_id
-      -1,  // local_device_count
-      -1,  // clique_num_devices
-      -1,  // rank_in_clique
-      0,   // has_platform_handle
-      0,   // ToString contains "NcclCommunicator"
-      0,   // ToString contains "ncclComm_t="
-      0,   // SupportsDeviceComm
-      0,   // SupportsOneSidedComm
-      -1,  // communicator NumRanks()
-  };
-
-  if (collective_params == nullptr || collective_cliques == nullptr) {
-    probe[0] = 1;
-  } else {
-    probe[1] = static_cast<int32_t>(collective_params->local_device_id.value());
-    probe[2] =
-        static_cast<int32_t>(collective_params->global_device_id.value());
-    probe[3] = static_cast<int32_t>(collective_params->local_device_count);
-
-    absl::StatusOr<GpuCliqueKey> clique_key =
-        NodeScopedCliqueKey(*collective_params);
-    if (!clique_key.ok()) {
-      probe[0] = 2;
-    } else {
-      probe[4] = static_cast<int32_t>(clique_key->num_devices());
-      std::optional<RankId> rank =
-          clique_key->rank(collective_params->global_device_id);
-      if (rank.has_value()) {
-        probe[5] = static_cast<int32_t>(rank->value());
-      }
-
-      absl::StatusOr<GpuCommunicator*> comm = collective_cliques->GetComm(
-          *clique_key, collective_params->global_device_id);
-      if (!comm.ok()) {
-        probe[0] = 3;
-      } else {
-        probe[6] = (*comm)->platform_comm().handle != nullptr ? 1 : 0;
-        const std::string description = (*comm)->ToString();
-        probe[7] =
-            description.find("NcclCommunicator") != std::string::npos ? 1 : 0;
-        probe[8] =
-            description.find("ncclComm_t=") != std::string::npos ? 1 : 0;
-        probe[9] = (*comm)->SupportsDeviceComm() ? 1 : 0;
-        probe[10] = (*comm)->SupportsOneSidedComm() ? 1 : 0;
-
-        absl::StatusOr<int64_t> num_ranks = (*comm)->NumRanks();
-        if (num_ranks.ok()) {
-          probe[11] = static_cast<int32_t>(*num_ranks);
-        } else {
-          probe[0] = 4;
-        }
-      }
-    }
-  }
-
-  (void)token;
   se::DeviceAddress<int32_t> dst = out->device_memory();
   return stream->MemcpyH2D(absl::MakeConstSpan(probe), &dst);
 }

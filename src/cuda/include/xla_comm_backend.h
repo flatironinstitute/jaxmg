@@ -331,14 +331,6 @@ absl::Status XlaCommCollectiveProbeDispatch(
     ffi::Result<ffi::BufferR1<S32>> out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
-absl::Status XlaCommNcclHandleProbePrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests);
-absl::Status XlaCommNcclHandleProbeDispatch(
-    se::Stream* stream, ffi::AnyBuffer token,
-    ffi::Result<ffi::BufferR1<S32>> out,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
 absl::Status XlaCommAllReduceProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);
