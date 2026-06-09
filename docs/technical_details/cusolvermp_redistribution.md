@@ -27,6 +27,20 @@ and then the row-owner moves reaches the same owner as the direct 2D
 block-cyclic rule above, including degenerate grids such as `1 x P` and
 `P x 1`.
 
+The planner also builds a concrete fragment transfer schedule. Each scheduled
+transfer records:
+
+1. the phase (`column_owner` or `row_owner`);
+2. the source and target process-grid owner;
+3. the source and target flattened rank;
+4. the phase-parallel group, which is a process row for column-owner transfers
+   and a process column for row-owner transfers;
+5. the logical rectangle being moved; and
+6. whether that rectangle is contiguous under the current local memory layout.
+
+This schedule is the intended input shape for the future CUDA/NCCL movement
+prototype.
+
 ## Padding
 
 The 2D planner applies the existing JAXMg padding rule independently in each
@@ -68,6 +82,12 @@ That has direct consequences for the proposed two-phase algorithm:
    column. Under the current row-major offset model this can be contiguous.
 3. Moving individual `MB_A x NB_A` tiles is generally strided unless the tile
    covers the complete local width or has only one row.
+
+The fragment schedule is intentionally conservative: it marks each raw
+tile-fragment move independently. For ordinary tile sizes this means both
+column-owner and row-owner fragment moves require packing in the row-major model.
+The row-owner phase may still be optimized later by grouping compatible
+fragments into full-width row slabs before issuing communication.
 
 The next implementation checkpoint should therefore not be a cuSOLVERMp solver
 call. It should be a GPU movement prototype that proves the column-owner phase

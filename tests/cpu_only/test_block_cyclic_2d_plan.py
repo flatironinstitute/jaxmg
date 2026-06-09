@@ -4,10 +4,12 @@ from jaxmg._block_cyclic_2d_plan import (
     ProcessGrid,
     TileShape,
     block_cyclic_tile_owner,
+    build_two_phase_fragment_transfer_schedule,
     build_two_phase_2d_plan,
     calculate_2d_padding,
     classify_proposed_phase_regions,
     classify_rectangular_region,
+    transfer_phase_groups,
 )
 
 
@@ -112,6 +114,93 @@ def test_degenerate_process_grids_skip_unneeded_phase():
     assert col_wise_plan.row_owner_moves == ()
 
 
+@pytest.mark.parametrize(
+    "grid",
+    [
+        ProcessGrid(2, 2),
+        ProcessGrid(2, 4),
+        ProcessGrid(4, 2),
+    ],
+)
+def test_fragment_transfer_schedule_reaches_block_cyclic_owner(grid):
+    plan = build_two_phase_2d_plan(
+        logical_rows=24,
+        logical_cols=24,
+        tile_shape=TileShape(rows=4, cols=4),
+        grid=grid,
+    )
+    transfers = build_two_phase_fragment_transfer_schedule(plan)
+
+    state = {
+        fragment.key: fragment.source_owner
+        for fragment in plan.tile_fragments
+    }
+
+    for transfer in transfers:
+        assert state[transfer.fragment_key] == transfer.source_owner
+        assert transfer.source_rank == transfer.source_owner.rank(grid)
+        assert transfer.target_rank == transfer.target_owner.rank(grid)
+        state[transfer.fragment_key] = transfer.target_owner
+
+    for fragment in plan.tile_fragments:
+        assert state[fragment.key] == block_cyclic_tile_owner(
+            fragment.tile_row, fragment.tile_col, grid
+        )
+
+
+def test_fragment_transfer_schedule_preserves_split_tile_fragments():
+    plan = build_two_phase_2d_plan(
+        logical_rows=10,
+        logical_cols=10,
+        tile_shape=TileShape(rows=4, cols=4),
+        grid=ProcessGrid(process_rows=2, process_cols=2),
+    )
+    transfers = build_two_phase_fragment_transfer_schedule(plan)
+
+    assert not plan.can_move_whole_tiles_from_initial_layout
+    assert len(plan.tile_fragments) > len(plan.tile_extents)
+    assert len({fragment.key for fragment in plan.tile_fragments}) == len(
+        plan.tile_fragments
+    )
+    assert {transfer.fragment_key for transfer in transfers}.issubset(
+        {fragment.key for fragment in plan.tile_fragments}
+    )
+
+
+def test_transfer_schedule_exposes_phase_parallel_groups():
+    plan = build_two_phase_2d_plan(
+        logical_rows=16,
+        logical_cols=32,
+        tile_shape=TileShape(rows=4, cols=4),
+        grid=ProcessGrid(process_rows=2, process_cols=4),
+    )
+    groups = transfer_phase_groups(build_two_phase_fragment_transfer_schedule(plan))
+
+    assert groups["column_owner"] == (0, 1)
+    assert groups["row_owner"] == (0, 1, 2, 3)
+
+
+def test_transfer_schedule_records_rank_and_group_invariants():
+    grid = ProcessGrid(process_rows=2, process_cols=4)
+    plan = build_two_phase_2d_plan(
+        logical_rows=16,
+        logical_cols=32,
+        tile_shape=TileShape(rows=4, cols=4),
+        grid=grid,
+    )
+    transfers = build_two_phase_fragment_transfer_schedule(plan)
+
+    assert transfers
+    for transfer in transfers:
+        assert transfer.source_rank != transfer.target_rank
+        if transfer.phase == "column_owner":
+            assert transfer.source_owner.process_row == transfer.target_owner.process_row
+            assert transfer.phase_group == transfer.source_owner.process_row
+        else:
+            assert transfer.source_owner.process_col == transfer.target_owner.process_col
+            assert transfer.phase_group == transfer.source_owner.process_col
+
+
 def test_current_row_major_layout_makes_column_phase_strided():
     plan = build_two_phase_2d_plan(
         logical_rows=16,
@@ -127,6 +216,21 @@ def test_current_row_major_layout_makes_column_phase_strided():
     assert classes["row_slab"].contiguous
     assert "full-width row slab" in classes["row_slab"].reason
     assert classes["single_tile"].requires_pack
+
+
+def test_raw_fragment_schedule_marks_tile_transfers_as_pack_required():
+    plan = build_two_phase_2d_plan(
+        logical_rows=16,
+        logical_cols=32,
+        tile_shape=TileShape(rows=4, cols=4),
+        grid=ProcessGrid(process_rows=2, process_cols=4),
+    )
+    transfers = build_two_phase_fragment_transfer_schedule(plan)
+
+    assert transfers
+    assert any(transfer.phase == "column_owner" for transfer in transfers)
+    assert any(transfer.phase == "row_owner" for transfer in transfers)
+    assert all(transfer.access.requires_pack for transfer in transfers)
 
 
 def test_rectangular_region_classification_rejects_impossible_regions():

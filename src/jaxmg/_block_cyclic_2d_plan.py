@@ -122,6 +122,17 @@ class TileFragment:
     def col_count(self) -> int:
         return self.col_stop - self.col_start
 
+    @property
+    def key(self) -> tuple[int, int, int, int, int, int]:
+        return (
+            self.tile_row,
+            self.tile_col,
+            self.row_start,
+            self.row_stop,
+            self.col_start,
+            self.col_stop,
+        )
+
 
 @dataclass(frozen=True)
 class TwoPhaseTileMove:
@@ -132,6 +143,44 @@ class TwoPhaseTileMove:
     tile_col: int
     source_owner: Owner2D
     target_owner: Owner2D
+
+
+@dataclass(frozen=True)
+class TwoPhaseFragmentTransfer:
+    """Concrete tile-fragment transfer for a future CUDA/NCCL implementation."""
+
+    phase: RedistributionPhase
+    tile_row: int
+    tile_col: int
+    row_start: int
+    row_stop: int
+    col_start: int
+    col_stop: int
+    source_owner: Owner2D
+    target_owner: Owner2D
+    source_rank: int
+    target_rank: int
+    phase_group: int
+    access: MemoryAccessClassification
+
+    @property
+    def fragment_key(self) -> tuple[int, int, int, int, int, int]:
+        return (
+            self.tile_row,
+            self.tile_col,
+            self.row_start,
+            self.row_stop,
+            self.col_start,
+            self.col_stop,
+        )
+
+    @property
+    def row_count(self) -> int:
+        return self.row_stop - self.row_start
+
+    @property
+    def col_count(self) -> int:
+        return self.col_stop - self.col_start
 
 
 @dataclass(frozen=True)
@@ -383,6 +432,94 @@ def build_two_phase_2d_plan(
         tile_fragments=tuple(fragments),
         moves=tuple(moves),
     )
+
+
+def build_two_phase_fragment_transfer_schedule(
+    plan: BlockCyclic2DPlan,
+    *,
+    layout: MemoryLayout = "row_major",
+) -> tuple[TwoPhaseFragmentTransfer, ...]:
+    """Build a concrete fragment transfer schedule for the two-phase plan.
+
+    The schedule is still CPU-only, but it has the shape needed by the eventual
+    CUDA/NCCL implementation: phase, source rank, target rank, phase-parallel
+    group, logical rectangle, and whether that rectangle is contiguous in the
+    local memory model.
+    """
+    transfers: list[TwoPhaseFragmentTransfer] = []
+    local_rows = plan.padding.local_physical_rows
+    local_cols = plan.padding.local_physical_cols
+
+    for fragment in plan.tile_fragments:
+        target_owner = block_cyclic_tile_owner(
+            fragment.tile_row, fragment.tile_col, plan.grid
+        )
+        after_column_owner = Owner2D(
+            fragment.source_owner.process_row, target_owner.process_col
+        )
+        access = classify_rectangular_region(
+            fragment.row_count,
+            fragment.col_count,
+            local_rows,
+            local_cols,
+            layout=layout,
+        )
+
+        if fragment.source_owner.process_col != target_owner.process_col:
+            transfers.append(
+                TwoPhaseFragmentTransfer(
+                    phase="column_owner",
+                    tile_row=fragment.tile_row,
+                    tile_col=fragment.tile_col,
+                    row_start=fragment.row_start,
+                    row_stop=fragment.row_stop,
+                    col_start=fragment.col_start,
+                    col_stop=fragment.col_stop,
+                    source_owner=fragment.source_owner,
+                    target_owner=after_column_owner,
+                    source_rank=fragment.source_owner.rank(plan.grid),
+                    target_rank=after_column_owner.rank(plan.grid),
+                    phase_group=fragment.source_owner.process_row,
+                    access=access,
+                )
+            )
+
+        if after_column_owner.process_row != target_owner.process_row:
+            transfers.append(
+                TwoPhaseFragmentTransfer(
+                    phase="row_owner",
+                    tile_row=fragment.tile_row,
+                    tile_col=fragment.tile_col,
+                    row_start=fragment.row_start,
+                    row_stop=fragment.row_stop,
+                    col_start=fragment.col_start,
+                    col_stop=fragment.col_stop,
+                    source_owner=after_column_owner,
+                    target_owner=target_owner,
+                    source_rank=after_column_owner.rank(plan.grid),
+                    target_rank=target_owner.rank(plan.grid),
+                    phase_group=after_column_owner.process_col,
+                    access=access,
+                )
+            )
+
+    return tuple(transfers)
+
+
+def transfer_phase_groups(
+    transfers: tuple[TwoPhaseFragmentTransfer, ...],
+) -> dict[RedistributionPhase, tuple[int, ...]]:
+    """Return the independent phase groups present in a transfer schedule."""
+    grouped: dict[RedistributionPhase, set[int]] = {
+        "column_owner": set(),
+        "row_owner": set(),
+    }
+    for transfer in transfers:
+        grouped[transfer.phase].add(transfer.phase_group)
+    return {
+        phase: tuple(sorted(groups))
+        for phase, groups in grouped.items()
+    }
 
 
 def classify_rectangular_region(
