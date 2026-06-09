@@ -31,8 +31,55 @@ if len(jax.devices("gpu")) < 2:
     pytest.skip("At least two GPUs are required. Skipping", allow_module_level=True)
 
 
-def _run_two_rank_executor_case(grid, host, expected, scratch_specs):
-    devices = np.asarray(jax.devices("gpu")[:2], dtype=object).reshape(
+def _expected_from_batches(host, grid, batches):
+    local_rows = host.shape[0] // grid.process_rows
+    local_cols = host.shape[1] // grid.process_cols
+    buffers = []
+    for process_row in range(grid.process_rows):
+        for process_col in range(grid.process_cols):
+            buffers.append(
+                host[
+                    process_row * local_rows : (process_row + 1) * local_rows,
+                    process_col * local_cols : (process_col + 1) * local_cols,
+                ].copy()
+            )
+
+    for batch in batches:
+        payloads = []
+        for transfer in batch.transfers:
+            source = transfer.source_rect
+            payloads.append(
+                (
+                    transfer,
+                    buffers[transfer.source_rank][
+                        source.row_start : source.row_stop,
+                        source.col_start : source.col_stop,
+                    ].copy(),
+                )
+            )
+        for transfer, payload in payloads:
+            target = transfer.target_rect
+            buffers[transfer.target_rank][
+                target.row_start : target.row_stop,
+                target.col_start : target.col_stop,
+            ] = payload
+
+    expected = np.empty_like(host)
+    for process_row in range(grid.process_rows):
+        for process_col in range(grid.process_cols):
+            rank = grid.rank(process_row, process_col)
+            expected[
+                process_row * local_rows : (process_row + 1) * local_rows,
+                process_col * local_cols : (process_col + 1) * local_cols,
+            ] = buffers[rank]
+    return expected
+
+
+def _run_executor_case(grid, host, scratch_specs):
+    if len(jax.devices("gpu")) < grid.num_processes:
+        pytest.skip(f"{grid.num_processes} GPUs are required. Skipping")
+
+    devices = np.asarray(jax.devices("gpu")[: grid.num_processes], dtype=object).reshape(
         grid.process_rows, grid.process_cols
     )
     mesh = Mesh(devices, ("pr", "pc"))
@@ -45,6 +92,7 @@ def _run_two_rank_executor_case(grid, host, expected, scratch_specs):
     batches = batch_executable_fragment_transfers(
         build_executable_fragment_transfer_schedule(plan)
     )
+    expected = _expected_from_batches(host, grid, batches)
     scratch_per_rank = required_rect_transfer_scratch_size(batches)
 
     matrix = jax.device_put(
@@ -73,23 +121,29 @@ def _run_two_rank_executor_case(grid, host, expected, scratch_specs):
 
 def test_column_owner_executor_reorders_two_process_columns():
     host = np.arange(32, dtype=np.float32).reshape(4, 8)
-    expected = host[:, [0, 1, 4, 5, 2, 3, 6, 7]]
 
-    _run_two_rank_executor_case(
+    _run_executor_case(
         ProcessGrid(process_rows=1, process_cols=2),
         host,
-        expected,
         P("pc"),
     )
 
 
 def test_row_owner_executor_reorders_two_process_rows():
     host = np.arange(32, dtype=np.float32).reshape(8, 4)
-    expected = host[[0, 1, 4, 5, 2, 3, 6, 7], :]
 
-    _run_two_rank_executor_case(
+    _run_executor_case(
         ProcessGrid(process_rows=2, process_cols=1),
         host,
-        expected,
         P("pr"),
+    )
+
+
+def test_two_by_two_executor_runs_column_then_row_phases():
+    host = np.arange(64, dtype=np.float32).reshape(8, 8)
+
+    _run_executor_case(
+        ProcessGrid(process_rows=2, process_cols=2),
+        host,
+        P(("pr", "pc")),
     )
