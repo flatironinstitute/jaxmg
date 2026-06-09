@@ -53,6 +53,21 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveCliques>());
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommNcclHandleProbePrepareFFI, XlaCommNcclHandleProbePrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommNcclHandleProbeFFI, XlaCommNcclHandleProbeDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCommAllReduceProbePrepareFFI, XlaCommAllReduceProbePrepare,
     ffi::Ffi::BindPrepare()
         .Ctx<ffi::CollectiveParams>()
