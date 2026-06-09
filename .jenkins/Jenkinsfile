@@ -25,7 +25,7 @@ timeout(time: 2, unit: 'HOURS') {
               mkdir -p "$JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT" "$JAXMG_XLA_BAZEL_REPOSITORY_CACHE"
               trap 'rm -rf "$JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT"' EXIT
 
-              tools/build_xla_comm_backend.sh
+              ./build_native_backend.sh
               echo "Built libs at $WORKSPACE/src/jaxmg/cu12:"
               ls -la "$WORKSPACE/src/jaxmg/cu12"
             '''
@@ -128,7 +128,7 @@ timeout(time: 2, unit: 'HOURS') {
               mkdir -p "$JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT" "$JAXMG_XLA_BAZEL_REPOSITORY_CACHE"
               trap 'rm -rf "$JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT"' EXIT
 
-              tools/build_xla_comm_backend.sh
+              ./build_native_backend.sh
               echo "Built libs at $WORKSPACE/src/jaxmg/cu13:"
               ls -la "$WORKSPACE/src/jaxmg/cu13"
             '''

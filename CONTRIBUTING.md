@@ -32,7 +32,7 @@ export BAZEL=/path/to/bazel-or-bazelisk
 python -m pip install "jax[cuda12]==0.10.1"
 python -m pip install --no-deps -e .
 
-tools/build_xla_comm_backend.sh
+./build_native_backend.sh
 ```
 
 This installs `src/jaxmg/cu12/libjaxmg_xla_comm_backend.so`, which registers
@@ -69,13 +69,13 @@ CUDA 13 should use the same JAX pin with the CUDA 13 extras:
 
 Changing the JAX version is not only a Python dependency change: the XLA
 communicator APIs used here are internal OpenXLA APIs, so `XLA_GIT_TAG` and the
-Bazel target/dependency list in `tools/build_xla_comm_backend.sh`
+Bazel target/dependency list in `build_native_backend.sh`
 must be audited together with any JAX/JAXLIB version bump.
 
 ## Continuous integration
 
 We make use of Jenkins to build and test the code. Jenkins builds the native
-backend by calling `tools/build_xla_comm_backend.sh` inside the CUDA
+backend by calling `build_native_backend.sh` inside the CUDA
 manylinux images, then packages the resulting shared library into wheels. We
 test the following configurations:
 

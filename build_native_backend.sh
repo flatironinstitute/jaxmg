@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 XLA_GIT_REPOSITORY="${XLA_GIT_REPOSITORY:-https://github.com/openxla/xla.git}"
 XLA_GIT_TAG="${XLA_GIT_TAG:-9b635916ecc6df6efee62d8e4b0c7ef87ef84d69}"
 XLA_SHORT_TAG="${XLA_GIT_TAG:0:12}"
