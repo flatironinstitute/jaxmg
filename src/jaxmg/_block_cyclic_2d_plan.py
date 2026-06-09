@@ -229,6 +229,64 @@ class MemoryAccessClassification:
 
 
 @dataclass(frozen=True)
+class LocalRect:
+    """Rectangle coordinates inside one rank-local matrix buffer."""
+
+    row_start: int
+    col_start: int
+    row_count: int
+    col_count: int
+
+    @property
+    def row_stop(self) -> int:
+        return self.row_start + self.row_count
+
+    @property
+    def col_stop(self) -> int:
+        return self.col_start + self.col_count
+
+
+@dataclass(frozen=True)
+class ExecutableFragmentTransfer:
+    """Fragment movement with concrete rank-local source and target rectangles."""
+
+    phase: RedistributionPhase
+    tile_row: int
+    tile_col: int
+    source_rank: int
+    target_rank: int
+    source_rect: LocalRect
+    target_rect: LocalRect
+    phase_group: int
+    access: MemoryAccessClassification
+
+    @property
+    def row_count(self) -> int:
+        return self.source_rect.row_count
+
+    @property
+    def col_count(self) -> int:
+        return self.source_rect.col_count
+
+
+@dataclass(frozen=True)
+class ExecutableFragmentTransferBatch:
+    """Conflict-free execution round for concrete local rectangle transfers."""
+
+    phase: RedistributionPhase
+    round_index: int
+    transfers: tuple[ExecutableFragmentTransfer, ...]
+
+    @property
+    def source_ranks(self) -> tuple[int, ...]:
+        return tuple(transfer.source_rank for transfer in self.transfers)
+
+    @property
+    def target_ranks(self) -> tuple[int, ...]:
+        return tuple(transfer.target_rank for transfer in self.transfers)
+
+
+@dataclass(frozen=True)
 class BlockCyclic2DPlan:
     """CPU-only investigation plan for a 2D block-sharded to block-cyclic map."""
 
@@ -602,6 +660,221 @@ def batch_fragment_transfers(
         for round_index, batch in enumerate(phase_batches):
             batches.append(
                 FragmentTransferBatch(
+                    phase=phase,
+                    round_index=round_index,
+                    transfers=tuple(batch),
+                )
+            )
+
+    return tuple(batches)
+
+
+def _check_local_rect(
+    rect: LocalRect,
+    *,
+    local_rows: int,
+    local_cols: int,
+) -> LocalRect:
+    if (
+        rect.row_start < 0
+        or rect.col_start < 0
+        or rect.row_stop > local_rows
+        or rect.col_stop > local_cols
+    ):
+        raise ValueError("local rectangle does not fit in rank-local buffer.")
+    return rect
+
+
+def block_sharded_local_rect(
+    fragment: TileFragment,
+    owner: Owner2D,
+    plan: BlockCyclic2DPlan,
+) -> LocalRect:
+    """Initial JAX block-sharded local coordinates for ``fragment``."""
+    return _check_local_rect(
+        LocalRect(
+            row_start=fragment.row_start
+            - owner.process_row * plan.padding.local_logical_rows,
+            col_start=fragment.col_start
+            - owner.process_col * plan.padding.local_logical_cols,
+            row_count=fragment.row_count,
+            col_count=fragment.col_count,
+        ),
+        local_rows=plan.padding.local_physical_rows,
+        local_cols=plan.padding.local_physical_cols,
+    )
+
+
+def block_cyclic_local_rect(
+    fragment: TileFragment,
+    plan: BlockCyclic2DPlan,
+) -> LocalRect:
+    """Final cuSOLVERMp block-cyclic local coordinates for ``fragment``."""
+    row_in_tile = fragment.row_start - fragment.tile_row * plan.tile_shape.rows
+    col_in_tile = fragment.col_start - fragment.tile_col * plan.tile_shape.cols
+    return _check_local_rect(
+        LocalRect(
+            row_start=(fragment.tile_row // plan.grid.process_rows)
+            * plan.tile_shape.rows
+            + row_in_tile,
+            col_start=(fragment.tile_col // plan.grid.process_cols)
+            * plan.tile_shape.cols
+            + col_in_tile,
+            row_count=fragment.row_count,
+            col_count=fragment.col_count,
+        ),
+        local_rows=plan.padding.local_physical_rows,
+        local_cols=plan.padding.local_physical_cols,
+    )
+
+
+def column_owner_intermediate_local_rect(
+    fragment: TileFragment,
+    owner: Owner2D,
+    plan: BlockCyclic2DPlan,
+) -> LocalRect:
+    """Intermediate coordinates after column ownership has been fixed.
+
+    At this point the process column matches the final block-cyclic owner, but
+    the process row is still the original block-sharded row owner. The local
+    column is therefore in final block-cyclic coordinates while the local row is
+    still in the original block-sharded coordinates.
+    """
+    col_in_tile = fragment.col_start - fragment.tile_col * plan.tile_shape.cols
+    return _check_local_rect(
+        LocalRect(
+            row_start=fragment.row_start
+            - owner.process_row * plan.padding.local_logical_rows,
+            col_start=(fragment.tile_col // plan.grid.process_cols)
+            * plan.tile_shape.cols
+            + col_in_tile,
+            row_count=fragment.row_count,
+            col_count=fragment.col_count,
+        ),
+        local_rows=plan.padding.local_physical_rows,
+        local_cols=plan.padding.local_physical_cols,
+    )
+
+
+def build_executable_fragment_transfer_schedule(
+    plan: BlockCyclic2DPlan,
+    *,
+    layout: MemoryLayout = "row_major",
+) -> tuple[ExecutableFragmentTransfer, ...]:
+    """Build concrete local-rectangle moves for the two-phase redistribution.
+
+    Unlike :func:`build_two_phase_fragment_transfer_schedule`, this schedule is
+    not only an owner-coordinate proof. It also records same-rank local
+    relocations whenever a fragment already lives on the correct rank but needs
+    to move to its intermediate or final cuSOLVERMp local coordinates.
+    """
+    transfers: list[ExecutableFragmentTransfer] = []
+    local_rows = plan.padding.local_physical_rows
+    local_cols = plan.padding.local_physical_cols
+
+    for fragment in plan.tile_fragments:
+        target_owner = block_cyclic_tile_owner(
+            fragment.tile_row, fragment.tile_col, plan.grid
+        )
+        current_owner = fragment.source_owner
+        current_rect = block_sharded_local_rect(fragment, current_owner, plan)
+        after_column_owner = Owner2D(
+            current_owner.process_row, target_owner.process_col
+        )
+        after_column_rect = column_owner_intermediate_local_rect(
+            fragment, after_column_owner, plan
+        )
+        access = classify_rectangular_region(
+            fragment.row_count,
+            fragment.col_count,
+            local_rows,
+            local_cols,
+            layout=layout,
+        )
+
+        if (
+            current_owner != after_column_owner
+            or current_rect != after_column_rect
+        ):
+            transfers.append(
+                ExecutableFragmentTransfer(
+                    phase="column_owner",
+                    tile_row=fragment.tile_row,
+                    tile_col=fragment.tile_col,
+                    source_rank=current_owner.rank(plan.grid),
+                    target_rank=after_column_owner.rank(plan.grid),
+                    source_rect=current_rect,
+                    target_rect=after_column_rect,
+                    phase_group=current_owner.process_row,
+                    access=access,
+                )
+            )
+            current_owner = after_column_owner
+            current_rect = after_column_rect
+
+        final_rect = block_cyclic_local_rect(fragment, plan)
+        if current_owner != target_owner or current_rect != final_rect:
+            transfers.append(
+                ExecutableFragmentTransfer(
+                    phase="row_owner",
+                    tile_row=fragment.tile_row,
+                    tile_col=fragment.tile_col,
+                    source_rank=current_owner.rank(plan.grid),
+                    target_rank=target_owner.rank(plan.grid),
+                    source_rect=current_rect,
+                    target_rect=final_rect,
+                    phase_group=current_owner.process_col,
+                    access=access,
+                )
+            )
+
+    return tuple(transfers)
+
+
+def batch_executable_fragment_transfers(
+    transfers: tuple[ExecutableFragmentTransfer, ...],
+    *,
+    max_transfers_per_batch: int | None = None,
+) -> tuple[ExecutableFragmentTransferBatch, ...]:
+    """Pack executable rectangle transfers into conflict-free rounds."""
+    if max_transfers_per_batch is not None and max_transfers_per_batch <= 0:
+        raise ValueError("max_transfers_per_batch must be positive when set.")
+
+    batches: list[ExecutableFragmentTransferBatch] = []
+    for phase in ("column_owner", "row_owner"):
+        phase_transfers = [
+            transfer for transfer in transfers if transfer.phase == phase
+        ]
+        phase_batches: list[list[ExecutableFragmentTransfer]] = []
+        used_sources: list[set[int]] = []
+        used_targets: list[set[int]] = []
+
+        for transfer in phase_transfers:
+            placed = False
+            for batch_index, batch in enumerate(phase_batches):
+                if (
+                    transfer.source_rank in used_sources[batch_index]
+                    or transfer.target_rank in used_targets[batch_index]
+                    or (
+                        max_transfers_per_batch is not None
+                        and len(batch) >= max_transfers_per_batch
+                    )
+                ):
+                    continue
+                batch.append(transfer)
+                used_sources[batch_index].add(transfer.source_rank)
+                used_targets[batch_index].add(transfer.target_rank)
+                placed = True
+                break
+
+            if not placed:
+                phase_batches.append([transfer])
+                used_sources.append({transfer.source_rank})
+                used_targets.append({transfer.target_rank})
+
+        for round_index, batch in enumerate(phase_batches):
+            batches.append(
+                ExecutableFragmentTransferBatch(
                     phase=phase,
                     round_index=round_index,
                     transfers=tuple(batch),

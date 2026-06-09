@@ -3,8 +3,12 @@ import pytest
 from jaxmg._block_cyclic_2d_plan import (
     ProcessGrid,
     TileShape,
+    batch_executable_fragment_transfers,
     batch_fragment_transfers,
+    block_cyclic_local_rect,
     block_cyclic_tile_owner,
+    block_sharded_local_rect,
+    build_executable_fragment_transfer_schedule,
     build_two_phase_fragment_transfer_schedule,
     build_two_phase_2d_plan,
     calculate_2d_padding,
@@ -12,6 +16,7 @@ from jaxmg._block_cyclic_2d_plan import (
     classify_rectangular_region,
     transfer_phase_groups,
 )
+from jaxmg._block_cyclic_2d_execute import required_rect_transfer_scratch_size
 
 
 def test_2d_padding_matches_independent_1d_axis_rule():
@@ -322,3 +327,145 @@ def test_column_major_layout_flips_contiguous_axis():
 
     assert column.contiguous
     assert row.requires_pack
+
+
+def test_executable_schedule_records_local_source_and_target_rectangles():
+    grid = ProcessGrid(process_rows=1, process_cols=2)
+    plan = build_two_phase_2d_plan(
+        logical_rows=4,
+        logical_cols=8,
+        tile_shape=TileShape(rows=2, cols=2),
+        grid=grid,
+    )
+    transfers = build_executable_fragment_transfer_schedule(plan)
+
+    moved_tile_1 = next(
+        transfer
+        for transfer in transfers
+        if transfer.tile_row == 0 and transfer.tile_col == 1
+    )
+    moved_tile_2 = next(
+        transfer
+        for transfer in transfers
+        if transfer.tile_row == 0 and transfer.tile_col == 2
+    )
+
+    assert moved_tile_1.source_rank == 0
+    assert moved_tile_1.target_rank == 1
+    assert moved_tile_1.source_rect.row_start == 0
+    assert moved_tile_1.source_rect.col_start == 2
+    assert moved_tile_1.target_rect.row_start == 0
+    assert moved_tile_1.target_rect.col_start == 0
+
+    assert moved_tile_2.source_rank == 1
+    assert moved_tile_2.target_rank == 0
+    assert moved_tile_2.source_rect.row_start == 0
+    assert moved_tile_2.source_rect.col_start == 0
+    assert moved_tile_2.target_rect.row_start == 0
+    assert moved_tile_2.target_rect.col_start == 2
+
+
+def test_executable_schedule_includes_same_rank_local_relocations():
+    grid = ProcessGrid(process_rows=1, process_cols=2)
+    plan = build_two_phase_2d_plan(
+        logical_rows=4,
+        logical_cols=12,
+        tile_shape=TileShape(rows=2, cols=2),
+        grid=grid,
+    )
+    transfers = build_executable_fragment_transfer_schedule(plan)
+
+    assert any(
+        transfer.source_rank == transfer.target_rank
+        and transfer.source_rect != transfer.target_rect
+        for transfer in transfers
+    )
+
+
+def test_executable_transfer_batches_have_no_rank_conflicts():
+    plan = build_two_phase_2d_plan(
+        logical_rows=8,
+        logical_cols=8,
+        tile_shape=TileShape(rows=2, cols=2),
+        grid=ProcessGrid(process_rows=2, process_cols=2),
+    )
+    batches = batch_executable_fragment_transfers(
+        build_executable_fragment_transfer_schedule(plan)
+    )
+
+    assert batches
+    for batch in batches:
+        assert len(batch.source_ranks) == len(set(batch.source_ranks))
+        assert len(batch.target_ranks) == len(set(batch.target_ranks))
+
+
+def test_required_rect_transfer_scratch_size_uses_largest_fragment():
+    plan = build_two_phase_2d_plan(
+        logical_rows=4,
+        logical_cols=8,
+        tile_shape=TileShape(rows=2, cols=2),
+        grid=ProcessGrid(process_rows=1, process_cols=2),
+    )
+    batches = batch_executable_fragment_transfers(
+        build_executable_fragment_transfer_schedule(plan)
+    )
+
+    assert required_rect_transfer_scratch_size(batches) == 8
+
+
+def test_executable_schedule_reaches_expected_block_cyclic_local_buffers():
+    grid = ProcessGrid(process_rows=1, process_cols=2)
+    plan = build_two_phase_2d_plan(
+        logical_rows=4,
+        logical_cols=8,
+        tile_shape=TileShape(rows=2, cols=2),
+        grid=grid,
+    )
+    transfers = build_executable_fragment_transfer_schedule(plan)
+    batches = batch_executable_fragment_transfers(transfers)
+
+    host = [
+        [[row * 8 + col for col in range(4)] for row in range(4)],
+        [[row * 8 + col for col in range(4, 8)] for row in range(4)],
+    ]
+    buffers = [[row[:] for row in rank] for rank in host]
+    for batch in batches:
+        payloads = []
+        for transfer in batch.transfers:
+            payload = [
+                row[
+                    transfer.source_rect.col_start : transfer.source_rect.col_stop
+                ]
+                for row in buffers[transfer.source_rank][
+                    transfer.source_rect.row_start : transfer.source_rect.row_stop
+                ]
+            ]
+            payloads.append((transfer, [row[:] for row in payload]))
+        for transfer, payload in payloads:
+            for row_offset, row in enumerate(payload):
+                target_row = transfer.target_rect.row_start + row_offset
+                target_col = transfer.target_rect.col_start
+                buffers[transfer.target_rank][target_row][
+                    target_col : target_col + transfer.col_count
+                ] = row
+
+    expected = [
+        [[-1 for _ in range(4)] for _ in range(4)],
+        [[-1 for _ in range(4)] for _ in range(4)],
+    ]
+    for fragment in plan.tile_fragments:
+        source = block_sharded_local_rect(fragment, fragment.source_owner, plan)
+        target = block_cyclic_local_rect(fragment, plan)
+        target_rank = block_cyclic_tile_owner(
+            fragment.tile_row, fragment.tile_col, grid
+        ).rank(grid)
+        source_rank = fragment.source_owner.rank(grid)
+        for row_offset in range(fragment.row_count):
+            for col_offset in range(fragment.col_count):
+                expected[target_rank][target.row_start + row_offset][
+                    target.col_start + col_offset
+                ] = host[source_rank][source.row_start + row_offset][
+                    source.col_start + col_offset
+                ]
+
+    assert buffers == expected
