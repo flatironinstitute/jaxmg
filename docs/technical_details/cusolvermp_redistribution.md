@@ -41,6 +41,13 @@ transfer records:
 This schedule is the intended input shape for the future CUDA/NCCL movement
 prototype.
 
+The planner also groups transfers into conflict-free batches. Every
+`column_owner` batch is ordered before every `row_owner` batch. Within one
+batch, a rank appears at most once as a source and at most once as a target.
+That is the scratch-memory invariant expected by the GPU implementation: one
+packed send fragment and one receive destination per rank are enough for a
+single communication round.
+
 ## Padding
 
 The 2D planner applies the existing JAXMg padding rule independently in each

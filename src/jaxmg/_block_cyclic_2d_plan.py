@@ -184,6 +184,34 @@ class TwoPhaseFragmentTransfer:
 
 
 @dataclass(frozen=True)
+class FragmentTransferBatch:
+    """One conflict-free round of fragment transfers.
+
+    A future NCCL implementation can submit all transfers in one batch as a
+    grouped communication round while using a bounded per-rank scratch policy:
+    no rank appears as a source or target more than once in the batch.
+    """
+
+    phase: RedistributionPhase
+    round_index: int
+    transfers: tuple[TwoPhaseFragmentTransfer, ...]
+
+    @property
+    def source_ranks(self) -> tuple[int, ...]:
+        return tuple(transfer.source_rank for transfer in self.transfers)
+
+    @property
+    def target_ranks(self) -> tuple[int, ...]:
+        return tuple(transfer.target_rank for transfer in self.transfers)
+
+    @property
+    def phase_groups(self) -> tuple[int, ...]:
+        return tuple(
+            sorted({transfer.phase_group for transfer in self.transfers})
+        )
+
+
+@dataclass(frozen=True)
 class MemoryAccessClassification:
     """Whether a rectangular region is contiguous under a local memory layout."""
 
@@ -520,6 +548,67 @@ def transfer_phase_groups(
         phase: tuple(sorted(groups))
         for phase, groups in grouped.items()
     }
+
+
+def batch_fragment_transfers(
+    transfers: tuple[TwoPhaseFragmentTransfer, ...],
+    *,
+    max_transfers_per_batch: int | None = None,
+) -> tuple[FragmentTransferBatch, ...]:
+    """Pack fragment transfers into rank-conflict-free execution rounds.
+
+    This scheduler is intentionally conservative. It keeps the required global
+    ordering of the proposed algorithm by executing every ``column_owner`` batch
+    before every ``row_owner`` batch. Within one phase it greedily places
+    transfers into the earliest batch whose source and target ranks are both
+    free. This gives the future CUDA/NCCL layer a simple invariant: one packed
+    send buffer and one receive target per rank are enough for each batch.
+    """
+    if max_transfers_per_batch is not None and max_transfers_per_batch <= 0:
+        raise ValueError("max_transfers_per_batch must be positive when set.")
+
+    batches: list[FragmentTransferBatch] = []
+    for phase in ("column_owner", "row_owner"):
+        phase_transfers = [
+            transfer for transfer in transfers if transfer.phase == phase
+        ]
+        phase_batches: list[list[TwoPhaseFragmentTransfer]] = []
+        used_sources: list[set[int]] = []
+        used_targets: list[set[int]] = []
+
+        for transfer in phase_transfers:
+            placed = False
+            for batch_index, batch in enumerate(phase_batches):
+                if (
+                    transfer.source_rank in used_sources[batch_index]
+                    or transfer.target_rank in used_targets[batch_index]
+                    or (
+                        max_transfers_per_batch is not None
+                        and len(batch) >= max_transfers_per_batch
+                    )
+                ):
+                    continue
+                batch.append(transfer)
+                used_sources[batch_index].add(transfer.source_rank)
+                used_targets[batch_index].add(transfer.target_rank)
+                placed = True
+                break
+
+            if not placed:
+                phase_batches.append([transfer])
+                used_sources.append({transfer.source_rank})
+                used_targets.append({transfer.target_rank})
+
+        for round_index, batch in enumerate(phase_batches):
+            batches.append(
+                FragmentTransferBatch(
+                    phase=phase,
+                    round_index=round_index,
+                    transfers=tuple(batch),
+                )
+            )
+
+    return tuple(batches)
 
 
 def classify_rectangular_region(

@@ -3,6 +3,7 @@ import pytest
 from jaxmg._block_cyclic_2d_plan import (
     ProcessGrid,
     TileShape,
+    batch_fragment_transfers,
     block_cyclic_tile_owner,
     build_two_phase_fragment_transfer_schedule,
     build_two_phase_2d_plan,
@@ -199,6 +200,66 @@ def test_transfer_schedule_records_rank_and_group_invariants():
         else:
             assert transfer.source_owner.process_col == transfer.target_owner.process_col
             assert transfer.phase_group == transfer.source_owner.process_col
+
+
+def test_fragment_transfer_batches_preserve_phase_order_and_transfers():
+    plan = build_two_phase_2d_plan(
+        logical_rows=16,
+        logical_cols=32,
+        tile_shape=TileShape(rows=4, cols=4),
+        grid=ProcessGrid(process_rows=2, process_cols=4),
+    )
+    transfers = build_two_phase_fragment_transfer_schedule(plan)
+    batches = batch_fragment_transfers(transfers)
+
+    assert batches
+    phases = [batch.phase for batch in batches]
+    assert phases == sorted(phases, key=("column_owner", "row_owner").index)
+
+    batched_transfers = [
+        transfer for batch in batches for transfer in batch.transfers
+    ]
+    assert sorted(t.fragment_key + (t.phase,) for t in batched_transfers) == sorted(
+        t.fragment_key + (t.phase,) for t in transfers
+    )
+
+
+def test_fragment_transfer_batches_have_no_rank_conflicts():
+    plan = build_two_phase_2d_plan(
+        logical_rows=16,
+        logical_cols=32,
+        tile_shape=TileShape(rows=4, cols=4),
+        grid=ProcessGrid(process_rows=2, process_cols=4),
+    )
+    batches = batch_fragment_transfers(
+        build_two_phase_fragment_transfer_schedule(plan)
+    )
+
+    for batch in batches:
+        assert len(batch.source_ranks) == len(set(batch.source_ranks))
+        assert len(batch.target_ranks) == len(set(batch.target_ranks))
+        assert batch.phase_groups
+
+
+def test_fragment_transfer_batch_size_limit_is_respected():
+    plan = build_two_phase_2d_plan(
+        logical_rows=16,
+        logical_cols=32,
+        tile_shape=TileShape(rows=4, cols=4),
+        grid=ProcessGrid(process_rows=2, process_cols=4),
+    )
+    batches = batch_fragment_transfers(
+        build_two_phase_fragment_transfer_schedule(plan),
+        max_transfers_per_batch=2,
+    )
+
+    assert batches
+    assert all(len(batch.transfers) <= 2 for batch in batches)
+
+
+def test_fragment_transfer_batch_size_rejects_non_positive_limit():
+    with pytest.raises(ValueError, match="positive"):
+        batch_fragment_transfers((), max_transfers_per_batch=0)
 
 
 def test_current_row_major_layout_makes_column_phase_strided():
