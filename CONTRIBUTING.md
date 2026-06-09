@@ -41,7 +41,11 @@ the production `potrs_mg`, `potri_mg`, `syevd_mg`, `syevd_no_V_mg`, and
 
 The build helper checks out the pinned OpenXLA revision if `XLA_SRC` is not set.
 Use `XLA_SRC` to point at an existing checkout, or `JAXMG_XLA_SOURCE_ROOT` to
-choose where the helper stores its managed checkout. Bazel output defaults to
+choose where the helper stores its managed checkout. It also checks any
+installed `jax` package against the expected pinned version and warns if JAX is
+not installed in the active Python environment; set
+`JAXMG_SKIP_JAX_VERSION_CHECK=1` only when intentionally overriding this check.
+Bazel output defaults to
 `$TMPDIR` via `JAXMG_XLA_BAZEL_CACHE_ROOT`; override
 `JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT` and `JAXMG_XLA_BAZEL_REPOSITORY_CACHE` if the
 temporary filesystem is not suitable.
@@ -68,9 +72,10 @@ CUDA 13 should use the same JAX pin with the CUDA 13 extras:
 2. `pip install "jax[cuda13-local]==0.10.1"`
 
 Changing the JAX version is not only a Python dependency change: the XLA
-communicator APIs used here are internal OpenXLA APIs, so `XLA_GIT_TAG` and the
-Bazel target/dependency list in `build_native_backend.sh`
-must be audited together with any JAX/JAXLIB version bump.
+communicator APIs used here are internal OpenXLA APIs, so `XLA_GIT_TAG` in
+`build_native_backend.sh` and the Bazel target/dependency list in
+`bazel/jaxmg_backend.BUILD.bazel` must be audited together with any JAX/JAXLIB
+version bump.
 
 ## Continuous integration
 

@@ -1,0 +1,59 @@
+# Copied by build_native_backend.sh into the pinned OpenXLA checkout.
+# Keep these internal XLA dependencies in sync with XLA_GIT_TAG.
+
+package(default_visibility = ["//visibility:public"])
+
+cc_binary(
+    name = "libjaxmg_xla_comm_backend.so",
+    srcs = [
+        "collective_diagnostics.cc",
+        "cyclic_1d.cc",
+        "ffi_handlers.cc",
+        "potri.cc",
+        "potrs.cc",
+        "syevd.cc",
+        "include/xla_comm_backend.h",
+        "include/mpmd_ipc.h",
+        "utils/xla_comm_common.cc",
+        "utils/mpmd_ipc.cc",
+    ],
+    linkshared = True,
+    linkstatic = True,
+    copts = [
+        "-Iexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_cudart/include",
+        "-Iexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_cusolver/include",
+        "-Iexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_nvcc/include",
+        "-Iexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_cublas/include",
+        "-Iexternal/_main~cccl_extension~cuda_cccl/libcudacxx/include",
+    ],
+    linkopts = [
+        "-Lexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_cusolver/lib",
+        "-lcusolverMg",
+    ],
+    deps = [
+        "@local_config_cuda//cuda:cuda_headers",
+        "@cuda_cudart//:cudart",
+        "@cuda_cusolver//:cusolver",
+        "//xla:xla_data_proto_cc",
+        "//xla/backends/gpu/collectives:gpu_clique_key",
+        "//xla/backends/gpu/collectives:gpu_collectives",
+        "//xla/backends/gpu/collectives:gpu_communicator",
+        "//xla/backends/gpu:ffi",
+        "//xla/backends/gpu/runtime:collective_clique_requests",
+        "//xla/backends/gpu/runtime:collective_cliques",
+        "//xla/backends/gpu/runtime:collective_execution",
+        "//xla/backends/gpu/runtime:collective_params",
+        "//xla/core/collectives:communicator",
+        "//xla/core/collectives:rank_id",
+        "//xla/core/collectives:reduction_kind",
+        "//xla/ffi",
+        "//xla/ffi:ffi_api",
+        "//xla:future",
+        "//xla/runtime:device_id",
+        "//xla/stream_executor:stream",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
+    ],
+)

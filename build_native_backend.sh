@@ -7,12 +7,15 @@ XLA_GIT_TAG="${XLA_GIT_TAG:-9b635916ecc6df6efee62d8e4b0c7ef87ef84d69}"
 XLA_SHORT_TAG="${XLA_GIT_TAG:0:12}"
 XLA_SOURCE_ROOT="${JAXMG_XLA_SOURCE_ROOT:-${ROOT}/.jaxmg-xla}"
 XLA_SRC="${XLA_SRC:-${XLA_SOURCE_ROOT}/xla-${XLA_SHORT_TAG}}"
+EXPECTED_JAX_VERSION="${JAXMG_EXPECTED_JAX_VERSION:-0.10.1}"
+PYTHON="${PYTHON:-python}"
 BAZEL="${BAZEL:-bazel}"
 BAZEL_CONFIGS="${JAXMG_XLA_BAZEL_CONFIGS:-bzlmod cuda}"
 BAZEL_JOBS="${JAXMG_XLA_BAZEL_JOBS:-8}"
 BAZEL_CACHE_ROOT="${JAXMG_XLA_BAZEL_CACHE_ROOT:-${TMPDIR:-/tmp}/jaxmg-bazel-${USER:-user}}"
 BAZEL_OUTPUT_USER_ROOT="${JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT:-${BAZEL_CACHE_ROOT}/output_user_root}"
 BAZEL_REPOSITORY_CACHE="${JAXMG_XLA_BAZEL_REPOSITORY_CACHE:-${BAZEL_CACHE_ROOT}/repository_cache}"
+BACKEND_BUILD_TEMPLATE="${JAXMG_BACKEND_BUILD_TEMPLATE:-${ROOT}/bazel/jaxmg_backend.BUILD.bazel}"
 
 if [[ ! -d "${XLA_SRC}/.git" ]]; then
   if [[ -e "${XLA_SRC}" ]]; then
@@ -30,12 +33,39 @@ fi
 git -C "${XLA_SRC}" checkout --detach "${XLA_GIT_TAG}"
 
 if ! command -v "${BAZEL}" >/dev/null 2>&1; then
-  if [[ -x "${ROOT}/tools/bazelisk" ]]; then
-    BAZEL="${ROOT}/tools/bazelisk"
+  echo "Unable to find Bazel executable: ${BAZEL}" >&2
+  echo "Set BAZEL to a bazel/bazelisk path or install Bazelisk on PATH." >&2
+  exit 1
+fi
+
+if [[ "${JAXMG_SKIP_JAX_VERSION_CHECK:-0}" != "1" ]]; then
+  if command -v "${PYTHON}" >/dev/null 2>&1; then
+    JAX_VERSION="$("${PYTHON}" - <<'PY' 2>/dev/null || true
+import importlib.metadata as metadata
+
+try:
+    print(metadata.version("jax"))
+except metadata.PackageNotFoundError:
+    pass
+PY
+)"
+    if [[ -n "${JAX_VERSION}" && "${JAX_VERSION}" != "${EXPECTED_JAX_VERSION}" ]]; then
+      echo "JAX version mismatch: found ${JAX_VERSION}, expected ${EXPECTED_JAX_VERSION}." >&2
+      echo "This backend is pinned to a matching OpenXLA revision; install the pinned JAX version or set JAXMG_SKIP_JAX_VERSION_CHECK=1." >&2
+      exit 1
+    elif [[ -n "${JAX_VERSION}" ]]; then
+      echo "Using Python JAX version: ${JAX_VERSION}"
+    else
+      echo "JAX is not installed in ${PYTHON}; skipping Python package version check." >&2
+    fi
   else
-    echo "Unable to find Bazel/Bazelisk. Set BAZEL or install tools/bazelisk." >&2
-    exit 1
+    echo "Python executable not found for JAX version check: ${PYTHON}" >&2
   fi
+fi
+
+if [[ ! -f "${BACKEND_BUILD_TEMPLATE}" ]]; then
+  echo "Unable to find Bazel backend target template: ${BACKEND_BUILD_TEMPLATE}" >&2
+  exit 1
 fi
 
 if [[ -z "${CUDA_HOME:-}" && -n "${CUDA_ROOT:-}" ]]; then
@@ -78,64 +108,7 @@ for src in \
   ln -sfn "${ROOT}/src/cuda/${src}" "${BACKEND_PKG}/${src}"
 done
 
-cat >"${BACKEND_PKG}/BUILD.bazel" <<EOF
-package(default_visibility = ["//visibility:public"])
-
-cc_binary(
-    name = "libjaxmg_xla_comm_backend.so",
-    srcs = [
-        "collective_diagnostics.cc",
-        "cyclic_1d.cc",
-        "ffi_handlers.cc",
-        "potri.cc",
-        "potrs.cc",
-        "syevd.cc",
-        "include/xla_comm_backend.h",
-        "include/mpmd_ipc.h",
-        "utils/xla_comm_common.cc",
-        "utils/mpmd_ipc.cc",
-    ],
-    linkshared = True,
-    linkstatic = True,
-    copts = [
-        "-Iexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_cudart/include",
-        "-Iexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_cusolver/include",
-        "-Iexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_nvcc/include",
-        "-Iexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_cublas/include",
-        "-Iexternal/_main~cccl_extension~cuda_cccl/libcudacxx/include",
-    ],
-    linkopts = [
-        "-Lexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_cusolver/lib",
-        "-lcusolverMg",
-    ],
-    deps = [
-        "@local_config_cuda//cuda:cuda_headers",
-        "@cuda_cudart//:cudart",
-        "@cuda_cusolver//:cusolver",
-        "//xla:xla_data_proto_cc",
-        "//xla/backends/gpu/collectives:gpu_clique_key",
-        "//xla/backends/gpu/collectives:gpu_collectives",
-        "//xla/backends/gpu/collectives:gpu_communicator",
-        "//xla/backends/gpu:ffi",
-        "//xla/backends/gpu/runtime:collective_clique_requests",
-        "//xla/backends/gpu/runtime:collective_cliques",
-        "//xla/backends/gpu/runtime:collective_execution",
-        "//xla/backends/gpu/runtime:collective_params",
-        "//xla/core/collectives:communicator",
-        "//xla/core/collectives:rank_id",
-        "//xla/core/collectives:reduction_kind",
-        "//xla/ffi",
-        "//xla/ffi:ffi_api",
-        "//xla:future",
-        "//xla/runtime:device_id",
-        "//xla/stream_executor:stream",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/types:span",
-    ],
-)
-EOF
+cp "${BACKEND_BUILD_TEMPLATE}" "${BACKEND_PKG}/BUILD.bazel"
 
 cd "${XLA_SRC}"
 mkdir -p "${BAZEL_OUTPUT_USER_ROOT}" "${BAZEL_REPOSITORY_CACHE}"
