@@ -14,10 +14,9 @@
 //
 // Shared declarations for the XLA communicator cuSolverMg backend.
 //
-// This backend is built by Bazel inside the pinned OpenXLA source tree, not by
-// the normal JAXMg CMake CUDA extension path. XLA collective FFI contexts
-// depend on generated XLA protobufs and runtime libraries that are already
-// described by XLA's Bazel build graph.
+// This backend is built by Bazel inside the pinned OpenXLA source tree. XLA
+// collective FFI contexts depend on generated XLA protobufs and runtime
+// libraries that are already described by XLA's Bazel build graph.
 
 #ifndef JAXMG_XLA_COMM_BACKEND_H_
 #define JAXMG_XLA_COMM_BACKEND_H_

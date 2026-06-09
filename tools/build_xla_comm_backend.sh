@@ -58,16 +58,16 @@ fi
 echo "Using OpenXLA checkout: ${XLA_SRC}"
 echo "Using OpenXLA revision: $(git -C "${XLA_SRC}" rev-parse --short HEAD)"
 
-PROBE_PKG="${XLA_SRC}/jaxmg_probe"
-mkdir -p "${PROBE_PKG}/include" "${PROBE_PKG}/utils"
+BACKEND_PKG="${XLA_SRC}/jaxmg_backend"
+mkdir -p "${BACKEND_PKG}/include" "${BACKEND_PKG}/utils"
 ln -sfn "${ROOT}/src/cuda/include/xla_comm_backend.h" \
-  "${PROBE_PKG}/include/xla_comm_backend.h"
+  "${BACKEND_PKG}/include/xla_comm_backend.h"
 ln -sfn "${ROOT}/src/cuda/include/mpmd_ipc.h" \
-  "${PROBE_PKG}/include/mpmd_ipc.h"
+  "${BACKEND_PKG}/include/mpmd_ipc.h"
 ln -sfn "${ROOT}/src/cuda/utils/xla_comm_common.cc" \
-  "${PROBE_PKG}/utils/xla_comm_common.cc"
+  "${BACKEND_PKG}/utils/xla_comm_common.cc"
 ln -sfn "${ROOT}/src/cuda/utils/mpmd_ipc.cc" \
-  "${PROBE_PKG}/utils/mpmd_ipc.cc"
+  "${BACKEND_PKG}/utils/mpmd_ipc.cc"
 for src in \
   collective_diagnostics.cc \
   cyclic_1d.cc \
@@ -75,14 +75,14 @@ for src in \
   potri.cc \
   potrs.cc \
   syevd.cc; do
-  ln -sfn "${ROOT}/src/cuda/${src}" "${PROBE_PKG}/${src}"
+  ln -sfn "${ROOT}/src/cuda/${src}" "${BACKEND_PKG}/${src}"
 done
 
-cat >"${PROBE_PKG}/BUILD.bazel" <<EOF
+cat >"${BACKEND_PKG}/BUILD.bazel" <<EOF
 package(default_visibility = ["//visibility:public"])
 
 cc_binary(
-    name = "libxla_comm_collective_probe.so",
+    name = "libjaxmg_xla_comm_backend.so",
     srcs = [
         "collective_diagnostics.cc",
         "cyclic_1d.cc",
@@ -149,12 +149,12 @@ done
   "${BAZEL_CONFIG_ARGS[@]}" \
   --repository_cache="${BAZEL_REPOSITORY_CACHE}" \
   --jobs="${BAZEL_JOBS}" \
-  //jaxmg_probe:libxla_comm_collective_probe.so
+  //jaxmg_backend:libjaxmg_xla_comm_backend.so
 
 INSTALL_DIR="${ROOT}/src/jaxmg/cu${CUDA_MAJOR}"
 mkdir -p "${INSTALL_DIR}"
 install -m 755 \
-  "${XLA_SRC}/bazel-bin/jaxmg_probe/libxla_comm_collective_probe.so" \
-  "${INSTALL_DIR}/libxla_comm_collective_probe.so"
+  "${XLA_SRC}/bazel-bin/jaxmg_backend/libjaxmg_xla_comm_backend.so" \
+  "${INSTALL_DIR}/libjaxmg_xla_comm_backend.so"
 
-echo "Installed ${INSTALL_DIR}/libxla_comm_collective_probe.so"
+echo "Installed ${INSTALL_DIR}/libjaxmg_xla_comm_backend.so"

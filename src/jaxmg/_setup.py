@@ -14,6 +14,7 @@ from .utils import JaxMgWarning
 _lib_dir = os.path.dirname(__file__)
 _initialized = False
 _runtime_mode = None
+_xla_comm_backend_library = "libjaxmg_xla_comm_backend.so"
 
 if not sys.platform.startswith("linux"):
     warnings.warn(
@@ -74,10 +75,9 @@ def _register_cuda_target_bundle(bin_dir, library_name, ffi_name, symbols):
 
 
 def _register_xla_comm_cusolvermg_targets(bin_dir):
-    library_name = "libxla_comm_collective_probe.so"
     _register_cuda_target_bundle(
         bin_dir,
-        library_name,
+        _xla_comm_backend_library,
         "xla_comm_matrix_column_native_plan",
         {
             "prepare": "XlaCommMatrixColumnNativePlanPrepareFFI",
@@ -86,7 +86,7 @@ def _register_xla_comm_cusolvermg_targets(bin_dir):
     )
     _register_cuda_target_bundle(
         bin_dir,
-        library_name,
+        _xla_comm_backend_library,
         "potrs_mg",
         {
             "prepare": "XlaCommPotrsMgNativePlanPrepareFFI",
@@ -95,7 +95,7 @@ def _register_xla_comm_cusolvermg_targets(bin_dir):
     )
     _register_cuda_target_bundle(
         bin_dir,
-        library_name,
+        _xla_comm_backend_library,
         "potri_mg",
         {
             "prepare": "XlaCommPotriMgNativePlanPrepareFFI",
@@ -104,7 +104,7 @@ def _register_xla_comm_cusolvermg_targets(bin_dir):
     )
     _register_cuda_target_bundle(
         bin_dir,
-        library_name,
+        _xla_comm_backend_library,
         "syevd_mg",
         {
             "prepare": "XlaCommSyevdMgNativePlanPrepareFFI",
@@ -113,7 +113,7 @@ def _register_xla_comm_cusolvermg_targets(bin_dir):
     )
     _register_cuda_target_bundle(
         bin_dir,
-        library_name,
+        _xla_comm_backend_library,
         "syevd_no_V_mg",
         {
             "prepare": "XlaCommSyevdNoVMgNativePlanPrepareFFI",
@@ -186,7 +186,7 @@ def _initialize():
         _register_xla_comm_cusolvermg_targets(bin_dir)
         _register_optional_cuda_target_bundle(
             bin_dir,
-            "libxla_comm_collective_probe.so",
+            _xla_comm_backend_library,
             "xla_comm_collective_probe",
             {
                 "prepare": "XlaCommCollectiveProbePrepareFFI",
@@ -195,7 +195,7 @@ def _initialize():
         )
         _register_optional_cuda_target_bundle(
             bin_dir,
-            "libxla_comm_collective_probe.so",
+            _xla_comm_backend_library,
             "xla_comm_allreduce_probe",
             {
                 "prepare": "XlaCommAllReduceProbePrepareFFI",
@@ -204,7 +204,7 @@ def _initialize():
         )
         _register_optional_cuda_target_bundle(
             bin_dir,
-            "libxla_comm_collective_probe.so",
+            _xla_comm_backend_library,
             "xla_comm_ring_permute_probe",
             {
                 "prepare": "XlaCommRingPermuteProbePrepareFFI",
@@ -213,7 +213,7 @@ def _initialize():
         )
         _register_optional_cuda_target_bundle(
             bin_dir,
-            "libxla_comm_collective_probe.so",
+            _xla_comm_backend_library,
             "xla_comm_shift_permute_probe",
             {
                 "prepare": "XlaCommShiftPermuteProbePrepareFFI",
@@ -222,7 +222,7 @@ def _initialize():
         )
         _register_optional_cuda_target_bundle(
             bin_dir,
-            "libxla_comm_collective_probe.so",
+            _xla_comm_backend_library,
             "xla_comm_permute_probe",
             {
                 "prepare": "XlaCommPermuteProbePrepareFFI",
@@ -231,7 +231,7 @@ def _initialize():
         )
         _register_optional_cuda_target_bundle(
             bin_dir,
-            "libxla_comm_collective_probe.so",
+            _xla_comm_backend_library,
             "xla_comm_chunk_permute_probe",
             {
                 "prepare": "XlaCommChunkPermuteProbePrepareFFI",

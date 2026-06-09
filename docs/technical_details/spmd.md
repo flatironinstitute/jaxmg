@@ -4,7 +4,7 @@ This migration branch supports the single-node SPMD execution path. A public
 solver call builds a `jax.shard_map` over the local device mesh, so each GPU
 invocation receives its local JAX-owned shard as an FFI buffer.
 
-The native backend is `libxla_comm_collective_probe.so`, built with Bazel
+The native backend is `libjaxmg_xla_comm_backend.so`, built with Bazel
 against the pinned OpenXLA source for the selected JAX/JAXLIB version. During
 the FFI prepare phase, the handler requests a node-scoped collective clique.
 In ordinary SPMD execution this is the same as the local-device clique. During

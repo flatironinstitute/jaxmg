@@ -32,10 +32,10 @@ export BAZEL=/path/to/bazel-or-bazelisk
 python -m pip install "jax[cuda12]==0.10.1"
 python -m pip install --no-deps -e .
 
-tools/build_xla_collective_probe_bazel.sh
+tools/build_xla_comm_backend.sh
 ```
 
-This installs `src/jaxmg/cu12/libxla_comm_collective_probe.so`, which registers
+This installs `src/jaxmg/cu12/libjaxmg_xla_comm_backend.so`, which registers
 the production `potrs_mg`, `potri_mg`, `syevd_mg`, `syevd_no_V_mg`, and
 `xla_comm_matrix_column_native_plan` FFI targets.
 
@@ -45,10 +45,6 @@ choose where the helper stores its managed checkout. Bazel output defaults to
 `$TMPDIR` via `JAXMG_XLA_BAZEL_CACHE_ROOT`; override
 `JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT` and `JAXMG_XLA_BAZEL_REPOSITORY_CACHE` if the
 temporary filesystem is not suitable.
-
-CMake is retained only as a legacy compatibility wrapper for workflows that
-still call `cmake --build <build-dir> --target install`; it delegates to the
-Bazel helper and does not configure or compile native code itself.
 
 ## JAX and CUDA
 
@@ -73,13 +69,13 @@ CUDA 13 should use the same JAX pin with the CUDA 13 extras:
 
 Changing the JAX version is not only a Python dependency change: the XLA
 communicator APIs used here are internal OpenXLA APIs, so `XLA_GIT_TAG` and the
-Bazel target/dependency list in `tools/build_xla_collective_probe_bazel.sh`
+Bazel target/dependency list in `tools/build_xla_comm_backend.sh`
 must be audited together with any JAX/JAXLIB version bump.
 
 ## Continuous integration
 
 We make use of Jenkins to build and test the code. Jenkins builds the native
-backend by calling `tools/build_xla_collective_probe_bazel.sh` inside the CUDA
+backend by calling `tools/build_xla_comm_backend.sh` inside the CUDA
 manylinux images, then packages the resulting shared library into wheels. We
 test the following configurations:
 

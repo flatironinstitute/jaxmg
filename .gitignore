@@ -3,4 +3,9 @@ codex_records/
 __pycache__/
 *.py[cod]
 .bazel-cache/
+.bazel-output/
+.bazel-repository-cache/
 .jaxmg-xla/
+/benchmarks/
+src/jaxmg/cu12/*.so
+src/jaxmg/cu13/*.so

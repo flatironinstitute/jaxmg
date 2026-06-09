@@ -26,8 +26,8 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 jaxmg = [
-    "cu12/libxla_comm_collective_probe.so",
-    "cu13/libxla_comm_collective_probe.so",
+    "cu12/libjaxmg_xla_comm_backend.so",
+    "cu13/libjaxmg_xla_comm_backend.so",
 ]
 
 [tool.pytest.ini_options]
