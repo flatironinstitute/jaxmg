@@ -238,6 +238,15 @@ def _initialize():
                 "execute": "XlaCommChunkPermuteProbeFFI",
             },
         )
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            _xla_comm_backend_library,
+            "xla_rect_pack_unpack_probe",
+            {
+                "prepare": "XlaRectPackUnpackProbePrepareFFI",
+                "execute": "XlaRectPackUnpackProbeFFI",
+            },
+        )
 
     else:
         warnings.warn(

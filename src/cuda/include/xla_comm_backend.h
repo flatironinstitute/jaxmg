@@ -322,7 +322,8 @@ absl::Status ExecuteMatrixColumnNativePlanRaw(
 
 // Diagnostic handlers. These are useful when changing the XLA integration
 // because they isolate clique construction, communicator lookup, all-reduce,
-// and CollectivePermute without involving cuSolverMg.
+// CollectivePermute, and local rectangle addressing without involving
+// cuSolverMg.
 absl::Status XlaCommCollectiveProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);
@@ -375,6 +376,13 @@ absl::Status XlaCommChunkPermuteProbeDispatch(
     ffi::BufferR1<U32> src, ffi::Result<ffi::BufferR1<U32>> dst,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
+absl::Status XlaRectPackUnpackProbePrepare();
+absl::Status XlaRectPackUnpackProbeDispatch(
+    cudaStream_t cuda_stream, int64_t row_start, int64_t col_start,
+    int64_t row_count, int64_t col_count, int64_t target_row,
+    int64_t target_col, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    ffi::Result<ffi::AnyBuffer> matrix_out,
+    ffi::Result<ffi::AnyBuffer> scratch_out);
 
 // Redistribution handlers. The step/batch variants are retained for focused
 // testing and diagnostics. The production solvers use the native-plan variant

@@ -11,6 +11,7 @@ cc_binary(
         "ffi_handlers.cc",
         "potri.cc",
         "potrs.cc",
+        "rectangle_pack.cc",
         "syevd.cc",
         "include/xla_comm_backend.h",
         "include/mpmd_ipc.h",

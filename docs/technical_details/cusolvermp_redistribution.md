@@ -93,3 +93,18 @@ The next implementation checkpoint should therefore not be a cuSOLVERMp solver
 call. It should be a GPU movement prototype that proves the column-owner phase
 can pack, send, receive, and unpack strided column-tile regions without requiring
 a second full matrix allocation.
+
+## First GPU Primitive
+
+The first native checkpoint is `xla_rect_pack_unpack_probe`, registered as an
+optional CUDA FFI diagnostic. It takes a rank-2 local matrix shard plus rank-1
+scratch, then performs:
+
+```text
+source rectangle in matrix -> contiguous scratch -> target rectangle in matrix
+```
+
+using `cudaMemcpy2DAsync` on XLA's CUDA stream. This deliberately does not use
+the XLA communicator yet. It isolates the local strided-addressing part of the
+2D redistribution, which is needed before a packed fragment can be handed to
+NCCL/XLA communication for the inter-rank movement.

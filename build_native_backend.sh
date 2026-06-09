@@ -104,6 +104,7 @@ for src in \
   ffi_handlers.cc \
   potri.cc \
   potrs.cc \
+  rectangle_pack.cc \
   syevd.cc; do
   ln -sfn "${ROOT}/src/cuda/${src}" "${BACKEND_PKG}/${src}"
 done

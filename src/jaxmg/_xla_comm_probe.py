@@ -621,3 +621,148 @@ def xla_comm_matrix_column_native_plan_shardmap(
         )
 
     return impl(matrix, scratch)
+
+
+def _validate_rect_pack_args(
+    matrix: Array,
+    scratch: Array,
+    *,
+    row_start: int,
+    col_start: int,
+    row_count: int,
+    col_count: int,
+    target_row: int,
+    target_col: int,
+) -> tuple[int, int, int, int, int, int]:
+    if matrix.ndim != 2:
+        raise ValueError("xla_rect_pack_unpack_probe expects a rank-2 matrix.")
+    if scratch.ndim != 1:
+        raise ValueError("xla_rect_pack_unpack_probe expects a rank-1 scratch.")
+    if matrix.dtype != scratch.dtype:
+        raise TypeError("matrix and scratch dtypes must match.")
+
+    row_start = int(row_start)
+    col_start = int(col_start)
+    row_count = int(row_count)
+    col_count = int(col_count)
+    target_row = int(target_row)
+    target_col = int(target_col)
+
+    if row_count <= 0 or col_count <= 0:
+        raise ValueError("row_count and col_count must be positive.")
+    if (
+        row_start < 0
+        or col_start < 0
+        or target_row < 0
+        or target_col < 0
+        or row_start + row_count > matrix.shape[0]
+        or col_start + col_count > matrix.shape[1]
+        or target_row + row_count > matrix.shape[0]
+        or target_col + col_count > matrix.shape[1]
+    ):
+        raise ValueError("source and target rectangles must fit inside matrix.")
+    if scratch.shape[0] < row_count * col_count:
+        raise ValueError("scratch length must be at least row_count * col_count.")
+
+    return row_start, col_start, row_count, col_count, target_row, target_col
+
+
+def xla_rect_pack_unpack_probe(
+    matrix: Array,
+    scratch: Array,
+    *,
+    row_start: int,
+    col_start: int,
+    row_count: int,
+    col_count: int,
+    target_row: int,
+    target_col: int,
+) -> tuple[Array, Array]:
+    """Pack a local strided rectangle to scratch and unpack it elsewhere.
+
+    This diagnostic exercises the local CUDA primitive needed by the future
+    cuSOLVERMp 2D redistribution. It does not use the XLA communicator: it only
+    verifies that a rectangular fragment can be copied from a rank-2 local
+    buffer into contiguous rank-1 scratch and back into a rank-2 output buffer
+    on XLA's CUDA stream.
+    """
+    (
+        row_start,
+        col_start,
+        row_count,
+        col_count,
+        target_row,
+        target_col,
+    ) = _validate_rect_pack_args(
+        matrix,
+        scratch,
+        row_start=row_start,
+        col_start=col_start,
+        row_count=row_count,
+        col_count=col_count,
+        target_row=target_row,
+        target_col=target_col,
+    )
+    ensure_init_jaxmg_backend()
+
+    out_type = (
+        jax.ShapeDtypeStruct(matrix.shape, matrix.dtype),
+        jax.ShapeDtypeStruct(scratch.shape, scratch.dtype),
+    )
+    ffi_fn = partial(
+        jax.ffi.ffi_call(
+            "xla_rect_pack_unpack_probe",
+            out_type,
+            input_layouts=((0, 1), (0,)),
+            output_layouts=((0, 1), (0,)),
+            input_output_aliases={0: 0, 1: 1},
+        ),
+        row_start=row_start,
+        col_start=col_start,
+        row_count=row_count,
+        col_count=col_count,
+        target_row=target_row,
+        target_col=target_col,
+    )
+    return ffi_fn(matrix, scratch)
+
+
+def xla_rect_pack_unpack_probe_shardmap(
+    matrix: Array,
+    scratch: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    scratch_specs: P,
+    *,
+    row_start: int,
+    col_start: int,
+    row_count: int,
+    col_count: int,
+    target_row: int,
+    target_col: int,
+) -> tuple[Array, Array]:
+    """Run :func:`xla_rect_pack_unpack_probe` over a sharded local matrix."""
+    if not isinstance(matrix_specs, P) or not isinstance(scratch_specs, P):
+        raise TypeError("matrix_specs and scratch_specs must be PartitionSpec values.")
+
+    @partial(jax.jit, donate_argnums=(0, 1))
+    @partial(
+        jax.shard_map,
+        mesh=mesh,
+        in_specs=(matrix_specs, scratch_specs),
+        out_specs=(matrix_specs, scratch_specs),
+        check_vma=False,
+    )
+    def impl(_matrix, _scratch):
+        return xla_rect_pack_unpack_probe(
+            _matrix,
+            _scratch,
+            row_start=row_start,
+            col_start=col_start,
+            row_count=row_count,
+            col_count=col_count,
+            target_row=target_row,
+            target_col=target_col,
+        )
+
+    return impl(matrix, scratch)
