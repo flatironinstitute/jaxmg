@@ -17,6 +17,18 @@
 // The vector-returning path reuses the eigenvector output as cyclic matrix
 // storage. The no-vector path allocates a full local cyclic matrix scratch
 // because there is no vector output buffer to donate for that purpose.
+//
+// Handler workflow:
+//   1. Validate common FFI contexts and matrix/eigenvalue buffer contracts.
+//   2. Resolve the XLA communicator and reshuffle A into cyclic storage.
+//   3. Share matrix, eigenvalue, and workspace pointers across local ranks.
+//   4. Rank 0 calls cuSolverMg syevd with or without eigenvectors.
+//   5. Broadcast the eigenvalues. If vectors are requested, reshuffle the
+//      cyclic eigenvector matrix back to JAX row-sharded layout.
+//
+// The two exported handlers share one implementation so the vector and
+// no-vector paths stay identical except for storage choice and cuSolverMg job
+// mode.
 
 #include "include/xla_comm_backend.h"
 #include "include/mpmd_ipc.h"
@@ -33,6 +45,9 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
+  // caller names the public FFI target for diagnostics. compute_vectors selects
+  // whether the vectors output is real donated storage or whether the matrix
+  // lives only in scratch for an eigenvalue-only solve.
   const int64_t timing_start = PotrsPhaseTimer::NowNanos();
   if (stream == nullptr || comm_stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
@@ -179,6 +194,8 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
   };
 
   if (mpmd_mode) {
+    // MPMD: publish the cyclic matrix pointer through CUDA IPC. Eigenvalues are
+    // written by rank 0 and later broadcast with the XLA communicator.
     absl::StatusOr<int> node_group =
         NodeScopedGroupOrdinal(*collective_params);
     if (!node_group.ok()) {
@@ -194,9 +211,8 @@ absl::Status XlaCommSyevdMgNativePlanImpl(
     }
     JAXMG_RETURN_IF_ERROR(mpmd_exchange->PublishA(cyclic_matrix_ptr));
   } else {
-    // Each FFI invocation runs on one local device. The rank-0 invocation owns
-    // the cuSolverMg handle and consumes the per-device pointers published
-    // here.
+    // SPMD: all participating FFI calls share one process, so process-local
+    // arrays are enough to assemble the cuSolverMg pointer lists.
     state.a[current_device] = cyclic_matrix_ptr;
     state.eigenvalues[current_device] = eigenvalues->untyped_data();
   }

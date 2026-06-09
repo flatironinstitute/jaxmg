@@ -17,12 +17,26 @@
 // Keeping the bindings in one translation unit makes Python registration names
 // easy to audit and keeps solver implementation files focused on execution
 // logic.
+//
+// File workflow:
+//   1. Python loads libjaxmg_xla_comm_backend.so with ctypes.
+//   2. Python registers each FFI target by name and points JAX at the prepare
+//      and execute symbols defined here.
+//   3. XLA calls the prepare symbol during lowering so the backend can request
+//      communicator cliques.
+//   4. XLA calls the execute symbol at runtime with streams, buffers,
+//      attributes, scratch allocators, and collective contexts.
+//
+// The names in this file are therefore the ABI between Python registration and
+// the native implementation. Renaming one requires the matching _setup.py entry
+// to change as well.
 
 #include "include/xla_comm_backend.h"
 
 namespace xla::gpu {
 
-// Diagnostic communicator handlers.
+// Diagnostic communicator handlers. These are optional Python-facing probes and
+// do not call cuSolverMg.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCommCollectiveProbePrepareFFI, XlaCommCollectiveProbePrepare,
     ffi::Ffi::BindPrepare()
@@ -124,7 +138,8 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
 
-// Redistribution handlers used directly by tests and by fused solvers.
+// Redistribution handlers. The step and batch versions are diagnostics; the
+// native-plan handler is also called by Python's cyclic_1d helper.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCommMatrixColumnStepPrepareFFI, XlaCommMatrixColumnStepPrepare,
     ffi::Ffi::BindPrepare()
@@ -191,7 +206,10 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
 
-// Production cuSolverMg handlers registered under the historical Python names.
+// Production cuSolverMg handlers registered under the historical Python names
+// potrs_mg, potri_mg, syevd_mg, and syevd_no_V_mg. The Python API can keep the
+// old names while the implementation switches from the legacy CUDA peer
+// shuffler to the XLA communicator backend.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCommPotrsMgNativePlanPrepareFFI, XlaCommMatrixColumnBatchPrepare,
     ffi::Ffi::BindPrepare()

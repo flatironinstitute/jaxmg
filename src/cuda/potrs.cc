@@ -18,6 +18,17 @@
 // into cuSolverMg's 1D block-cyclic layout, synchronizes with the cuSolverMg
 // host call, and broadcasts the replicated RHS result through the same
 // XLA-owned communicator path.
+//
+// Handler workflow:
+//   1. Validate FFI streams, buffers, dtype, tile size, and local shard shape.
+//   2. Resolve the node-scoped XLA point-to-point communicator and this rank.
+//   3. Reshuffle donated A from JAX row-sharded layout into cuSolverMg's
+//      1D block-cyclic layout.
+//   4. Share device pointers across local ranks. In SPMD this is process-local
+//      state; in MPMD it is CUDA IPC handles in POSIX shared memory.
+//   5. Rank 0 creates cuSolverMg descriptors, queries workspace, runs potrf
+//      followed by potrs, and records the solver status.
+//   6. Broadcast the replicated B solution and write the status device buffer.
 
 #include "include/xla_comm_backend.h"
 #include "include/mpmd_ipc.h"
@@ -33,6 +44,10 @@ absl::Status XlaCommPotrsMgNativePlanImpl(
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
+  // Keep the implementation in workflow order: validate, resolve
+  // communicator, reshape, exchange pointers, allocate workspace, run
+  // cuSolverMg, publish outputs. That mirrors the old JAXMg path while making
+  // the communication backend explicit.
   const int64_t timing_start = PotrsPhaseTimer::NowNanos();
   if (stream == nullptr || comm_stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
@@ -175,6 +190,9 @@ absl::Status XlaCommPotrsMgNativePlanImpl(
   };
 
   if (mpmd_mode) {
+    // MPMD: each Python process owns one rank. Publish this process's device
+    // pointers as CUDA IPC handles and let rank 0 open the remote pointers
+    // before constructing the cuSolverMg pointer arrays.
     absl::StatusOr<int> node_group =
         NodeScopedGroupOrdinal(*collective_params);
     if (!node_group.ok()) {
@@ -190,9 +208,8 @@ absl::Status XlaCommPotrsMgNativePlanImpl(
     JAXMG_RETURN_IF_ERROR(mpmd_exchange->PublishA(out_a->untyped_data()));
     JAXMG_RETURN_IF_ERROR(mpmd_exchange->PublishB(b.untyped_data()));
   } else {
-    // Each FFI invocation runs on one local device. The rank-0 invocation owns
-    // the cuSolverMg handle and consumes the per-device pointers published
-    // here.
+    // SPMD: one host process launched all participating FFI calls, so raw
+    // device pointers can be collected in process-local arrays.
     fused_potrs_state.a[current_device] = out_a->untyped_data();
     fused_potrs_state.b[current_device] = b.untyped_data();
   }

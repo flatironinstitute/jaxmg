@@ -17,6 +17,16 @@
 // The matrix is reshuffled into cuSolverMg's 1D block-cyclic layout before
 // factorization/inversion and then reshuffled back to the original JAX
 // row-sharded layout before returning.
+//
+// Handler workflow:
+//   1. Validate FFI contexts, matrix shape, dtype, and tile constraints.
+//   2. Resolve the node-scoped XLA point-to-point communicator and this rank.
+//   3. Reshuffle A into out, using out as donated cyclic storage.
+//   4. Share the cyclic matrix pointer and workspace pointer across local
+//      ranks through SPMD process-local state or MPMD CUDA IPC.
+//   5. Rank 0 runs cuSolverMg potrf then potri in-place on the cyclic matrix.
+//   6. Reshuffle the inverted matrix back into JAX row-sharded layout and write
+//      the status buffer.
 
 #include "include/xla_comm_backend.h"
 #include "include/mpmd_ipc.h"
@@ -31,6 +41,9 @@ absl::Status XlaCommPotriMgNativePlanImpl(
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
+  // potri follows the same structure as potrs, except there is no RHS. The
+  // output matrix first acts as cyclic solver storage and then receives the
+  // reverse reshuffle back to JAX layout.
   const int64_t timing_start = PotrsPhaseTimer::NowNanos();
   if (stream == nullptr || comm_stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
@@ -162,6 +175,7 @@ absl::Status XlaCommPotriMgNativePlanImpl(
   };
 
   if (mpmd_mode) {
+    // MPMD pointer exchange mirrors potrs without the B pointer array.
     absl::StatusOr<int> node_group =
         NodeScopedGroupOrdinal(*collective_params);
     if (!node_group.ok()) {
@@ -176,9 +190,7 @@ absl::Status XlaCommPotriMgNativePlanImpl(
     }
     JAXMG_RETURN_IF_ERROR(mpmd_exchange->PublishA(out->untyped_data()));
   } else {
-    // Each FFI invocation runs on one local device. The rank-0 invocation owns
-    // the cuSolverMg handle and consumes the per-device pointers published
-    // here.
+    // SPMD pointer exchange uses one process-local slot per local GPU.
     fused_potri_state.a[current_device] = out->untyped_data();
   }
   JAXMG_RETURN_IF_ERROR(shared_barrier());

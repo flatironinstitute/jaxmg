@@ -11,6 +11,22 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+// MPMD IPC implementation.
+//
+// Workflow:
+//   1. Each process exports CUDA IPC handles for the JAX buffers and scratch
+//      buffers it owns.
+//   2. The handles are written into rank-indexed POSIX shared-memory arrays.
+//   3. A shared-memory pthread barrier waits until all local ranks have
+//      published their entries.
+//   4. Rank 0 opens the remote CUDA IPC handles on the correct devices and
+//      passes those pointers to cuSolverMg.
+//   5. All mapped remote handles are closed before the FFI invocation returns.
+//
+// This file intentionally does not move matrix data. Data movement remains the
+// responsibility of the XLA/NCCL communicator; this file only makes pointers
+// visible to the single cuSolverMg host call.
 
 #include "../include/mpmd_ipc.h"
 
@@ -57,6 +73,9 @@ absl::Status CudaRuntimeStatus(cudaError_t result, const char* what) {
 template <typename T>
 absl::StatusOr<T*> MapSharedArray(int count, const std::string& name,
                                   size_t* bytes, bool* owner) {
+  // All ranks map the same named shared-memory object. The first rank to create
+  // it sizes the object; later ranks wait for the size to become visible before
+  // mmap so they do not fault on first access.
   if (count <= 0) {
     return absl::InvalidArgumentError(
         absl::StrFormat("Shared memory array %s needs positive count, got %d",
@@ -116,6 +135,9 @@ struct MpmdProcessBarrier::Shared {
   int initialized;
 };
 
+// Export a pointer in a way that survives JAX allocator suballocation. CUDA IPC
+// can export only the base allocation, so the byte offset to the requested
+// pointer is stored alongside the handle.
 absl::StatusOr<IpcHandleWithOffset> ExportIpcHandleWithOffset(void* ptr) {
   CUdeviceptr base = 0;
   size_t size = 0;
@@ -141,6 +163,9 @@ absl::StatusOr<IpcHandleWithOffset> ExportIpcHandleWithOffset(void* ptr) {
 
 absl::StatusOr<OpenedIpcPointer> OpenIpcHandleWithOffset(
     const IpcHandleWithOffset& handle) {
+  // Open the remote base allocation and reconstruct the original pointer from
+  // the recorded offset. The caller must eventually pass the returned object to
+  // CloseIpcPointer.
   void* base = nullptr;
   absl::Status status = CudaRuntimeStatus(
       cudaIpcOpenMemHandle(&base, handle.handle, cudaIpcMemLazyEnablePeerAccess),
@@ -184,6 +209,8 @@ absl::Status CloseIpcPointer(const OpenedIpcPointer& opened) {
 MpmdProcessBarrier::MpmdProcessBarrier(int participants,
                                        const std::string& name)
     : name_(name), status_(absl::OkStatus()) {
+  // The barrier lives in shared memory so independently launched JAX processes
+  // can coordinate before rank 0 enters cuSolverMg.
   if (participants <= 0) {
     status_ = absl::InvalidArgumentError(absl::StrFormat(
         "MPMD process barrier %s needs positive participant count, got %d",
@@ -327,6 +354,8 @@ absl::Status FirstError(absl::Status current, absl::Status next) {
 MpmdSolverExchange::MpmdSolverExchange(
     const MpmdSolverExchangeConfig& config)
     : rank_(config.rank), count_(config.count), status_(absl::OkStatus()) {
+  // Build one shared-memory namespace per solver invocation. The run id and
+  // node group id keep concurrent calls and separate nodes from colliding.
   if (rank_ < 0 || count_ <= 0 || rank_ >= count_) {
     status_ = absl::InvalidArgumentError(absl::StrFormat(
         "MPMD solver exchange rank/count mismatch: rank=%d count=%d", rank_,
@@ -386,6 +415,8 @@ absl::Status MpmdSolverExchange::ArriveAndWait() {
 absl::Status MpmdSolverExchange::PublishPointer(
     std::optional<SharedMemoryArray<IpcHandleWithOffset>>& handles,
     const char* label, void* ptr) {
+  // Publish this rank's pointer after converting it to an IPC handle. The
+  // actual cross-process synchronization is explicit through ArriveAndWait.
   if (!status_.ok()) {
     return status_;
   }
@@ -417,6 +448,9 @@ absl::Status MpmdSolverExchange::PublishWork(void* ptr) {
 absl::StatusOr<void*> MpmdSolverExchange::OpenPointerOnDevice(
     const std::optional<SharedMemoryArray<IpcHandleWithOffset>>& handles,
     const char* label, int device, OpenedIpcPointer* opened) const {
+  // Rank 0 calls this for each remote rank when assembling the cuSolverMg
+  // pointer arrays. The device argument ensures the remote allocation is opened
+  // in the CUDA context cuSolverMg expects for that entry.
   if (!status_.ok()) {
     return status_;
   }

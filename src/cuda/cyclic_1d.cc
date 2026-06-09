@@ -19,11 +19,30 @@
 // cycle model: construct the global source->target column map, decompose it
 // into open chains or closed cycles, and execute each move with one
 // column-sized scratch slot when a closed cycle needs staging.
+//
+// File workflow:
+//   1. XlaCommMatrixColumnStep* exposes a single planned move. It is useful for
+//      tests and for understanding one CollectivePermute call in isolation.
+//   2. XlaCommMatrixColumnBatch* executes an explicit Python-supplied sequence
+//      of moves. It is retained as a diagnostic path.
+//   3. XlaCommMatrixColumnNativePlanDispatch builds the complete permutation
+//      schedule in C++ and executes it. This is what the public cyclic_1d helper
+//      uses.
+//   4. ExecuteMatrixColumnNativePlanRaw is the shared engine called by potrs,
+//      potri, and syevd after they have already resolved the communicator.
+//
+// The implementation deliberately separates planning from move execution. The
+// planner works in global column slots. The executor translates each slot into
+// (rank, local_column) and then chooses either a local device-to-device copy or
+// an XLA CollectivePermute transfer.
 
 #include "include/xla_comm_backend.h"
 
 namespace xla::gpu {
 
+// Prepare the point-to-point clique used by all 1D column redistribution
+// handlers. XLA requires the prepare stage to announce the clique before the
+// execute stage is allowed to call CollectiveCliques::GetComm.
 absl::Status XlaCommMatrixColumnStepPrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
@@ -247,6 +266,8 @@ absl::Status XlaCommMatrixColumnStepDispatch(
   return stream->WaitFor(comm_stream);
 }
 
+// Batch prepare is identical to the single-step prepare because both handlers
+// use the same node-scoped point-to-point clique.
 absl::Status XlaCommMatrixColumnBatchPrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
@@ -410,9 +431,12 @@ absl::Status XlaCommMatrixColumnBatchDispatch(
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
-  // Batched diagnostic API. Python supplies the exact move list as static FFI
-  // attributes. The production path avoids this Python scheduling overhead by
-  // constructing the same schedule inside ExecuteMatrixColumnNativePlanRaw.
+  // Batched diagnostic API:
+  //   - Python supplies the exact move list as static FFI attributes.
+  //   - C++ validates the batch once, resolves the communicator once, and then
+  //     executes each step through ExecuteMatrixColumnTransferStep.
+  // The production path avoids Python scheduling overhead by constructing the
+  // same schedule inside ExecuteMatrixColumnNativePlanRaw.
   if (stream == nullptr || comm_stream == nullptr) {
     return absl::InvalidArgumentError(
         "xla_comm_matrix_column_batch requires XLA stream contexts");
@@ -547,6 +571,13 @@ absl::Status XlaCommMatrixColumnNativePlanDispatch(
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
+  // Native-plan API:
+  //   - JAX passes the padded local matrix shard and one-column scratch buffer.
+  //   - C++ reconstructs the 1D block-cyclic permutation required by
+  //     cuSolverMg from N, local_slots, num_ranks, and tile_size.
+  //   - The schedule is executed immediately with the XLA communicator.
+  // This is the fair replacement for the old in-C++ cudaMemcpyPeerAsync
+  // reshuffler because Python no longer orchestrates individual moves.
   if (stream == nullptr || comm_stream == nullptr) {
     return absl::InvalidArgumentError(
         "xla_comm_matrix_column_native_plan requires XLA stream contexts");
@@ -857,6 +888,10 @@ absl::Status ExecuteMatrixColumnNativePlanRaw(
     int64_t local_slots, int64_t column_elements, uint64_t column_bytes,
     int64_t local_scratch_slots, int64_t num_ranks, int64_t rank_value,
     int64_t tile_size, bool reverse) {
+  // Shared solver entry point. The fused solver handlers call this after they
+  // have already resolved their communicator and selected input/output buffers.
+  // reverse=false performs row-sharded -> cyclic; reverse=true performs cyclic
+  // -> row-sharded for result layouts that must be returned to JAX.
   const int64_t shard_size = column_elements / num_ranks;
   const int64_t effective_tile_size = std::min(tile_size, shard_size);
   const int64_t total_slots = local_slots * num_ranks;

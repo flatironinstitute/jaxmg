@@ -17,6 +17,15 @@
 // This file owns process-local synchronization state, common CUDA/cuSolver
 // status conversion, scratch allocation, local clique construction, and small
 // communicator utilities used by the solver-specific translation units.
+//
+// File workflow:
+//   1. Translate CUDA/cuSolverMg return codes into absl::Status for FFI.
+//   2. Own the SPMD process-local barriers and pointer arrays declared in the
+//      shared header.
+//   3. Build XLA collective clique keys from CollectiveParams for both SPMD
+//      and node-scoped MPMD execution.
+//   4. Provide small communicator helpers, such as rank-0 broadcast, used by
+//      potrs and syevd after cuSolverMg writes replicated outputs.
 
 #include "../include/xla_comm_backend.h"
 
@@ -24,6 +33,9 @@ namespace xla::gpu {
 namespace {
 
 int EnvDevicesPerNodeOrDefault(int fallback) {
+  // In MPMD a process commonly sees one local device, while cuSolverMg still
+  // needs the number of GPUs participating in this node-local solve. The Python
+  // setup code supplies JAXMG_NUMBER_OF_DEVICES for that case.
   const char* env = std::getenv("JAXMG_NUMBER_OF_DEVICES");
   if (env == nullptr || env[0] == '\0') {
     return std::max(fallback, 1);
@@ -43,6 +55,9 @@ struct AssignedDeviceEntry {
 
 std::vector<AssignedDeviceEntry> AssignedDevices(
     const CollectiveParams& params) {
+  // Prefer XLA's explicit device assignment when present. Some FFI contexts
+  // instead provide a global_device_id_map; the fallback handles simple local
+  // tests where neither map is populated.
   std::vector<AssignedDeviceEntry> devices;
   if (params.device_assn != nullptr) {
     const int replica_count = params.device_assn->replica_count();
@@ -81,6 +96,9 @@ std::vector<AssignedDeviceEntry> AssignedDevices(
 
 absl::StatusOr<std::pair<int, int>> NodeScopedIndexRange(
     const CollectiveParams& params, int device_count) {
+  // cuSolverMg remains single-node. For MPMD/multi-process launches, split the
+  // global device assignment into consecutive node-sized groups and choose the
+  // group containing this rank's global device id.
   std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
   std::sort(devices.begin(), devices.end(),
             [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
@@ -213,6 +231,9 @@ absl::StatusOr<std::vector<GlobalDeviceId>> NodeScopedGlobalDeviceGroup(
 
 absl::StatusOr<ReplicaGroup> NodeScopedReplicaGroup(
     const CollectiveParams& params) {
+  // MPMD helper: construct the replica group for only the current node's local
+  // ranks. This prevents single-node cuSolverMg paths from accidentally
+  // requesting a multi-node communicator.
   std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
   std::sort(devices.begin(), devices.end(),
             [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {

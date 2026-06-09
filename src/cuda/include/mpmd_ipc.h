@@ -18,6 +18,19 @@
 // host process to build arrays of device pointers. In MPMD those pointers live
 // in different processes, so the solver layer must exchange CUDA IPC handles
 // and XLA buffer offsets before the rank-0 host call.
+//
+// Header workflow:
+//   1. IpcHandleWithOffset describes a remote CUDA allocation plus the byte
+//      offset of the actual JAX buffer inside that allocation.
+//   2. MpmdProcessBarrier synchronizes participating local processes using
+//      POSIX shared memory.
+//   3. SharedMemoryArray<T> publishes one value per rank for handles, workspace
+//      sizes, and solver statuses.
+//   4. MpmdSolverExchange combines the barrier and shared arrays into the
+//      pointer exchange protocol used by potrs, potri, and syevd.
+//
+// This layer is not a replacement for the XLA communicator. It only solves the
+// host-side pointer visibility problem that cuSolverMg imposes in MPMD mode.
 
 #ifndef JAXMG_MPMD_IPC_H_
 #define JAXMG_MPMD_IPC_H_
@@ -45,6 +58,10 @@ struct OpenedIpcPointer {
   void* ptr = nullptr;
 };
 
+// CUDA IPC helpers. ExportIpcHandleWithOffset converts a local JAX device
+// pointer into a process-shareable handle. Open* maps the remote allocation in
+// the rank-0 process and reconstructs the original pointer by reapplying the
+// recorded offset.
 absl::StatusOr<IpcHandleWithOffset> ExportIpcHandleWithOffset(void* ptr);
 absl::StatusOr<OpenedIpcPointer> OpenIpcHandleWithOffset(
     const IpcHandleWithOffset& handle);
@@ -73,6 +90,8 @@ class MpmdProcessBarrier {
   absl::Status status_;
 };
 
+// Small POSIX shared-memory array with rank-indexed entries. The owner process
+// unlinks the shared memory name; all processes unmap their local view.
 template <typename T>
 class SharedMemoryArray {
  public:
@@ -110,6 +129,9 @@ struct MpmdSolverExchangeConfig {
   bool include_b = false;
 };
 
+// Per-solver MPMD exchange object. The solver handler constructs one exchange
+// per invocation, publishes its local pointers, waits for all local ranks, and
+// lets rank 0 open the remote pointers for cuSolverMg.
 class MpmdSolverExchange {
  public:
   explicit MpmdSolverExchange(const MpmdSolverExchangeConfig& config);

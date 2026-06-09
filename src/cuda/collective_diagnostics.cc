@@ -18,6 +18,20 @@
 // FFI invocation can request an XLA collective clique, look up the XLA-owned
 // GPU communicator, and execute small collective operations through that
 // communicator.
+//
+// File workflow:
+//   1. Each probe has a prepare function that requests the communicator clique
+//      XLA must construct before dispatch.
+//   2. Each dispatch function validates the FFI contexts and buffer contracts.
+//   3. The dispatch function resolves this rank's communicator from
+//      CollectiveCliques.
+//   4. The probe performs a tiny collective and writes an inspectable result
+//      back to a JAX buffer.
+//
+// These probes isolate communicator setup from cuSolverMg pointer sharing and
+// solver calls. They are useful when a failure could be in FFI registration,
+// clique construction, communicator lookup, stream ordering, or the collective
+// primitive itself.
 
 #include "include/xla_comm_backend.h"
 
@@ -49,6 +63,8 @@ absl::Status XlaCommCollectiveProbePrepare(
   return clique_requests->RequestClique(*clique_key, {*device_group});
 }
 
+// Metadata probe. This is the cheapest way to confirm that XLA supplied the
+// collective contexts and that the communicator contains a platform handle.
 absl::Status XlaCommCollectiveProbeDispatch(
     se::Stream* stream, ffi::AnyBuffer token,
     ffi::Result<ffi::BufferR1<S32>> out,
@@ -105,6 +121,10 @@ absl::Status XlaCommCollectiveProbeDispatch(
   return stream->MemcpyH2D(absl::MakeConstSpan(probe), &dst);
 }
 
+// All-reduce probe:
+//   input:  one uint32 token per rank
+//   output: every rank receives the rank-wise sum
+// This checks ordinary collective clique construction and stream ordering.
 absl::Status XlaCommAllReduceProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
@@ -177,6 +197,8 @@ absl::Status XlaCommAllReduceProbeDispatch(
   return stream->WaitFor(comm_stream);
 }
 
+// Ring permute probe. This exercises the same CollectivePermute path used for
+// column movement, with a fixed mapping rank i -> rank i + 1.
 absl::Status XlaCommRingPermuteProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
@@ -276,6 +298,8 @@ absl::Status XlaCommRingPermuteProbeDispatch(
   return stream->WaitFor(comm_stream);
 }
 
+// Shifted permute probe. This is a parameterized ring and is useful for
+// confirming that runtime attributes reach the native FFI handler correctly.
 absl::Status XlaCommShiftPermuteProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
@@ -372,6 +396,9 @@ absl::Status XlaCommShiftPermuteProbeDispatch(
   return stream->WaitFor(comm_stream);
 }
 
+// Arbitrary rank permutation probe. Python supplies a complete
+// source_rank -> target_rank map; the handler validates that it is a bijection
+// before issuing the collective.
 absl::Status XlaCommPermuteProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
@@ -499,6 +526,10 @@ absl::Status XlaCommPermuteProbeDispatch(
   return stream->WaitFor(comm_stream);
 }
 
+// Chunk permutation probe. This is the most general diagnostic collective in
+// this file: a rank can send a contiguous subrange of its local buffer into a
+// subrange of the receiver's buffer. It mirrors the addressing needed by the
+// column reshuffler without involving the matrix planner.
 absl::Status XlaCommChunkPermuteProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {

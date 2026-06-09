@@ -17,6 +17,20 @@
 // This backend is built by Bazel inside the pinned OpenXLA source tree. XLA
 // collective FFI contexts depend on generated XLA protobufs and runtime
 // libraries that are already described by XLA's Bazel build graph.
+//
+// Header layout:
+//   1. Error and dtype helpers used by every translation unit.
+//   2. Small process-local state structs used to bridge concurrent FFI calls
+//      into one cuSolverMg host invocation in SPMD mode.
+//   3. XLA communicator clique helpers and the rank-0 broadcast utility.
+//   4. 1D redistribution entry points.
+//   5. Diagnostic probe handlers.
+//   6. Fused production solver handlers registered under the historical JAXMg
+//      FFI target names.
+//
+// The production path is:
+//   Python wrapper -> FFI handler -> XLA communicator lookup -> 1D cyclic
+//   reshuffle -> cuSolverMg host call -> optional broadcast/reverse reshuffle.
 
 #ifndef JAXMG_XLA_COMM_BACKEND_H_
 #define JAXMG_XLA_COMM_BACKEND_H_
@@ -63,6 +77,8 @@
 namespace xla::gpu {
 namespace ffi = ::xla::ffi;
 
+// Convert CUDA/cuSolverMg errors into absl::Status so all FFI handlers can
+// return failures through the same mechanism used by XLA.
 absl::Status CudaToStatus(cudaError_t err, const char* file, int line);
 absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
                               int line);
@@ -167,6 +183,9 @@ class ReusableHostBarrier {
 // Per-solver pointer exchange state. cuSolverMg consumes host arrays of device
 // pointers from the rank-0 host invocation, while each local FFI invocation owns
 // only its current device's JAX buffers and scratch.
+//
+// These structs are used only in SPMD mode. MPMD uses MpmdSolverExchange in
+// mpmd_ipc.h because the participating ranks are separate host processes.
 struct FusedPotrsState {
   std::array<void*, 16> a{};
   std::array<void*, 16> b{};
@@ -199,7 +218,8 @@ extern FusedSyevdState fused_syevd_state;
 extern ReusableHostBarrier fused_syevd_no_v_barrier;
 extern FusedSyevdState fused_syevd_no_v_state;
 
-// Lightweight opt-in timing helper shared by solver handlers.
+// Lightweight opt-in timing helper shared by solver handlers. It is named after
+// the first path it was built for, but is now used by potrs, potri, and syevd.
 class PotrsPhaseTimer {
  public:
   PotrsPhaseTimer(const char* path, int rank, int ranks, int64_t n,
