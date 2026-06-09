@@ -1,0 +1,75 @@
+# cuSOLVERMp 2D Redistribution Investigation
+
+cuSOLVERMp expects a 2D block-cyclic matrix layout. For a process grid with
+`P_r` process rows and `P_c` process columns, a matrix tile `(i, j)` is owned by
+
+```text
+process_row = i % P_r
+process_col = j % P_c
+```
+
+The current cuSOLVERMg compatibility backend only performs a 1D redistribution.
+It moves full local row/vector slots in the native buffer. Despite the legacy
+"column" terminology in parts of the code, the current native offset model
+treats a slot as a contiguous region of length equal to the matrix width.
+
+The first cuSOLVERMp investigation therefore asks whether the 2D ownership map
+can be reached by two 1D-style passes:
+
+1. Column-owner phase: within each process row, move tile columns until every
+   tile has the correct `process_col`.
+2. Row-owner phase: within each process column, move tile rows until every tile
+   has the correct `process_row`.
+
+The CPU-only planner in `jaxmg._block_cyclic_2d_plan` confirms that this
+factorization is correct at the ownership level. Applying the column-owner moves
+and then the row-owner moves reaches the same owner as the direct 2D
+block-cyclic rule above, including degenerate grids such as `1 x P` and
+`P x 1`.
+
+## Padding
+
+The 2D planner applies the existing JAXMg padding rule independently in each
+axis:
+
+```text
+row_padding_per_process = (-local_logical_rows) % MB_A
+col_padding_per_process = (-local_logical_cols) % NB_A
+```
+
+This gives each process tile-aligned local capacity. It does not by itself mean
+that every logical `MB_A x NB_A` tile is initially owned by a single process. If
+the logical local shard size is not already a multiple of the tile size, then a
+logical tile can cross an initial JAX block-sharding boundary. In that case the
+planner reports a split tile.
+
+Split tiles are important because they prevent a simple whole-tile permutation
+from being correct. The implementation must either:
+
+1. first compact/canonicalize the padded layout so real data is tile-aligned in
+   the global physical address space; or
+2. fall back to moving tile fragments until the layout is tile-aligned.
+
+This is the 2D version of the edge case that the current 1D implementation avoids
+by planning at slot granularity.
+
+## Contiguity
+
+The current native memory model is row-major for the movement engine: a full
+row/vector slot is contiguous, while a sub-column region spanning multiple rows
+is strided.
+
+That has direct consequences for the proposed two-phase algorithm:
+
+1. A column-owner move is naturally a column-tile region. Under the current
+   row-major offset model this is strided and will need pack/unpack kernels, many
+   smaller sends, or a different storage view.
+2. A row-owner move can be grouped as a full-width row slab inside a process
+   column. Under the current row-major offset model this can be contiguous.
+3. Moving individual `MB_A x NB_A` tiles is generally strided unless the tile
+   covers the complete local width or has only one row.
+
+The next implementation checkpoint should therefore not be a cuSOLVERMp solver
+call. It should be a GPU movement prototype that proves the column-owner phase
+can pack, send, receive, and unpack strided column-tile regions without requiring
+a second full matrix allocation.
