@@ -3,3 +3,4 @@ codex_records/
 __pycache__/
 *.py[cod]
 .bazel-cache/
+.jaxmg-xla/

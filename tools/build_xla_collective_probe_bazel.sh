@@ -2,19 +2,32 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="${BUILD_DIR:-${ROOT}/build-cu12-jax0101-absl20240722}"
-XLA_SRC="${XLA_SRC:-${BUILD_DIR}/_deps/xla-src}"
+XLA_GIT_REPOSITORY="${XLA_GIT_REPOSITORY:-https://github.com/openxla/xla.git}"
+XLA_GIT_TAG="${XLA_GIT_TAG:-9b635916ecc6df6efee62d8e4b0c7ef87ef84d69}"
+XLA_SHORT_TAG="${XLA_GIT_TAG:0:12}"
+XLA_SOURCE_ROOT="${JAXMG_XLA_SOURCE_ROOT:-${ROOT}/.jaxmg-xla}"
+XLA_SRC="${XLA_SRC:-${XLA_SOURCE_ROOT}/xla-${XLA_SHORT_TAG}}"
 BAZEL="${BAZEL:-bazel}"
 BAZEL_CONFIGS="${JAXMG_XLA_BAZEL_CONFIGS:-bzlmod cuda}"
 BAZEL_JOBS="${JAXMG_XLA_BAZEL_JOBS:-8}"
-BAZEL_OUTPUT_USER_ROOT="${JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT:-${ROOT}/.bazel-cache/output_user_root}"
-BAZEL_REPOSITORY_CACHE="${JAXMG_XLA_BAZEL_REPOSITORY_CACHE:-${ROOT}/.bazel-cache/repository_cache}"
+BAZEL_CACHE_ROOT="${JAXMG_XLA_BAZEL_CACHE_ROOT:-${TMPDIR:-/tmp}/jaxmg-bazel-${USER:-user}}"
+BAZEL_OUTPUT_USER_ROOT="${JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT:-${BAZEL_CACHE_ROOT}/output_user_root}"
+BAZEL_REPOSITORY_CACHE="${JAXMG_XLA_BAZEL_REPOSITORY_CACHE:-${BAZEL_CACHE_ROOT}/repository_cache}"
 
-if [[ ! -d "${XLA_SRC}" ]]; then
-  echo "XLA source directory not found: ${XLA_SRC}" >&2
-  echo "Set XLA_SRC to the pinned OpenXLA checkout used by the JAXMg build." >&2
-  exit 1
+if [[ ! -d "${XLA_SRC}/.git" ]]; then
+  if [[ -e "${XLA_SRC}" ]]; then
+    echo "XLA source path exists but is not a git checkout: ${XLA_SRC}" >&2
+    echo "Set XLA_SRC to a valid OpenXLA checkout or remove the path." >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname "${XLA_SRC}")"
+  git clone "${XLA_GIT_REPOSITORY}" "${XLA_SRC}"
 fi
+
+if ! git -C "${XLA_SRC}" cat-file -e "${XLA_GIT_TAG}^{commit}" 2>/dev/null; then
+  git -C "${XLA_SRC}" fetch origin
+fi
+git -C "${XLA_SRC}" checkout --detach "${XLA_GIT_TAG}"
 
 if ! command -v "${BAZEL}" >/dev/null 2>&1; then
   if [[ -x "${ROOT}/tools/bazelisk" ]]; then
@@ -41,6 +54,9 @@ if [[ -z "${CUDA_MAJOR}" ]]; then
   echo "Unable to infer CUDA major version. Set CUDA_MAJOR." >&2
   exit 1
 fi
+
+echo "Using OpenXLA checkout: ${XLA_SRC}"
+echo "Using OpenXLA revision: $(git -C "${XLA_SRC}" rev-parse --short HEAD)"
 
 PROBE_PKG="${XLA_SRC}/jaxmg_probe"
 mkdir -p "${PROBE_PKG}/include" "${PROBE_PKG}/utils"

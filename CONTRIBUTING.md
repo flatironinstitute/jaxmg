@@ -20,68 +20,78 @@ https://github.com/openxla/xla/discussions/42689
 ## Build from source
 
 This branch pins JAX/JAXLIB to `0.10.1` and builds the native CUDA backend as a
-Bazel target inside the matching OpenXLA source tree. CMake is only used to
-materialize the pinned JAX/OpenXLA sources and hand off to Bazel.
+Bazel target inside the matching OpenXLA source tree.
 
 The expected source build is:
 
 ```bash
 export CUDA_ROOT=/path/to/cuda
 export CUDA_HOME="${CUDA_ROOT}"
-export JAX_VERSION=0.10.1
 export BAZEL=/path/to/bazel-or-bazelisk
 
 python -m pip install "jax[cuda12]==0.10.1"
 python -m pip install --no-deps -e .
 
-cmake -S . -B build-cu12-jax0101-absl20240722 -DJAX_VERSION="${JAX_VERSION}"
-cmake --build build-cu12-jax0101-absl20240722 --target xla_comm_cusolvermg_backend
+tools/build_xla_collective_probe_bazel.sh
 ```
 
 This installs `src/jaxmg/cu12/libxla_comm_collective_probe.so`, which registers
 the production `potrs_mg`, `potri_mg`, `syevd_mg`, `syevd_no_V_mg`, and
 `xla_comm_matrix_column_native_plan` FFI targets.
 
-The generic backend build helper can also be called directly after CMake has
-materialized the pinned JAX/OpenXLA source tree:
+The build helper checks out the pinned OpenXLA revision if `XLA_SRC` is not set.
+Use `XLA_SRC` to point at an existing checkout, or `JAXMG_XLA_SOURCE_ROOT` to
+choose where the helper stores its managed checkout. Bazel output defaults to
+`$TMPDIR` via `JAXMG_XLA_BAZEL_CACHE_ROOT`; override
+`JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT` and `JAXMG_XLA_BAZEL_REPOSITORY_CACHE` if the
+temporary filesystem is not suitable.
 
-```bash
-tools/build_xla_collective_probe_bazel.sh
-```
+CMake is retained only as a legacy compatibility wrapper for workflows that
+still call `cmake --build <build-dir> --target install`; it delegates to the
+Bazel helper and does not configure or compile native code itself.
 
 ## JAX and CUDA
 
-As of version 0.6.2, JAX can be installed for GPU usage in two ways:
+This branch pins the Python package to `jax==0.10.1` and builds the native
+backend against the matching OpenXLA revision:
 
-1. `pip install "jax[cuda12]"`: Install a NVIDIA python module along side the jax installation and rely on those binaries for CUDA functionality.
+```bash
+XLA_GIT_TAG=9b635916ecc6df6efee62d8e4b0c7ef87ef84d69
+```
 
-2. `pip install "jax[cuda12-local]"`: Rely on a local installation.
+For CUDA 12, install JAX with either:
 
-As of version 0.7.2, JAX is compatible with CUDA 13:
+1. `pip install "jax[cuda12]==0.10.1"` to use NVIDIA Python wheels pulled in by JAX.
 
-1. `pip install "jax[cuda13]"`:
+2. `pip install "jax[cuda12-local]==0.10.1"` to rely on a local CUDA installation.
 
-2. `pip install "jax[cuda13-local]"`
+CUDA 13 should use the same JAX pin with the CUDA 13 extras:
 
-At compilation time, we do not need to worry about the distinction between `cudax` and `cudax-local`, since the symbols we link again are resolved at runtime via `import jax`. However, 
+1. `pip install "jax[cuda13]==0.10.1"`
 
-Jaxlib contains C++ headers that have to be compiled against. To compile against a specific Jaxlib version, set the environment variable
-`JAX_VERSION` before building. For CUDA 12, `JAX_VERSION=0.6.2` is backwards compatible up to `jax==0.8.x`, but for CUDA 13 you must set
-`JAX_VERSION>=0.7.2` or you will get compilation errors.
+2. `pip install "jax[cuda13-local]==0.10.1"`
+
+Changing the JAX version is not only a Python dependency change: the XLA
+communicator APIs used here are internal OpenXLA APIs, so `XLA_GIT_TAG` and the
+Bazel target/dependency list in `tools/build_xla_collective_probe_bazel.sh`
+must be audited together with any JAX/JAXLIB version bump.
 
 ## Continuous integration
 
-We make use of Jenkins to build and test the code. We test the following configurations:
+We make use of Jenkins to build and test the code. Jenkins builds the native
+backend by calling `tools/build_xla_collective_probe_bazel.sh` inside the CUDA
+manylinux images, then packages the resulting shared library into wheels. We
+test the following configurations:
 
 1. A manylinux docker images (quay.io/pypa/manylinux_2_28_x86_64) where we install CUDA, CUDNN and NCCL.
 
 2. Python `3.11`, `3.12`, `3.13`, `3.14`
 
 3. For CUDA 12:
-   - JAX `0.6.2`, `0.7.1`, `0.8.1`
+   - JAX `0.10.1`
 
    For CUDA 13 **currently only building code but no testing due to lack of availibility of CC > 7.0 GPUs. Locally tested on Blackwell.**
-   - JAX `0.7.2`, `0.8.1`
+   - JAX `0.10.1`
 
 See `.jenkins/Jenkinsfile` for details
 
@@ -106,7 +116,7 @@ Get the latest built wheels from Jenkins:
 mkdir dist
 VERSION=0.0.8
 CUDA_FLAVOR=cuda12-local
-JAX_VERSION=0.8.1
+JAX_VERSION=0.10.1
 for PY in 3.11 3.12 3.13 3.14; do
    PYTAG=cp${PY/./}
    URL="https://jenkins.flatironinstitute.org/job/jaxmg/job/main/lastBuild/artifact/${CUDA_FLAVOR}/${PY}/${JAX_VERSION}/dist_repaired/jaxmg-${VERSION}-${PYTAG}-${PYTAG}-manylinux_2_26_x86_64.whl"

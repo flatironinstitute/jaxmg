@@ -21,17 +21,16 @@ pipeline {
                         PARALLEL = "${env.PARALLEL}"
                         CUDA_ROOT = '/usr/local/cuda'
                         CUDNN_ROOT = '/usr'
-                        JAX_VERSION = '0.6.2'
                         XLA_PYTHON_CLIENT_ALLOCATOR = 'platform'
                     }
                     steps {
                             sh '''#!/bin/bash -ex
                             export PATH="/usr/local/cuda/bin:$PATH"
                             export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+                            export CUDA_HOME="$CUDA_ROOT"
+                            export JAXMG_XLA_BAZEL_JOBS="${PARALLEL:-$(nproc)}"
 
-                            mkdir -p build && cd build
-                            cmake -DCMAKE_BUILD_TYPE=Release ..
-                            cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
+                            tools/build_xla_collective_probe_bazel.sh
                             echo "Built libs at $WORKSPACE/src/jaxmg/cu12:"
                             ls -la "$WORKSPACE/src/jaxmg/cu12"
                             '''
@@ -54,16 +53,15 @@ pipeline {
                         PARALLEL = "${env.PARALLEL}"
                         CUDA_ROOT = '/usr/local/cuda'
                         CUDNN_ROOT = '/usr'
-                        JAX_VERSION = '0.7.2'
                     }
                     steps {
                             sh '''#!/bin/bash -ex
                             export PATH="/usr/local/cuda/bin:$PATH"
                             export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+                            export CUDA_HOME="$CUDA_ROOT"
+                            export JAXMG_XLA_BAZEL_JOBS="${PARALLEL:-$(nproc)}"
 
-                            mkdir -p build && cd build
-                            cmake -DCMAKE_BUILD_TYPE=Release ..
-                            cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
+                            tools/build_xla_collective_probe_bazel.sh
                             echo "Built libs at $WORKSPACE/src/jaxmg/cu13:"
                             ls -la "$WORKSPACE/src/jaxmg/cu13"
                             '''
@@ -86,7 +84,6 @@ pipeline {
                         PARALLEL = "${env.PARALLEL}"
                         CUDA_ROOT = '/usr/local/cuda'
                         CUDNN_ROOT = '/usr'
-                        JAX_VERSION = '0.6.2'
                         CUDA_VISIBLE_DEVICES = '0,1'
                     }
                     steps {
@@ -98,14 +95,10 @@ pipeline {
                             script {
                             def cudaVersions = ['cuda12-local', ]
                             def pyVersions = ['3.11', '3.12', '3.13', '3.14', ]
-                            def jaxVersions = ['0.6.2', '0.7.1', '0.8.1', '0.9.1']
+                            def jaxVersions = ['0.10.1']
                             for (c in cudaVersions) {
                                 for (p in pyVersions) {
                                     for (j in jaxVersions) {
-                                        if (p == '3.14' && j == '0.6.2') {
-                                            echo "Skipping ${c}-${p}-${j}: python 3.14 with JAX 0.6.2 unsupported"
-                                            continue
-                                        }
                                         if (p == '3.11') {
                                             pytest_cmd = "python -m pytest -svv tests"
                                         } else {
@@ -182,7 +175,6 @@ pipeline {
                         PARALLEL = "${env.PARALLEL}"
                         CUDA_ROOT = '/usr/local/cuda'
                         CUDNN_ROOT = '/usr'
-                        JAX_VERSION = '0.7.2'
                         CUDA_VISIBLE_DEVICES = '0,1'
                     }
                     steps {
@@ -194,7 +186,7 @@ pipeline {
                             script {
                             def cudaVersions = ['cuda13-local', ]
                             def pyVersions = ['3.11', '3.12', '3.13', '3.14', ]
-                            def jaxVersions = ['0.7.2', '0.8.1']
+                            def jaxVersions = ['0.10.1']
                             for (c in cudaVersions) {
                                 for (p in pyVersions) {
                                     for (j in jaxVersions) {

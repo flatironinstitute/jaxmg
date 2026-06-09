@@ -66,13 +66,13 @@ absl::Status XlaCommCollectiveProbeDispatch(
 
   std::array<int32_t, 8> probe = {
       0,   // status
-      -1,  // reserved for parity with the CMake probe's cuda_device field
+      -1,  // reserved for parity with the legacy probe's cuda_device field
       -1,  // local_device_id
       -1,  // global_device_id
       -1,  // local_device_count
       0,   // has_platform_handle
       static_cast<int32_t>(token.size_bytes()),
-      -1,  // reserved for parity with the CMake probe's cuda_device_count field
+      -1,  // reserved for parity with the legacy probe's cuda_device_count field
   };
 
   // Keep failures encoded in the device output instead of returning early.
