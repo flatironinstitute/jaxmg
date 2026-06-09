@@ -25,24 +25,21 @@ def _run_two_rank_rectangle_transfer(layout, packed_rank0, packed_rank1):
     devices = np.asarray(jax.devices("gpu")[:2], dtype=object)
     mesh = Mesh(devices, ("x",))
 
-    host = np.stack(
-        [
-            np.arange(20, dtype=np.float32).reshape(4, 5),
-            100 + np.arange(20, dtype=np.float32).reshape(4, 5),
-        ]
-    )
-    matrix = jax.device_put(jnp.asarray(host), NamedSharding(mesh, P("x", None, None)))
+    rank0 = np.arange(20, dtype=np.float32).reshape(4, 5)
+    rank1 = 100 + np.arange(20, dtype=np.float32).reshape(4, 5)
+    host = np.concatenate([rank0, rank1], axis=0)
+    matrix = jax.device_put(jnp.asarray(host), NamedSharding(mesh, P("x", None)))
     scratch = jax.device_put(
-        jnp.full((2, 8), -1, dtype=jnp.float32),
-        NamedSharding(mesh, P("x", None)),
+        jnp.full((16,), -1, dtype=jnp.float32),
+        NamedSharding(mesh, P("x")),
     )
 
     out, scratch_out = xla_rect_transfer_probe_shardmap(
         matrix,
         scratch,
         mesh,
-        P("x", None, None),
         P("x", None),
+        P("x"),
         layout=layout,
         targets=[1, 0],
         src_row_starts=[1, 2],
@@ -56,14 +53,14 @@ def _run_two_rank_rectangle_transfer(layout, packed_rank0, packed_rank1):
     scratch_out.block_until_ready()
 
     expected = host.copy()
-    expected[1, 0:2, 0:2] = host[0, 1:3, 2:4]
-    expected[0, 0:2, 1:3] = host[1, 2:4, 3:5]
+    expected[4:6, 0:2] = rank0[1:3, 2:4]
+    expected[0:2, 1:3] = rank1[2:4, 3:5]
 
-    expected_scratch = np.full((2, 8), -1, dtype=np.float32)
-    expected_scratch[0, 0:4] = packed_rank0
-    expected_scratch[0, 4:8] = packed_rank1
-    expected_scratch[1, 0:4] = packed_rank1
-    expected_scratch[1, 4:8] = packed_rank0
+    expected_scratch = np.full((16,), -1, dtype=np.float32)
+    expected_scratch[0:4] = packed_rank0
+    expected_scratch[4:8] = packed_rank1
+    expected_scratch[8:12] = packed_rank1
+    expected_scratch[12:16] = packed_rank0
 
     np.testing.assert_array_equal(np.asarray(out), expected)
     np.testing.assert_array_equal(np.asarray(scratch_out), expected_scratch)
