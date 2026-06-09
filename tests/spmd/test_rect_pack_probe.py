@@ -45,3 +45,33 @@ def test_rect_pack_unpack_probe_float32():
 
     np.testing.assert_array_equal(np.asarray(packed), expected_packed)
     np.testing.assert_array_equal(np.asarray(out), expected_matrix)
+
+
+def test_rect_pack_unpack_probe_column_major_float32():
+    matrix = jnp.arange(20, dtype=jnp.float32).reshape(4, 5)
+    scratch = jnp.full((6,), -1, dtype=jnp.float32)
+
+    fn = jax.jit(
+        partial(
+            xla_rect_pack_unpack_probe,
+            layout="column_major",
+            row_start=1,
+            col_start=2,
+            row_count=3,
+            col_count=2,
+            target_row=0,
+            target_col=0,
+        ),
+        donate_argnums=(0, 1),
+    )
+    out, packed = fn(matrix, scratch)
+    out.block_until_ready()
+    packed.block_until_ready()
+
+    expected_rect = np.array([[7, 8], [12, 13], [17, 18]], dtype=np.float32)
+    expected_packed = np.array([7, 12, 17, 8, 13, 18], dtype=np.float32)
+    expected_matrix = np.arange(20, dtype=np.float32).reshape(4, 5)
+    expected_matrix[0:3, 0:2] = expected_rect
+
+    np.testing.assert_array_equal(np.asarray(packed), expected_packed)
+    np.testing.assert_array_equal(np.asarray(out), expected_matrix)

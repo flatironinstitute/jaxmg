@@ -146,6 +146,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaRectPackUnpackProbeFFI, XlaRectPackUnpackProbeDispatch,
     ffi::Ffi::Bind()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("layout")
         .Attr<int64_t>("row_start")
         .Attr<int64_t>("col_start")
         .Attr<int64_t>("row_count")

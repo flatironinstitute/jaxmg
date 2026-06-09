@@ -92,9 +92,14 @@ That has direct consequences for the proposed two-phase algorithm:
 
 The fragment schedule is intentionally conservative: it marks each raw
 tile-fragment move independently. For ordinary tile sizes this means both
-column-owner and row-owner fragment moves require packing in the row-major model.
-The row-owner phase may still be optimized later by grouping compatible
-fragments into full-width row slabs before issuing communication.
+column-owner and row-owner fragment moves require layout-aware packing. The
+current cuSolverMg backend is expressed with row-major local buffers, but
+cuSolverMp expects local matrices in column-major format. The logical
+redistribution plan is the same in either case; only the local address
+calculation used to pack/unpack a fragment changes. In column-major format,
+vertical column fragments are naturally contiguous and horizontal row fragments
+are strided. The row-owner phase may still be optimized later by grouping
+compatible fragments into full-width row slabs before issuing communication.
 
 The next implementation checkpoint should therefore not be a cuSOLVERMp solver
 call. It should be a GPU movement prototype that proves the column-owner phase
@@ -111,7 +116,11 @@ scratch, then performs:
 source rectangle in matrix -> contiguous scratch -> target rectangle in matrix
 ```
 
-using `cudaMemcpy2DAsync` on XLA's CUDA stream. This deliberately does not use
-the XLA communicator yet. It isolates the local strided-addressing part of the
-2D redistribution, which is needed before a packed fragment can be handed to
-NCCL/XLA communication for the inter-rank movement.
+using `cudaMemcpy2DAsync` on XLA's CUDA stream. The probe supports both
+row-major and column-major local matrix layouts. Row-major scratch is packed one
+logical source row at a time; column-major scratch is packed one logical source
+column at a time, matching cuSolverMp's local matrix convention. This
+deliberately does not use the XLA communicator yet. It isolates the local
+strided-addressing part of the 2D redistribution, which is needed before a
+packed fragment can be handed to NCCL/XLA communication for the inter-rank
+movement.

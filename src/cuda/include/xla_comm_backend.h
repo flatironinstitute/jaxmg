@@ -378,9 +378,10 @@ absl::Status XlaCommChunkPermuteProbeDispatch(
     const CollectiveCliques* collective_cliques);
 absl::Status XlaRectPackUnpackProbePrepare();
 absl::Status XlaRectPackUnpackProbeDispatch(
-    cudaStream_t cuda_stream, int64_t row_start, int64_t col_start,
-    int64_t row_count, int64_t col_count, int64_t target_row,
-    int64_t target_col, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    cudaStream_t cuda_stream, int64_t layout, int64_t row_start,
+    int64_t col_start, int64_t row_count, int64_t col_count,
+    int64_t target_row, int64_t target_col, ffi::AnyBuffer matrix,
+    ffi::AnyBuffer scratch,
     ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out);
 
