@@ -124,3 +124,22 @@ deliberately does not use the XLA communicator yet. It isolates the local
 strided-addressing part of the 2D redistribution, which is needed before a
 packed fragment can be handed to NCCL/XLA communication for the inter-rank
 movement.
+
+The next checkpoint is `xla_rect_transfer_probe`. It adds the communicator step
+around the same layout-aware pack/unpack primitive:
+
+```text
+source rectangle in matrix
+  -> send scratch slot
+  -> XLA CollectivePermute
+  -> receive scratch slot
+  -> target rectangle in matrix
+```
+
+The diagnostic uses two scratch slots per rank. This is intentional: a rank may
+send and receive in the same transfer round, and the receive payload must not
+overwrite the packed send payload before the communicator has consumed it. The
+probe accepts a static one-to-one `targets[source_rank] = target_rank` schedule
+plus source and destination rectangle offsets indexed by source rank. That shape
+matches one conservative fragment-transfer batch produced by the 2D planner,
+but it still stops short of executing the full block-cyclic redistribution.

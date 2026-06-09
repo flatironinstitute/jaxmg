@@ -384,6 +384,21 @@ absl::Status XlaRectPackUnpackProbeDispatch(
     ffi::AnyBuffer scratch,
     ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out);
+absl::Status XlaRectTransferProbePrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests);
+absl::Status XlaRectTransferProbeDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t layout, absl::Span<const int64_t> targets,
+    absl::Span<const int64_t> src_row_starts,
+    absl::Span<const int64_t> src_col_starts,
+    absl::Span<const int64_t> dst_row_starts,
+    absl::Span<const int64_t> dst_col_starts, int64_t row_count,
+    int64_t col_count, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    ffi::Result<ffi::AnyBuffer> matrix_out,
+    ffi::Result<ffi::AnyBuffer> scratch_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
 
 // Redistribution handlers. The step/batch variants are retained for focused
 // testing and diagnostics. The production solvers use the native-plan variant

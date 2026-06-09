@@ -702,6 +702,63 @@ def _validate_rect_pack_args(
     )
 
 
+def _validate_rect_transfer_args(
+    matrix: Array,
+    scratch: Array,
+    *,
+    layout="row_major",
+    targets,
+    src_row_starts,
+    src_col_starts,
+    dst_row_starts,
+    dst_col_starts,
+    row_count: int,
+    col_count: int,
+):
+    if matrix.ndim != 2:
+        raise ValueError("xla_rect_transfer_probe expects a rank-2 matrix.")
+    if scratch.ndim != 1:
+        raise ValueError("xla_rect_transfer_probe expects a rank-1 scratch.")
+    if matrix.dtype != scratch.dtype:
+        raise TypeError("matrix and scratch dtypes must match.")
+
+    layout_code = _rect_layout_code(layout)
+    target_array = _as_i64_attr("targets", targets)
+    src_row_array = _as_i64_attr("src_row_starts", src_row_starts)
+    src_col_array = _as_i64_attr("src_col_starts", src_col_starts)
+    dst_row_array = _as_i64_attr("dst_row_starts", dst_row_starts)
+    dst_col_array = _as_i64_attr("dst_col_starts", dst_col_starts)
+    if not (
+        target_array.shape
+        == src_row_array.shape
+        == src_col_array.shape
+        == dst_row_array.shape
+        == dst_col_array.shape
+    ):
+        raise ValueError(
+            "targets and all rectangle offset arrays must match in shape."
+        )
+    row_count = int(row_count)
+    col_count = int(col_count)
+    if row_count <= 0 or col_count <= 0:
+        raise ValueError("row_count and col_count must be positive.")
+    if scratch.shape[0] < 2 * row_count * col_count:
+        raise ValueError(
+            "scratch length must be at least 2 * row_count * col_count."
+        )
+
+    return (
+        layout_code,
+        target_array,
+        src_row_array,
+        src_col_array,
+        dst_row_array,
+        dst_col_array,
+        row_count,
+        col_count,
+    )
+
+
 def xla_rect_pack_unpack_probe(
     matrix: Array,
     scratch: Array,
@@ -810,6 +867,125 @@ def xla_rect_pack_unpack_probe_shardmap(
             col_count=col_count,
             target_row=target_row,
             target_col=target_col,
+        )
+
+    return impl(matrix, scratch)
+
+
+def xla_rect_transfer_probe(
+    matrix: Array,
+    scratch: Array,
+    *,
+    layout="row_major",
+    targets,
+    src_row_starts,
+    src_col_starts,
+    dst_row_starts,
+    dst_col_starts,
+    row_count: int,
+    col_count: int,
+) -> tuple[Array, Array]:
+    """Move one packed rectangular fragment per rank through XLA communication.
+
+    ``targets[source_rank] = target_rank`` describes a one-to-one transfer
+    round. Each participating source rank packs its local source rectangle into
+    the first scratch slot, sends that dense payload with XLA
+    ``CollectivePermute``, and each receiver unpacks the received payload from
+    the second scratch slot into its local destination rectangle.
+
+    This is the first GPU-to-GPU checkpoint for the cuSOLVERMp 2D
+    redistribution. It proves a scheduled tile fragment can be moved without a
+    second full matrix allocation. It is still diagnostic code, not the full
+    block-cyclic reshuffler.
+    """
+    (
+        layout_code,
+        target_array,
+        src_row_array,
+        src_col_array,
+        dst_row_array,
+        dst_col_array,
+        row_count,
+        col_count,
+    ) = _validate_rect_transfer_args(
+        matrix,
+        scratch,
+        layout=layout,
+        targets=targets,
+        src_row_starts=src_row_starts,
+        src_col_starts=src_col_starts,
+        dst_row_starts=dst_row_starts,
+        dst_col_starts=dst_col_starts,
+        row_count=row_count,
+        col_count=col_count,
+    )
+    ensure_init_jaxmg_backend()
+
+    out_type = (
+        jax.ShapeDtypeStruct(matrix.shape, matrix.dtype),
+        jax.ShapeDtypeStruct(scratch.shape, scratch.dtype),
+    )
+    matrix_layout = _RECT_JAX_LAYOUTS[layout_code]
+    ffi_fn = partial(
+        jax.ffi.ffi_call(
+            "xla_rect_transfer_probe",
+            out_type,
+            input_layouts=(matrix_layout, (0,)),
+            output_layouts=(matrix_layout, (0,)),
+            input_output_aliases={0: 0, 1: 1},
+        ),
+        layout=layout_code,
+        targets=target_array,
+        src_row_starts=src_row_array,
+        src_col_starts=src_col_array,
+        dst_row_starts=dst_row_array,
+        dst_col_starts=dst_col_array,
+        row_count=row_count,
+        col_count=col_count,
+    )
+    return ffi_fn(matrix, scratch)
+
+
+def xla_rect_transfer_probe_shardmap(
+    matrix: Array,
+    scratch: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    scratch_specs: P,
+    *,
+    layout="row_major",
+    targets,
+    src_row_starts,
+    src_col_starts,
+    dst_row_starts,
+    dst_col_starts,
+    row_count: int,
+    col_count: int,
+) -> tuple[Array, Array]:
+    """Run :func:`xla_rect_transfer_probe` over sharded local matrices."""
+    if not isinstance(matrix_specs, P) or not isinstance(scratch_specs, P):
+        raise TypeError("matrix_specs and scratch_specs must be PartitionSpec values.")
+
+    @partial(jax.jit, donate_argnums=(0, 1))
+    @partial(
+        jax.shard_map,
+        mesh=mesh,
+        in_specs=(matrix_specs, scratch_specs),
+        out_specs=(matrix_specs, scratch_specs),
+        check_vma=False,
+    )
+    def impl(_matrix, _scratch):
+        return xla_rect_transfer_probe(
+            _matrix,
+            _scratch,
+            layout=layout,
+            targets=targets,
+            src_row_starts=src_row_starts,
+            src_col_starts=src_col_starts,
+            dst_row_starts=dst_row_starts,
+            dst_col_starts=dst_col_starts,
+            row_count=row_count,
+            col_count=col_count,
         )
 
     return impl(matrix, scratch)

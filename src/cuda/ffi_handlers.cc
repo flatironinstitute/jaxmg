@@ -158,6 +158,33 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ret<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>());
 
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaRectTransferProbePrepareFFI, XlaRectTransferProbePrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaRectTransferProbeFFI, XlaRectTransferProbeDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("layout")
+        .Attr<absl::Span<const int64_t>>("targets")
+        .Attr<absl::Span<const int64_t>>("src_row_starts")
+        .Attr<absl::Span<const int64_t>>("src_col_starts")
+        .Attr<absl::Span<const int64_t>>("dst_row_starts")
+        .Attr<absl::Span<const int64_t>>("dst_col_starts")
+        .Attr<int64_t>("row_count")
+        .Attr<int64_t>("col_count")
+        .Arg<ffi::AnyBuffer>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
 // Redistribution handlers. The step and batch versions are diagnostics; the
 // native-plan handler is also called by Python's cyclic_1d helper.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
