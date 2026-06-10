@@ -32,6 +32,9 @@
 // custom CUDA kernel yet. The future communicator path can use the same packed
 // scratch representation as the send/receive payload.
 
+#include <algorithm>
+#include <functional>
+
 #include "include/xla_comm_backend.h"
 
 namespace xla::gpu {
@@ -143,36 +146,27 @@ struct NativeLocalRect {
   int64_t col_count;
 };
 
-bool SameRect(const NativeLocalRect& lhs, const NativeLocalRect& rhs) {
-  return lhs.row_start == rhs.row_start && lhs.col_start == rhs.col_start &&
-         lhs.row_count == rhs.row_count && lhs.col_count == rhs.col_count;
-}
+enum class Native2DStepKind : int64_t {
+  kMove = 0,
+  kSaveScratch = 1,
+  kRestoreScratch = 2,
+};
 
-struct Native2DTransfer {
+struct Native2DStep {
   int64_t phase;
+  Native2DStepKind kind;
   int64_t source_rank;
   int64_t target_rank;
   NativeLocalRect source;
   NativeLocalRect target;
 };
 
-struct Native2DBatch {
+struct Native2DStepBatch {
   int64_t phase;
-  std::vector<Native2DTransfer> transfers;
+  Native2DStepKind kind;
+  std::vector<Native2DStep> steps;
 };
 
-// Build the first native implementation of the cuSOLVERMp redistribution plan.
-// This intentionally covers only the tile-aligned case: the local block shard
-// can be split exactly into tile_rows x tile_cols rectangles. Under that
-// restriction each global tile has a single source rectangle and a single final
-// 2D block-cyclic owner:
-//
-//   source owner: the block-sharded JAX owner
-//   phase 0:      move to the correct process column
-//   phase 1:      move to the correct process row
-//
-// That two-phase form lets us preserve the high-level algorithm being tested in
-// Python while moving the schedule construction and execution into one FFI call.
 absl::Status CheckNativeLocalRect(const NativeLocalRect& rect,
                                   int64_t local_rows, int64_t local_cols) {
   if (rect.row_start < 0 || rect.col_start < 0 || rect.row_count <= 0 ||
@@ -187,7 +181,237 @@ absl::Status CheckNativeLocalRect(const NativeLocalRect& rect,
   return absl::OkStatus();
 }
 
-absl::StatusOr<std::vector<Native2DTransfer>> BuildTileAligned2DTransfers(
+// The optimized native redistribution is the 2D analogue of JAXMg's 1D
+// cyclic reshuffler. It does not move individual MB_A x NB_A tiles. Instead it
+// performs two coarser, separable permutations:
+//
+//   phase 0: within every process row, cyclically permute column slabs of
+//            shape local_rows x tile_cols into their target process column.
+//   phase 1: within every process column, cyclically permute row slabs of
+//            shape tile_rows x local_cols into their target process row.
+//
+// Each phase is still an in-place permutation, so we decompose it into the same
+// closed cycles used by the 1D code. Closed cycles save one live slab in
+// scratch, rotate the remaining slabs tail-to-head, then restore the saved
+// slab. Independent cycles across process rows/columns are then batched so a
+// single CollectivePermute moves one slab per participating rank.
+
+NativeLocalRect ColumnSlabRect(int64_t local_rows, int64_t tile_cols,
+                               int64_t local_col_block) {
+  return NativeLocalRect{/*row_start=*/0,
+                         /*col_start=*/local_col_block * tile_cols,
+                         /*row_count=*/local_rows,
+                         /*col_count=*/tile_cols};
+}
+
+NativeLocalRect RowSlabRect(int64_t tile_rows, int64_t local_cols,
+                            int64_t local_row_block) {
+  return NativeLocalRect{/*row_start=*/local_row_block * tile_rows,
+                         /*col_start=*/0,
+                         /*row_count=*/tile_rows,
+                         /*col_count=*/local_cols};
+}
+
+struct Native2DSlot {
+  int64_t rank;
+  NativeLocalRect rect;
+};
+
+Native2DSlot ColumnPhaseSlotToRankLocal(int64_t slot, int64_t process_cols,
+                                        int64_t col_blocks_per_rank,
+                                        int64_t local_rows,
+                                        int64_t tile_cols) {
+  const int64_t slots_per_process_row = process_cols * col_blocks_per_rank;
+  const int64_t process_row = slot / slots_per_process_row;
+  const int64_t row_slot = slot % slots_per_process_row;
+  const int64_t process_col = row_slot / col_blocks_per_rank;
+  const int64_t local_col_block = row_slot % col_blocks_per_rank;
+  return Native2DSlot{
+      /*rank=*/process_row * process_cols + process_col,
+      /*rect=*/ColumnSlabRect(local_rows, tile_cols, local_col_block),
+  };
+}
+
+Native2DSlot RowPhaseSlotToRankLocal(int64_t slot, int64_t process_rows,
+                                     int64_t process_cols,
+                                     int64_t row_blocks_per_rank,
+                                     int64_t tile_rows,
+                                     int64_t local_cols) {
+  const int64_t slots_per_process_col = process_rows * row_blocks_per_rank;
+  const int64_t process_col = slot / slots_per_process_col;
+  const int64_t col_slot = slot % slots_per_process_col;
+  const int64_t process_row = col_slot / row_blocks_per_rank;
+  const int64_t local_row_block = col_slot % row_blocks_per_rank;
+  return Native2DSlot{
+      /*rank=*/process_row * process_cols + process_col,
+      /*rect=*/RowSlabRect(tile_rows, local_cols, local_row_block),
+  };
+}
+
+absl::StatusOr<std::vector<int64_t>> BuildColumnSlabSlotMap(
+    int64_t process_rows, int64_t process_cols, int64_t col_blocks_per_rank) {
+  const int64_t slots_per_process_row = process_cols * col_blocks_per_rank;
+  std::vector<int64_t> target_for_source(process_rows * slots_per_process_row,
+                                         -1);
+
+  for (int64_t process_row = 0; process_row < process_rows; ++process_row) {
+    const int64_t row_base = process_row * slots_per_process_row;
+    for (int64_t global_tile_col = 0; global_tile_col < slots_per_process_row;
+         ++global_tile_col) {
+      const int64_t source_process_col =
+          global_tile_col / col_blocks_per_rank;
+      const int64_t source_local_col_block =
+          global_tile_col % col_blocks_per_rank;
+      const int64_t target_process_col = global_tile_col % process_cols;
+      const int64_t target_local_col_block =
+          global_tile_col / process_cols;
+
+      const int64_t source_slot =
+          row_base + source_process_col * col_blocks_per_rank +
+          source_local_col_block;
+      const int64_t target_slot =
+          row_base + target_process_col * col_blocks_per_rank +
+          target_local_col_block;
+      target_for_source[source_slot] = target_slot;
+    }
+  }
+
+  return target_for_source;
+}
+
+absl::StatusOr<std::vector<int64_t>> BuildRowSlabSlotMap(
+    int64_t process_rows, int64_t process_cols, int64_t row_blocks_per_rank) {
+  const int64_t slots_per_process_col = process_rows * row_blocks_per_rank;
+  std::vector<int64_t> target_for_source(process_cols * slots_per_process_col,
+                                         -1);
+
+  for (int64_t process_col = 0; process_col < process_cols; ++process_col) {
+    const int64_t col_base = process_col * slots_per_process_col;
+    for (int64_t global_tile_row = 0; global_tile_row < slots_per_process_col;
+         ++global_tile_row) {
+      const int64_t source_process_row =
+          global_tile_row / row_blocks_per_rank;
+      const int64_t source_local_row_block =
+          global_tile_row % row_blocks_per_rank;
+      const int64_t target_process_row = global_tile_row % process_rows;
+      const int64_t target_local_row_block =
+          global_tile_row / process_rows;
+
+      const int64_t source_slot =
+          col_base + source_process_row * row_blocks_per_rank +
+          source_local_row_block;
+      const int64_t target_slot =
+          col_base + target_process_row * row_blocks_per_rank +
+          target_local_row_block;
+      target_for_source[source_slot] = target_slot;
+    }
+  }
+
+  return target_for_source;
+}
+
+absl::StatusOr<std::map<int64_t, std::vector<int64_t>>> BuildNative2DCycles(
+    absl::Span<const int64_t> target_for_source) {
+  std::vector<uint8_t> visited(target_for_source.size(), 0);
+  std::map<int64_t, std::vector<int64_t>> cycles;
+
+  for (int64_t key = 0; key < static_cast<int64_t>(target_for_source.size());
+       ++key) {
+    int64_t target = target_for_source[key];
+    if (target < 0 || visited[key]) {
+      continue;
+    }
+    if (target == key) {
+      visited[key] = 1;
+      continue;
+    }
+
+    std::vector<int64_t> cycle = {key};
+    visited[key] = 1;
+    while (true) {
+      if (target < 0 ||
+          target >= static_cast<int64_t>(target_for_source.size())) {
+        return absl::InternalError(absl::StrFormat(
+            "native 2D redistribution reached invalid target slot %d",
+            target));
+      }
+      const int64_t next_target = target_for_source[target];
+      if (next_target < 0) {
+        cycle.push_back(target);
+        break;
+      }
+
+      const bool dst_visited = visited[target] != 0;
+      if (next_target == key) {
+        cycle.push_back(target);
+        visited[target] = 1;
+        cycle.push_back(next_target);
+        break;
+      }
+      if (dst_visited) {
+        auto prior = cycles.find(target);
+        if (prior != cycles.end()) {
+          cycle.insert(cycle.end(), prior->second.begin(),
+                       prior->second.end());
+          cycles.erase(prior);
+        } else {
+          cycle.push_back(target);
+        }
+        break;
+      }
+
+      cycle.push_back(target);
+      visited[target] = 1;
+      target = next_target;
+    }
+
+    if (cycle.size() > 1) {
+      cycles.emplace(key, std::move(cycle));
+    }
+  }
+
+  return cycles;
+}
+
+using SlotDecoder = std::function<Native2DSlot(int64_t)>;
+
+absl::Status AppendCycleSteps(int64_t phase, const SlotDecoder& decode_slot,
+                              const std::vector<int64_t>& slots,
+                              std::vector<Native2DStep>* steps) {
+  const bool is_closed = slots.size() > 1 && slots.front() == slots.back();
+  if (is_closed) {
+    const Native2DSlot saved = decode_slot(slots[slots.size() - 2]);
+    steps->push_back(Native2DStep{
+        phase, Native2DStepKind::kSaveScratch, saved.rank, -1, saved.rect,
+        NativeLocalRect{0, 0, 0, 0}});
+
+    for (int64_t index = static_cast<int64_t>(slots.size()) - 3; index >= 0;
+         --index) {
+      const Native2DSlot source = decode_slot(slots[index]);
+      const Native2DSlot target = decode_slot(slots[index + 1]);
+      steps->push_back(Native2DStep{
+          phase, Native2DStepKind::kMove, source.rank, target.rank,
+          source.rect, target.rect});
+    }
+
+    const Native2DSlot target = decode_slot(slots[0]);
+    steps->push_back(Native2DStep{
+        phase, Native2DStepKind::kRestoreScratch, saved.rank, target.rank,
+        NativeLocalRect{0, 0, 0, 0}, target.rect});
+    return absl::OkStatus();
+  }
+
+  for (int64_t index = static_cast<int64_t>(slots.size()) - 2; index >= 0;
+       --index) {
+    const Native2DSlot source = decode_slot(slots[index]);
+    const Native2DSlot target = decode_slot(slots[index + 1]);
+    steps->push_back(Native2DStep{phase, Native2DStepKind::kMove, source.rank,
+                                  target.rank, source.rect, target.rect});
+  }
+  return absl::OkStatus();
+}
+
+absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
     int64_t tile_cols, int64_t local_rows, int64_t local_cols) {
   if (process_rows <= 0 || process_cols <= 0 || tile_rows <= 0 ||
@@ -201,110 +425,85 @@ absl::StatusOr<std::vector<Native2DTransfer>> BuildTileAligned2DTransfers(
         "shards");
   }
 
-  const int64_t global_rows = local_rows * process_rows;
-  const int64_t global_cols = local_cols * process_cols;
-  const int64_t tile_row_count = global_rows / tile_rows;
-  const int64_t tile_col_count = global_cols / tile_cols;
+  const int64_t row_blocks_per_rank = local_rows / tile_rows;
+  const int64_t col_blocks_per_rank = local_cols / tile_cols;
+  std::vector<Native2DStep> steps;
 
-  std::vector<Native2DTransfer> transfers;
-  for (int64_t tile_row = 0; tile_row < tile_row_count; ++tile_row) {
-    const int64_t global_row = tile_row * tile_rows;
-    const int64_t source_process_row = global_row / local_rows;
-    const int64_t target_process_row = tile_row % process_rows;
-    const int64_t source_local_row = global_row - source_process_row * local_rows;
-    const int64_t final_local_row =
-        (tile_row / process_rows) * tile_rows;
-
-    for (int64_t tile_col = 0; tile_col < tile_col_count; ++tile_col) {
-      const int64_t global_col = tile_col * tile_cols;
-      const int64_t source_process_col = global_col / local_cols;
-      const int64_t target_process_col = tile_col % process_cols;
-      const int64_t source_local_col =
-          global_col - source_process_col * local_cols;
-      const int64_t final_local_col =
-          (tile_col / process_cols) * tile_cols;
-
-      const int64_t source_rank =
-          source_process_row * process_cols + source_process_col;
-      const int64_t after_col_rank =
-          source_process_row * process_cols + target_process_col;
-      const int64_t target_rank =
-          target_process_row * process_cols + target_process_col;
-
-      NativeLocalRect current_rect{source_local_row, source_local_col,
-                                   tile_rows, tile_cols};
-      NativeLocalRect after_col_rect{source_local_row, final_local_col,
-                                     tile_rows, tile_cols};
-      NativeLocalRect final_rect{final_local_row, final_local_col, tile_rows,
-                                 tile_cols};
-
-      JAXMG_RETURN_IF_ERROR(
-          CheckNativeLocalRect(current_rect, local_rows, local_cols));
-      JAXMG_RETURN_IF_ERROR(
-          CheckNativeLocalRect(after_col_rect, local_rows, local_cols));
-      JAXMG_RETURN_IF_ERROR(
-          CheckNativeLocalRect(final_rect, local_rows, local_cols));
-
-      int64_t current_rank = source_rank;
-      if (current_rank != after_col_rank ||
-          !SameRect(current_rect, after_col_rect)) {
-        transfers.push_back(Native2DTransfer{
-            /*phase=*/0, current_rank, after_col_rank, current_rect,
-            after_col_rect});
-        current_rank = after_col_rank;
-        current_rect = after_col_rect;
-      }
-      if (current_rank != target_rank || !SameRect(current_rect, final_rect)) {
-        transfers.push_back(Native2DTransfer{
-            /*phase=*/1, current_rank, target_rank, current_rect, final_rect});
-      }
-    }
+  absl::StatusOr<std::vector<int64_t>> column_slot_map =
+      BuildColumnSlabSlotMap(process_rows, process_cols, col_blocks_per_rank);
+  if (!column_slot_map.ok()) {
+    return column_slot_map.status();
+  }
+  absl::StatusOr<std::map<int64_t, std::vector<int64_t>>> column_cycles =
+      BuildNative2DCycles(*column_slot_map);
+  if (!column_cycles.ok()) {
+    return column_cycles.status();
+  }
+  SlotDecoder decode_column_slot = [&](int64_t slot) {
+    return ColumnPhaseSlotToRankLocal(slot, process_cols, col_blocks_per_rank,
+                                      local_rows, tile_cols);
+  };
+  for (const auto& cycle : *column_cycles) {
+    JAXMG_RETURN_IF_ERROR(
+        AppendCycleSteps(/*phase=*/0, decode_column_slot, cycle.second,
+                         &steps));
   }
 
-  return transfers;
+  absl::StatusOr<std::vector<int64_t>> row_slot_map =
+      BuildRowSlabSlotMap(process_rows, process_cols, row_blocks_per_rank);
+  if (!row_slot_map.ok()) {
+    return row_slot_map.status();
+  }
+  absl::StatusOr<std::map<int64_t, std::vector<int64_t>>> row_cycles =
+      BuildNative2DCycles(*row_slot_map);
+  if (!row_cycles.ok()) {
+    return row_cycles.status();
+  }
+  SlotDecoder decode_row_slot = [&](int64_t slot) {
+    return RowPhaseSlotToRankLocal(slot, process_rows, process_cols,
+                                   row_blocks_per_rank, tile_rows, local_cols);
+  };
+  for (const auto& cycle : *row_cycles) {
+    JAXMG_RETURN_IF_ERROR(
+        AppendCycleSteps(/*phase=*/1, decode_row_slot, cycle.second, &steps));
+  }
+
+  return steps;
 }
 
-std::vector<Native2DBatch> BatchNative2DTransfers(
-    const std::vector<Native2DTransfer>& transfers, int64_t num_ranks) {
-  std::vector<Native2DBatch> batches;
-  for (int64_t phase = 0; phase <= 1; ++phase) {
-    std::vector<std::vector<Native2DTransfer>> phase_batches;
-    std::vector<std::vector<bool>> used_sources;
-    std::vector<std::vector<bool>> used_targets;
+std::vector<Native2DStepBatch> BatchNative2DSteps(
+    const std::vector<Native2DStep>& steps) {
+  std::vector<Native2DStepBatch> batches;
 
-    for (const Native2DTransfer& transfer : transfers) {
-      if (transfer.phase != phase) {
+  for (const Native2DStep& step : steps) {
+    bool placed = false;
+    for (Native2DStepBatch& batch : batches) {
+      if (batch.phase != step.phase || batch.kind != step.kind) {
         continue;
       }
-      // Each collective-permute batch can use a rank at most once as a source
-      // and at most once as a target. A rank may still simultaneously send and
-      // receive, which is exactly what we want for permutation-style cycles.
-      bool placed = false;
-      for (size_t batch_index = 0; batch_index < phase_batches.size();
-           ++batch_index) {
-        if (used_sources[batch_index][transfer.source_rank] ||
-            used_targets[batch_index][transfer.target_rank]) {
-          continue;
+
+      bool conflicts = false;
+      for (const Native2DStep& existing : batch.steps) {
+        if (step.kind == Native2DStepKind::kSaveScratch) {
+          conflicts = conflicts || existing.source_rank == step.source_rank;
+        } else {
+          conflicts = conflicts || existing.source_rank == step.source_rank ||
+                      existing.target_rank == step.target_rank;
         }
-        phase_batches[batch_index].push_back(transfer);
-        used_sources[batch_index][transfer.source_rank] = true;
-        used_targets[batch_index][transfer.target_rank] = true;
-        placed = true;
-        break;
       }
-      if (!placed) {
-        phase_batches.push_back({transfer});
-        used_sources.push_back(std::vector<bool>(num_ranks, false));
-        used_targets.push_back(std::vector<bool>(num_ranks, false));
-        used_sources.back()[transfer.source_rank] = true;
-        used_targets.back()[transfer.target_rank] = true;
+      if (conflicts) {
+        continue;
       }
+      batch.steps.push_back(step);
+      placed = true;
+      break;
     }
 
-    for (std::vector<Native2DTransfer>& batch : phase_batches) {
-      batches.push_back(Native2DBatch{phase, std::move(batch)});
+    if (!placed) {
+      batches.push_back(Native2DStepBatch{step.phase, step.kind, {step}});
     }
   }
+
   return batches;
 }
 
@@ -734,83 +933,116 @@ absl::Status XlaRect2DNativePlanDispatch(
 
   const int64_t local_rows = matrix.dimensions()[0];
   const int64_t local_cols = matrix.dimensions()[1];
-  absl::StatusOr<std::vector<Native2DTransfer>> transfers =
-      BuildTileAligned2DTransfers(process_rows, process_cols, tile_rows,
-                                  tile_cols, local_rows, local_cols);
-  if (!transfers.ok()) {
-    return transfers.status();
+  absl::StatusOr<std::vector<Native2DStep>> steps =
+      BuildSlabNative2DSteps(process_rows, process_cols, tile_rows, tile_cols,
+                             local_rows, local_cols);
+  if (!steps.ok()) {
+    return steps.status();
   }
-  std::vector<Native2DBatch> batches =
-      BatchNative2DTransfers(*transfers, num_ranks);
+  std::vector<Native2DStepBatch> batches =
+      BatchNative2DSteps(*steps);
 
-  const int64_t rect_elements = tile_rows * tile_cols;
-  if (scratch.dimensions()[0] < 2 * rect_elements) {
+  const int64_t column_slab_elements = local_rows * tile_cols;
+  const int64_t row_slab_elements = tile_rows * local_cols;
+  const int64_t slab_elements =
+      std::max(column_slab_elements, row_slab_elements);
+  if (scratch.dimensions()[0] < 3 * slab_elements) {
     return absl::InvalidArgumentError(absl::StrFormat(
         "xla_rect_2d_native_plan scratch length %d is smaller than "
-        "2 * tile_rows * tile_cols = %d",
-        scratch.dimensions()[0], 2 * rect_elements));
+        "3 * max(local_rows * tile_cols, tile_rows * local_cols) = %d",
+        scratch.dimensions()[0], 3 * slab_elements));
   }
   const size_t element_bytes =
       matrix.size_bytes() / static_cast<size_t>(matrix.element_count());
-  const uint64_t rect_bytes =
-      static_cast<uint64_t>(rect_elements) * element_bytes;
+  const uint64_t slab_bytes =
+      static_cast<uint64_t>(slab_elements) * element_bytes;
 
   se::DeviceAddressBase matrix_out_base = matrix_out->device_memory();
   se::DeviceAddressBase scratch_out_base = scratch_out->device_memory();
+  se::DeviceAddressBase saved_slot =
+      scratch_out_base.GetByteSlice(0, slab_bytes);
   se::DeviceAddressBase send_slot =
-      scratch_out_base.GetByteSlice(0, rect_bytes);
+      scratch_out_base.GetByteSlice(slab_bytes, slab_bytes);
   se::DeviceAddressBase recv_slot =
-      scratch_out_base.GetByteSlice(rect_bytes, rect_bytes);
+      scratch_out_base.GetByteSlice(2 * slab_bytes, slab_bytes);
 
   JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, matrix, matrix_out));
   JAXMG_RETURN_IF_ERROR(CopyScratchIfNeeded(cuda_stream, scratch, scratch_out));
 
-  // Execute each conflict-free batch in sequence. Sources are packed from the
-  // mutable output buffer, because earlier batches may already have moved the
-  // tile into its intermediate phase-0 location.
-  for (const Native2DBatch& batch : batches) {
-    const Native2DTransfer* send_transfer = nullptr;
-    const Native2DTransfer* recv_transfer = nullptr;
-    for (const Native2DTransfer& transfer : batch.transfers) {
-      if (transfer.source_rank == rank_value) {
-        send_transfer = &transfer;
+  // Execute the slab-cycle schedule in conflict-free batches. Sources are read
+  // from the mutable output buffer: phase 1 consumes the column-cyclic layout
+  // written by phase 0, and later cycle steps consume earlier cycle moves.
+  for (const Native2DStepBatch& batch : batches) {
+    const Native2DStep* send_step = nullptr;
+    const Native2DStep* recv_step = nullptr;
+    for (const Native2DStep& step : batch.steps) {
+      if (step.source_rank == rank_value) {
+        send_step = &step;
       }
-      if (transfer.target_rank == rank_value) {
-        recv_transfer = &transfer;
+      if (step.target_rank == rank_value) {
+        recv_step = &step;
       }
     }
 
-    if (send_transfer == nullptr && recv_transfer == nullptr) {
+    if (send_step == nullptr && recv_step == nullptr) {
       continue;
     }
 
-    if (send_transfer != nullptr) {
+    if (batch.kind == Native2DStepKind::kSaveScratch) {
+      if (send_step == nullptr) {
+        continue;
+      }
       JAXMG_RETURN_IF_ERROR(PackRect(
           cuda_stream, *decoded_layout, local_rows, local_cols,
-          send_transfer->source.row_start, send_transfer->source.col_start,
-          send_transfer->source.row_count, send_transfer->source.col_count,
+          send_step->source.row_start, send_step->source.col_start,
+          send_step->source.row_count, send_step->source.col_count,
+          element_bytes, matrix_out_base, saved_slot));
+      continue;
+    }
+
+    if (batch.kind == Native2DStepKind::kMove && send_step != nullptr) {
+      JAXMG_RETURN_IF_ERROR(PackRect(
+          cuda_stream, *decoded_layout, local_rows, local_cols,
+          send_step->source.row_start, send_step->source.col_start,
+          send_step->source.row_count, send_step->source.col_count,
           element_bytes, matrix_out_base, send_slot));
     }
 
-    if (send_transfer != nullptr && recv_transfer != nullptr &&
-        send_transfer->source_rank == send_transfer->target_rank) {
-      // Local relocations still use the same packed scratch representation so
-      // overlap is handled consistently with cross-rank transfers.
-      JAXMG_RETURN_IF_ERROR(UnpackRect(
-          cuda_stream, *decoded_layout, local_rows, local_cols,
-          recv_transfer->target.row_start, recv_transfer->target.col_start,
-          recv_transfer->target.row_count, recv_transfer->target.col_count,
-          element_bytes, send_slot, matrix_out_base));
-      continue;
-    }
-
     std::optional<RankId> source_rank;
-    if (recv_transfer != nullptr) {
-      source_rank = RankId(recv_transfer->source_rank);
+    if (recv_step != nullptr) {
+      source_rank = RankId(recv_step->source_rank);
     }
     std::vector<RankId> target_ranks;
-    if (send_transfer != nullptr) {
-      target_ranks.push_back(RankId(send_transfer->target_rank));
+    if (send_step != nullptr && send_step->target_rank >= 0) {
+      target_ranks.push_back(RankId(send_step->target_rank));
+    }
+
+    const Native2DStep* shape_step =
+        send_step != nullptr ? send_step : recv_step;
+    const int64_t collective_elements =
+        batch.kind == Native2DStepKind::kRestoreScratch
+            ? shape_step->target.row_count * shape_step->target.col_count
+            : (send_step != nullptr
+                   ? send_step->source.row_count * send_step->source.col_count
+                   : recv_step->target.row_count * recv_step->target.col_count);
+    se::DeviceAddressBase collective_send_slot =
+        batch.kind == Native2DStepKind::kRestoreScratch ? saved_slot
+                                                        : send_slot;
+
+    if (send_step != nullptr && recv_step != nullptr &&
+        send_step->source_rank == send_step->target_rank) {
+      // Local movement still goes through packed scratch. This keeps overlap
+      // behavior identical for local and remote steps and avoids a separate
+      // in-place rectangle-copy path.
+      se::DeviceAddressBase local_source =
+          batch.kind == Native2DStepKind::kRestoreScratch ? saved_slot
+                                                          : send_slot;
+      JAXMG_RETURN_IF_ERROR(UnpackRect(
+          cuda_stream, *decoded_layout, local_rows, local_cols,
+          recv_step->target.row_start, recv_step->target.col_start,
+          recv_step->target.row_count, recv_step->target.col_count,
+          element_bytes, local_source, matrix_out_base));
+      continue;
     }
 
     absl::Status status = comm_stream->WaitFor(stream);
@@ -818,8 +1050,8 @@ absl::Status XlaRect2DNativePlanDispatch(
       return status;
     }
     Future<> future = (*comm)->CollectivePermute(
-        send_slot, recv_slot, matrix.element_type(),
-        static_cast<size_t>(rect_elements), source_rank, target_ranks,
+        collective_send_slot, recv_slot, matrix.element_type(),
+        static_cast<size_t>(collective_elements), source_rank, target_ranks,
         GpuCollectives::On(*comm_stream));
     status = future.Await();
     if (!status.ok()) {
@@ -830,11 +1062,11 @@ absl::Status XlaRect2DNativePlanDispatch(
       return status;
     }
 
-    if (recv_transfer != nullptr) {
+    if (recv_step != nullptr) {
       JAXMG_RETURN_IF_ERROR(UnpackRect(
           cuda_stream, *decoded_layout, local_rows, local_cols,
-          recv_transfer->target.row_start, recv_transfer->target.col_start,
-          recv_transfer->target.row_count, recv_transfer->target.col_count,
+          recv_step->target.row_start, recv_step->target.col_start,
+          recv_step->target.row_count, recv_step->target.col_count,
           element_bytes, recv_slot, matrix_out_base));
     }
   }

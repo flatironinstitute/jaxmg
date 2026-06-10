@@ -36,6 +36,30 @@ def required_rect_transfer_scratch_size(
     return 2 * max_elements
 
 
+def required_native_2d_plan_scratch_size(
+    *,
+    local_rows: int,
+    local_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+) -> int:
+    """Return the per-rank scratch length for the native slab scheduler.
+
+    The fused native path performs closed-cycle permutations over larger slabs:
+    ``local_rows x tile_cols`` for the column-owner phase and
+    ``tile_rows x local_cols`` for the row-owner phase. One scratch slot keeps
+    the saved cycle payload live while another send slot and receive slot are
+    used for the current CollectivePermute round.
+    """
+    local_rows = int(local_rows)
+    local_cols = int(local_cols)
+    tile_rows = int(tile_rows)
+    tile_cols = int(tile_cols)
+    if min(local_rows, local_cols, tile_rows, tile_cols) <= 0:
+        raise ValueError("local and tile dimensions must be positive.")
+    return 3 * max(local_rows * tile_cols, tile_rows * local_cols)
+
+
 def _shape_groups(
     transfers: tuple[ExecutableFragmentTransfer, ...],
 ) -> tuple[tuple[tuple[int, int], tuple[ExecutableFragmentTransfer, ...]], ...]:
@@ -166,9 +190,19 @@ def execute_tile_aligned_native_2d_plan_shardmap(
     if tile_rows <= 0 or tile_cols <= 0:
         raise ValueError("tile_rows and tile_cols must be positive.")
     scratch_per_rank = scratch.shape[0] // grid.num_processes
-    if scratch_per_rank < 2 * tile_rows * tile_cols:
+    if matrix.shape[0] % grid.process_rows or matrix.shape[1] % grid.process_cols:
+        raise ValueError("matrix shape must divide evenly over the process grid.")
+    local_rows = matrix.shape[0] // grid.process_rows
+    local_cols = matrix.shape[1] // grid.process_cols
+    required_scratch = required_native_2d_plan_scratch_size(
+        local_rows=local_rows,
+        local_cols=local_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+    )
+    if scratch_per_rank < required_scratch:
         raise ValueError(
-            "scratch is too small for the native tile-aligned 2D plan."
+            "scratch is too small for the native slab-aligned 2D plan."
         )
 
     return xla_rect_2d_native_plan_shardmap(

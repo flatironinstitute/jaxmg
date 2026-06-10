@@ -15,6 +15,7 @@ from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 from jaxmg._block_cyclic_2d_execute import (
     execute_tile_aligned_native_2d_plan_shardmap,
     execute_fragment_transfer_batches_shardmap,
+    required_native_2d_plan_scratch_size,
     required_rect_transfer_scratch_size,
 )
 from jaxmg._block_cyclic_2d_plan import (
@@ -140,7 +141,12 @@ def _run_native_executor_case(grid, host, scratch_specs, *, layout="row_major"):
         build_executable_fragment_transfer_schedule(plan)
     )
     expected = _expected_from_batches(host, grid, batches)
-    scratch_per_rank = 2 * tile_shape.rows * tile_shape.cols
+    scratch_per_rank = required_native_2d_plan_scratch_size(
+        local_rows=host.shape[0] // grid.process_rows,
+        local_cols=host.shape[1] // grid.process_cols,
+        tile_rows=tile_shape.rows,
+        tile_cols=tile_shape.cols,
+    )
 
     matrix = jax.device_put(
         jnp.asarray(host),
@@ -221,6 +227,27 @@ def test_native_two_by_two_executor_runs_row_major_layout():
 
 def test_native_two_by_two_executor_runs_column_major_layout():
     host = np.arange(64, dtype=np.float32).reshape(8, 8)
+
+    _run_native_executor_case(
+        ProcessGrid(process_rows=2, process_cols=2),
+        host,
+        P(("pr", "pc")),
+        layout="column_major",
+    )
+
+
+def test_native_two_by_two_executor_runs_larger_slab_cycles():
+    host = np.arange(256, dtype=np.float32).reshape(16, 16)
+
+    _run_native_executor_case(
+        ProcessGrid(process_rows=2, process_cols=2),
+        host,
+        P(("pr", "pc")),
+    )
+
+
+def test_native_two_by_two_executor_runs_larger_column_major_slab_cycles():
+    host = np.arange(256, dtype=np.float32).reshape(16, 16)
 
     _run_native_executor_case(
         ProcessGrid(process_rows=2, process_cols=2),

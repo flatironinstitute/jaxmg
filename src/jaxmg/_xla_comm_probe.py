@@ -790,9 +790,11 @@ def _validate_rect_2d_native_plan_args(
             "xla_rect_2d_native_plan currently requires tile-aligned local "
             "matrix shards."
         )
-    if scratch.shape[0] < 2 * tile_rows * tile_cols:
+    required_scratch = 3 * max(matrix.shape[0] * tile_cols, tile_rows * matrix.shape[1])
+    if scratch.shape[0] < required_scratch:
         raise ValueError(
-            "scratch length must be at least 2 * tile_rows * tile_cols."
+            "scratch length must be at least "
+            "3 * max(local_rows * tile_cols, tile_rows * local_cols)."
         )
 
     return layout_code, process_rows, process_cols, tile_rows, tile_cols
@@ -1045,9 +1047,12 @@ def xla_rect_2d_native_plan(
     This is the first fused native form of the cuSOLVERMp redistribution work.
     Python supplies only the process-grid shape, tile shape, layout, and
     donated buffers. The C++ handler constructs the block-to-2D-block-cyclic
-    tile schedule, batches conflict-free transfers, and executes those batches
-    through XLA ``CollectivePermute`` using one send and one receive scratch
-    slot per rank.
+    slab schedule, batches conflict-free cycle steps, and executes those
+    batches through XLA ``CollectivePermute``. The native schedule first
+    permutes column slabs of shape ``local_rows x tile_cols`` across process
+    columns, then row slabs of shape ``tile_rows x local_cols`` across process
+    rows. Closed cycles use one saved slab plus one send and one receive slab
+    in scratch.
 
     The current implementation is deliberately tile-aligned: every local shard
     dimension must be divisible by the corresponding tile dimension. Padding
