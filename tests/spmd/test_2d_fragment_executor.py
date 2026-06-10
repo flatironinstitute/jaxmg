@@ -77,6 +77,33 @@ def _expected_from_batches(host, grid, batches):
     return expected
 
 
+def _expected_block_cyclic_layout(host, grid, tile_shape):
+    local_rows = host.shape[0] // grid.process_rows
+    local_cols = host.shape[1] // grid.process_cols
+    expected = np.empty_like(host)
+
+    for global_row in range(host.shape[0]):
+        tile_row = global_row // tile_shape.rows
+        row_in_tile = global_row % tile_shape.rows
+        process_row = tile_row % grid.process_rows
+        local_row = (tile_row // grid.process_rows) * tile_shape.rows + row_in_tile
+
+        for global_col in range(host.shape[1]):
+            tile_col = global_col // tile_shape.cols
+            col_in_tile = global_col % tile_shape.cols
+            process_col = tile_col % grid.process_cols
+            local_col = (
+                (tile_col // grid.process_cols) * tile_shape.cols + col_in_tile
+            )
+
+            expected[
+                process_row * local_rows + local_row,
+                process_col * local_cols + local_col,
+            ] = host[global_row, global_col]
+
+    return expected
+
+
 def _run_executor_case(grid, host, scratch_specs, *, layout="row_major"):
     if len(jax.devices("gpu")) < grid.num_processes:
         pytest.skip(f"{grid.num_processes} GPUs are required. Skipping")
@@ -131,16 +158,7 @@ def _run_native_executor_case(grid, host, scratch_specs, *, layout="row_major"):
     )
     mesh = Mesh(devices, ("pr", "pc"))
     tile_shape = TileShape(rows=2, cols=2)
-    plan = build_two_phase_2d_plan(
-        logical_rows=host.shape[0],
-        logical_cols=host.shape[1],
-        tile_shape=tile_shape,
-        grid=grid,
-    )
-    batches = batch_executable_fragment_transfers(
-        build_executable_fragment_transfer_schedule(plan)
-    )
-    expected = _expected_from_batches(host, grid, batches)
+    expected = _expected_block_cyclic_layout(host, grid, tile_shape)
     scratch_per_rank = required_native_2d_plan_scratch_size(
         local_rows=host.shape[0] // grid.process_rows,
         local_cols=host.shape[1] // grid.process_cols,
