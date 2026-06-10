@@ -1,13 +1,16 @@
+import numpy as np
 import pytest
 
 from jaxmg._block_cyclic_2d_plan import (
     ProcessGrid,
     TileShape,
+    batch_edge_padding_compaction_moves,
     batch_executable_fragment_transfers,
     batch_fragment_transfers,
     block_cyclic_local_rect,
     block_cyclic_tile_owner,
     block_sharded_local_rect,
+    build_edge_padding_compaction_plan,
     build_executable_fragment_transfer_schedule,
     build_two_phase_fragment_transfer_schedule,
     build_two_phase_2d_plan,
@@ -17,6 +20,65 @@ from jaxmg._block_cyclic_2d_plan import (
     transfer_phase_groups,
 )
 from jaxmg._block_cyclic_2d_execute import required_rect_transfer_scratch_size
+
+
+def _rect_slice(rect):
+    return (
+        slice(rect.row_start, rect.row_stop),
+        slice(rect.col_start, rect.col_stop),
+    )
+
+
+def _initial_padded_buffers(host, plan):
+    buffers = {}
+    padding = plan.padding
+    for process_row in range(plan.grid.process_rows):
+        for process_col in range(plan.grid.process_cols):
+            rank = plan.grid.rank(process_row, process_col)
+            local = np.full(
+                (padding.local_physical_rows, padding.local_physical_cols),
+                -1,
+                dtype=host.dtype,
+            )
+            local[: padding.local_logical_rows, : padding.local_logical_cols] = host[
+                process_row
+                * padding.local_logical_rows : (process_row + 1)
+                * padding.local_logical_rows,
+                process_col
+                * padding.local_logical_cols : (process_col + 1)
+                * padding.local_logical_cols,
+            ]
+            buffers[rank] = local
+    return buffers
+
+
+def _apply_edge_padding_batches(buffers, batches):
+    for batch in batches:
+        payloads = [
+            (move, buffers[move.source_rank][_rect_slice(move.source_rect)].copy())
+            for move in batch.moves
+        ]
+        for move, _ in payloads:
+            buffers[move.source_rank][_rect_slice(move.source_rect)] = -1
+        for move, payload in payloads:
+            buffers[move.target_rank][_rect_slice(move.target_rect)] = payload
+
+
+def _assemble_physical_buffers(buffers, plan):
+    padding = plan.padding
+    out = np.empty((padding.physical_rows, padding.physical_cols), dtype=int)
+    for process_row in range(plan.grid.process_rows):
+        for process_col in range(plan.grid.process_cols):
+            rank = plan.grid.rank(process_row, process_col)
+            out[
+                process_row
+                * padding.local_physical_rows : (process_row + 1)
+                * padding.local_physical_rows,
+                process_col
+                * padding.local_physical_cols : (process_col + 1)
+                * padding.local_physical_cols,
+            ] = buffers[rank]
+    return out
 
 
 def test_2d_padding_matches_independent_1d_axis_rule():
@@ -66,6 +128,88 @@ def test_non_tile_aligned_source_blocks_report_split_tiles():
     assert (1, 0) in plan.split_tiles
     assert (0, 1) in plan.split_tiles
     assert (1, 1) in plan.split_tiles
+
+
+def test_edge_padding_compaction_is_empty_when_source_is_tile_aligned():
+    plan = build_edge_padding_compaction_plan(
+        logical_rows=16,
+        logical_cols=16,
+        tile_shape=TileShape(rows=4, cols=4),
+        grid=ProcessGrid(process_rows=2, process_cols=2),
+    )
+
+    assert not plan.padding.needs_padding
+    assert plan.moves == ()
+    assert batch_edge_padding_compaction_moves(plan.moves) == ()
+
+
+def test_edge_padding_compaction_uses_maximal_column_intervals():
+    plan = build_edge_padding_compaction_plan(
+        logical_rows=2,
+        logical_cols=9,
+        tile_shape=TileShape(rows=2, cols=5),
+        grid=ProcessGrid(process_rows=1, process_cols=3),
+    )
+
+    assert [move.source_rank for move in plan.horizontal_moves] == [1, 1, 2]
+    assert [move.target_rank for move in plan.horizontal_moves] == [0, 1, 1]
+    assert [move.source_rect.col_start for move in plan.horizontal_moves] == [0, 2, 0]
+    assert [move.target_rect.col_start for move in plan.horizontal_moves] == [3, 0, 1]
+    assert [move.source_rect.col_count for move in plan.horizontal_moves] == [2, 1, 3]
+    assert plan.vertical_moves == ()
+
+
+def test_edge_padding_compaction_batches_independent_process_rows_by_wave():
+    plan = build_edge_padding_compaction_plan(
+        logical_rows=4,
+        logical_cols=9,
+        tile_shape=TileShape(rows=2, cols=5),
+        grid=ProcessGrid(process_rows=2, process_cols=3),
+    )
+    batches = batch_edge_padding_compaction_moves(plan.moves)
+
+    assert [batch.phase for batch in batches] == [
+        "horizontal",
+        "horizontal",
+        "horizontal",
+    ]
+    assert [batch.wave for batch in batches] == [0, 1, 2]
+    assert [len(batch.moves) for batch in batches] == [2, 2, 2]
+    for batch in batches:
+        assert len(batch.source_ranks) == len(set(batch.source_ranks))
+        assert len(batch.target_ranks) == len(set(batch.target_ranks))
+
+
+def test_edge_padding_compaction_moves_real_data_to_top_left():
+    host = np.arange(100, dtype=int).reshape(10, 10)
+    plan = build_edge_padding_compaction_plan(
+        logical_rows=host.shape[0],
+        logical_cols=host.shape[1],
+        tile_shape=TileShape(rows=4, cols=4),
+        grid=ProcessGrid(process_rows=2, process_cols=2),
+    )
+    buffers = _initial_padded_buffers(host, plan)
+    batches = batch_edge_padding_compaction_moves(plan.moves)
+
+    assert plan.padding.row_padding_per_process == 3
+    assert plan.padding.col_padding_per_process == 3
+    assert [batch.phase for batch in batches] == [
+        "horizontal",
+        "horizontal",
+        "vertical",
+        "vertical",
+    ]
+    assert [batch.wave for batch in batches] == [0, 1, 0, 1]
+
+    _apply_edge_padding_batches(buffers, batches)
+    physical = _assemble_physical_buffers(buffers, plan)
+
+    np.testing.assert_array_equal(
+        physical[: plan.padding.logical_rows, : plan.padding.logical_cols],
+        host,
+    )
+    assert np.all(physical[: plan.padding.logical_rows, plan.padding.logical_cols :] == -1)
+    assert np.all(physical[plan.padding.logical_rows :, :] == -1)
 
 
 @pytest.mark.parametrize(

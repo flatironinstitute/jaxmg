@@ -6,6 +6,7 @@ from typing import Literal
 
 MemoryLayout = Literal["row_major", "column_major"]
 RedistributionPhase = Literal["column_owner", "row_owner"]
+EdgePaddingPhase = Literal["horizontal", "vertical"]
 
 
 @dataclass(frozen=True)
@@ -287,6 +288,58 @@ class ExecutableFragmentTransferBatch:
 
 
 @dataclass(frozen=True)
+class EdgePaddingCompactionMove:
+    """One maximal rectangle move in the edge-padding normalization pass."""
+
+    phase: EdgePaddingPhase
+    wave: int
+    phase_group: int
+    source_rank: int
+    target_rank: int
+    source_rect: LocalRect
+    target_rect: LocalRect
+
+    @property
+    def element_count(self) -> int:
+        return self.source_rect.row_count * self.source_rect.col_count
+
+
+@dataclass(frozen=True)
+class EdgePaddingCompactionBatch:
+    """Dependency wave of independent edge-padding compaction moves."""
+
+    phase: EdgePaddingPhase
+    wave: int
+    moves: tuple[EdgePaddingCompactionMove, ...]
+
+    @property
+    def source_ranks(self) -> tuple[int, ...]:
+        return tuple(move.source_rank for move in self.moves)
+
+    @property
+    def target_ranks(self) -> tuple[int, ...]:
+        return tuple(move.target_rank for move in self.moves)
+
+
+@dataclass(frozen=True)
+class EdgePaddingCompactionPlan:
+    """CPU plan for converting per-shard padding into global edge padding."""
+
+    grid: ProcessGrid
+    tile_shape: TileShape
+    padding: MatrixPadding2D
+    moves: tuple[EdgePaddingCompactionMove, ...]
+
+    @property
+    def horizontal_moves(self) -> tuple[EdgePaddingCompactionMove, ...]:
+        return tuple(move for move in self.moves if move.phase == "horizontal")
+
+    @property
+    def vertical_moves(self) -> tuple[EdgePaddingCompactionMove, ...]:
+        return tuple(move for move in self.moves if move.phase == "vertical")
+
+
+@dataclass(frozen=True)
 class BlockCyclic2DPlan:
     """CPU-only investigation plan for a 2D block-sharded to block-cyclic map."""
 
@@ -366,6 +419,202 @@ def calculate_2d_padding(
         physical_rows=local_physical_rows * grid.process_rows,
         physical_cols=local_physical_cols * grid.process_cols,
     )
+
+
+def _axis_edge_padding_moves(
+    *,
+    block_count: int,
+    logical_per_block: int,
+    physical_per_block: int,
+) -> tuple[tuple[int, int, int, int], ...]:
+    """Return maximal open-chain moves for one padded axis.
+
+    Each returned tuple is ``(wave, source_start, target_start, extent)`` in
+    global physical axis coordinates. The occupancy model treats initial
+    per-block padding as holes and stable-compacts real intervals to the left.
+    Move extents are clipped at block boundaries so every move maps to one
+    source rank and one target rank in the 2D process grid.
+    """
+    if block_count <= 0 or logical_per_block <= 0 or physical_per_block <= 0:
+        raise ValueError("block count and axis extents must be positive.")
+    if logical_per_block > physical_per_block:
+        raise ValueError("logical_per_block cannot exceed physical_per_block.")
+
+    total = block_count * physical_per_block
+    logical_total = block_count * logical_per_block
+    is_real = [False] * total
+    for block in range(block_count):
+        start = block * physical_per_block
+        for offset in range(logical_per_block):
+            is_real[start + offset] = True
+
+    moves: list[tuple[int, int, int, int]] = []
+    wave = 0
+    while True:
+        target_start = None
+        for index in range(logical_total):
+            if not is_real[index]:
+                target_start = index
+                break
+        if target_start is None:
+            break
+
+        target_stop = target_start
+        while target_stop < total and not is_real[target_stop]:
+            target_stop += 1
+
+        source_start = None
+        for index in range(target_stop, total):
+            if is_real[index]:
+                source_start = index
+                break
+        if source_start is None:
+            break
+
+        source_stop = source_start
+        while source_stop < total and is_real[source_stop]:
+            source_stop += 1
+
+        target_block_stop = (
+            target_start // physical_per_block + 1
+        ) * physical_per_block
+        source_block_stop = (
+            source_start // physical_per_block + 1
+        ) * physical_per_block
+        extent = min(
+            target_stop - target_start,
+            source_stop - source_start,
+            target_block_stop - target_start,
+            source_block_stop - source_start,
+        )
+        if extent <= 0:
+            raise RuntimeError("edge-padding compaction produced an empty move.")
+
+        moves.append((wave, source_start, target_start, extent))
+        for offset in range(extent):
+            if is_real[target_start + offset] or not is_real[source_start + offset]:
+                raise RuntimeError("invalid edge-padding compaction occupancy.")
+            is_real[target_start + offset] = True
+            is_real[source_start + offset] = False
+        wave += 1
+
+    return tuple(moves)
+
+
+def build_edge_padding_compaction_plan(
+    logical_rows: int,
+    logical_cols: int,
+    tile_shape: TileShape,
+    grid: ProcessGrid,
+) -> EdgePaddingCompactionPlan:
+    """Plan the top-left normalization needed after local shard padding.
+
+    The returned moves first compact column padding to the global right edge
+    inside every process row, then compact row padding to the global bottom edge
+    inside every process column. Moves are maximal axis-aligned rectangles whose
+    destinations are known padding holes at the time they are issued.
+    """
+    padding = calculate_2d_padding(logical_rows, logical_cols, grid, tile_shape)
+    moves: list[EdgePaddingCompactionMove] = []
+
+    horizontal_axis_moves = _axis_edge_padding_moves(
+        block_count=grid.process_cols,
+        logical_per_block=padding.local_logical_cols,
+        physical_per_block=padding.local_physical_cols,
+    )
+    for wave, source_col, target_col, extent in horizontal_axis_moves:
+        source_process_col = source_col // padding.local_physical_cols
+        target_process_col = target_col // padding.local_physical_cols
+        source_local_col = source_col % padding.local_physical_cols
+        target_local_col = target_col % padding.local_physical_cols
+        for process_row in range(grid.process_rows):
+            moves.append(
+                EdgePaddingCompactionMove(
+                    phase="horizontal",
+                    wave=wave,
+                    phase_group=process_row,
+                    source_rank=grid.rank(process_row, source_process_col),
+                    target_rank=grid.rank(process_row, target_process_col),
+                    source_rect=LocalRect(
+                        row_start=0,
+                        col_start=source_local_col,
+                        row_count=padding.local_physical_rows,
+                        col_count=extent,
+                    ),
+                    target_rect=LocalRect(
+                        row_start=0,
+                        col_start=target_local_col,
+                        row_count=padding.local_physical_rows,
+                        col_count=extent,
+                    ),
+                )
+            )
+
+    vertical_axis_moves = _axis_edge_padding_moves(
+        block_count=grid.process_rows,
+        logical_per_block=padding.local_logical_rows,
+        physical_per_block=padding.local_physical_rows,
+    )
+    for wave, source_row, target_row, extent in vertical_axis_moves:
+        source_process_row = source_row // padding.local_physical_rows
+        target_process_row = target_row // padding.local_physical_rows
+        source_local_row = source_row % padding.local_physical_rows
+        target_local_row = target_row % padding.local_physical_rows
+        for process_col in range(grid.process_cols):
+            moves.append(
+                EdgePaddingCompactionMove(
+                    phase="vertical",
+                    wave=wave,
+                    phase_group=process_col,
+                    source_rank=grid.rank(source_process_row, process_col),
+                    target_rank=grid.rank(target_process_row, process_col),
+                    source_rect=LocalRect(
+                        row_start=source_local_row,
+                        col_start=0,
+                        row_count=extent,
+                        col_count=padding.local_physical_cols,
+                    ),
+                    target_rect=LocalRect(
+                        row_start=target_local_row,
+                        col_start=0,
+                        row_count=extent,
+                        col_count=padding.local_physical_cols,
+                    ),
+                )
+            )
+
+    return EdgePaddingCompactionPlan(
+        grid=grid,
+        tile_shape=tile_shape,
+        padding=padding,
+        moves=tuple(moves),
+    )
+
+
+def batch_edge_padding_compaction_moves(
+    moves: tuple[EdgePaddingCompactionMove, ...],
+) -> tuple[EdgePaddingCompactionBatch, ...]:
+    """Group edge-padding moves by phase and dependency wave."""
+    batches: list[EdgePaddingCompactionBatch] = []
+    for phase in ("horizontal", "vertical"):
+        phase_moves = [move for move in moves if move.phase == phase]
+        waves = sorted({move.wave for move in phase_moves})
+        for wave in waves:
+            wave_moves = tuple(move for move in phase_moves if move.wave == wave)
+            sources = [move.source_rank for move in wave_moves]
+            targets = [move.target_rank for move in wave_moves]
+            if len(sources) != len(set(sources)) or len(targets) != len(set(targets)):
+                raise ValueError(
+                    "edge-padding wave contains repeated source or target ranks."
+                )
+            batches.append(
+                EdgePaddingCompactionBatch(
+                    phase=phase,
+                    wave=wave,
+                    moves=wave_moves,
+                )
+            )
+    return tuple(batches)
 
 
 def block_sharded_owner(
