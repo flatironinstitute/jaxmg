@@ -195,8 +195,12 @@ absl::Status CheckNativeLocalRect(const NativeLocalRect& rect,
 // Each phase is still an in-place permutation, so we decompose it into the same
 // closed cycles used by the 1D code. Closed cycles save one live slab in
 // scratch, rotate the remaining slabs tail-to-head, then restore the saved
-// slab. Independent cycles across process rows/columns are then batched so a
-// single CollectivePermute moves one slab per participating rank.
+// slab. Dependency order is preserved inside each cycle: sequence k+1 is never
+// merged into sequence k. Parallelism comes from applying the same sequence step
+// across independent process rows/columns. For example, one global tile-column
+// move is represented as matching local column-slab moves in every process row,
+// and those same-sequence moves are batched into one CollectivePermute round
+// when their ranks do not conflict.
 
 NativeLocalRect ColumnSlabRect(int64_t local_rows, int64_t tile_cols,
                                int64_t local_col_block) {
@@ -480,6 +484,10 @@ absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
 
 std::vector<Native2DStepBatch> BatchNative2DSteps(
     const std::vector<Native2DStep>& steps) {
+  // Group by phase, dependency sequence, and operation kind. This deliberately
+  // batches only the same step of the same cycle shape across independent
+  // process rows/columns. It does not combine different sequence numbers, since
+  // those represent dependent moves inside a cycle.
   std::map<std::tuple<int64_t, int64_t, int64_t>, std::vector<Native2DStep>>
       steps_by_round;
   for (const Native2DStep& step : steps) {

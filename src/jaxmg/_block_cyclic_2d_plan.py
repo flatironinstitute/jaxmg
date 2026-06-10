@@ -306,7 +306,13 @@ class EdgePaddingCompactionMove:
 
 @dataclass(frozen=True)
 class EdgePaddingCompactionBatch:
-    """Dependency wave of independent edge-padding compaction moves."""
+    """Dependency wave of matching edge-padding moves.
+
+    A batch represents the same compaction step applied across independent
+    process rows for horizontal compaction, or independent process columns for
+    vertical compaction. Different waves are not merged because wave ``k + 1``
+    consumes the holes created by wave ``k``.
+    """
 
     phase: EdgePaddingPhase
     wave: int
@@ -594,7 +600,12 @@ def build_edge_padding_compaction_plan(
 def batch_edge_padding_compaction_moves(
     moves: tuple[EdgePaddingCompactionMove, ...],
 ) -> tuple[EdgePaddingCompactionBatch, ...]:
-    """Group edge-padding moves by phase and dependency wave."""
+    """Group edge-padding moves by phase and dependency wave.
+
+    This exposes the intended parallelism: all process rows/columns perform the
+    same wave together when their source and target ranks are disjoint, while
+    later waves remain ordered behind earlier hole-propagation steps.
+    """
     batches: list[EdgePaddingCompactionBatch] = []
     for phase in ("horizontal", "vertical"):
         phase_moves = [move for move in moves if move.phase == phase]

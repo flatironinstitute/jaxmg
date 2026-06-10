@@ -146,6 +146,9 @@ for wave in horizontal_waves:
     execute independent row-compaction moves for all process rows
 ```
 
+This means batching the same hole-propagation step across rows, not merging
+different dependent steps from one row's chain.
+
 Within a wave, a rank may participate in multiple logical process rows only if
 the process grid mapping allows it without reusing the same scratch or
 destination interval. The conservative invariant is the same as the current
