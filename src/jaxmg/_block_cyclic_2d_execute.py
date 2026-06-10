@@ -11,6 +11,9 @@ from ._block_cyclic_2d_plan import (
     ExecutableFragmentTransfer,
     ExecutableFragmentTransferBatch,
     ProcessGrid,
+    TileShape,
+    batch_edge_padding_compaction_moves,
+    build_edge_padding_compaction_plan,
 )
 from ._xla_comm_probe import (
     xla_rect_2d_native_plan_shardmap,
@@ -76,6 +79,43 @@ def required_native_2d_plan_scratch_size(
     if min(local_rows, local_cols, tile_rows, tile_cols) <= 0:
         raise ValueError("local and tile dimensions must be positive.")
     return 3 * max(local_rows * tile_cols, tile_rows * local_cols)
+
+
+def required_padded_block_cyclic_2d_scratch_size(
+    *,
+    logical_rows: int,
+    logical_cols: int,
+    grid: ProcessGrid,
+    tile_rows: int,
+    tile_cols: int,
+) -> int:
+    """Return scratch needed for compaction followed by 2D redistribution.
+
+    The padded workflow reuses one scratch allocation for two ordered stages:
+    first edge-padding compaction, then the native tile-aligned 2D
+    block-cyclic scheduler. The caller therefore only needs the larger of the
+    two per-rank scratch requirements.
+    """
+    tile_shape = TileShape(rows=int(tile_rows), cols=int(tile_cols))
+    compaction_plan = build_edge_padding_compaction_plan(
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
+        tile_shape=tile_shape,
+        grid=grid,
+    )
+    compaction_batches = batch_edge_padding_compaction_moves(
+        compaction_plan.moves,
+    )
+    compaction_scratch = required_edge_padding_compaction_scratch_size(
+        compaction_batches,
+    )
+    native_scratch = required_native_2d_plan_scratch_size(
+        local_rows=compaction_plan.padding.local_physical_rows,
+        local_cols=compaction_plan.padding.local_physical_cols,
+        tile_rows=tile_shape.rows,
+        tile_cols=tile_shape.cols,
+    )
+    return max(compaction_scratch, native_scratch)
 
 
 RectangleMove = ExecutableFragmentTransfer | EdgePaddingCompactionMove
@@ -300,4 +340,82 @@ def execute_tile_aligned_native_2d_plan_shardmap(
         process_cols=grid.process_cols,
         tile_rows=tile_rows,
         tile_cols=tile_cols,
+    )
+
+
+def execute_padded_block_cyclic_2d_shardmap(
+    matrix: Array,
+    scratch: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    scratch_specs: P,
+    *,
+    logical_rows: int,
+    logical_cols: int,
+    grid: ProcessGrid,
+    tile_rows: int,
+    tile_cols: int,
+    layout="row_major",
+) -> tuple[Array, Array]:
+    """Run the current padded 2D redistribution checkpoint end to end.
+
+    ``matrix`` is expected to be the physical, per-rank padded buffer: each
+    local shard has enough row and column capacity for an integer number of
+    cuSOLVERMp tiles. This helper first compacts those local padding holes to
+    the global bottom/right edges, then invokes the native tile-aligned
+    block-cyclic scheduler over the resulting physical matrix.
+    """
+    if grid.num_processes <= 0:
+        raise ValueError("grid must contain at least one process.")
+    tile_shape = TileShape(rows=int(tile_rows), cols=int(tile_cols))
+    compaction_plan = build_edge_padding_compaction_plan(
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
+        tile_shape=tile_shape,
+        grid=grid,
+    )
+    padding = compaction_plan.padding
+    expected_shape = (padding.physical_rows, padding.physical_cols)
+    if tuple(matrix.shape) != expected_shape:
+        raise ValueError(
+            "matrix shape must be the physical padded shape "
+            f"{expected_shape}, got {tuple(matrix.shape)}."
+        )
+
+    required_scratch = required_padded_block_cyclic_2d_scratch_size(
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
+        grid=grid,
+        tile_rows=tile_shape.rows,
+        tile_cols=tile_shape.cols,
+    )
+    if required_scratch and scratch.shape[0] // grid.num_processes < required_scratch:
+        raise ValueError(
+            "scratch is too small for padded 2D block-cyclic redistribution."
+        )
+
+    compaction_batches = batch_edge_padding_compaction_moves(
+        compaction_plan.moves,
+    )
+    matrix, scratch = execute_edge_padding_compaction_batches_shardmap(
+        matrix,
+        scratch,
+        mesh,
+        matrix_specs,
+        scratch_specs,
+        compaction_batches,
+        grid=grid,
+        layout=layout,
+    )
+
+    return execute_tile_aligned_native_2d_plan_shardmap(
+        matrix,
+        scratch,
+        mesh,
+        matrix_specs,
+        scratch_specs,
+        grid=grid,
+        tile_rows=tile_shape.rows,
+        tile_cols=tile_shape.cols,
+        layout=layout,
     )

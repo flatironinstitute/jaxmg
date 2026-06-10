@@ -190,6 +190,13 @@ The required ordering is:
 The first two steps create a tile-addressable source domain. The last two steps
 move that source domain into cuSOLVERMp ownership.
 
+The current Python/JAX diagnostic path now exposes this ordering directly:
+`execute_padded_block_cyclic_2d_shardmap` first executes the CPU-planned
+edge-padding compaction waves with the rectangle-transfer FFI, then calls the
+native tile-aligned 2D scheduler. This is not yet the final cuSOLVERMp backend.
+It assumes the caller already has a physical padded buffer and it verifies the
+movement path before adding the cuSOLVERMp descriptor/handle layer.
+
 ## Contiguity
 
 The current native memory model is row-major for the movement engine: a full
