@@ -759,6 +759,45 @@ def _validate_rect_transfer_args(
     )
 
 
+def _validate_rect_2d_native_plan_args(
+    matrix: Array,
+    scratch: Array,
+    *,
+    layout="row_major",
+    process_rows: int,
+    process_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+) -> tuple[int, int, int, int, int]:
+    if matrix.ndim != 2:
+        raise ValueError("xla_rect_2d_native_plan expects a rank-2 matrix.")
+    if scratch.ndim != 1:
+        raise ValueError("xla_rect_2d_native_plan expects a rank-1 scratch.")
+    if matrix.dtype != scratch.dtype:
+        raise TypeError("matrix and scratch dtypes must match.")
+
+    layout_code = _rect_layout_code(layout)
+    process_rows = int(process_rows)
+    process_cols = int(process_cols)
+    tile_rows = int(tile_rows)
+    tile_cols = int(tile_cols)
+    if process_rows <= 0 or process_cols <= 0:
+        raise ValueError("process_rows and process_cols must be positive.")
+    if tile_rows <= 0 or tile_cols <= 0:
+        raise ValueError("tile_rows and tile_cols must be positive.")
+    if matrix.shape[0] % tile_rows != 0 or matrix.shape[1] % tile_cols != 0:
+        raise ValueError(
+            "xla_rect_2d_native_plan currently requires tile-aligned local "
+            "matrix shards."
+        )
+    if scratch.shape[0] < 2 * tile_rows * tile_cols:
+        raise ValueError(
+            "scratch length must be at least 2 * tile_rows * tile_cols."
+        )
+
+    return layout_code, process_rows, process_cols, tile_rows, tile_cols
+
+
 def xla_rect_pack_unpack_probe(
     matrix: Array,
     scratch: Array,
@@ -986,6 +1025,107 @@ def xla_rect_transfer_probe_shardmap(
             dst_col_starts=dst_col_starts,
             row_count=row_count,
             col_count=col_count,
+        )
+
+    return impl(matrix, scratch)
+
+
+def xla_rect_2d_native_plan(
+    matrix: Array,
+    scratch: Array,
+    *,
+    layout="row_major",
+    process_rows: int,
+    process_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+) -> tuple[Array, Array]:
+    """Apply a native-planned 2D tile redistribution on local shards.
+
+    This is the first fused native form of the cuSOLVERMp redistribution work.
+    Python supplies only the process-grid shape, tile shape, layout, and
+    donated buffers. The C++ handler constructs the block-to-2D-block-cyclic
+    tile schedule, batches conflict-free transfers, and executes those batches
+    through XLA ``CollectivePermute`` using one send and one receive scratch
+    slot per rank.
+
+    The current implementation is deliberately tile-aligned: every local shard
+    dimension must be divisible by the corresponding tile dimension. Padding
+    and partial-edge tiles will be added as a separate checkpoint.
+    """
+    (
+        layout_code,
+        process_rows,
+        process_cols,
+        tile_rows,
+        tile_cols,
+    ) = _validate_rect_2d_native_plan_args(
+        matrix,
+        scratch,
+        layout=layout,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+    )
+    ensure_init_jaxmg_backend()
+
+    out_type = (
+        jax.ShapeDtypeStruct(matrix.shape, matrix.dtype),
+        jax.ShapeDtypeStruct(scratch.shape, scratch.dtype),
+    )
+    matrix_layout = _RECT_JAX_LAYOUTS[layout_code]
+    ffi_fn = partial(
+        jax.ffi.ffi_call(
+            "xla_rect_2d_native_plan",
+            out_type,
+            input_layouts=(matrix_layout, (0,)),
+            output_layouts=(matrix_layout, (0,)),
+            input_output_aliases={0: 0, 1: 1},
+        ),
+        layout=layout_code,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+    )
+    return ffi_fn(matrix, scratch)
+
+
+def xla_rect_2d_native_plan_shardmap(
+    matrix: Array,
+    scratch: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    scratch_specs: P,
+    *,
+    layout="row_major",
+    process_rows: int,
+    process_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+) -> tuple[Array, Array]:
+    """Run :func:`xla_rect_2d_native_plan` over a 2D sharded matrix."""
+    if not isinstance(matrix_specs, P) or not isinstance(scratch_specs, P):
+        raise TypeError("matrix_specs and scratch_specs must be PartitionSpec values.")
+
+    @partial(jax.jit, donate_argnums=(0, 1))
+    @partial(
+        jax.shard_map,
+        mesh=mesh,
+        in_specs=(matrix_specs, scratch_specs),
+        out_specs=(matrix_specs, scratch_specs),
+        check_vma=False,
+    )
+    def impl(_matrix, _scratch):
+        return xla_rect_2d_native_plan(
+            _matrix,
+            _scratch,
+            layout=layout,
+            process_rows=process_rows,
+            process_cols=process_cols,
+            tile_rows=tile_rows,
+            tile_cols=tile_cols,
         )
 
     return impl(matrix, scratch)

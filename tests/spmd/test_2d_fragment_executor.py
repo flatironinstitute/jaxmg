@@ -13,6 +13,7 @@ import pytest
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
 from jaxmg._block_cyclic_2d_execute import (
+    execute_tile_aligned_native_2d_plan_shardmap,
     execute_fragment_transfer_batches_shardmap,
     required_rect_transfer_scratch_size,
 )
@@ -120,6 +121,53 @@ def _run_executor_case(grid, host, scratch_specs, *, layout="row_major"):
     np.testing.assert_array_equal(np.asarray(out), expected)
 
 
+def _run_native_executor_case(grid, host, scratch_specs, *, layout="row_major"):
+    if len(jax.devices("gpu")) < grid.num_processes:
+        pytest.skip(f"{grid.num_processes} GPUs are required. Skipping")
+
+    devices = np.asarray(jax.devices("gpu")[: grid.num_processes], dtype=object).reshape(
+        grid.process_rows, grid.process_cols
+    )
+    mesh = Mesh(devices, ("pr", "pc"))
+    tile_shape = TileShape(rows=2, cols=2)
+    plan = build_two_phase_2d_plan(
+        logical_rows=host.shape[0],
+        logical_cols=host.shape[1],
+        tile_shape=tile_shape,
+        grid=grid,
+    )
+    batches = batch_executable_fragment_transfers(
+        build_executable_fragment_transfer_schedule(plan)
+    )
+    expected = _expected_from_batches(host, grid, batches)
+    scratch_per_rank = 2 * tile_shape.rows * tile_shape.cols
+
+    matrix = jax.device_put(
+        jnp.asarray(host),
+        NamedSharding(mesh, P("pr", "pc")),
+    )
+    scratch = jax.device_put(
+        jnp.full((grid.num_processes * scratch_per_rank,), -1, dtype=jnp.float32),
+        NamedSharding(mesh, scratch_specs),
+    )
+
+    out, scratch_out = execute_tile_aligned_native_2d_plan_shardmap(
+        matrix,
+        scratch,
+        mesh,
+        P("pr", "pc"),
+        scratch_specs,
+        grid=grid,
+        tile_rows=tile_shape.rows,
+        tile_cols=tile_shape.cols,
+        layout=layout,
+    )
+    out.block_until_ready()
+    scratch_out.block_until_ready()
+
+    np.testing.assert_array_equal(np.asarray(out), expected)
+
+
 def test_column_owner_executor_reorders_two_process_columns():
     host = np.arange(32, dtype=np.float32).reshape(4, 8)
 
@@ -154,6 +202,27 @@ def test_two_by_two_executor_runs_column_major_layout():
     host = np.arange(64, dtype=np.float32).reshape(8, 8)
 
     _run_executor_case(
+        ProcessGrid(process_rows=2, process_cols=2),
+        host,
+        P(("pr", "pc")),
+        layout="column_major",
+    )
+
+
+def test_native_two_by_two_executor_runs_row_major_layout():
+    host = np.arange(64, dtype=np.float32).reshape(8, 8)
+
+    _run_native_executor_case(
+        ProcessGrid(process_rows=2, process_cols=2),
+        host,
+        P(("pr", "pc")),
+    )
+
+
+def test_native_two_by_two_executor_runs_column_major_layout():
+    host = np.arange(64, dtype=np.float32).reshape(8, 8)
+
+    _run_native_executor_case(
         ProcessGrid(process_rows=2, process_cols=2),
         host,
         P(("pr", "pc")),

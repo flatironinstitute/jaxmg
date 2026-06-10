@@ -256,6 +256,15 @@ def _initialize():
                 "execute": "XlaRectTransferProbeFFI",
             },
         )
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            _xla_comm_backend_library,
+            "xla_rect_2d_native_plan",
+            {
+                "prepare": "XlaRect2DNativePlanPrepareFFI",
+                "execute": "XlaRect2DNativePlanFFI",
+            },
+        )
 
     else:
         warnings.warn(

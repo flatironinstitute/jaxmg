@@ -10,7 +10,10 @@ from ._block_cyclic_2d_plan import (
     ExecutableFragmentTransferBatch,
     ProcessGrid,
 )
-from ._xla_comm_probe import xla_rect_transfer_probe_shardmap
+from ._xla_comm_probe import (
+    xla_rect_2d_native_plan_shardmap,
+    xla_rect_transfer_probe_shardmap,
+)
 
 
 def required_rect_transfer_scratch_size(
@@ -133,3 +136,50 @@ def execute_fragment_transfer_batches_shardmap(
             )
 
     return matrix, scratch
+
+
+def execute_tile_aligned_native_2d_plan_shardmap(
+    matrix: Array,
+    scratch: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    scratch_specs: P,
+    *,
+    grid: ProcessGrid,
+    tile_rows: int,
+    tile_cols: int,
+    layout="row_major",
+) -> tuple[Array, Array]:
+    """Execute the first fused native 2D redistribution checkpoint.
+
+    Unlike :func:`execute_fragment_transfer_batches_shardmap`, this path does
+    not pass a Python-built transfer schedule into repeated FFI calls. The
+    native handler builds the tile-level two-phase schedule itself, groups
+    conflict-free transfers, and executes the full redistribution in one FFI
+    call. It is currently restricted to tile-aligned local shards so that every
+    moved fragment has shape ``tile_rows x tile_cols``.
+    """
+    if grid.num_processes <= 0:
+        raise ValueError("grid must contain at least one process.")
+    tile_rows = int(tile_rows)
+    tile_cols = int(tile_cols)
+    if tile_rows <= 0 or tile_cols <= 0:
+        raise ValueError("tile_rows and tile_cols must be positive.")
+    scratch_per_rank = scratch.shape[0] // grid.num_processes
+    if scratch_per_rank < 2 * tile_rows * tile_cols:
+        raise ValueError(
+            "scratch is too small for the native tile-aligned 2D plan."
+        )
+
+    return xla_rect_2d_native_plan_shardmap(
+        matrix,
+        scratch,
+        mesh,
+        matrix_specs,
+        scratch_specs,
+        layout=layout,
+        process_rows=grid.process_rows,
+        process_cols=grid.process_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+    )
