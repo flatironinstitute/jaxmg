@@ -81,6 +81,84 @@ def _assemble_physical_buffers(buffers, plan):
     return out
 
 
+def _cusolvermp_numroc(n, block_size, process_coord, source_process, process_count):
+    count = 0
+    for index in range(n):
+        tile = index // block_size
+        if (source_process + tile) % process_count == process_coord:
+            count += 1
+    return count
+
+
+def _cusolvermp_row_major_rank(process_row, process_col, grid):
+    return process_row * grid.process_cols + process_col
+
+
+def _cusolvermp_block_cyclic_reference_buffers(
+    host,
+    *,
+    grid,
+    tile_shape,
+    lld,
+    local_col_capacity,
+    rsrc=0,
+    csrc=0,
+):
+    """Reference local buffers for a row-major cuSOLVERMp device grid.
+
+    This mirrors the relevant parts of the NVIDIA sample setup for the common
+    ``RSRC_A = CSRC_A = 0`` case: ownership is 2D block-cyclic, ranks are mapped
+    with ``CUSOLVERMP_GRID_MAPPING_ROW_MAJOR``, and each local matrix is indexed
+    as a column-major array with leading dimension ``lld``. The padded capacity
+    can be larger than the minimum ``NUMROC`` result; entries outside the
+    descriptor-visible logical matrix stay as ``-1``.
+    """
+    buffers = {
+        rank: np.full((lld, local_col_capacity), -1, dtype=host.dtype)
+        for rank in range(grid.num_processes)
+    }
+    local_rows_by_process = [
+        _cusolvermp_numroc(
+            host.shape[0],
+            tile_shape.rows,
+            process_row,
+            rsrc,
+            grid.process_rows,
+        )
+        for process_row in range(grid.process_rows)
+    ]
+    local_cols_by_process = [
+        _cusolvermp_numroc(
+            host.shape[1],
+            tile_shape.cols,
+            process_col,
+            csrc,
+            grid.process_cols,
+        )
+        for process_col in range(grid.process_cols)
+    ]
+    assert lld >= max(local_rows_by_process)
+    assert local_col_capacity >= max(local_cols_by_process)
+
+    for global_row in range(host.shape[0]):
+        tile_row = global_row // tile_shape.rows
+        row_in_tile = global_row % tile_shape.rows
+        process_row = (rsrc + tile_row) % grid.process_rows
+        local_row = (tile_row // grid.process_rows) * tile_shape.rows + row_in_tile
+
+        for global_col in range(host.shape[1]):
+            tile_col = global_col // tile_shape.cols
+            col_in_tile = global_col % tile_shape.cols
+            process_col = (csrc + tile_col) % grid.process_cols
+            local_col = (
+                (tile_col // grid.process_cols) * tile_shape.cols + col_in_tile
+            )
+            rank = _cusolvermp_row_major_rank(process_row, process_col, grid)
+            buffers[rank][local_row, local_col] = host[global_row, global_col]
+
+    return buffers
+
+
 def test_2d_padding_matches_independent_1d_axis_rule():
     padding = calculate_2d_padding(
         logical_rows=20,
@@ -613,3 +691,61 @@ def test_executable_schedule_reaches_expected_block_cyclic_local_buffers():
                 ]
 
     assert buffers == expected
+
+
+def test_padded_plan_matches_cusolvermp_row_major_local_buffer_reference():
+    grid = ProcessGrid(process_rows=2, process_cols=2)
+    tile_shape = TileShape(rows=4, cols=4)
+    host = np.arange(100, dtype=int).reshape(10, 10)
+    compaction_plan = build_edge_padding_compaction_plan(
+        logical_rows=host.shape[0],
+        logical_cols=host.shape[1],
+        tile_shape=tile_shape,
+        grid=grid,
+    )
+    buffers = _initial_padded_buffers(host, compaction_plan)
+    _apply_edge_padding_batches(
+        buffers,
+        batch_edge_padding_compaction_moves(compaction_plan.moves),
+    )
+
+    physical_plan = build_two_phase_2d_plan(
+        logical_rows=compaction_plan.padding.physical_rows,
+        logical_cols=compaction_plan.padding.physical_cols,
+        tile_shape=tile_shape,
+        grid=grid,
+    )
+    physical_batches = batch_executable_fragment_transfers(
+        build_executable_fragment_transfer_schedule(physical_plan)
+    )
+    for batch in physical_batches:
+        payloads = [
+            (
+                transfer,
+                buffers[transfer.source_rank][_rect_slice(transfer.source_rect)].copy(),
+            )
+            for transfer in batch.transfers
+        ]
+        for transfer, payload in payloads:
+            buffers[transfer.target_rank][_rect_slice(transfer.target_rect)] = payload
+
+    reference = _cusolvermp_block_cyclic_reference_buffers(
+        host,
+        grid=grid,
+        tile_shape=tile_shape,
+        lld=compaction_plan.padding.local_physical_rows,
+        local_col_capacity=compaction_plan.padding.local_physical_cols,
+    )
+
+    for rank, expected in reference.items():
+        np.testing.assert_array_equal(buffers[rank], expected)
+
+
+def test_process_grid_rank_matches_cusolvermp_row_major_mapping():
+    grid = ProcessGrid(process_rows=2, process_cols=3)
+
+    assert [
+        grid.rank(process_row, process_col)
+        for process_row in range(grid.process_rows)
+        for process_col in range(grid.process_cols)
+    ] == [0, 1, 2, 3, 4, 5]

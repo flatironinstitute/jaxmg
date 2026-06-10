@@ -451,3 +451,14 @@ def test_padded_block_cyclic_executor_runs_compaction_then_redistribution():
         host,
         P(("pr", "pc")),
     )
+
+
+def test_padded_block_cyclic_executor_runs_column_major_for_cusolvermp_layout():
+    host = np.arange(100, dtype=np.float32).reshape(10, 10)
+
+    _run_padded_block_cyclic_case(
+        ProcessGrid(process_rows=2, process_cols=2),
+        host,
+        P(("pr", "pc")),
+        layout="column_major",
+    )

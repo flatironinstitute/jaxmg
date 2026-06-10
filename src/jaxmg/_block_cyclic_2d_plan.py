@@ -11,7 +11,13 @@ EdgePaddingPhase = Literal["horizontal", "vertical"]
 
 @dataclass(frozen=True)
 class ProcessGrid:
-    """2D process grid used by a cuSOLVERMp descriptor."""
+    """2D process grid used by a cuSOLVERMp descriptor.
+
+    The current planner maps ``(process_row, process_col)`` to a flat rank in
+    row-major order. A cuSOLVERMp caller must therefore create the device grid
+    with ``CUSOLVERMP_GRID_MAPPING_ROW_MAJOR`` unless this planner is extended to
+    carry an explicit grid-mapping choice.
+    """
 
     process_rows: int
     process_cols: int
