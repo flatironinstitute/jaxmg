@@ -199,6 +199,125 @@ redistribution internally. This is not yet the final cuSOLVERMp backend. It
 assumes the caller already has a physical padded buffer and it verifies the
 movement path before adding the cuSOLVERMp descriptor/handle layer.
 
+### Parallelism and Scratch Invariants
+
+The native padded path does not ask Python to submit every rectangle move. Python
+validates the physical padded shape and scratch size, then calls one FFI target:
+
+```text
+xla_rect_padded_2d_native_plan
+```
+
+The C++ handler then builds and executes the full schedule:
+
+```text
+1. horizontal edge-padding compaction
+2. vertical edge-padding compaction
+3. column-owner slab permutation
+4. row-owner slab permutation
+```
+
+Parallelism means "the same dependency step across independent process
+rows/columns", not "all unrelated cycle steps at once". This keeps the scratch
+requirement fixed. Each rank has one scratch allocation split into three
+equal-size slots:
+
+```text
+saved slab
+send slab
+receive slab
+```
+
+For a `2 x 2` process grid, with a `10 x 10` matrix and `4 x 4` cuSOLVERMp
+tiles, each initial JAX block shard is `5 x 5`. The tile-aligned local capacity
+is therefore `8 x 8`.
+
+Horizontal compaction sees the column axis of each process row as:
+
+```text
+rank col 0: 5 real columns + 3 padding columns
+rank col 1: 5 real columns + 3 padding columns
+```
+
+The generated waves are:
+
+```text
+wave 0:
+  process row 0: rank 1 -> rank 0, move 8 x 3
+  process row 1: rank 3 -> rank 2, move 8 x 3
+
+wave 1:
+  process row 0: rank 1 -> rank 1, move 8 x 2
+  process row 1: rank 3 -> rank 3, move 8 x 2
+```
+
+The two moves in each wave are independent: no rank appears twice as a source or
+target, so one send and one receive slot per rank are enough. Wave 1 cannot be
+merged into wave 0 because it consumes the holes created by wave 0.
+
+Vertical compaction then applies the same open-chain logic along rows:
+
+```text
+wave 0:
+  process col 0: rank 2 -> rank 0, move 3 x 8
+  process col 1: rank 3 -> rank 1, move 3 x 8
+
+wave 1:
+  process col 0: rank 2 -> rank 2, move 2 x 8
+  process col 1: rank 3 -> rank 3, move 2 x 8
+```
+
+After these two compaction phases, the original `10 x 10` logical matrix is in
+the top-left of the `16 x 16` physical padded domain. Padding exists only on the
+global right and bottom edges.
+
+The block-cyclic redistribution then uses slab cycles instead of individual
+tiles. The column-owner phase fixes:
+
+```text
+target_process_col = tile_col % P_c
+```
+
+by moving slabs of shape:
+
+```text
+local_rows x NB_A
+```
+
+For the same `2 x 2`, `4 x 4` example this is `8 x 4`. A cycle step such as
+`rank 1 -> rank 0` in process row 0 can be batched with the matching
+`rank 3 -> rank 2` step in process row 1. These are the same logical transition
+applied across independent process rows.
+
+The row-owner phase then fixes:
+
+```text
+target_process_row = tile_row % P_r
+```
+
+by moving slabs of shape:
+
+```text
+MB_A x local_cols
+```
+
+For the example this is `4 x 8`. A step such as `rank 2 -> rank 0` in process
+column 0 can be batched with the matching `rank 3 -> rank 1` step in process
+column 1. These are the same logical transition applied across independent
+process columns.
+
+Closed permutation cycles are still dependency-ordered. The native code saves
+one live slab in the saved slot, rotates the remaining slabs through the
+send/receive slots, then restores the saved slab. Only conflict-free steps at
+the same dependency depth are batched together.
+
+The current layout check used a standalone cuSOLVERMp scatter verifier with the
+same padded example (`10 x 10`, `2 x 2`, `4 x 4`). It compared NVIDIA
+`cusolverMpMatrixScatterH2D` against the independent row-major-grid,
+column-major-local-buffer reference with `LLD = 8` and local column capacity
+`8`. That verifier passed, so the padded final layout matches cuSOLVERMp's
+scatter layout for this case.
+
 ## Contiguity
 
 The current native memory model is row-major for the movement engine: a full
