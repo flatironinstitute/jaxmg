@@ -75,7 +75,7 @@ def _expected_from_batches(host, grid, batches):
     return expected
 
 
-def _run_executor_case(grid, host, scratch_specs):
+def _run_executor_case(grid, host, scratch_specs, *, layout="row_major"):
     if len(jax.devices("gpu")) < grid.num_processes:
         pytest.skip(f"{grid.num_processes} GPUs are required. Skipping")
 
@@ -112,6 +112,7 @@ def _run_executor_case(grid, host, scratch_specs):
         scratch_specs,
         batches,
         grid=grid,
+        layout=layout,
     )
     out.block_until_ready()
     scratch_out.block_until_ready()
@@ -146,4 +147,15 @@ def test_two_by_two_executor_runs_column_then_row_phases():
         ProcessGrid(process_rows=2, process_cols=2),
         host,
         P(("pr", "pc")),
+    )
+
+
+def test_two_by_two_executor_runs_column_major_layout():
+    host = np.arange(64, dtype=np.float32).reshape(8, 8)
+
+    _run_executor_case(
+        ProcessGrid(process_rows=2, process_cols=2),
+        host,
+        P(("pr", "pc")),
+        layout="column_major",
     )
