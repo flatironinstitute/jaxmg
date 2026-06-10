@@ -13,15 +13,19 @@ import pytest
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
 from jaxmg._block_cyclic_2d_execute import (
+    execute_edge_padding_compaction_batches_shardmap,
     execute_tile_aligned_native_2d_plan_shardmap,
     execute_fragment_transfer_batches_shardmap,
+    required_edge_padding_compaction_scratch_size,
     required_native_2d_plan_scratch_size,
     required_rect_transfer_scratch_size,
 )
 from jaxmg._block_cyclic_2d_plan import (
     ProcessGrid,
     TileShape,
+    batch_edge_padding_compaction_moves,
     batch_executable_fragment_transfers,
+    build_edge_padding_compaction_plan,
     build_executable_fragment_transfer_schedule,
     build_two_phase_2d_plan,
 )
@@ -102,6 +106,31 @@ def _expected_block_cyclic_layout(host, grid, tile_shape):
             ] = host[global_row, global_col]
 
     return expected
+
+
+def _initial_edge_padded_host(host, plan):
+    padding = plan.padding
+    physical = np.full(
+        (padding.physical_rows, padding.physical_cols),
+        -1,
+        dtype=host.dtype,
+    )
+    for process_row in range(plan.grid.process_rows):
+        for process_col in range(plan.grid.process_cols):
+            row_start = process_row * padding.local_physical_rows
+            col_start = process_col * padding.local_physical_cols
+            physical[
+                row_start : row_start + padding.local_logical_rows,
+                col_start : col_start + padding.local_logical_cols,
+            ] = host[
+                process_row
+                * padding.local_logical_rows : (process_row + 1)
+                * padding.local_logical_rows,
+                process_col
+                * padding.local_logical_cols : (process_col + 1)
+                * padding.local_logical_cols,
+            ]
+    return physical
 
 
 def _run_executor_case(grid, host, scratch_specs, *, layout="row_major"):
@@ -192,6 +221,54 @@ def _run_native_executor_case(grid, host, scratch_specs, *, layout="row_major"):
     np.testing.assert_array_equal(np.asarray(out), expected)
 
 
+def _run_edge_padding_compaction_case(grid, host, scratch_specs, *, layout="row_major"):
+    if len(jax.devices("gpu")) < grid.num_processes:
+        pytest.skip(f"{grid.num_processes} GPUs are required. Skipping")
+
+    devices = np.asarray(jax.devices("gpu")[: grid.num_processes], dtype=object).reshape(
+        grid.process_rows, grid.process_cols
+    )
+    mesh = Mesh(devices, ("pr", "pc"))
+    tile_shape = TileShape(rows=4, cols=4)
+    plan = build_edge_padding_compaction_plan(
+        logical_rows=host.shape[0],
+        logical_cols=host.shape[1],
+        tile_shape=tile_shape,
+        grid=grid,
+    )
+    batches = batch_edge_padding_compaction_moves(plan.moves)
+    physical = _initial_edge_padded_host(host, plan)
+    scratch_per_rank = required_edge_padding_compaction_scratch_size(batches)
+
+    matrix = jax.device_put(
+        jnp.asarray(physical),
+        NamedSharding(mesh, P("pr", "pc")),
+    )
+    scratch = jax.device_put(
+        jnp.full((grid.num_processes * scratch_per_rank,), -1, dtype=jnp.float32),
+        NamedSharding(mesh, scratch_specs),
+    )
+
+    out, scratch_out = execute_edge_padding_compaction_batches_shardmap(
+        matrix,
+        scratch,
+        mesh,
+        P("pr", "pc"),
+        scratch_specs,
+        batches,
+        grid=grid,
+        layout=layout,
+    )
+    out.block_until_ready()
+    scratch_out.block_until_ready()
+
+    out_host = np.asarray(out)
+    np.testing.assert_array_equal(
+        out_host[: host.shape[0], : host.shape[1]],
+        host,
+    )
+
+
 def test_column_owner_executor_reorders_two_process_columns():
     host = np.arange(32, dtype=np.float32).reshape(4, 8)
 
@@ -272,4 +349,14 @@ def test_native_two_by_two_executor_runs_larger_column_major_slab_cycles():
         host,
         P(("pr", "pc")),
         layout="column_major",
+    )
+
+
+def test_edge_padding_compaction_moves_padded_shards_to_top_left():
+    host = np.arange(100, dtype=np.float32).reshape(10, 10)
+
+    _run_edge_padding_compaction_case(
+        ProcessGrid(process_rows=2, process_cols=2),
+        host,
+        P(("pr", "pc")),
     )

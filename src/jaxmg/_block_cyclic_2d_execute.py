@@ -6,6 +6,8 @@ from jax import Array
 from jax.sharding import Mesh, PartitionSpec as P
 
 from ._block_cyclic_2d_plan import (
+    EdgePaddingCompactionBatch,
+    EdgePaddingCompactionMove,
     ExecutableFragmentTransfer,
     ExecutableFragmentTransferBatch,
     ProcessGrid,
@@ -36,6 +38,22 @@ def required_rect_transfer_scratch_size(
     return 2 * max_elements
 
 
+def required_edge_padding_compaction_scratch_size(
+    batches: tuple[EdgePaddingCompactionBatch, ...],
+) -> int:
+    """Return the per-rank scratch length for edge-padding compaction.
+
+    The executor reuses ``xla_rect_transfer_probe``. Each FFI call moves one
+    shape group from one dependency wave, and the native probe uses one packed
+    send slot plus one receive slot per rank.
+    """
+    max_elements = 0
+    for batch in batches:
+        for move in batch.moves:
+            max_elements = max(max_elements, move.element_count)
+    return 2 * max_elements
+
+
 def required_native_2d_plan_scratch_size(
     *,
     local_rows: int,
@@ -60,17 +78,20 @@ def required_native_2d_plan_scratch_size(
     return 3 * max(local_rows * tile_cols, tile_rows * local_cols)
 
 
+RectangleMove = ExecutableFragmentTransfer | EdgePaddingCompactionMove
+
+
 def _shape_groups(
-    transfers: tuple[ExecutableFragmentTransfer, ...],
-) -> tuple[tuple[tuple[int, int], tuple[ExecutableFragmentTransfer, ...]], ...]:
-    grouped: dict[tuple[int, int], list[ExecutableFragmentTransfer]] = defaultdict(list)
+    transfers: tuple[RectangleMove, ...],
+) -> tuple[tuple[tuple[int, int], tuple[RectangleMove, ...]], ...]:
+    grouped: dict[tuple[int, int], list[RectangleMove]] = defaultdict(list)
     for transfer in transfers:
         grouped[(transfer.row_count, transfer.col_count)].append(transfer)
     return tuple((shape, tuple(grouped[shape])) for shape in sorted(grouped))
 
 
 def _attrs_for_shape_group(
-    transfers: tuple[ExecutableFragmentTransfer, ...],
+    transfers: tuple[RectangleMove, ...],
     *,
     num_ranks: int,
 ) -> tuple[list[int], list[int], list[int], list[int], list[int]]:
@@ -105,6 +126,50 @@ def _attrs_for_shape_group(
     )
 
 
+def _execute_rectangle_batches_shardmap(
+    matrix: Array,
+    scratch: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    scratch_specs: P,
+    batches,
+    *,
+    grid: ProcessGrid,
+    layout="row_major",
+) -> tuple[Array, Array]:
+    for batch in batches:
+        transfers = getattr(batch, "transfers", None)
+        if transfers is None:
+            transfers = batch.moves
+        for (row_count, col_count), shape_transfers in _shape_groups(transfers):
+            (
+                targets,
+                src_row_starts,
+                src_col_starts,
+                dst_row_starts,
+                dst_col_starts,
+            ) = _attrs_for_shape_group(
+                shape_transfers,
+                num_ranks=grid.num_processes,
+            )
+            matrix, scratch = xla_rect_transfer_probe_shardmap(
+                matrix,
+                scratch,
+                mesh,
+                matrix_specs,
+                scratch_specs,
+                layout=layout,
+                targets=targets,
+                src_row_starts=src_row_starts,
+                src_col_starts=src_col_starts,
+                dst_row_starts=dst_row_starts,
+                dst_col_starts=dst_col_starts,
+                row_count=row_count,
+                col_count=col_count,
+            )
+    return matrix, scratch
+
+
 def execute_fragment_transfer_batches_shardmap(
     matrix: Array,
     scratch: Array,
@@ -131,35 +196,54 @@ def execute_fragment_transfer_batches_shardmap(
             "scratch is too small for the largest executable rectangle transfer."
         )
 
-    for batch in batches:
-        for (row_count, col_count), transfers in _shape_groups(batch.transfers):
-            (
-                targets,
-                src_row_starts,
-                src_col_starts,
-                dst_row_starts,
-                dst_col_starts,
-            ) = _attrs_for_shape_group(
-                transfers,
-                num_ranks=grid.num_processes,
-            )
-            matrix, scratch = xla_rect_transfer_probe_shardmap(
-                matrix,
-                scratch,
-                mesh,
-                matrix_specs,
-                scratch_specs,
-                layout=layout,
-                targets=targets,
-                src_row_starts=src_row_starts,
-                src_col_starts=src_col_starts,
-                dst_row_starts=dst_row_starts,
-                dst_col_starts=dst_col_starts,
-                row_count=row_count,
-                col_count=col_count,
-            )
+    return _execute_rectangle_batches_shardmap(
+        matrix,
+        scratch,
+        mesh,
+        matrix_specs,
+        scratch_specs,
+        batches,
+        grid=grid,
+        layout=layout,
+    )
 
-    return matrix, scratch
+
+def execute_edge_padding_compaction_batches_shardmap(
+    matrix: Array,
+    scratch: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    scratch_specs: P,
+    batches: tuple[EdgePaddingCompactionBatch, ...],
+    *,
+    grid: ProcessGrid,
+    layout="row_major",
+) -> tuple[Array, Array]:
+    """Execute edge-padding compaction waves through rectangle transfers.
+
+    This is the first GPU checkpoint for top-left padding normalization. It
+    executes the CPU-planned horizontal and vertical waves in order, using the
+    existing rectangle-transfer FFI for both inter-rank and same-rank moves.
+    Source holes are logical holes; this diagnostic executor does not clear the
+    old source bytes after moving them.
+    """
+    if grid.num_processes <= 0:
+        raise ValueError("grid must contain at least one process.")
+    required_scratch = required_edge_padding_compaction_scratch_size(batches)
+    if required_scratch and scratch.shape[0] // grid.num_processes < required_scratch:
+        raise ValueError(
+            "scratch is too small for the largest edge-padding compaction move."
+        )
+    return _execute_rectangle_batches_shardmap(
+        matrix,
+        scratch,
+        mesh,
+        matrix_specs,
+        scratch_specs,
+        batches,
+        grid=grid,
+        layout=layout,
+    )
 
 
 def execute_tile_aligned_native_2d_plan_shardmap(

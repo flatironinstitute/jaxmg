@@ -303,6 +303,14 @@ class EdgePaddingCompactionMove:
     def element_count(self) -> int:
         return self.source_rect.row_count * self.source_rect.col_count
 
+    @property
+    def row_count(self) -> int:
+        return self.source_rect.row_count
+
+    @property
+    def col_count(self) -> int:
+        return self.source_rect.col_count
+
 
 @dataclass(frozen=True)
 class EdgePaddingCompactionBatch:
