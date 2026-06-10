@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <tuple>
 
 #include "include/xla_comm_backend.h"
 
@@ -154,6 +155,7 @@ enum class Native2DStepKind : int64_t {
 
 struct Native2DStep {
   int64_t phase;
+  int64_t sequence;
   Native2DStepKind kind;
   int64_t source_rank;
   int64_t target_rank;
@@ -381,32 +383,37 @@ absl::Status AppendCycleSteps(int64_t phase, const SlotDecoder& decode_slot,
   const bool is_closed = slots.size() > 1 && slots.front() == slots.back();
   if (is_closed) {
     const Native2DSlot saved = decode_slot(slots[slots.size() - 2]);
-    steps->push_back(Native2DStep{
-        phase, Native2DStepKind::kSaveScratch, saved.rank, -1, saved.rect,
-        NativeLocalRect{0, 0, 0, 0}});
+    steps->push_back(Native2DStep{phase, /*sequence=*/0,
+                                  Native2DStepKind::kSaveScratch, saved.rank,
+                                  -1, saved.rect,
+                                  NativeLocalRect{0, 0, 0, 0}});
 
+    int64_t sequence = 1;
     for (int64_t index = static_cast<int64_t>(slots.size()) - 3; index >= 0;
-         --index) {
+         --index, ++sequence) {
       const Native2DSlot source = decode_slot(slots[index]);
       const Native2DSlot target = decode_slot(slots[index + 1]);
-      steps->push_back(Native2DStep{
-          phase, Native2DStepKind::kMove, source.rank, target.rank,
-          source.rect, target.rect});
+      steps->push_back(Native2DStep{phase, sequence, Native2DStepKind::kMove,
+                                    source.rank, target.rank, source.rect,
+                                    target.rect});
     }
 
     const Native2DSlot target = decode_slot(slots[0]);
-    steps->push_back(Native2DStep{
-        phase, Native2DStepKind::kRestoreScratch, saved.rank, target.rank,
-        NativeLocalRect{0, 0, 0, 0}, target.rect});
+    steps->push_back(Native2DStep{phase, sequence,
+                                  Native2DStepKind::kRestoreScratch,
+                                  saved.rank, target.rank,
+                                  NativeLocalRect{0, 0, 0, 0}, target.rect});
     return absl::OkStatus();
   }
 
+  int64_t sequence = 0;
   for (int64_t index = static_cast<int64_t>(slots.size()) - 2; index >= 0;
-       --index) {
+       --index, ++sequence) {
     const Native2DSlot source = decode_slot(slots[index]);
     const Native2DSlot target = decode_slot(slots[index + 1]);
-    steps->push_back(Native2DStep{phase, Native2DStepKind::kMove, source.rank,
-                                  target.rank, source.rect, target.rect});
+    steps->push_back(Native2DStep{phase, sequence, Native2DStepKind::kMove,
+                                  source.rank, target.rank, source.rect,
+                                  target.rect});
   }
   return absl::OkStatus();
 }
@@ -473,35 +480,43 @@ absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
 
 std::vector<Native2DStepBatch> BatchNative2DSteps(
     const std::vector<Native2DStep>& steps) {
+  std::map<std::tuple<int64_t, int64_t, int64_t>, std::vector<Native2DStep>>
+      steps_by_round;
+  for (const Native2DStep& step : steps) {
+    steps_by_round[{step.phase, step.sequence,
+                    static_cast<int64_t>(step.kind)}]
+        .push_back(step);
+  }
+
   std::vector<Native2DStepBatch> batches;
 
-  for (const Native2DStep& step : steps) {
-    bool placed = false;
-    for (Native2DStepBatch& batch : batches) {
-      if (batch.phase != step.phase || batch.kind != step.kind) {
-        continue;
-      }
-
+  for (const auto& [key, round_steps] : steps_by_round) {
+    const int64_t phase = std::get<0>(key);
+    const Native2DStepKind kind =
+        static_cast<Native2DStepKind>(std::get<2>(key));
+    std::vector<Native2DStepBatch> round_batches;
+    for (const Native2DStep& step : round_steps) {
       bool conflicts = false;
-      for (const Native2DStep& existing : batch.steps) {
-        if (step.kind == Native2DStepKind::kSaveScratch) {
-          conflicts = conflicts || existing.source_rank == step.source_rank;
-        } else {
-          conflicts = conflicts || existing.source_rank == step.source_rank ||
-                      existing.target_rank == step.target_rank;
+      for (Native2DStepBatch& batch : round_batches) {
+        conflicts = false;
+        for (const Native2DStep& existing : batch.steps) {
+          if (step.kind == Native2DStepKind::kSaveScratch) {
+            conflicts = conflicts || existing.source_rank == step.source_rank;
+          } else {
+            conflicts = conflicts || existing.source_rank == step.source_rank ||
+                        existing.target_rank == step.target_rank;
+          }
+        }
+        if (!conflicts) {
+          batch.steps.push_back(step);
+          break;
         }
       }
-      if (conflicts) {
-        continue;
+      if (conflicts || round_batches.empty()) {
+        round_batches.push_back(Native2DStepBatch{phase, kind, {step}});
       }
-      batch.steps.push_back(step);
-      placed = true;
-      break;
     }
-
-    if (!placed) {
-      batches.push_back(Native2DStepBatch{step.phase, step.kind, {step}});
-    }
+    batches.insert(batches.end(), round_batches.begin(), round_batches.end());
   }
 
   return batches;
