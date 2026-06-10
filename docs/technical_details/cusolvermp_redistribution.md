@@ -143,3 +143,6 @@ probe accepts a static one-to-one `targets[source_rank] = target_rank` schedule
 plus source and destination rectangle offsets indexed by source rank. That shape
 matches one conservative fragment-transfer batch produced by the 2D planner,
 but it still stops short of executing the full block-cyclic redistribution.
+
+The production roadmap from these diagnostics to a fully native NCCL/cuSOLVERMp
+backend is documented in `cusolvermp_native_nccl_plan.md`.
