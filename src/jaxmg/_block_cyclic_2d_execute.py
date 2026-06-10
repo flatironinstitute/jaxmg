@@ -17,6 +17,7 @@ from ._block_cyclic_2d_plan import (
 )
 from ._xla_comm_probe import (
     xla_rect_2d_native_plan_shardmap,
+    xla_rect_padded_2d_native_plan_shardmap,
     xla_rect_transfer_probe_shardmap,
 )
 
@@ -89,12 +90,12 @@ def required_padded_block_cyclic_2d_scratch_size(
     tile_rows: int,
     tile_cols: int,
 ) -> int:
-    """Return scratch needed for compaction followed by 2D redistribution.
+    """Return scratch needed by the fused padded native 2D scheduler.
 
-    The padded workflow reuses one scratch allocation for two ordered stages:
-    first edge-padding compaction, then the native tile-aligned 2D
-    block-cyclic scheduler. The caller therefore only needs the larger of the
-    two per-rank scratch requirements.
+    The native FFI handler reuses one scratch allocation for both the
+    edge-padding compaction stage and the tile-aligned slab redistribution
+    stage. The movement engine reserves three equally sized slots: saved cycle
+    payload, send payload, and receive payload.
     """
     tile_shape = TileShape(rows=int(tile_rows), cols=int(tile_cols))
     compaction_plan = build_edge_padding_compaction_plan(
@@ -106,16 +107,18 @@ def required_padded_block_cyclic_2d_scratch_size(
     compaction_batches = batch_edge_padding_compaction_moves(
         compaction_plan.moves,
     )
-    compaction_scratch = required_edge_padding_compaction_scratch_size(
-        compaction_batches,
+    max_compaction_elements = 0
+    for batch in compaction_batches:
+        for move in batch.moves:
+            max_compaction_elements = max(
+                max_compaction_elements,
+                move.element_count,
+            )
+    max_slab_elements = max(
+        compaction_plan.padding.local_physical_rows * tile_shape.cols,
+        tile_shape.rows * compaction_plan.padding.local_physical_cols,
     )
-    native_scratch = required_native_2d_plan_scratch_size(
-        local_rows=compaction_plan.padding.local_physical_rows,
-        local_cols=compaction_plan.padding.local_physical_cols,
-        tile_rows=tile_shape.rows,
-        tile_cols=tile_shape.cols,
-    )
-    return max(compaction_scratch, native_scratch)
+    return 3 * max(max_compaction_elements, max_slab_elements)
 
 
 RectangleMove = ExecutableFragmentTransfer | EdgePaddingCompactionMove
@@ -357,13 +360,13 @@ def execute_padded_block_cyclic_2d_shardmap(
     tile_cols: int,
     layout="row_major",
 ) -> tuple[Array, Array]:
-    """Run the current padded 2D redistribution checkpoint end to end.
+    """Run the fused native padded 2D redistribution checkpoint end to end.
 
     ``matrix`` is expected to be the physical, per-rank padded buffer: each
     local shard has enough row and column capacity for an integer number of
-    cuSOLVERMp tiles. This helper first compacts those local padding holes to
-    the global bottom/right edges, then invokes the native tile-aligned
-    block-cyclic scheduler over the resulting physical matrix.
+    cuSOLVERMp tiles. The native handler compacts local padding holes to the
+    global bottom/right edges and then applies the tile-aligned block-cyclic
+    slab scheduler in the same FFI call.
     """
     if grid.num_processes <= 0:
         raise ValueError("grid must contain at least one process.")
@@ -394,28 +397,17 @@ def execute_padded_block_cyclic_2d_shardmap(
             "scratch is too small for padded 2D block-cyclic redistribution."
         )
 
-    compaction_batches = batch_edge_padding_compaction_moves(
-        compaction_plan.moves,
-    )
-    matrix, scratch = execute_edge_padding_compaction_batches_shardmap(
+    return xla_rect_padded_2d_native_plan_shardmap(
         matrix,
         scratch,
         mesh,
         matrix_specs,
         scratch_specs,
-        compaction_batches,
-        grid=grid,
-        layout=layout,
-    )
-
-    return execute_tile_aligned_native_2d_plan_shardmap(
-        matrix,
-        scratch,
-        mesh,
-        matrix_specs,
-        scratch_specs,
-        grid=grid,
+        process_rows=grid.process_rows,
+        process_cols=grid.process_cols,
         tile_rows=tile_shape.rows,
         tile_cols=tile_shape.cols,
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
         layout=layout,
     )

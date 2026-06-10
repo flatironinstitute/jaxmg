@@ -800,6 +800,142 @@ def _validate_rect_2d_native_plan_args(
     return layout_code, process_rows, process_cols, tile_rows, tile_cols
 
 
+def _axis_edge_padding_max_extent(
+    *,
+    block_count: int,
+    logical_per_block: int,
+    physical_per_block: int,
+) -> int:
+    total = block_count * physical_per_block
+    logical_total = block_count * logical_per_block
+    is_real = [False] * total
+    for block in range(block_count):
+        start = block * physical_per_block
+        for offset in range(logical_per_block):
+            is_real[start + offset] = True
+
+    max_extent = 0
+    while True:
+        target_start = next(
+            (index for index in range(logical_total) if not is_real[index]),
+            None,
+        )
+        if target_start is None:
+            break
+
+        target_stop = target_start
+        while target_stop < total and not is_real[target_stop]:
+            target_stop += 1
+
+        source_start = next(
+            (index for index in range(target_stop, total) if is_real[index]),
+            None,
+        )
+        if source_start is None:
+            break
+
+        source_stop = source_start
+        while source_stop < total and is_real[source_stop]:
+            source_stop += 1
+
+        target_block_stop = (
+            target_start // physical_per_block + 1
+        ) * physical_per_block
+        source_block_stop = (
+            source_start // physical_per_block + 1
+        ) * physical_per_block
+        extent = min(
+            target_stop - target_start,
+            source_stop - source_start,
+            target_block_stop - target_start,
+            source_block_stop - source_start,
+        )
+        max_extent = max(max_extent, extent)
+        for offset in range(extent):
+            is_real[target_start + offset] = True
+            is_real[source_start + offset] = False
+
+    return max_extent
+
+
+def _validate_rect_padded_2d_native_plan_args(
+    matrix: Array,
+    scratch: Array,
+    *,
+    layout="row_major",
+    process_rows: int,
+    process_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+    logical_rows: int,
+    logical_cols: int,
+) -> tuple[int, int, int, int, int, int, int]:
+    if matrix.ndim != 2:
+        raise ValueError("xla_rect_padded_2d_native_plan expects a rank-2 matrix.")
+    if scratch.ndim != 1:
+        raise ValueError("xla_rect_padded_2d_native_plan expects a rank-1 scratch.")
+    if matrix.dtype != scratch.dtype:
+        raise TypeError("matrix and scratch dtypes must match.")
+
+    layout_code = _rect_layout_code(layout)
+    process_rows = int(process_rows)
+    process_cols = int(process_cols)
+    tile_rows = int(tile_rows)
+    tile_cols = int(tile_cols)
+    logical_rows = int(logical_rows)
+    logical_cols = int(logical_cols)
+    if process_rows <= 0 or process_cols <= 0:
+        raise ValueError("process_rows and process_cols must be positive.")
+    if tile_rows <= 0 or tile_cols <= 0:
+        raise ValueError("tile_rows and tile_cols must be positive.")
+    if logical_rows <= 0 or logical_cols <= 0:
+        raise ValueError("logical_rows and logical_cols must be positive.")
+    if logical_rows % process_rows or logical_cols % process_cols:
+        raise ValueError("logical matrix shape must divide over the process grid.")
+
+    local_logical_rows = logical_rows // process_rows
+    local_logical_cols = logical_cols // process_cols
+    expected_rows = local_logical_rows + (-local_logical_rows) % tile_rows
+    expected_cols = local_logical_cols + (-local_logical_cols) % tile_cols
+    if matrix.shape != (expected_rows, expected_cols):
+        raise ValueError(
+            "xla_rect_padded_2d_native_plan expects the local physical "
+            f"padded shape {(expected_rows, expected_cols)}, got {matrix.shape}."
+        )
+
+    horizontal_extent = _axis_edge_padding_max_extent(
+        block_count=process_cols,
+        logical_per_block=local_logical_cols,
+        physical_per_block=expected_cols,
+    )
+    vertical_extent = _axis_edge_padding_max_extent(
+        block_count=process_rows,
+        logical_per_block=local_logical_rows,
+        physical_per_block=expected_rows,
+    )
+    required_step_elements = max(
+        expected_rows * tile_cols,
+        tile_rows * expected_cols,
+        expected_rows * horizontal_extent,
+        vertical_extent * expected_cols,
+    )
+    if required_step_elements and scratch.shape[0] < 3 * required_step_elements:
+        raise ValueError(
+            "scratch length must be at least "
+            "3 * max(native padded 2D step elements)."
+        )
+
+    return (
+        layout_code,
+        process_rows,
+        process_cols,
+        tile_rows,
+        tile_cols,
+        logical_rows,
+        logical_cols,
+    )
+
+
 def xla_rect_pack_unpack_probe(
     matrix: Array,
     scratch: Array,
@@ -1131,6 +1267,113 @@ def xla_rect_2d_native_plan_shardmap(
             process_cols=process_cols,
             tile_rows=tile_rows,
             tile_cols=tile_cols,
+        )
+
+    return impl(matrix, scratch)
+
+
+def xla_rect_padded_2d_native_plan(
+    matrix: Array,
+    scratch: Array,
+    *,
+    layout="row_major",
+    process_rows: int,
+    process_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+    logical_rows: int,
+    logical_cols: int,
+) -> tuple[Array, Array]:
+    """Apply the native padded 2D redistribution schedule.
+
+    This is the fused native form of the current cuSOLVERMp movement
+    checkpoint. The native handler first compacts local per-shard padding to
+    the global right/bottom edges, then executes the tile-aligned
+    column-owner/row-owner slab redistribution.
+    """
+    (
+        layout_code,
+        process_rows,
+        process_cols,
+        tile_rows,
+        tile_cols,
+        logical_rows,
+        logical_cols,
+    ) = _validate_rect_padded_2d_native_plan_args(
+        matrix,
+        scratch,
+        layout=layout,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
+    )
+    ensure_init_jaxmg_backend()
+
+    out_type = (
+        jax.ShapeDtypeStruct(matrix.shape, matrix.dtype),
+        jax.ShapeDtypeStruct(scratch.shape, scratch.dtype),
+    )
+    matrix_layout = _RECT_JAX_LAYOUTS[layout_code]
+    ffi_fn = partial(
+        jax.ffi.ffi_call(
+            "xla_rect_padded_2d_native_plan",
+            out_type,
+            input_layouts=(matrix_layout, (0,)),
+            output_layouts=(matrix_layout, (0,)),
+            input_output_aliases={0: 0, 1: 1},
+        ),
+        layout=layout_code,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
+    )
+    return ffi_fn(matrix, scratch)
+
+
+def xla_rect_padded_2d_native_plan_shardmap(
+    matrix: Array,
+    scratch: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    scratch_specs: P,
+    *,
+    layout="row_major",
+    process_rows: int,
+    process_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+    logical_rows: int,
+    logical_cols: int,
+) -> tuple[Array, Array]:
+    """Run :func:`xla_rect_padded_2d_native_plan` over a 2D sharded matrix."""
+    if not isinstance(matrix_specs, P) or not isinstance(scratch_specs, P):
+        raise TypeError("matrix_specs and scratch_specs must be PartitionSpec values.")
+
+    @partial(jax.jit, donate_argnums=(0, 1))
+    @partial(
+        jax.shard_map,
+        mesh=mesh,
+        in_specs=(matrix_specs, scratch_specs),
+        out_specs=(matrix_specs, scratch_specs),
+        check_vma=False,
+    )
+    def impl(_matrix, _scratch):
+        return xla_rect_padded_2d_native_plan(
+            _matrix,
+            _scratch,
+            layout=layout,
+            process_rows=process_rows,
+            process_cols=process_cols,
+            tile_rows=tile_rows,
+            tile_cols=tile_cols,
+            logical_rows=logical_rows,
+            logical_cols=logical_cols,
         )
 
     return impl(matrix, scratch)

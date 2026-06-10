@@ -482,6 +482,193 @@ absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
   return steps;
 }
 
+struct AxisEdgeMove {
+  int64_t wave;
+  int64_t source_start;
+  int64_t target_start;
+  int64_t extent;
+};
+
+int64_t AxisPadding(int64_t logical_per_block, int64_t tile_size) {
+  const int64_t remainder = logical_per_block % tile_size;
+  return remainder == 0 ? 0 : tile_size - remainder;
+}
+
+absl::StatusOr<std::vector<AxisEdgeMove>> BuildAxisEdgePaddingMoves(
+    int64_t block_count, int64_t logical_per_block,
+    int64_t physical_per_block) {
+  if (block_count <= 0 || logical_per_block <= 0 ||
+      physical_per_block <= 0) {
+    return absl::InvalidArgumentError(
+        "edge-padding compaction requires positive axis extents");
+  }
+  if (logical_per_block > physical_per_block) {
+    return absl::InvalidArgumentError(
+        "edge-padding compaction logical extent exceeds physical extent");
+  }
+
+  const int64_t total = block_count * physical_per_block;
+  const int64_t logical_total = block_count * logical_per_block;
+  std::vector<uint8_t> is_real(total, 0);
+  for (int64_t block = 0; block < block_count; ++block) {
+    const int64_t start = block * physical_per_block;
+    for (int64_t offset = 0; offset < logical_per_block; ++offset) {
+      is_real[start + offset] = 1;
+    }
+  }
+
+  std::vector<AxisEdgeMove> moves;
+  int64_t wave = 0;
+  while (true) {
+    int64_t target_start = -1;
+    for (int64_t index = 0; index < logical_total; ++index) {
+      if (!is_real[index]) {
+        target_start = index;
+        break;
+      }
+    }
+    if (target_start < 0) {
+      break;
+    }
+
+    int64_t target_stop = target_start;
+    while (target_stop < total && !is_real[target_stop]) {
+      ++target_stop;
+    }
+
+    int64_t source_start = -1;
+    for (int64_t index = target_stop; index < total; ++index) {
+      if (is_real[index]) {
+        source_start = index;
+        break;
+      }
+    }
+    if (source_start < 0) {
+      break;
+    }
+
+    int64_t source_stop = source_start;
+    while (source_stop < total && is_real[source_stop]) {
+      ++source_stop;
+    }
+
+    const int64_t target_block_stop =
+        (target_start / physical_per_block + 1) * physical_per_block;
+    const int64_t source_block_stop =
+        (source_start / physical_per_block + 1) * physical_per_block;
+    const int64_t extent =
+        std::min({target_stop - target_start, source_stop - source_start,
+                  target_block_stop - target_start,
+                  source_block_stop - source_start});
+    if (extent <= 0) {
+      return absl::InternalError(
+          "edge-padding compaction generated an empty move");
+    }
+
+    moves.push_back(AxisEdgeMove{wave, source_start, target_start, extent});
+    for (int64_t offset = 0; offset < extent; ++offset) {
+      if (is_real[target_start + offset] ||
+          !is_real[source_start + offset]) {
+        return absl::InternalError(
+            "edge-padding compaction occupancy invariant failed");
+      }
+      is_real[target_start + offset] = 1;
+      is_real[source_start + offset] = 0;
+    }
+    ++wave;
+  }
+
+  return moves;
+}
+
+absl::StatusOr<std::vector<Native2DStep>> BuildEdgePaddingNative2DSteps(
+    int64_t process_rows, int64_t process_cols, int64_t tile_rows,
+    int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
+    int64_t local_rows, int64_t local_cols) {
+  if (process_rows <= 0 || process_cols <= 0 || tile_rows <= 0 ||
+      tile_cols <= 0 || logical_rows <= 0 || logical_cols <= 0) {
+    return absl::InvalidArgumentError(
+        "padded native 2D redistribution requires positive dimensions");
+  }
+  if (logical_rows % process_rows != 0 ||
+      logical_cols % process_cols != 0) {
+    return absl::InvalidArgumentError(
+        "logical matrix shape must divide evenly over the process grid");
+  }
+
+  const int64_t local_logical_rows = logical_rows / process_rows;
+  const int64_t local_logical_cols = logical_cols / process_cols;
+  const int64_t expected_local_rows =
+      local_logical_rows + AxisPadding(local_logical_rows, tile_rows);
+  const int64_t expected_local_cols =
+      local_logical_cols + AxisPadding(local_logical_cols, tile_cols);
+  if (local_rows != expected_local_rows || local_cols != expected_local_cols) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "padded native 2D redistribution expected local padded shape "
+        "(%d, %d), got (%d, %d)",
+        expected_local_rows, expected_local_cols, local_rows, local_cols));
+  }
+
+  std::vector<Native2DStep> steps;
+  absl::StatusOr<std::vector<AxisEdgeMove>> horizontal_moves =
+      BuildAxisEdgePaddingMoves(process_cols, local_logical_cols, local_cols);
+  if (!horizontal_moves.ok()) {
+    return horizontal_moves.status();
+  }
+  for (const AxisEdgeMove& move : *horizontal_moves) {
+    const int64_t source_process_col = move.source_start / local_cols;
+    const int64_t target_process_col = move.target_start / local_cols;
+    const int64_t source_local_col = move.source_start % local_cols;
+    const int64_t target_local_col = move.target_start % local_cols;
+    for (int64_t process_row = 0; process_row < process_rows; ++process_row) {
+      steps.push_back(Native2DStep{
+          /*phase=*/0,
+          /*sequence=*/move.wave,
+          Native2DStepKind::kMove,
+          /*source_rank=*/process_row * process_cols + source_process_col,
+          /*target_rank=*/process_row * process_cols + target_process_col,
+          NativeLocalRect{/*row_start=*/0,
+                          /*col_start=*/source_local_col,
+                          /*row_count=*/local_rows,
+                          /*col_count=*/move.extent},
+          NativeLocalRect{/*row_start=*/0,
+                          /*col_start=*/target_local_col,
+                          /*row_count=*/local_rows,
+                          /*col_count=*/move.extent}});
+    }
+  }
+
+  absl::StatusOr<std::vector<AxisEdgeMove>> vertical_moves =
+      BuildAxisEdgePaddingMoves(process_rows, local_logical_rows, local_rows);
+  if (!vertical_moves.ok()) {
+    return vertical_moves.status();
+  }
+  for (const AxisEdgeMove& move : *vertical_moves) {
+    const int64_t source_process_row = move.source_start / local_rows;
+    const int64_t target_process_row = move.target_start / local_rows;
+    const int64_t source_local_row = move.source_start % local_rows;
+    const int64_t target_local_row = move.target_start % local_rows;
+    for (int64_t process_col = 0; process_col < process_cols; ++process_col) {
+      steps.push_back(Native2DStep{
+          /*phase=*/1,
+          /*sequence=*/move.wave,
+          Native2DStepKind::kMove,
+          /*source_rank=*/source_process_row * process_cols + process_col,
+          /*target_rank=*/target_process_row * process_cols + process_col,
+          NativeLocalRect{/*row_start=*/source_local_row,
+                          /*col_start=*/0,
+                          /*row_count=*/move.extent,
+                          /*col_count=*/local_cols},
+          NativeLocalRect{/*row_start=*/target_local_row,
+                          /*col_start=*/0,
+                          /*row_count=*/move.extent,
+                          /*col_count=*/local_cols}});
+    }
+  }
+
+  return steps;
+}
+
 std::vector<Native2DStepBatch> BatchNative2DSteps(
     const std::vector<Native2DStep>& steps) {
   // Group by phase, dependency sequence, and operation kind. This deliberately
@@ -563,6 +750,143 @@ absl::Status UnpackRect(cudaStream_t cuda_stream, RectLayout layout,
   JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpy2DAsync(
       target, spec.matrix_pitch, packed, spec.packed_pitch, spec.copy_bytes,
       spec.copy_height, cudaMemcpyDeviceToDevice, cuda_stream));
+  return absl::OkStatus();
+}
+
+int64_t StepElementCount(const Native2DStep& step) {
+  if (step.kind == Native2DStepKind::kRestoreScratch) {
+    return step.target.row_count * step.target.col_count;
+  }
+  return step.source.row_count * step.source.col_count;
+}
+
+int64_t MaxStepElementCount(const std::vector<Native2DStep>& steps) {
+  int64_t max_elements = 0;
+  for (const Native2DStep& step : steps) {
+    max_elements = std::max(max_elements, StepElementCount(step));
+  }
+  return max_elements;
+}
+
+absl::Status ExecuteNative2DStepBatches(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    RectLayout layout, const std::vector<Native2DStepBatch>& batches,
+    int64_t local_rows, int64_t local_cols, int64_t rank_value,
+    size_t element_bytes, int64_t slot_elements, ffi::AnyBuffer matrix,
+    se::DeviceAddressBase matrix_out_base,
+    se::DeviceAddressBase scratch_out_base, Communicator* comm) {
+  const uint64_t slot_bytes =
+      static_cast<uint64_t>(slot_elements) * element_bytes;
+  se::DeviceAddressBase saved_slot =
+      scratch_out_base.GetByteSlice(0, slot_bytes);
+  se::DeviceAddressBase send_slot =
+      scratch_out_base.GetByteSlice(slot_bytes, slot_bytes);
+  se::DeviceAddressBase recv_slot =
+      scratch_out_base.GetByteSlice(2 * slot_bytes, slot_bytes);
+
+  // Execute the schedule in conflict-free batches. Sources are read from the
+  // mutable output buffer because later waves/phases consume the layout written
+  // by earlier waves/phases.
+  for (const Native2DStepBatch& batch : batches) {
+    const Native2DStep* send_step = nullptr;
+    const Native2DStep* recv_step = nullptr;
+    for (const Native2DStep& step : batch.steps) {
+      if (step.source_rank == rank_value) {
+        send_step = &step;
+      }
+      if (step.target_rank == rank_value) {
+        recv_step = &step;
+      }
+    }
+
+    if (send_step == nullptr && recv_step == nullptr) {
+      continue;
+    }
+
+    if (batch.kind == Native2DStepKind::kSaveScratch) {
+      if (send_step == nullptr) {
+        continue;
+      }
+      JAXMG_RETURN_IF_ERROR(PackRect(
+          cuda_stream, layout, local_rows, local_cols,
+          send_step->source.row_start, send_step->source.col_start,
+          send_step->source.row_count, send_step->source.col_count,
+          element_bytes, matrix_out_base, saved_slot));
+      continue;
+    }
+
+    if (batch.kind == Native2DStepKind::kMove && send_step != nullptr) {
+      JAXMG_RETURN_IF_ERROR(PackRect(
+          cuda_stream, layout, local_rows, local_cols,
+          send_step->source.row_start, send_step->source.col_start,
+          send_step->source.row_count, send_step->source.col_count,
+          element_bytes, matrix_out_base, send_slot));
+    }
+
+    std::optional<RankId> source_rank;
+    if (recv_step != nullptr) {
+      source_rank = RankId(recv_step->source_rank);
+    }
+    std::vector<RankId> target_ranks;
+    if (send_step != nullptr && send_step->target_rank >= 0) {
+      target_ranks.push_back(RankId(send_step->target_rank));
+    }
+
+    const Native2DStep* shape_step =
+        send_step != nullptr ? send_step : recv_step;
+    const int64_t collective_elements =
+        batch.kind == Native2DStepKind::kRestoreScratch
+            ? shape_step->target.row_count * shape_step->target.col_count
+            : (send_step != nullptr
+                   ? send_step->source.row_count * send_step->source.col_count
+                   : recv_step->target.row_count *
+                         recv_step->target.col_count);
+    se::DeviceAddressBase collective_send_slot =
+        batch.kind == Native2DStepKind::kRestoreScratch ? saved_slot
+                                                        : send_slot;
+
+    if (send_step != nullptr && recv_step != nullptr &&
+        send_step->source_rank == send_step->target_rank) {
+      // Local movement still goes through packed scratch. This keeps overlap
+      // behavior identical for local and remote steps and avoids a separate
+      // in-place rectangle-copy path.
+      se::DeviceAddressBase local_source =
+          batch.kind == Native2DStepKind::kRestoreScratch ? saved_slot
+                                                          : send_slot;
+      JAXMG_RETURN_IF_ERROR(UnpackRect(
+          cuda_stream, layout, local_rows, local_cols,
+          recv_step->target.row_start, recv_step->target.col_start,
+          recv_step->target.row_count, recv_step->target.col_count,
+          element_bytes, local_source, matrix_out_base));
+      continue;
+    }
+
+    absl::Status status = comm_stream->WaitFor(stream);
+    if (!status.ok()) {
+      return status;
+    }
+    Future<> future = comm->CollectivePermute(
+        collective_send_slot, recv_slot, matrix.element_type(),
+        static_cast<size_t>(collective_elements), source_rank, target_ranks,
+        GpuCollectives::On(*comm_stream));
+    status = future.Await();
+    if (!status.ok()) {
+      return status;
+    }
+    status = stream->WaitFor(comm_stream);
+    if (!status.ok()) {
+      return status;
+    }
+
+    if (recv_step != nullptr) {
+      JAXMG_RETURN_IF_ERROR(UnpackRect(
+          cuda_stream, layout, local_rows, local_cols,
+          recv_step->target.row_start, recv_step->target.col_start,
+          recv_step->target.row_count, recv_step->target.col_count,
+          element_bytes, recv_slot, matrix_out_base));
+    }
+  }
+
   return absl::OkStatus();
 }
 
@@ -965,136 +1289,153 @@ absl::Status XlaRect2DNativePlanDispatch(
   std::vector<Native2DStepBatch> batches =
       BatchNative2DSteps(*steps);
 
-  const int64_t column_slab_elements = local_rows * tile_cols;
-  const int64_t row_slab_elements = tile_rows * local_cols;
-  const int64_t slab_elements =
-      std::max(column_slab_elements, row_slab_elements);
+  const int64_t slab_elements = MaxStepElementCount(*steps);
   if (scratch.dimensions()[0] < 3 * slab_elements) {
     return absl::InvalidArgumentError(absl::StrFormat(
         "xla_rect_2d_native_plan scratch length %d is smaller than "
-        "3 * max(local_rows * tile_cols, tile_rows * local_cols) = %d",
+        "3 * max(native 2D step elements) = %d",
         scratch.dimensions()[0], 3 * slab_elements));
   }
   const size_t element_bytes =
       matrix.size_bytes() / static_cast<size_t>(matrix.element_count());
-  const uint64_t slab_bytes =
-      static_cast<uint64_t>(slab_elements) * element_bytes;
 
   se::DeviceAddressBase matrix_out_base = matrix_out->device_memory();
   se::DeviceAddressBase scratch_out_base = scratch_out->device_memory();
-  se::DeviceAddressBase saved_slot =
-      scratch_out_base.GetByteSlice(0, slab_bytes);
-  se::DeviceAddressBase send_slot =
-      scratch_out_base.GetByteSlice(slab_bytes, slab_bytes);
-  se::DeviceAddressBase recv_slot =
-      scratch_out_base.GetByteSlice(2 * slab_bytes, slab_bytes);
 
   JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, matrix, matrix_out));
   JAXMG_RETURN_IF_ERROR(CopyScratchIfNeeded(cuda_stream, scratch, scratch_out));
 
-  // Execute the slab-cycle schedule in conflict-free batches. Sources are read
-  // from the mutable output buffer: phase 1 consumes the column-cyclic layout
-  // written by phase 0, and later cycle steps consume earlier cycle moves.
-  for (const Native2DStepBatch& batch : batches) {
-    const Native2DStep* send_step = nullptr;
-    const Native2DStep* recv_step = nullptr;
-    for (const Native2DStep& step : batch.steps) {
-      if (step.source_rank == rank_value) {
-        send_step = &step;
-      }
-      if (step.target_rank == rank_value) {
-        recv_step = &step;
-      }
-    }
+  return ExecuteNative2DStepBatches(
+      stream, comm_stream, cuda_stream, *decoded_layout, batches, local_rows,
+      local_cols, rank_value, element_bytes, slab_elements, matrix,
+      matrix_out_base, scratch_out_base, *comm);
+}
 
-    if (send_step == nullptr && recv_step == nullptr) {
-      continue;
-    }
+absl::Status XlaRectPadded2DNativePlanPrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests) {
+  return XlaRect2DNativePlanPrepare(collective_params, clique_requests);
+}
 
-    if (batch.kind == Native2DStepKind::kSaveScratch) {
-      if (send_step == nullptr) {
-        continue;
-      }
-      JAXMG_RETURN_IF_ERROR(PackRect(
-          cuda_stream, *decoded_layout, local_rows, local_cols,
-          send_step->source.row_start, send_step->source.col_start,
-          send_step->source.row_count, send_step->source.col_count,
-          element_bytes, matrix_out_base, saved_slot));
-      continue;
-    }
-
-    if (batch.kind == Native2DStepKind::kMove && send_step != nullptr) {
-      JAXMG_RETURN_IF_ERROR(PackRect(
-          cuda_stream, *decoded_layout, local_rows, local_cols,
-          send_step->source.row_start, send_step->source.col_start,
-          send_step->source.row_count, send_step->source.col_count,
-          element_bytes, matrix_out_base, send_slot));
-    }
-
-    std::optional<RankId> source_rank;
-    if (recv_step != nullptr) {
-      source_rank = RankId(recv_step->source_rank);
-    }
-    std::vector<RankId> target_ranks;
-    if (send_step != nullptr && send_step->target_rank >= 0) {
-      target_ranks.push_back(RankId(send_step->target_rank));
-    }
-
-    const Native2DStep* shape_step =
-        send_step != nullptr ? send_step : recv_step;
-    const int64_t collective_elements =
-        batch.kind == Native2DStepKind::kRestoreScratch
-            ? shape_step->target.row_count * shape_step->target.col_count
-            : (send_step != nullptr
-                   ? send_step->source.row_count * send_step->source.col_count
-                   : recv_step->target.row_count * recv_step->target.col_count);
-    se::DeviceAddressBase collective_send_slot =
-        batch.kind == Native2DStepKind::kRestoreScratch ? saved_slot
-                                                        : send_slot;
-
-    if (send_step != nullptr && recv_step != nullptr &&
-        send_step->source_rank == send_step->target_rank) {
-      // Local movement still goes through packed scratch. This keeps overlap
-      // behavior identical for local and remote steps and avoids a separate
-      // in-place rectangle-copy path.
-      se::DeviceAddressBase local_source =
-          batch.kind == Native2DStepKind::kRestoreScratch ? saved_slot
-                                                          : send_slot;
-      JAXMG_RETURN_IF_ERROR(UnpackRect(
-          cuda_stream, *decoded_layout, local_rows, local_cols,
-          recv_step->target.row_start, recv_step->target.col_start,
-          recv_step->target.row_count, recv_step->target.col_count,
-          element_bytes, local_source, matrix_out_base));
-      continue;
-    }
-
-    absl::Status status = comm_stream->WaitFor(stream);
-    if (!status.ok()) {
-      return status;
-    }
-    Future<> future = (*comm)->CollectivePermute(
-        collective_send_slot, recv_slot, matrix.element_type(),
-        static_cast<size_t>(collective_elements), source_rank, target_ranks,
-        GpuCollectives::On(*comm_stream));
-    status = future.Await();
-    if (!status.ok()) {
-      return status;
-    }
-    status = stream->WaitFor(comm_stream);
-    if (!status.ok()) {
-      return status;
-    }
-
-    if (recv_step != nullptr) {
-      JAXMG_RETURN_IF_ERROR(UnpackRect(
-          cuda_stream, *decoded_layout, local_rows, local_cols,
-          recv_step->target.row_start, recv_step->target.col_start,
-          recv_step->target.row_count, recv_step->target.col_count,
-          element_bytes, recv_slot, matrix_out_base));
-    }
+absl::Status XlaRectPadded2DNativePlanDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t layout, int64_t process_rows, int64_t process_cols,
+    int64_t tile_rows, int64_t tile_cols, int64_t logical_rows,
+    int64_t logical_cols, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    ffi::Result<ffi::AnyBuffer> matrix_out,
+    ffi::Result<ffi::AnyBuffer> scratch_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  if (stream == nullptr || comm_stream == nullptr || cuda_stream == nullptr) {
+    return absl::InvalidArgumentError(
+        "xla_rect_padded_2d_native_plan requires XLA and CUDA stream contexts");
+  }
+  if (collective_params == nullptr || collective_cliques == nullptr) {
+    return absl::InvalidArgumentError(
+        "xla_rect_padded_2d_native_plan requires XLA collective contexts");
+  }
+  if (matrix.dimensions().size() != 2 ||
+      matrix_out->dimensions().size() != 2 ||
+      matrix.dimensions()[0] != matrix_out->dimensions()[0] ||
+      matrix.dimensions()[1] != matrix_out->dimensions()[1]) {
+    return absl::InvalidArgumentError(
+        "xla_rect_padded_2d_native_plan expects matching rank-2 matrix "
+        "input/output");
+  }
+  if (scratch.dimensions().size() != 1 ||
+      scratch_out->dimensions().size() != 1 ||
+      scratch.dimensions()[0] != scratch_out->dimensions()[0]) {
+    return absl::InvalidArgumentError(
+        "xla_rect_padded_2d_native_plan expects matching rank-1 scratch "
+        "input/output");
+  }
+  if (matrix.element_type() != matrix_out->element_type() ||
+      matrix.element_type() != scratch.element_type() ||
+      scratch.element_type() != scratch_out->element_type()) {
+    return absl::InvalidArgumentError(
+        "xla_rect_padded_2d_native_plan requires matrix and scratch dtypes to "
+        "match");
   }
 
-  return absl::OkStatus();
+  absl::StatusOr<RectLayout> decoded_layout = DecodeRectLayout(layout);
+  JAXMG_RETURN_IF_ERROR(decoded_layout.status());
+
+  absl::StatusOr<GpuCliqueKey> clique_key =
+      NodeScopedP2PCliqueKey(*collective_params);
+  if (!clique_key.ok()) {
+    return clique_key.status();
+  }
+  const int64_t num_ranks = static_cast<int64_t>(clique_key->num_devices());
+  if (process_rows * process_cols != num_ranks) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "xla_rect_padded_2d_native_plan grid %d x %d does not match clique "
+        "size %d",
+        process_rows, process_cols, num_ranks));
+  }
+
+  std::optional<RankId> rank =
+      clique_key->rank(collective_params->global_device_id);
+  if (!rank.has_value()) {
+    return absl::InvalidArgumentError(
+        "xla_rect_padded_2d_native_plan could not resolve this device rank");
+  }
+  const int64_t rank_value = static_cast<int64_t>(rank->value());
+
+  absl::StatusOr<Communicator*> comm = collective_cliques->GetComm(
+      *clique_key, collective_params->global_device_id);
+  if (!comm.ok()) {
+    return comm.status();
+  }
+
+  const int64_t local_rows = matrix.dimensions()[0];
+  const int64_t local_cols = matrix.dimensions()[1];
+  absl::StatusOr<std::vector<Native2DStep>> edge_steps =
+      BuildEdgePaddingNative2DSteps(
+          process_rows, process_cols, tile_rows, tile_cols, logical_rows,
+          logical_cols, local_rows, local_cols);
+  if (!edge_steps.ok()) {
+    return edge_steps.status();
+  }
+  absl::StatusOr<std::vector<Native2DStep>> slab_steps =
+      BuildSlabNative2DSteps(process_rows, process_cols, tile_rows, tile_cols,
+                             local_rows, local_cols);
+  if (!slab_steps.ok()) {
+    return slab_steps.status();
+  }
+
+  std::vector<Native2DStepBatch> edge_batches =
+      BatchNative2DSteps(*edge_steps);
+  std::vector<Native2DStepBatch> slab_batches =
+      BatchNative2DSteps(*slab_steps);
+  const int64_t max_step_elements =
+      std::max(MaxStepElementCount(*edge_steps),
+               MaxStepElementCount(*slab_steps));
+  if (max_step_elements > 0 && scratch.dimensions()[0] < 3 * max_step_elements) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "xla_rect_padded_2d_native_plan scratch length %d is smaller than "
+        "3 * max(native step elements) = %d",
+        scratch.dimensions()[0], 3 * max_step_elements));
+  }
+
+  const size_t element_bytes =
+      matrix.size_bytes() / static_cast<size_t>(matrix.element_count());
+  se::DeviceAddressBase matrix_out_base = matrix_out->device_memory();
+  se::DeviceAddressBase scratch_out_base = scratch_out->device_memory();
+
+  JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, matrix, matrix_out));
+  JAXMG_RETURN_IF_ERROR(CopyScratchIfNeeded(cuda_stream, scratch, scratch_out));
+  if (max_step_elements == 0) {
+    return absl::OkStatus();
+  }
+
+  JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
+      stream, comm_stream, cuda_stream, *decoded_layout, edge_batches,
+      local_rows, local_cols, rank_value, element_bytes, max_step_elements,
+      matrix, matrix_out_base, scratch_out_base, *comm));
+  return ExecuteNative2DStepBatches(
+      stream, comm_stream, cuda_stream, *decoded_layout, slab_batches,
+      local_rows, local_cols, rank_value, element_bytes, max_step_elements,
+      matrix, matrix_out_base, scratch_out_base, *comm);
 }
 
 }  // namespace xla::gpu

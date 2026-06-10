@@ -265,6 +265,15 @@ def _initialize():
                 "execute": "XlaRect2DNativePlanFFI",
             },
         )
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            _xla_comm_backend_library,
+            "xla_rect_padded_2d_native_plan",
+            {
+                "prepare": "XlaRectPadded2DNativePlanPrepareFFI",
+                "execute": "XlaRectPadded2DNativePlanFFI",
+            },
+        )
 
     else:
         warnings.warn(
