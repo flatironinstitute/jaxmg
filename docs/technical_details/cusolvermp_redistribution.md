@@ -74,6 +74,119 @@ from being correct. The implementation must either:
 This is the 2D version of the edge case that the current 1D implementation avoids
 by planning at slot granularity.
 
+### Edge-Padding Compaction
+
+The preferred implementation for split-tile padding is a separate edge-padding
+normalization pass before the true 2D block-cyclic redistribution. The goal is to
+convert local per-shard padding into global edge padding:
+
+```text
+initial padded shards:
+  real pad | real pad | real pad
+
+edge-padded storage:
+  real real real | pad pad pad
+```
+
+and similarly in the row direction. After this pass, real data is packed into
+the global top-left of the padded domain, and padding exists only on the global
+right and bottom edges. The later redistribution can then move full tile-aligned
+slabs instead of arbitrary split-tile fragments.
+
+This pass is still a shuffle. It is an open-chain compaction shuffle rather than
+a closed permutation cycle. The free space is exactly the existing padding. A
+move always writes into a padding hole, and the source region becomes the next
+hole. In one process row, a conceptual slot sequence might look like:
+
+```text
+GPU0: A A A _
+GPU1: B B B _
+GPU2: C C C _
+```
+
+The first hole on GPU0 can receive the first real slot from GPU1:
+
+```text
+GPU0: A A A B
+GPU1: _ B B _
+GPU2: C C C _
+```
+
+The hole has moved to GPU1. Subsequent moves continue propagating holes to the
+right until all horizontal padding sits at the right edge. No live data is
+overwritten because every destination is known to be a hole before the move is
+issued.
+
+The production planner should not emit one move per tile slot unless it has to.
+It should operate on maximal aligned intervals:
+
+```text
+hole interval = first contiguous padding interval
+real interval = next contiguous real interval to the right
+move width    = min(width(hole interval), width(real interval))
+```
+
+That emits one large rectangle move such as:
+
+```text
+local_rows_cap x move_width
+```
+
+instead of many `local_rows_cap x NB_A` moves. After the move, the source
+interval becomes the new hole interval. This gives a small number of dependency
+waves in the common uniform-padding case, while preserving the low-memory
+property of the hole-propagation algorithm.
+
+The horizontal pass is independent for every process row. The planner should
+therefore build horizontal waves and batch all process rows that are at the same
+dependency depth:
+
+```text
+for wave in horizontal_waves:
+    execute independent row-compaction moves for all process rows
+```
+
+Within a wave, a rank may participate in multiple logical process rows only if
+the process grid mapping allows it without reusing the same scratch or
+destination interval. The conservative invariant is the same as the current
+rectangle executor: one send slot and one receive slot per rank per communication
+round unless the native executor proves disjoint in-rank regions and has enough
+scratch to support more.
+
+After horizontal compaction, the vertical pass applies the same open-chain idea
+inside each process column:
+
+```text
+hole interval = first contiguous bottom padding interval
+real interval = next contiguous real interval below it
+move height   = min(height(hole interval), height(real interval))
+```
+
+and emits large row-rectangle moves such as:
+
+```text
+move_height x local_cols_cap
+```
+
+The vertical pass can batch independent process columns by dependency wave. Its
+local memory movement is more layout-sensitive: in cuSOLVERMp's column-major
+local storage, column slabs are naturally contiguous, while row slabs are
+strided. Vertical compaction therefore may need pack/unpack kernels or a custom
+CUDA kernel even though the dependency logic is identical to horizontal
+compaction.
+
+The required ordering is:
+
+```text
+1. horizontal edge-padding compaction
+2. vertical edge-padding compaction
+3. column-owner block-cyclic redistribution
+4. row-owner block-cyclic redistribution
+```
+
+The first two steps create a tile-addressable source domain. The last two steps
+move that source domain into cuSOLVERMp ownership.
+
 ## Contiguity
 
 The current native memory model is row-major for the movement engine: a full
