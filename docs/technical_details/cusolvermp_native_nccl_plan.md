@@ -243,12 +243,31 @@ cusolverMpGrid_t
 cusolverMpMatrixDescriptor_t
 ```
 
-Then run tiny:
+This stage is deliberately narrower than "port all solvers". The first target
+is `potrs`, because cuSOLVERMp directly supports the same Cholesky sequence used
+by JAXMg:
 
 ```text
 potrf
 potrs
 ```
+
+The minimum diagnostic should:
+
+1. borrow the XLA-owned `ncclComm_t`;
+2. create the cuSOLVERMp handle and grid on the callback stream;
+3. create matrix descriptors for `A` and `B`;
+4. query `cusolverMpPotrf_bufferSize` and `cusolverMpPotrs_bufferSize`;
+5. allocate bounded host/device workspace;
+6. run `cusolverMpPotrf` and `cusolverMpPotrs` on a tiny redistributed matrix.
+
+Only after this succeeds should the branch add `syevd`/`syevd_no_V`.
+`cusolverMpSyevd` maps directly to both APIs through `jobz = "V"` and
+`jobz = "N"`. `potri` does not have a direct `cusolverMpPotri` equivalent in
+the current cuSOLVERMp C API documentation, so it needs a separate design
+decision before migration. The likely options are emulation with `Potrs` on a
+distributed identity right hand side, leaving `potri` unsupported in the first
+cuSOLVERMp backend, or retaining the cuSolverMg implementation for that API.
 
 The first goal is correctness on one node. Multi-node validation comes after the
 single-node descriptor/layout semantics are proven.

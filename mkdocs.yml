@@ -107,3 +107,5 @@ nav:
         - "technical_details/spmd.md"
         - "technical_details/mpmd.md"
         - "technical_details/cusolvermp_redistribution.md"
+        - "technical_details/cusolvermp_native_nccl_plan.md"
+        - "technical_details/cusolvermp_routines.md"
