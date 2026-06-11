@@ -34,9 +34,11 @@
 
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <tuple>
 
 #include "include/xla_comm_backend.h"
+#include "third_party/nccl/nccl.h"
 
 namespace xla::gpu {
 
@@ -46,6 +48,141 @@ enum class RectLayout : int64_t {
   kRowMajor = 0,
   kColumnMajor = 1,
 };
+
+enum class NativeTransferBackend {
+  kXlaCollectivePermute,
+  kRawNcclSendRecv,
+};
+
+absl::Status NcclToStatus(ncclResult_t result, const char* file, int line) {
+  if (result == ncclSuccess) {
+    return absl::OkStatus();
+  }
+  return absl::InternalError(absl::StrFormat(
+      "NCCL error %d (%s) at %s:%d", static_cast<int>(result),
+      ncclGetErrorString(result), file, line));
+}
+
+#define JAXMG_RETURN_IF_NCCL_ERROR(expr)                         \
+  do {                                                           \
+    absl::Status _jaxmg_nccl_status =                            \
+        NcclToStatus((expr), __FILE__, __LINE__);                \
+    if (!_jaxmg_nccl_status.ok()) return _jaxmg_nccl_status;     \
+  } while (0)
+
+absl::StatusOr<ncclComm_t> BorrowNcclComm(const char* caller,
+                                          GpuCommunicator* comm) {
+  if (comm == nullptr) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s requires an XLA GPU communicator", caller));
+  }
+  void* handle = comm->platform_comm().handle;
+  if (handle == nullptr) {
+    return absl::FailedPreconditionError(absl::StrFormat(
+        "%s requires an XLA communicator with a platform NCCL handle", caller));
+  }
+  return reinterpret_cast<ncclComm_t>(handle);
+}
+
+absl::Status ValidateBorrowedNcclComm(const char* caller, ncclComm_t comm,
+                                      int64_t expected_rank,
+                                      int64_t expected_count) {
+  int comm_rank = -1;
+  int comm_count = -1;
+  JAXMG_RETURN_IF_NCCL_ERROR(ncclCommUserRank(comm, &comm_rank));
+  JAXMG_RETURN_IF_NCCL_ERROR(ncclCommCount(comm, &comm_count));
+  if (comm_rank != expected_rank || comm_count != expected_count) {
+    return absl::FailedPreconditionError(absl::StrFormat(
+        "%s borrowed NCCL communicator mismatch: NCCL rank/count=(%d, %d), "
+        "XLA rank/count=(%d, %d)",
+        caller, comm_rank, comm_count, expected_rank, expected_count));
+  }
+  return absl::OkStatus();
+}
+
+struct NcclStreamChoice {
+  cudaStream_t stream;
+  bool uses_comm_stream;
+};
+
+absl::StatusOr<NcclStreamChoice> ChooseNcclStream(const char* caller,
+                                                  se::Stream* comm_stream,
+                                                  cudaStream_t cuda_stream) {
+  if (comm_stream != nullptr) {
+    void* handle = comm_stream->platform_specific_handle().stream;
+    if (handle != nullptr) {
+      return NcclStreamChoice{/*stream=*/reinterpret_cast<cudaStream_t>(handle),
+                              /*uses_comm_stream=*/true};
+    }
+  }
+  if (cuda_stream == nullptr) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s requires a CUDA stream for raw NCCL", caller));
+  }
+  return NcclStreamChoice{/*stream=*/cuda_stream,
+                          /*uses_comm_stream=*/false};
+}
+
+absl::Status RunRawNcclSendRecv(
+    const char* caller, se::Stream* stream, se::Stream* comm_stream,
+    cudaStream_t cuda_stream, GpuCommunicator* comm, int64_t rank_value,
+    int64_t num_ranks, se::DeviceAddressBase send_buffer,
+    se::DeviceAddressBase recv_buffer, uint64_t byte_count,
+    std::optional<RankId> source_rank, absl::Span<const RankId> target_ranks) {
+  if (!source_rank.has_value() && target_ranks.empty()) {
+    return absl::OkStatus();
+  }
+  if (target_ranks.size() > 1) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s raw NCCL path expects at most one target rank per batch", caller));
+  }
+  if (byte_count > std::numeric_limits<size_t>::max()) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s raw NCCL byte count %llu exceeds size_t",
+        caller, static_cast<unsigned long long>(byte_count)));
+  }
+
+  absl::StatusOr<ncclComm_t> nccl_comm = BorrowNcclComm(caller, comm);
+  if (!nccl_comm.ok()) {
+    return nccl_comm.status();
+  }
+  JAXMG_RETURN_IF_ERROR(ValidateBorrowedNcclComm(
+      caller, *nccl_comm, rank_value, num_ranks));
+
+  absl::StatusOr<NcclStreamChoice> nccl_stream =
+      ChooseNcclStream(caller, comm_stream, cuda_stream);
+  if (!nccl_stream.ok()) {
+    return nccl_stream.status();
+  }
+
+  if (nccl_stream->uses_comm_stream) {
+    absl::Status status = comm_stream->WaitFor(stream);
+    if (!status.ok()) {
+      return status;
+    }
+  }
+
+  JAXMG_RETURN_IF_NCCL_ERROR(ncclGroupStart());
+  if (source_rank.has_value()) {
+    JAXMG_RETURN_IF_NCCL_ERROR(ncclRecv(
+        recv_buffer.opaque(), static_cast<size_t>(byte_count), ncclUint8,
+        source_rank->value(), *nccl_comm, nccl_stream->stream));
+  }
+  if (!target_ranks.empty()) {
+    JAXMG_RETURN_IF_NCCL_ERROR(ncclSend(
+        send_buffer.opaque(), static_cast<size_t>(byte_count), ncclUint8,
+        target_ranks.front().value(), *nccl_comm, nccl_stream->stream));
+  }
+  JAXMG_RETURN_IF_NCCL_ERROR(ncclGroupEnd());
+
+  if (nccl_stream->uses_comm_stream) {
+    absl::Status status = stream->WaitFor(comm_stream);
+    if (!status.ok()) {
+      return status;
+    }
+  }
+  return absl::OkStatus();
+}
 
 absl::StatusOr<RectLayout> DecodeRectLayout(int64_t layout) {
   switch (layout) {
@@ -820,9 +957,10 @@ absl::Status ExecuteNative2DStepBatches(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     RectLayout layout, const std::vector<Native2DStepBatch>& batches,
     int64_t local_rows, int64_t local_cols, int64_t rank_value,
+    int64_t num_ranks, NativeTransferBackend transfer_backend,
     size_t element_bytes, int64_t slot_elements, ffi::AnyBuffer matrix,
     se::DeviceAddressBase matrix_out_base,
-    se::DeviceAddressBase scratch_out_base, Communicator* comm) {
+    se::DeviceAddressBase scratch_out_base, GpuCommunicator* comm) {
   const uint64_t slot_bytes =
       static_cast<uint64_t>(slot_elements) * element_bytes;
   se::DeviceAddressBase saved_slot =
@@ -909,21 +1047,30 @@ absl::Status ExecuteNative2DStepBatches(
       continue;
     }
 
-    absl::Status status = comm_stream->WaitFor(stream);
-    if (!status.ok()) {
-      return status;
-    }
-    Future<> future = comm->CollectivePermute(
-        collective_send_slot, recv_slot, matrix.element_type(),
-        static_cast<size_t>(collective_elements), source_rank, target_ranks,
-        GpuCollectives::On(*comm_stream));
-    status = future.Await();
-    if (!status.ok()) {
-      return status;
-    }
-    status = stream->WaitFor(comm_stream);
-    if (!status.ok()) {
-      return status;
+    if (transfer_backend == NativeTransferBackend::kXlaCollectivePermute) {
+      absl::Status status = comm_stream->WaitFor(stream);
+      if (!status.ok()) {
+        return status;
+      }
+      Future<> future = comm->CollectivePermute(
+          collective_send_slot, recv_slot, matrix.element_type(),
+          static_cast<size_t>(collective_elements), source_rank, target_ranks,
+          GpuCollectives::On(*comm_stream));
+      status = future.Await();
+      if (!status.ok()) {
+        return status;
+      }
+      status = stream->WaitFor(comm_stream);
+      if (!status.ok()) {
+        return status;
+      }
+    } else {
+      const uint64_t collective_bytes =
+          static_cast<uint64_t>(collective_elements) * element_bytes;
+      JAXMG_RETURN_IF_ERROR(RunRawNcclSendRecv(
+          "xla_rect_native_2d_raw_nccl", stream, comm_stream, cuda_stream, comm,
+          rank_value, num_ranks, collective_send_slot, recv_slot,
+          collective_bytes, source_rank, absl::MakeConstSpan(target_ranks)));
     }
 
     if (recv_step != nullptr) {
@@ -1036,7 +1183,7 @@ absl::Status XlaRectTransferProbePrepare(
   return clique_requests->RequestClique(*clique_key, {*device_group});
 }
 
-absl::Status XlaRectTransferProbeDispatch(
+absl::Status RectTransferProbeDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t layout, absl::Span<const int64_t> targets,
     absl::Span<const int64_t> src_row_starts,
@@ -1047,7 +1194,8 @@ absl::Status XlaRectTransferProbeDispatch(
     ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    const CollectiveCliques* collective_cliques,
+    NativeTransferBackend transfer_backend) {
   if (stream == nullptr || comm_stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         "xla_rect_transfer_probe requires XLA and CUDA stream contexts");
@@ -1153,7 +1301,7 @@ absl::Status XlaRectTransferProbeDispatch(
   }
   const int64_t rank_value = static_cast<int64_t>(rank->value());
 
-  absl::StatusOr<Communicator*> comm = collective_cliques->GetComm(
+  absl::StatusOr<GpuCommunicator*> comm = collective_cliques->GetComm(
       *clique_key, collective_params->global_device_id);
   if (!comm.ok()) {
     return comm.status();
@@ -1210,22 +1358,29 @@ absl::Status XlaRectTransferProbeDispatch(
     target_ranks.push_back(RankId(target_rank_value));
   }
 
-  absl::Status status = comm_stream->WaitFor(stream);
-  if (!status.ok()) {
-    return status;
-  }
+  if (transfer_backend == NativeTransferBackend::kXlaCollectivePermute) {
+    absl::Status status = comm_stream->WaitFor(stream);
+    if (!status.ok()) {
+      return status;
+    }
 
-  Future<> future = (*comm)->CollectivePermute(
-      send_slot, recv_slot, matrix.element_type(),
-      static_cast<size_t>(rect_elements), source_rank, target_ranks,
-      GpuCollectives::On(*comm_stream));
-  status = future.Await();
-  if (!status.ok()) {
-    return status;
-  }
-  status = stream->WaitFor(comm_stream);
-  if (!status.ok()) {
-    return status;
+    Future<> future = (*comm)->CollectivePermute(
+        send_slot, recv_slot, matrix.element_type(),
+        static_cast<size_t>(rect_elements), source_rank, target_ranks,
+        GpuCollectives::On(*comm_stream));
+    status = future.Await();
+    if (!status.ok()) {
+      return status;
+    }
+    status = stream->WaitFor(comm_stream);
+    if (!status.ok()) {
+      return status;
+    }
+  } else {
+    JAXMG_RETURN_IF_ERROR(RunRawNcclSendRecv(
+        "xla_rect_transfer_nccl_probe", stream, comm_stream, cuda_stream, *comm,
+        rank_value, num_ranks, send_slot, recv_slot, rect_bytes, source_rank,
+        absl::MakeConstSpan(target_ranks)));
   }
 
   if (source_rank.has_value()) {
@@ -1237,6 +1392,44 @@ absl::Status XlaRectTransferProbeDispatch(
   }
 
   return absl::OkStatus();
+}
+
+absl::Status XlaRectTransferProbeDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t layout, absl::Span<const int64_t> targets,
+    absl::Span<const int64_t> src_row_starts,
+    absl::Span<const int64_t> src_col_starts,
+    absl::Span<const int64_t> dst_row_starts,
+    absl::Span<const int64_t> dst_col_starts, int64_t row_count,
+    int64_t col_count, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    ffi::Result<ffi::AnyBuffer> matrix_out,
+    ffi::Result<ffi::AnyBuffer> scratch_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return RectTransferProbeDispatchImpl(
+      stream, comm_stream, cuda_stream, layout, targets, src_row_starts,
+      src_col_starts, dst_row_starts, dst_col_starts, row_count, col_count,
+      matrix, scratch, matrix_out, scratch_out, collective_params,
+      collective_cliques, NativeTransferBackend::kXlaCollectivePermute);
+}
+
+absl::Status XlaRectTransferNcclProbeDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t layout, absl::Span<const int64_t> targets,
+    absl::Span<const int64_t> src_row_starts,
+    absl::Span<const int64_t> src_col_starts,
+    absl::Span<const int64_t> dst_row_starts,
+    absl::Span<const int64_t> dst_col_starts, int64_t row_count,
+    int64_t col_count, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    ffi::Result<ffi::AnyBuffer> matrix_out,
+    ffi::Result<ffi::AnyBuffer> scratch_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return RectTransferProbeDispatchImpl(
+      stream, comm_stream, cuda_stream, layout, targets, src_row_starts,
+      src_col_starts, dst_row_starts, dst_col_starts, row_count, col_count,
+      matrix, scratch, matrix_out, scratch_out, collective_params,
+      collective_cliques, NativeTransferBackend::kRawNcclSendRecv);
 }
 
 absl::Status XlaRect2DNativePlanPrepare(
@@ -1261,14 +1454,15 @@ absl::Status XlaRect2DNativePlanPrepare(
   return clique_requests->RequestClique(*clique_key, {*device_group});
 }
 
-absl::Status XlaRect2DNativePlanDispatch(
+absl::Status Rect2DNativePlanDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t layout, int64_t process_rows, int64_t process_cols,
     int64_t tile_rows, int64_t tile_cols, ffi::AnyBuffer matrix,
     ffi::AnyBuffer scratch, ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    const CollectiveCliques* collective_cliques,
+    NativeTransferBackend transfer_backend) {
   if (stream == nullptr || comm_stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         "xla_rect_2d_native_plan requires XLA and CUDA stream contexts");
@@ -1320,7 +1514,7 @@ absl::Status XlaRect2DNativePlanDispatch(
   }
   const int64_t rank_value = static_cast<int64_t>(rank->value());
 
-  absl::StatusOr<Communicator*> comm = collective_cliques->GetComm(
+  absl::StatusOr<GpuCommunicator*> comm = collective_cliques->GetComm(
       *clique_key, collective_params->global_device_id);
   if (!comm.ok()) {
     return comm.status();
@@ -1355,8 +1549,38 @@ absl::Status XlaRect2DNativePlanDispatch(
 
   return ExecuteNative2DStepBatches(
       stream, comm_stream, cuda_stream, *decoded_layout, batches, local_rows,
-      local_cols, rank_value, element_bytes, slab_elements, matrix,
-      matrix_out_base, scratch_out_base, *comm);
+      local_cols, rank_value, num_ranks, transfer_backend, element_bytes,
+      slab_elements, matrix, matrix_out_base, scratch_out_base, *comm);
+}
+
+absl::Status XlaRect2DNativePlanDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t layout, int64_t process_rows, int64_t process_cols,
+    int64_t tile_rows, int64_t tile_cols, ffi::AnyBuffer matrix,
+    ffi::AnyBuffer scratch, ffi::Result<ffi::AnyBuffer> matrix_out,
+    ffi::Result<ffi::AnyBuffer> scratch_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return Rect2DNativePlanDispatchImpl(
+      stream, comm_stream, cuda_stream, layout, process_rows, process_cols,
+      tile_rows, tile_cols, matrix, scratch, matrix_out, scratch_out,
+      collective_params, collective_cliques,
+      NativeTransferBackend::kXlaCollectivePermute);
+}
+
+absl::Status XlaRect2DNativePlanNcclDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t layout, int64_t process_rows, int64_t process_cols,
+    int64_t tile_rows, int64_t tile_cols, ffi::AnyBuffer matrix,
+    ffi::AnyBuffer scratch, ffi::Result<ffi::AnyBuffer> matrix_out,
+    ffi::Result<ffi::AnyBuffer> scratch_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return Rect2DNativePlanDispatchImpl(
+      stream, comm_stream, cuda_stream, layout, process_rows, process_cols,
+      tile_rows, tile_cols, matrix, scratch, matrix_out, scratch_out,
+      collective_params, collective_cliques,
+      NativeTransferBackend::kRawNcclSendRecv);
 }
 
 absl::Status XlaRectPadded2DNativePlanPrepare(
@@ -1365,7 +1589,7 @@ absl::Status XlaRectPadded2DNativePlanPrepare(
   return XlaRect2DNativePlanPrepare(collective_params, clique_requests);
 }
 
-absl::Status XlaRectPadded2DNativePlanDispatch(
+absl::Status RectPadded2DNativePlanDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t layout, int64_t process_rows, int64_t process_cols,
     int64_t tile_rows, int64_t tile_cols, int64_t logical_rows,
@@ -1373,7 +1597,8 @@ absl::Status XlaRectPadded2DNativePlanDispatch(
     ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    const CollectiveCliques* collective_cliques,
+    NativeTransferBackend transfer_backend) {
   if (stream == nullptr || comm_stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         "xla_rect_padded_2d_native_plan requires XLA and CUDA stream contexts");
@@ -1429,7 +1654,7 @@ absl::Status XlaRectPadded2DNativePlanDispatch(
   }
   const int64_t rank_value = static_cast<int64_t>(rank->value());
 
-  absl::StatusOr<Communicator*> comm = collective_cliques->GetComm(
+  absl::StatusOr<GpuCommunicator*> comm = collective_cliques->GetComm(
       *clique_key, collective_params->global_device_id);
   if (!comm.ok()) {
     return comm.status();
@@ -1478,12 +1703,46 @@ absl::Status XlaRectPadded2DNativePlanDispatch(
 
   JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
       stream, comm_stream, cuda_stream, *decoded_layout, edge_batches,
-      local_rows, local_cols, rank_value, element_bytes, max_step_elements,
-      matrix, matrix_out_base, scratch_out_base, *comm));
+      local_rows, local_cols, rank_value, num_ranks, transfer_backend,
+      element_bytes, max_step_elements, matrix, matrix_out_base,
+      scratch_out_base, *comm));
   return ExecuteNative2DStepBatches(
       stream, comm_stream, cuda_stream, *decoded_layout, slab_batches,
-      local_rows, local_cols, rank_value, element_bytes, max_step_elements,
-      matrix, matrix_out_base, scratch_out_base, *comm);
+      local_rows, local_cols, rank_value, num_ranks, transfer_backend,
+      element_bytes, max_step_elements, matrix, matrix_out_base,
+      scratch_out_base, *comm);
+}
+
+absl::Status XlaRectPadded2DNativePlanDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t layout, int64_t process_rows, int64_t process_cols,
+    int64_t tile_rows, int64_t tile_cols, int64_t logical_rows,
+    int64_t logical_cols, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    ffi::Result<ffi::AnyBuffer> matrix_out,
+    ffi::Result<ffi::AnyBuffer> scratch_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return RectPadded2DNativePlanDispatchImpl(
+      stream, comm_stream, cuda_stream, layout, process_rows, process_cols,
+      tile_rows, tile_cols, logical_rows, logical_cols, matrix, scratch,
+      matrix_out, scratch_out, collective_params, collective_cliques,
+      NativeTransferBackend::kXlaCollectivePermute);
+}
+
+absl::Status XlaRectPadded2DNativePlanNcclDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t layout, int64_t process_rows, int64_t process_cols,
+    int64_t tile_rows, int64_t tile_cols, int64_t logical_rows,
+    int64_t logical_cols, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    ffi::Result<ffi::AnyBuffer> matrix_out,
+    ffi::Result<ffi::AnyBuffer> scratch_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return RectPadded2DNativePlanDispatchImpl(
+      stream, comm_stream, cuda_stream, layout, process_rows, process_cols,
+      tile_rows, tile_cols, logical_rows, logical_cols, matrix, scratch,
+      matrix_out, scratch_out, collective_params, collective_cliques,
+      NativeTransferBackend::kRawNcclSendRecv);
 }
 
 }  // namespace xla::gpu

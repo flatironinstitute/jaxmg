@@ -186,6 +186,33 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveCliques>());
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaRectTransferNcclProbePrepareFFI, XlaRectTransferProbePrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaRectTransferNcclProbeFFI, XlaRectTransferNcclProbeDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("layout")
+        .Attr<absl::Span<const int64_t>>("targets")
+        .Attr<absl::Span<const int64_t>>("src_row_starts")
+        .Attr<absl::Span<const int64_t>>("src_col_starts")
+        .Attr<absl::Span<const int64_t>>("dst_row_starts")
+        .Attr<absl::Span<const int64_t>>("dst_col_starts")
+        .Attr<int64_t>("row_count")
+        .Attr<int64_t>("col_count")
+        .Arg<ffi::AnyBuffer>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaRect2DNativePlanPrepareFFI, XlaRect2DNativePlanPrepare,
     ffi::Ffi::BindPrepare()
         .Ctx<ffi::CollectiveParams>()
@@ -210,6 +237,30 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveCliques>());
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaRect2DNativePlanNcclPrepareFFI, XlaRect2DNativePlanPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaRect2DNativePlanNcclFFI, XlaRect2DNativePlanNcclDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("layout")
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("tile_rows")
+        .Attr<int64_t>("tile_cols")
+        .Arg<ffi::AnyBuffer>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaRectPadded2DNativePlanPrepareFFI, XlaRectPadded2DNativePlanPrepare,
     ffi::Ffi::BindPrepare()
         .Ctx<ffi::CollectiveParams>()
@@ -217,6 +268,32 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaRectPadded2DNativePlanFFI, XlaRectPadded2DNativePlanDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("layout")
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("tile_rows")
+        .Attr<int64_t>("tile_cols")
+        .Attr<int64_t>("logical_rows")
+        .Attr<int64_t>("logical_cols")
+        .Arg<ffi::AnyBuffer>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaRectPadded2DNativePlanNcclPrepareFFI, XlaRectPadded2DNativePlanPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaRectPadded2DNativePlanNcclFFI, XlaRectPadded2DNativePlanNcclDispatch,
     ffi::Ffi::Bind()
         .Ctx<ffi::Stream>()
         .Ctx<ffi::CommunicationStream<1>>()

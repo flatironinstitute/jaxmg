@@ -1049,10 +1049,11 @@ def xla_rect_pack_unpack_probe_shardmap(
     return impl(matrix, scratch)
 
 
-def xla_rect_transfer_probe(
+def _xla_rect_transfer_probe_impl(
     matrix: Array,
     scratch: Array,
     *,
+    ffi_target: str,
     layout="row_major",
     targets,
     src_row_starts,
@@ -1062,19 +1063,6 @@ def xla_rect_transfer_probe(
     row_count: int,
     col_count: int,
 ) -> tuple[Array, Array]:
-    """Move one packed rectangular fragment per rank through XLA communication.
-
-    ``targets[source_rank] = target_rank`` describes a one-to-one transfer
-    round. Each participating source rank packs its local source rectangle into
-    the first scratch slot, sends that dense payload with XLA
-    ``CollectivePermute``, and each receiver unpacks the received payload from
-    the second scratch slot into its local destination rectangle.
-
-    This is the first GPU-to-GPU checkpoint for the cuSOLVERMp 2D
-    redistribution. It proves a scheduled tile fragment can be moved without a
-    second full matrix allocation. It is still diagnostic code, not the full
-    block-cyclic reshuffler.
-    """
     (
         layout_code,
         target_array,
@@ -1105,7 +1093,7 @@ def xla_rect_transfer_probe(
     matrix_layout = _RECT_JAX_LAYOUTS[layout_code]
     ffi_fn = partial(
         jax.ffi.ffi_call(
-            "xla_rect_transfer_probe",
+            ffi_target,
             out_type,
             input_layouts=(matrix_layout, (0,)),
             output_layouts=(matrix_layout, (0,)),
@@ -1121,6 +1109,77 @@ def xla_rect_transfer_probe(
         col_count=col_count,
     )
     return ffi_fn(matrix, scratch)
+
+
+def xla_rect_transfer_probe(
+    matrix: Array,
+    scratch: Array,
+    *,
+    layout="row_major",
+    targets,
+    src_row_starts,
+    src_col_starts,
+    dst_row_starts,
+    dst_col_starts,
+    row_count: int,
+    col_count: int,
+) -> tuple[Array, Array]:
+    """Move one packed rectangular fragment per rank through XLA communication.
+
+    ``targets[source_rank] = target_rank`` describes a one-to-one transfer
+    round. Each participating source rank packs its local source rectangle into
+    the first scratch slot, sends that dense payload with XLA
+    ``CollectivePermute``, and each receiver unpacks the received payload from
+    the second scratch slot into its local destination rectangle.
+    """
+    return _xla_rect_transfer_probe_impl(
+        matrix,
+        scratch,
+        ffi_target="xla_rect_transfer_probe",
+        layout=layout,
+        targets=targets,
+        src_row_starts=src_row_starts,
+        src_col_starts=src_col_starts,
+        dst_row_starts=dst_row_starts,
+        dst_col_starts=dst_col_starts,
+        row_count=row_count,
+        col_count=col_count,
+    )
+
+
+def xla_rect_transfer_nccl_probe(
+    matrix: Array,
+    scratch: Array,
+    *,
+    layout="row_major",
+    targets,
+    src_row_starts,
+    src_col_starts,
+    dst_row_starts,
+    dst_col_starts,
+    row_count: int,
+    col_count: int,
+) -> tuple[Array, Array]:
+    """Move one packed rectangular fragment per rank through raw NCCL.
+
+    This uses the same XLA-owned communicator as ``xla_rect_transfer_probe`` but
+    borrows its underlying ``ncclComm_t`` and submits ``ncclSend``/``ncclRecv``
+    directly. It is diagnostic code for validating the future cuSOLVERMp
+    transport path.
+    """
+    return _xla_rect_transfer_probe_impl(
+        matrix,
+        scratch,
+        ffi_target="xla_rect_transfer_nccl_probe",
+        layout=layout,
+        targets=targets,
+        src_row_starts=src_row_starts,
+        src_col_starts=src_col_starts,
+        dst_row_starts=dst_row_starts,
+        dst_col_starts=dst_col_starts,
+        row_count=row_count,
+        col_count=col_count,
+    )
 
 
 def xla_rect_transfer_probe_shardmap(
@@ -1168,32 +1227,62 @@ def xla_rect_transfer_probe_shardmap(
     return impl(matrix, scratch)
 
 
-def xla_rect_2d_native_plan(
+def xla_rect_transfer_nccl_probe_shardmap(
+    matrix: Array,
+    scratch: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    scratch_specs: P,
+    *,
+    layout="row_major",
+    targets,
+    src_row_starts,
+    src_col_starts,
+    dst_row_starts,
+    dst_col_starts,
+    row_count: int,
+    col_count: int,
+) -> tuple[Array, Array]:
+    """Run :func:`xla_rect_transfer_nccl_probe` over sharded local matrices."""
+    if not isinstance(matrix_specs, P) or not isinstance(scratch_specs, P):
+        raise TypeError("matrix_specs and scratch_specs must be PartitionSpec values.")
+
+    @partial(jax.jit, donate_argnums=(0, 1))
+    @partial(
+        jax.shard_map,
+        mesh=mesh,
+        in_specs=(matrix_specs, scratch_specs),
+        out_specs=(matrix_specs, scratch_specs),
+        check_vma=False,
+    )
+    def impl(_matrix, _scratch):
+        return xla_rect_transfer_nccl_probe(
+            _matrix,
+            _scratch,
+            layout=layout,
+            targets=targets,
+            src_row_starts=src_row_starts,
+            src_col_starts=src_col_starts,
+            dst_row_starts=dst_row_starts,
+            dst_col_starts=dst_col_starts,
+            row_count=row_count,
+            col_count=col_count,
+        )
+
+    return impl(matrix, scratch)
+
+
+def _xla_rect_2d_native_plan_impl(
     matrix: Array,
     scratch: Array,
     *,
+    ffi_target: str,
     layout="row_major",
     process_rows: int,
     process_cols: int,
     tile_rows: int,
     tile_cols: int,
 ) -> tuple[Array, Array]:
-    """Apply a native-planned 2D tile redistribution on local shards.
-
-    This is the first fused native form of the cuSOLVERMp redistribution work.
-    Python supplies only the process-grid shape, tile shape, layout, and
-    donated buffers. The C++ handler constructs the block-to-2D-block-cyclic
-    slab schedule, batches conflict-free cycle steps, and executes those
-    batches through XLA ``CollectivePermute``. The native schedule first
-    permutes column slabs of shape ``local_rows x tile_cols`` across process
-    columns, then row slabs of shape ``tile_rows x local_cols`` across process
-    rows. Closed cycles use one saved slab plus one send and one receive slab
-    in scratch.
-
-    The current implementation is deliberately tile-aligned: every local shard
-    dimension must be divisible by the corresponding tile dimension. Padding
-    and partial-edge tiles will be added as a separate checkpoint.
-    """
     (
         layout_code,
         process_rows,
@@ -1218,7 +1307,7 @@ def xla_rect_2d_native_plan(
     matrix_layout = _RECT_JAX_LAYOUTS[layout_code]
     ffi_fn = partial(
         jax.ffi.ffi_call(
-            "xla_rect_2d_native_plan",
+            ffi_target,
             out_type,
             input_layouts=(matrix_layout, (0,)),
             output_layouts=(matrix_layout, (0,)),
@@ -1231,6 +1320,56 @@ def xla_rect_2d_native_plan(
         tile_cols=tile_cols,
     )
     return ffi_fn(matrix, scratch)
+
+
+def xla_rect_2d_native_plan(
+    matrix: Array,
+    scratch: Array,
+    *,
+    layout="row_major",
+    process_rows: int,
+    process_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+) -> tuple[Array, Array]:
+    """Apply a native-planned 2D tile redistribution on local shards.
+
+    The C++ handler constructs the slab schedule, batches conflict-free cycle
+    steps, and executes those batches through XLA ``CollectivePermute``.
+    """
+    return _xla_rect_2d_native_plan_impl(
+        matrix,
+        scratch,
+        ffi_target="xla_rect_2d_native_plan",
+        layout=layout,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+    )
+
+
+def xla_rect_2d_native_plan_nccl(
+    matrix: Array,
+    scratch: Array,
+    *,
+    layout="row_major",
+    process_rows: int,
+    process_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+) -> tuple[Array, Array]:
+    """Apply the native 2D tile redistribution through raw NCCL send/recv."""
+    return _xla_rect_2d_native_plan_impl(
+        matrix,
+        scratch,
+        ffi_target="xla_rect_2d_native_plan_nccl",
+        layout=layout,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+    )
 
 
 def xla_rect_2d_native_plan_shardmap(
@@ -1272,10 +1411,50 @@ def xla_rect_2d_native_plan_shardmap(
     return impl(matrix, scratch)
 
 
-def xla_rect_padded_2d_native_plan(
+def xla_rect_2d_native_plan_nccl_shardmap(
+    matrix: Array,
+    scratch: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    scratch_specs: P,
+    *,
+    layout="row_major",
+    process_rows: int,
+    process_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+) -> tuple[Array, Array]:
+    """Run :func:`xla_rect_2d_native_plan_nccl` over a 2D sharded matrix."""
+    if not isinstance(matrix_specs, P) or not isinstance(scratch_specs, P):
+        raise TypeError("matrix_specs and scratch_specs must be PartitionSpec values.")
+
+    @partial(jax.jit, donate_argnums=(0, 1))
+    @partial(
+        jax.shard_map,
+        mesh=mesh,
+        in_specs=(matrix_specs, scratch_specs),
+        out_specs=(matrix_specs, scratch_specs),
+        check_vma=False,
+    )
+    def impl(_matrix, _scratch):
+        return xla_rect_2d_native_plan_nccl(
+            _matrix,
+            _scratch,
+            layout=layout,
+            process_rows=process_rows,
+            process_cols=process_cols,
+            tile_rows=tile_rows,
+            tile_cols=tile_cols,
+        )
+
+    return impl(matrix, scratch)
+
+
+def _xla_rect_padded_2d_native_plan_impl(
     matrix: Array,
     scratch: Array,
     *,
+    ffi_target: str,
     layout="row_major",
     process_rows: int,
     process_cols: int,
@@ -1284,13 +1463,6 @@ def xla_rect_padded_2d_native_plan(
     logical_rows: int,
     logical_cols: int,
 ) -> tuple[Array, Array]:
-    """Apply the native padded 2D redistribution schedule.
-
-    This is the fused native form of the current cuSOLVERMp movement
-    checkpoint. The native handler first compacts local per-shard padding to
-    the global right/bottom edges, then executes the tile-aligned
-    column-owner/row-owner slab redistribution.
-    """
     (
         layout_code,
         process_rows,
@@ -1319,7 +1491,7 @@ def xla_rect_padded_2d_native_plan(
     matrix_layout = _RECT_JAX_LAYOUTS[layout_code]
     ffi_fn = partial(
         jax.ffi.ffi_call(
-            "xla_rect_padded_2d_native_plan",
+            ffi_target,
             out_type,
             input_layouts=(matrix_layout, (0,)),
             output_layouts=(matrix_layout, (0,)),
@@ -1334,6 +1506,60 @@ def xla_rect_padded_2d_native_plan(
         logical_cols=logical_cols,
     )
     return ffi_fn(matrix, scratch)
+
+
+def xla_rect_padded_2d_native_plan(
+    matrix: Array,
+    scratch: Array,
+    *,
+    layout="row_major",
+    process_rows: int,
+    process_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+    logical_rows: int,
+    logical_cols: int,
+) -> tuple[Array, Array]:
+    """Apply the native padded 2D redistribution schedule through XLA."""
+    return _xla_rect_padded_2d_native_plan_impl(
+        matrix,
+        scratch,
+        ffi_target="xla_rect_padded_2d_native_plan",
+        layout=layout,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
+    )
+
+
+def xla_rect_padded_2d_native_plan_nccl(
+    matrix: Array,
+    scratch: Array,
+    *,
+    layout="row_major",
+    process_rows: int,
+    process_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+    logical_rows: int,
+    logical_cols: int,
+) -> tuple[Array, Array]:
+    """Apply the native padded 2D redistribution schedule through raw NCCL."""
+    return _xla_rect_padded_2d_native_plan_impl(
+        matrix,
+        scratch,
+        ffi_target="xla_rect_padded_2d_native_plan_nccl",
+        layout=layout,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
+    )
 
 
 def xla_rect_padded_2d_native_plan_shardmap(
@@ -1365,6 +1591,49 @@ def xla_rect_padded_2d_native_plan_shardmap(
     )
     def impl(_matrix, _scratch):
         return xla_rect_padded_2d_native_plan(
+            _matrix,
+            _scratch,
+            layout=layout,
+            process_rows=process_rows,
+            process_cols=process_cols,
+            tile_rows=tile_rows,
+            tile_cols=tile_cols,
+            logical_rows=logical_rows,
+            logical_cols=logical_cols,
+        )
+
+    return impl(matrix, scratch)
+
+
+def xla_rect_padded_2d_native_plan_nccl_shardmap(
+    matrix: Array,
+    scratch: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    scratch_specs: P,
+    *,
+    layout="row_major",
+    process_rows: int,
+    process_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+    logical_rows: int,
+    logical_cols: int,
+) -> tuple[Array, Array]:
+    """Run :func:`xla_rect_padded_2d_native_plan_nccl` over a 2D sharded matrix."""
+    if not isinstance(matrix_specs, P) or not isinstance(scratch_specs, P):
+        raise TypeError("matrix_specs and scratch_specs must be PartitionSpec values.")
+
+    @partial(jax.jit, donate_argnums=(0, 1))
+    @partial(
+        jax.shard_map,
+        mesh=mesh,
+        in_specs=(matrix_specs, scratch_specs),
+        out_specs=(matrix_specs, scratch_specs),
+        check_vma=False,
+    )
+    def impl(_matrix, _scratch):
+        return xla_rect_padded_2d_native_plan_nccl(
             _matrix,
             _scratch,
             layout=layout,

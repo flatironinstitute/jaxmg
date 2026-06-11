@@ -12,7 +12,10 @@ import jax.numpy as jnp
 import pytest
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
-from jaxmg._xla_comm_probe import xla_rect_transfer_probe_shardmap
+from jaxmg._xla_comm_probe import (
+    xla_rect_transfer_nccl_probe_shardmap,
+    xla_rect_transfer_probe_shardmap,
+)
 
 platforms = {d.platform for d in jax.devices()}
 if "gpu" not in platforms:
@@ -21,7 +24,7 @@ if len(jax.devices("gpu")) < 2:
     pytest.skip("At least two GPUs are required. Skipping", allow_module_level=True)
 
 
-def _run_two_rank_rectangle_transfer(layout, packed_rank0, packed_rank1):
+def _run_two_rank_rectangle_transfer(transfer_fn, layout, packed_rank0, packed_rank1):
     devices = np.asarray(jax.devices("gpu")[:2], dtype=object)
     mesh = Mesh(devices, ("x",))
 
@@ -34,7 +37,7 @@ def _run_two_rank_rectangle_transfer(layout, packed_rank0, packed_rank1):
         NamedSharding(mesh, P("x")),
     )
 
-    out, scratch_out = xla_rect_transfer_probe_shardmap(
+    out, scratch_out = transfer_fn(
         matrix,
         scratch,
         mesh,
@@ -66,16 +69,26 @@ def _run_two_rank_rectangle_transfer(layout, packed_rank0, packed_rank1):
     np.testing.assert_array_equal(np.asarray(scratch_out), expected_scratch)
 
 
-def test_rect_transfer_probe_row_major_float32():
+@pytest.mark.parametrize(
+    "transfer_fn",
+    [xla_rect_transfer_probe_shardmap, xla_rect_transfer_nccl_probe_shardmap],
+)
+def test_rect_transfer_probe_row_major_float32(transfer_fn):
     _run_two_rank_rectangle_transfer(
+        transfer_fn,
         "row_major",
         packed_rank0=np.array([7, 8, 12, 13], dtype=np.float32),
         packed_rank1=np.array([113, 114, 118, 119], dtype=np.float32),
     )
 
 
-def test_rect_transfer_probe_column_major_float32():
+@pytest.mark.parametrize(
+    "transfer_fn",
+    [xla_rect_transfer_probe_shardmap, xla_rect_transfer_nccl_probe_shardmap],
+)
+def test_rect_transfer_probe_column_major_float32(transfer_fn):
     _run_two_rank_rectangle_transfer(
+        transfer_fn,
         "column_major",
         packed_rank0=np.array([7, 12, 8, 13], dtype=np.float32),
         packed_rank1=np.array([113, 118, 114, 119], dtype=np.float32),

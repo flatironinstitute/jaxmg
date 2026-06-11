@@ -16,10 +16,35 @@ from ._block_cyclic_2d_plan import (
     build_edge_padding_compaction_plan,
 )
 from ._xla_comm_probe import (
+    xla_rect_2d_native_plan_nccl_shardmap,
     xla_rect_2d_native_plan_shardmap,
+    xla_rect_padded_2d_native_plan_nccl_shardmap,
     xla_rect_padded_2d_native_plan_shardmap,
+    xla_rect_transfer_nccl_probe_shardmap,
     xla_rect_transfer_probe_shardmap,
 )
+
+_RECTANGLE_TRANSFER_SHARDMAPS = {
+    "xla": xla_rect_transfer_probe_shardmap,
+    "nccl": xla_rect_transfer_nccl_probe_shardmap,
+}
+
+_NATIVE_2D_PLAN_SHARDMAPS = {
+    "xla": xla_rect_2d_native_plan_shardmap,
+    "nccl": xla_rect_2d_native_plan_nccl_shardmap,
+}
+
+_PADDED_NATIVE_2D_PLAN_SHARDMAPS = {
+    "xla": xla_rect_padded_2d_native_plan_shardmap,
+    "nccl": xla_rect_padded_2d_native_plan_nccl_shardmap,
+}
+
+
+def _normalise_transport(transport: str) -> str:
+    transport = str(transport).lower()
+    if transport not in {"xla", "nccl"}:
+        raise ValueError("transport must be either 'xla' or 'nccl'.")
+    return transport
 
 
 def required_rect_transfer_scratch_size(
@@ -179,7 +204,9 @@ def _execute_rectangle_batches_shardmap(
     *,
     grid: ProcessGrid,
     layout="row_major",
+    transport="xla",
 ) -> tuple[Array, Array]:
+    transfer_fn = _RECTANGLE_TRANSFER_SHARDMAPS[_normalise_transport(transport)]
     for batch in batches:
         transfers = getattr(batch, "transfers", None)
         if transfers is None:
@@ -195,7 +222,7 @@ def _execute_rectangle_batches_shardmap(
                 shape_transfers,
                 num_ranks=grid.num_processes,
             )
-            matrix, scratch = xla_rect_transfer_probe_shardmap(
+            matrix, scratch = transfer_fn(
                 matrix,
                 scratch,
                 mesh,
@@ -223,6 +250,7 @@ def execute_fragment_transfer_batches_shardmap(
     *,
     grid: ProcessGrid,
     layout="row_major",
+    transport="xla",
 ) -> tuple[Array, Array]:
     """Execute planned 2D rectangle-transfer batches through XLA FFI.
 
@@ -248,6 +276,7 @@ def execute_fragment_transfer_batches_shardmap(
         batches,
         grid=grid,
         layout=layout,
+        transport=transport,
     )
 
 
@@ -261,6 +290,7 @@ def execute_edge_padding_compaction_batches_shardmap(
     *,
     grid: ProcessGrid,
     layout="row_major",
+    transport="xla",
 ) -> tuple[Array, Array]:
     """Execute edge-padding compaction waves through rectangle transfers.
 
@@ -286,6 +316,7 @@ def execute_edge_padding_compaction_batches_shardmap(
         batches,
         grid=grid,
         layout=layout,
+        transport=transport,
     )
 
 
@@ -300,6 +331,7 @@ def execute_tile_aligned_native_2d_plan_shardmap(
     tile_rows: int,
     tile_cols: int,
     layout="row_major",
+    transport="xla",
 ) -> tuple[Array, Array]:
     """Execute the first fused native 2D redistribution checkpoint.
 
@@ -332,7 +364,8 @@ def execute_tile_aligned_native_2d_plan_shardmap(
             "scratch is too small for the native slab-aligned 2D plan."
         )
 
-    return xla_rect_2d_native_plan_shardmap(
+    native_plan_fn = _NATIVE_2D_PLAN_SHARDMAPS[_normalise_transport(transport)]
+    return native_plan_fn(
         matrix,
         scratch,
         mesh,
@@ -359,6 +392,7 @@ def execute_padded_block_cyclic_2d_shardmap(
     tile_rows: int,
     tile_cols: int,
     layout="row_major",
+    transport="xla",
 ) -> tuple[Array, Array]:
     """Run the fused native padded 2D redistribution checkpoint end to end.
 
@@ -397,7 +431,10 @@ def execute_padded_block_cyclic_2d_shardmap(
             "scratch is too small for padded 2D block-cyclic redistribution."
         )
 
-    return xla_rect_padded_2d_native_plan_shardmap(
+    padded_native_plan_fn = _PADDED_NATIVE_2D_PLAN_SHARDMAPS[
+        _normalise_transport(transport)
+    ]
+    return padded_native_plan_fn(
         matrix,
         scratch,
         mesh,
