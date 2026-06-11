@@ -283,6 +283,15 @@ def _initialize():
                 "execute": "XlaCusolverMpInitProbeFFI",
             },
         )
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            _xla_comm_backend_library,
+            "cusolvermp_scatter_layout_probe",
+            {
+                "prepare": "XlaCusolverMpScatterLayoutProbePrepareFFI",
+                "execute": "XlaCusolverMpScatterLayoutProbeFFI",
+            },
+        )
     else:
         warnings.warn(
             "No GPUs found, only use this mode for testing or generating documentation.",

@@ -270,6 +270,7 @@ def _as_i64_attr(name: str, value) -> np.ndarray:
 
 _RECT_JAX_LAYOUT = (1, 0)
 _CUSOLVERMP_INIT_PROBE_SIZE = 16
+_CUSOLVERMP_SCATTER_LAYOUT_PROBE_SIZE = 24
 
 
 def cusolvermp_init_probe(
@@ -374,6 +375,148 @@ def cusolvermp_init_probe_shardmap(
         )
 
     return impl(token)
+
+
+def _validate_cusolvermp_layout_probe_args(
+    matrix: Array,
+    *,
+    process_rows: int,
+    process_cols: int,
+    logical_rows: int,
+    logical_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+) -> tuple[int, int, int, int, int, int]:
+    if matrix.ndim != 2:
+        raise ValueError("cusolvermp_scatter_layout_probe expects a rank-2 matrix.")
+    if matrix.dtype not in (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128):
+        raise TypeError(
+            "cusolvermp_scatter_layout_probe supports float32, float64, "
+            "complex64, and complex128."
+        )
+
+    process_rows = int(process_rows)
+    process_cols = int(process_cols)
+    logical_rows = int(logical_rows)
+    logical_cols = int(logical_cols)
+    tile_rows = int(tile_rows)
+    tile_cols = int(tile_cols)
+    if process_rows <= 0 or process_cols <= 0:
+        raise ValueError("process_rows and process_cols must be positive.")
+    if logical_rows <= 0 or logical_cols <= 0:
+        raise ValueError("logical_rows and logical_cols must be positive.")
+    if tile_rows <= 0 or tile_cols <= 0:
+        raise ValueError("tile_rows and tile_cols must be positive.")
+    if logical_rows % process_rows or logical_cols % process_cols:
+        raise ValueError("logical matrix shape must divide over the process grid.")
+    return (
+        process_rows,
+        process_cols,
+        logical_rows,
+        logical_cols,
+        tile_rows,
+        tile_cols,
+    )
+
+
+def cusolvermp_scatter_layout_probe(
+    matrix: Array,
+    *,
+    process_rows: int,
+    process_cols: int,
+    logical_rows: int,
+    logical_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+) -> tuple[Array, Array]:
+    """Return cuSOLVERMp's own host-to-device scatter layout for a test matrix.
+
+    The native handler dynamically loads ``libcusolverMp`` and calls
+    ``cusolverMpMatrixScatterH2D`` with a deterministic host matrix generated
+    on rank 0. The returned matrix is the rank-local device buffer that
+    cuSOLVERMp produced, exposed through JAX with the same local column-major
+    layout used by the 2D redistribution prototype.
+
+    This is a diagnostic oracle. It intentionally depends on an internal/EA
+    NVIDIA scatter helper and should not be used in the production solver path.
+    """
+    (
+        process_rows,
+        process_cols,
+        logical_rows,
+        logical_cols,
+        tile_rows,
+        tile_cols,
+    ) = _validate_cusolvermp_layout_probe_args(
+        matrix,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+    )
+    ensure_init_jaxmg_backend()
+
+    out_type = (
+        jax.ShapeDtypeStruct(matrix.shape, matrix.dtype),
+        jax.ShapeDtypeStruct((_CUSOLVERMP_SCATTER_LAYOUT_PROBE_SIZE,), jnp.int32),
+    )
+    ffi_fn = partial(
+        jax.ffi.ffi_call(
+            "cusolvermp_scatter_layout_probe",
+            out_type,
+            input_layouts=(_RECT_JAX_LAYOUT,),
+            output_layouts=(_RECT_JAX_LAYOUT, (0,)),
+            input_output_aliases={0: 0},
+        ),
+        process_rows=process_rows,
+        process_cols=process_cols,
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+    )
+    return ffi_fn(matrix)
+
+
+def cusolvermp_scatter_layout_probe_shardmap(
+    matrix: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    status_specs: P,
+    *,
+    process_rows: int,
+    process_cols: int,
+    logical_rows: int,
+    logical_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+) -> tuple[Array, Array]:
+    """Run :func:`cusolvermp_scatter_layout_probe` over a sharded 2D matrix."""
+    if not isinstance(matrix_specs, P) or not isinstance(status_specs, P):
+        raise TypeError("matrix_specs and status_specs must be PartitionSpec values.")
+
+    @partial(jax.jit, donate_argnums=(0,))
+    @partial(
+        jax.shard_map,
+        mesh=mesh,
+        in_specs=matrix_specs,
+        out_specs=(matrix_specs, status_specs),
+        check_vma=False,
+    )
+    def impl(_matrix):
+        return cusolvermp_scatter_layout_probe(
+            _matrix,
+            process_rows=process_rows,
+            process_cols=process_cols,
+            logical_rows=logical_rows,
+            logical_cols=logical_cols,
+            tile_rows=tile_rows,
+            tile_cols=tile_cols,
+        )
+
+    return impl(matrix)
 
 
 def xla_comm_chunk_permute_probe(

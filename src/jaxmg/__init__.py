@@ -16,6 +16,8 @@ from ._xla_comm_probe import (
     xla_comm_chunk_permute_probe_shardmap,
     xla_comm_matrix_column_native_plan,
     xla_comm_matrix_column_native_plan_shardmap,
+    cusolvermp_scatter_layout_probe,
+    cusolvermp_scatter_layout_probe_shardmap,
 )
 from ._cyclic_1d import (
     cyclic_1d,
@@ -49,6 +51,8 @@ __all__ = [
     "xla_comm_chunk_permute_probe_shardmap",
     "xla_comm_matrix_column_native_plan",
     "xla_comm_matrix_column_native_plan_shardmap",
+    "cusolvermp_scatter_layout_probe",
+    "cusolvermp_scatter_layout_probe_shardmap",
     "cyclic_1d",
     "pad_rows",
     "unpad_rows",

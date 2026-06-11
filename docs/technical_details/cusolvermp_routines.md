@@ -87,6 +87,37 @@ should prove the following on a tiny single-node case:
 Only after this diagnostic passes should the branch wire cuSOLVERMp into the
 public `jaxmg.potrs` path.
 
+## CSD3 cuSOLVERMp SDK Environment
+
+CSD3's standard CUDA 12.1/cuDNN module stack provides cuSolverMg but does not
+provide the current cuSOLVERMp shared library. The single-node cuSOLVERMp
+diagnostics therefore use the NVIDIA HPC SDK 26.3 installation under:
+
+```text
+/rds/user/jlt67/hpc-work/PhD/NVHPC/Linux_x86_64/26.3
+```
+
+The durable paths used by the verification jobs are:
+
+```text
+NVHPC_ROOT=/rds/user/jlt67/hpc-work/PhD/NVHPC/Linux_x86_64/26.3
+CUSOLVERMP_INC=${NVHPC_ROOT}/math_libs/12.9/targets/x86_64-linux/include
+CUSOLVERMP_LIB=${NVHPC_ROOT}/math_libs/12.9/targets/x86_64-linux/lib
+NVHPC_NCCL_LIB=${NVHPC_ROOT}/comm_libs/12.9/nccl/lib
+```
+
+The loader path should put the JAX wheel's NCCL library before the HPC SDK NCCL
+library when the diagnostic borrows XLA's communicator:
+
+```text
+${CONDA_ENV}/lib/python3.11/site-packages/nvidia/nccl/lib
+```
+
+This keeps `libcusolverMp.so` and the XLA/JAX CUDA plugin using a compatible
+NCCL runtime in the same process. The cuSOLVERMp math libraries still come from
+the SDK path. This is a CSD3 test environment detail; the package code itself
+continues to load cuSOLVERMp dynamically from the user's runtime library path.
+
 ## References
 
 - NVIDIA cuSOLVERMp initialization: `https://docs.nvidia.com/cuda/cusolvermp/usage/initialization/index.html`
