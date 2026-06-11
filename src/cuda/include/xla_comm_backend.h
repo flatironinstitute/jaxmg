@@ -283,10 +283,16 @@ absl::StatusOr<void*> AllocateFfiScratch(se::ScratchAllocator& scratch,
 // The node-scoped helpers are the MPMD migration point: they keep cuSolverMg
 // single-node by grouping ranks in chunks of JAXMG_NUMBER_OF_DEVICES, while
 // still using XLA communicator contexts for collectives inside that node.
+// The all-assigned helpers are for the cuSOLVERMp investigation path, where
+// the communicator must eventually span every rank in the distributed
+// cuSOLVERMp process grid rather than just the current node.
 // LocalDevicesCliqueKey is for ordinary collectives; LocalDevicesP2PCliqueKey
 // uses a communication id for point-to-point style CollectivePermute calls.
 ReplicaGroup LocalDevicesReplicaGroup(const CollectiveParams& params);
 std::vector<GlobalDeviceId> LocalGlobalDeviceGroup(
+    const CollectiveParams& params);
+ReplicaGroup AllAssignedDevicesReplicaGroup(const CollectiveParams& params);
+std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
     const CollectiveParams& params);
 absl::StatusOr<std::vector<GlobalDeviceId>> NodeScopedGlobalDeviceGroup(
     const CollectiveParams& params);
@@ -296,6 +302,10 @@ absl::StatusOr<int> NodeScopedGroupOrdinal(const CollectiveParams& params);
 absl::StatusOr<GpuCliqueKey> LocalDevicesCliqueKey(
     const CollectiveParams& params);
 absl::StatusOr<GpuCliqueKey> LocalDevicesP2PCliqueKey(
+    const CollectiveParams& params);
+absl::StatusOr<GpuCliqueKey> AllAssignedDevicesCliqueKey(
+    const CollectiveParams& params);
+absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
     const CollectiveParams& params);
 absl::StatusOr<GpuCliqueKey> NodeScopedCliqueKey(
     const CollectiveParams& params);
@@ -420,6 +430,16 @@ absl::Status XlaRectPadded2DNativePlanDispatch(
     ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
     ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+absl::Status XlaCusolverMpInitProbePrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests);
+absl::Status XlaCusolverMpInitProbeDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t matrix_rows,
+    int64_t matrix_cols, int64_t tile_rows, int64_t tile_cols,
+    ffi::AnyBuffer token, ffi::Result<ffi::BufferR1<S32>> out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 

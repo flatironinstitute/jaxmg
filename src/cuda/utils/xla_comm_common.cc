@@ -206,6 +206,40 @@ std::vector<GlobalDeviceId> LocalGlobalDeviceGroup(
   return device_group;
 }
 
+ReplicaGroup AllAssignedDevicesReplicaGroup(const CollectiveParams& params) {
+  // cuSOLVERMp is the distributed-memory migration target. Unlike cuSolverMg,
+  // which is intentionally scoped to one node, this helper keeps every assigned
+  // replica in one group so the borrowed NCCL communicator can represent the
+  // full cuSOLVERMp process grid when JAX is launched across nodes.
+  std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
+  std::sort(devices.begin(), devices.end(),
+            [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
+              return a.global_device_id.value() < b.global_device_id.value();
+            });
+
+  ReplicaGroup group;
+  for (const AssignedDeviceEntry& device : devices) {
+    group.add_replica_ids(device.replica_id);
+  }
+  return group;
+}
+
+std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
+    const CollectiveParams& params) {
+  std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
+  std::sort(devices.begin(), devices.end(),
+            [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
+              return a.global_device_id.value() < b.global_device_id.value();
+            });
+
+  std::vector<GlobalDeviceId> device_group;
+  device_group.reserve(devices.size());
+  for (const AssignedDeviceEntry& device : devices) {
+    device_group.push_back(device.global_device_id);
+  }
+  return device_group;
+}
+
 absl::StatusOr<std::vector<GlobalDeviceId>> NodeScopedGlobalDeviceGroup(
     const CollectiveParams& params) {
   std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
@@ -285,6 +319,25 @@ absl::StatusOr<GpuCliqueKey> LocalDevicesP2PCliqueKey(
   // separate from LocalDevicesCliqueKey so all move-style handlers request the
   // same clique shape.
   std::vector<ReplicaGroup> replica_groups = {LocalDevicesReplicaGroup(params)};
+  return GetGpuCliqueKey(
+      params, replica_groups,
+      CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID,
+      CommunicationId(1));
+}
+
+absl::StatusOr<GpuCliqueKey> AllAssignedDevicesCliqueKey(
+    const CollectiveParams& params) {
+  std::vector<ReplicaGroup> replica_groups = {
+      AllAssignedDevicesReplicaGroup(params)};
+  return GetGpuCliqueKey(
+      params, replica_groups,
+      CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID, false);
+}
+
+absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
+    const CollectiveParams& params) {
+  std::vector<ReplicaGroup> replica_groups = {
+      AllAssignedDevicesReplicaGroup(params)};
   return GetGpuCliqueKey(
       params, replica_groups,
       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID,

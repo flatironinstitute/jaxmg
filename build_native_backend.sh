@@ -100,6 +100,7 @@ ln -sfn "${ROOT}/src/cuda/utils/mpmd_ipc.cc" \
   "${BACKEND_PKG}/utils/mpmd_ipc.cc"
 for src in \
   collective_diagnostics.cc \
+  cusolvermp_probe.cc \
   cyclic_1d.cc \
   ffi_handlers.cc \
   potri.cc \

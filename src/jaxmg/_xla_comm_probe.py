@@ -269,6 +269,111 @@ def _as_i64_attr(name: str, value) -> np.ndarray:
 
 
 _RECT_JAX_LAYOUT = (1, 0)
+_CUSOLVERMP_INIT_PROBE_SIZE = 16
+
+
+def cusolvermp_init_probe(
+    token: Array,
+    *,
+    process_rows: int,
+    process_cols: int,
+    matrix_rows: int,
+    matrix_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+) -> Array:
+    """Probe cuSOLVERMp handle/grid/descriptor initialization.
+
+    This is an integration diagnostic, not a solver. The native side borrows
+    the XLA-owned NCCL communicator, dynamically loads cuSOLVERMp if available,
+    and then attempts to create/destroy:
+
+    - ``cusolverMpHandle_t``
+    - ``cusolverMpGrid_t``
+    - ``cusolverMpMatrixDescriptor_t``
+
+    The result is a rank-1 ``int32`` status vector. ``out[0] == 0`` means the
+    full init sequence succeeded. ``out[0] == 1`` means ``libcusolverMp`` was
+    not available on the host, which is expected on systems that only provide
+    ordinary cuSOLVER/cuSolverMg.
+    """
+    ensure_init_jaxmg_backend()
+
+    if token.ndim != 1:
+        raise ValueError("cusolvermp_init_probe expects a rank-1 token.")
+
+    process_rows = int(process_rows)
+    process_cols = int(process_cols)
+    matrix_rows = int(matrix_rows)
+    matrix_cols = int(matrix_cols)
+    tile_rows = int(tile_rows)
+    tile_cols = int(tile_cols)
+    if process_rows <= 0 or process_cols <= 0:
+        raise ValueError("process_rows and process_cols must be positive.")
+    if matrix_rows <= 0 or matrix_cols <= 0:
+        raise ValueError("matrix_rows and matrix_cols must be positive.")
+    if tile_rows <= 0 or tile_cols <= 0:
+        raise ValueError("tile_rows and tile_cols must be positive.")
+
+    out_type = (jax.ShapeDtypeStruct((_CUSOLVERMP_INIT_PROBE_SIZE,), jnp.int32),)
+    ffi_fn = partial(
+        jax.ffi.ffi_call(
+            "cusolvermp_init_probe",
+            out_type,
+            input_layouts=((0,),),
+            output_layouts=((0,),),
+        ),
+        process_rows=process_rows,
+        process_cols=process_cols,
+        matrix_rows=matrix_rows,
+        matrix_cols=matrix_cols,
+        tile_rows=tile_rows,
+        tile_cols=tile_cols,
+    )
+    (out,) = ffi_fn(token)
+    return out
+
+
+def cusolvermp_init_probe_shardmap(
+    token: Array,
+    mesh: Mesh,
+    in_specs: P,
+    *,
+    process_rows: int,
+    process_cols: int,
+    matrix_rows: int,
+    matrix_cols: int,
+    tile_rows: int,
+    tile_cols: int,
+) -> Array:
+    """Run :func:`cusolvermp_init_probe` once per shard over ``mesh``."""
+    if not isinstance(in_specs, P):
+        raise TypeError("in_specs must be a PartitionSpec.")
+    if len(in_specs._partitions) != 1 or in_specs._partitions[0] is None:
+        raise ValueError("token must be sharded with PartitionSpec P(<axis_name>).")
+
+    axis_name = in_specs._partitions[0]
+
+    @partial(jax.jit)
+    @partial(
+        jax.shard_map,
+        mesh=mesh,
+        in_specs=in_specs,
+        out_specs=P(axis_name),
+        check_vma=False,
+    )
+    def impl(_token):
+        return cusolvermp_init_probe(
+            _token,
+            process_rows=process_rows,
+            process_cols=process_cols,
+            matrix_rows=matrix_rows,
+            matrix_cols=matrix_cols,
+            tile_rows=tile_rows,
+            tile_cols=tile_cols,
+        )
+
+    return impl(token)
 
 
 def xla_comm_chunk_permute_probe(

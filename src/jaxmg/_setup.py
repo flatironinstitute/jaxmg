@@ -274,6 +274,15 @@ def _initialize():
                 "execute": "XlaRectPadded2DNativePlanFFI",
             },
         )
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            _xla_comm_backend_library,
+            "cusolvermp_init_probe",
+            {
+                "prepare": "XlaCusolverMpInitProbePrepareFFI",
+                "execute": "XlaCusolverMpInitProbeFFI",
+            },
+        )
     else:
         warnings.warn(
             "No GPUs found, only use this mode for testing or generating documentation.",
