@@ -20,6 +20,8 @@ from ._xla_comm_probe import (
     cusolvermp_scatter_layout_probe_shardmap,
     cusolvermp_potrs_probe,
     cusolvermp_potrs_probe_shardmap,
+    cusolvermp_distributed_potrs_probe,
+    cusolvermp_distributed_potrs_probe_shardmap,
 )
 from ._cyclic_1d import (
     cyclic_1d,
@@ -57,6 +59,8 @@ __all__ = [
     "cusolvermp_scatter_layout_probe_shardmap",
     "cusolvermp_potrs_probe",
     "cusolvermp_potrs_probe_shardmap",
+    "cusolvermp_distributed_potrs_probe",
+    "cusolvermp_distributed_potrs_probe_shardmap",
     "cyclic_1d",
     "pad_rows",
     "unpad_rows",

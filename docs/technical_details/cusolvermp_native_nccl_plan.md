@@ -32,6 +32,12 @@ The branch has already proved these pieces independently:
    two-phase 2D block-cyclic redistribution.
 6. The Python executor can run those batches on a real `2 x 2` single-node GPU
    mesh.
+7. cuSOLVERMp can create a handle/grid from the borrowed XLA/NCCL communicator
+   and run `potrf`/`potrs` when NVIDIA's host scatter helper creates the input
+   layout.
+8. The solver diagnostic can also consume `A` and `B` buffers produced by
+   JAXMg's native 2D redistribution, avoiding `cusolverMpMatrixScatterH2D` on
+   the input side.
 
 The current executor is still a bridge implementation. Python builds and loops
 over transfer batches, while the native backend executes one rectangle-transfer
@@ -252,14 +258,30 @@ potrf
 potrs
 ```
 
-The minimum diagnostic should:
+The first diagnostic should:
 
 1. borrow the XLA-owned `ncclComm_t`;
 2. create the cuSOLVERMp handle and grid on the callback stream;
 3. create matrix descriptors for `A` and `B`;
 4. query `cusolverMpPotrf_bufferSize` and `cusolverMpPotrs_bufferSize`;
 5. allocate bounded host/device workspace;
-6. run `cusolverMpPotrf` and `cusolverMpPotrs` on a tiny redistributed matrix.
+6. scatter a tiny host matrix with `cusolverMpMatrixScatterH2D`;
+7. run `cusolverMpPotrf` and `cusolverMpPotrs`.
+
+That isolates the cuSOLVERMp boundary. The second diagnostic replaces the input
+scatter with the JAXMg path:
+
+1. create ordinary block-sharded JAX buffers;
+2. edge-pad them according to the 2D redistribution planner;
+3. run the native 2D GPU redistribution for both `A` and `B`;
+4. create cuSOLVERMp descriptors over those redistributed local buffers;
+5. run `cusolverMpPotrf` and `cusolverMpPotrs`;
+6. gather only the solved `B` for residual checking.
+
+This is the first end-to-end layout test for the intended production input
+path. It is still diagnostic-only: the public `potrs` wrapper needs a dedicated
+RHS padding policy, repeated-call memory handling, and output redistribution
+before it should replace the cuSolverMg backend.
 
 Only after this succeeds should the branch add `syevd`/`syevd_no_V`.
 `cusolverMpSyevd` maps directly to both APIs through `jobz = "V"` and

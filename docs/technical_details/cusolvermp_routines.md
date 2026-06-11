@@ -105,6 +105,29 @@ real Cholesky solve. It does not yet prove the production path, because the
 input layout still comes from NVIDIA's host scatter helper instead of JAXMg's
 native GPU-to-GPU 2D redistribution.
 
+The next diagnostic is `cusolvermp_distributed_potrs_probe`. It removes the
+host scatter helper from the solver input path:
+
+1. build ordinary JAX-sharded test matrices on the host;
+2. add the same edge padding expected by the 2D redistribution planner;
+3. run JAXMg's native 2D redistribution on GPU buffers for both `A` and `B`;
+4. pass those redistributed JAX buffers directly to cuSOLVERMp descriptors;
+5. run `cusolverMpPotrf` followed by `cusolverMpPotrs`;
+6. gather only the final solution on rank 0 for diagnostic residual checking.
+
+This checkpoint is intentionally still a probe rather than the public solver
+path. It proves that cuSOLVERMp can consume local matrices produced by JAXMg's
+redistribution code, but it still uses a small synthetic diagonal system and a
+host gather for validation. The production path still needs API integration,
+workspace policy, error handling, and a JAX-facing output redistribution.
+
+The current distributed-input probe uses multiple right-hand sides when the
+process grid has more than one process column. That is a test-shape constraint
+from the current rectangular redistribution planner: the logical column count
+must divide the process columns before padding is added. Supporting a single
+RHS on a multi-process-column grid will need either a special vector layout or
+an explicit padded RHS policy before it becomes a production `potrs` interface.
+
 ## CSD3 cuSOLVERMp SDK Environment
 
 CSD3's standard CUDA 12.1/cuDNN module stack provides cuSolverMg but does not
