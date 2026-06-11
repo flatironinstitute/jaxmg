@@ -87,6 +87,24 @@ should prove the following on a tiny single-node case:
 Only after this diagnostic passes should the branch wire cuSOLVERMp into the
 public `jaxmg.potrs` path.
 
+The next diagnostic is `cusolvermp_potrs_probe`. It still does not use JAXMg's
+GPU-to-GPU redistribution output. Instead it isolates the cuSOLVERMp solver
+boundary:
+
+1. borrow XLA's NCCL communicator from the FFI collective context;
+2. create a cuSOLVERMp handle, row-major process grid, and descriptors;
+3. scatter a tiny deterministic diagonal SPD matrix and one RHS from rank 0
+   with `cusolverMpMatrixScatterH2D`;
+4. query `cusolverMpPotrf_bufferSize` and `cusolverMpPotrs_bufferSize`;
+5. run `cusolverMpPotrf` followed by `cusolverMpPotrs`;
+6. gather the solution on rank 0 with `cusolverMpMatrixGatherD2H` and check the
+   known diagonal solve residual.
+
+Passing this probe means cuSOLVERMp can consume the borrowed communicator for a
+real Cholesky solve. It does not yet prove the production path, because the
+input layout still comes from NVIDIA's host scatter helper instead of JAXMg's
+native GPU-to-GPU 2D redistribution.
+
 ## CSD3 cuSOLVERMp SDK Environment
 
 CSD3's standard CUDA 12.1/cuDNN module stack provides cuSolverMg but does not

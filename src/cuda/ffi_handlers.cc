@@ -280,6 +280,31 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
 
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpPotrsProbePrepareFFI, XlaCusolverMpPotrsProbePrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpPotrsProbeFFI,
+    XlaCusolverMpPotrsProbeDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("n")
+        .Attr<int64_t>("tile_size")
+        .Arg<ffi::AnyBuffer>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
 // Redistribution handlers. The step and batch versions are diagnostics; the
 // native-plan handler is also called by Python's cyclic_1d helper.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(

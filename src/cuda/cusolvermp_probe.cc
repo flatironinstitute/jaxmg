@@ -34,8 +34,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <dlfcn.h>
+#include <limits>
 #include <vector>
 
 #include "include/xla_comm_backend.h"
@@ -67,6 +70,31 @@ using CusolverMpMatrixScatterH2DFn =
     cusolverStatus_t (*)(CusolverMpOpaqueHandle, int64_t, int64_t, void*,
                          int64_t, int64_t, CusolverMpOpaqueMatrixDesc, int,
                          const void*, int64_t);
+using CusolverMpMatrixGatherD2HFn =
+    cusolverStatus_t (*)(CusolverMpOpaqueHandle, int64_t, int64_t,
+                         const void*, int64_t, int64_t,
+                         CusolverMpOpaqueMatrixDesc, int, void*, int64_t);
+using CusolverMpPotrfBufferSizeFn =
+    cusolverStatus_t (*)(CusolverMpOpaqueHandle, cublasFillMode_t, int64_t,
+                         const void*, int64_t, int64_t,
+                         CusolverMpOpaqueMatrixDesc, cudaDataType, size_t*,
+                         size_t*);
+using CusolverMpPotrfFn =
+    cusolverStatus_t (*)(CusolverMpOpaqueHandle, cublasFillMode_t, int64_t,
+                         void*, int64_t, int64_t, CusolverMpOpaqueMatrixDesc,
+                         cudaDataType, void*, size_t, void*, size_t, int*);
+using CusolverMpPotrsBufferSizeFn =
+    cusolverStatus_t (*)(CusolverMpOpaqueHandle, cublasFillMode_t, int64_t,
+                         int64_t, const void*, int64_t, int64_t,
+                         CusolverMpOpaqueMatrixDesc, const void*, int64_t,
+                         int64_t, CusolverMpOpaqueMatrixDesc, cudaDataType,
+                         size_t*, size_t*);
+using CusolverMpPotrsFn =
+    cusolverStatus_t (*)(CusolverMpOpaqueHandle, cublasFillMode_t, int64_t,
+                         int64_t, const void*, int64_t, int64_t,
+                         CusolverMpOpaqueMatrixDesc, void*, int64_t, int64_t,
+                         CusolverMpOpaqueMatrixDesc, cudaDataType, void*,
+                         size_t, void*, size_t, int*);
 
 struct CusolverMpApi {
   void* library = nullptr;
@@ -78,6 +106,11 @@ struct CusolverMpApi {
   CusolverMpCreateMatrixDescFn create_matrix_desc = nullptr;
   CusolverMpDestroyMatrixDescFn destroy_matrix_desc = nullptr;
   CusolverMpMatrixScatterH2DFn scatter_h2d = nullptr;
+  CusolverMpMatrixGatherD2HFn gather_d2h = nullptr;
+  CusolverMpPotrfBufferSizeFn potrf_buffer_size = nullptr;
+  CusolverMpPotrfFn potrf = nullptr;
+  CusolverMpPotrsBufferSizeFn potrs_buffer_size = nullptr;
+  CusolverMpPotrsFn potrs = nullptr;
 };
 
 enum ProbeStatus : int32_t {
@@ -102,10 +135,24 @@ enum ProbeStatus : int32_t {
   kUnsupportedDtype = 18,
   kOutputShapeMismatch = 19,
   kScatterFailed = 20,
+  kSolverSymbolMissing = 21,
+  kPotrfWorkspaceFailed = 22,
+  kPotrsWorkspaceFailed = 23,
+  kDeviceAllocFailed = 24,
+  kHostAllocFailed = 25,
+  kPotrfFailed = 26,
+  kPotrfInfoNonzero = 27,
+  kPotrsFailed = 28,
+  kPotrsInfoNonzero = 29,
+  kGatherSymbolMissing = 30,
+  kGatherFailed = 31,
+  kResidualTooLarge = 32,
 };
 
 constexpr int kProbeSize = 16;
 constexpr int kScatterProbeSize = 24;
+constexpr int kPotrsProbeSize = 40;
+constexpr int kResidualScale = 1000000;
 
 // The dynamic probe cannot include cusolverMp.h because ordinary CUDA/cuSolver
 // installs do not ship it. Mirror the enum values from the NVIDIA HPC SDK 26.3
@@ -164,6 +211,16 @@ CusolverMpApi LoadCusolverMpApi(std::array<int32_t, ProbeSize>* probe) {
       api.library, "cusolverMpDestroyMatrixDesc");
   api.scatter_h2d = LoadRequiredSymbol<CusolverMpMatrixScatterH2DFn>(
       api.library, "cusolverMpMatrixScatterH2D");
+  api.gather_d2h = LoadRequiredSymbol<CusolverMpMatrixGatherD2HFn>(
+      api.library, "cusolverMpMatrixGatherD2H");
+  api.potrf_buffer_size = LoadRequiredSymbol<CusolverMpPotrfBufferSizeFn>(
+      api.library, "cusolverMpPotrf_bufferSize");
+  api.potrf =
+      LoadRequiredSymbol<CusolverMpPotrfFn>(api.library, "cusolverMpPotrf");
+  api.potrs_buffer_size = LoadRequiredSymbol<CusolverMpPotrsBufferSizeFn>(
+      api.library, "cusolverMpPotrs_bufferSize");
+  api.potrs =
+      LoadRequiredSymbol<CusolverMpPotrsFn>(api.library, "cusolverMpPotrs");
 
   if (api.create == nullptr || api.destroy == nullptr ||
       api.get_version == nullptr || api.create_grid == nullptr ||
@@ -202,11 +259,33 @@ bool HasRequiredSymbols(const CusolverMpApi& api) {
          api.destroy_matrix_desc != nullptr;
 }
 
+bool HasPotrsSymbols(const CusolverMpApi& api) {
+  return HasRequiredSymbols(api) && api.scatter_h2d != nullptr &&
+         api.gather_d2h != nullptr && api.potrf_buffer_size != nullptr &&
+         api.potrf != nullptr && api.potrs_buffer_size != nullptr &&
+         api.potrs != nullptr;
+}
+
 absl::Status CopyScatterProbeToDevice(
     se::Stream* stream, const std::array<int32_t, kScatterProbeSize>& probe,
     ffi::Result<ffi::BufferR1<S32>> out) {
   se::DeviceAddress<int32_t> dst = out->device_memory();
   return stream->MemcpyH2D(absl::MakeConstSpan(probe), &dst);
+}
+
+absl::Status CopyPotrsProbeToDevice(
+    se::Stream* stream, const std::array<int32_t, kPotrsProbeSize>& probe,
+    ffi::Result<ffi::BufferR1<S32>> out) {
+  se::DeviceAddress<int32_t> dst = out->device_memory();
+  return stream->MemcpyH2D(absl::MakeConstSpan(probe), &dst);
+}
+
+int32_t SizeToKiBForProbe(size_t bytes) {
+  const size_t kib = (bytes + 1023) / 1024;
+  if (kib > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
+    return std::numeric_limits<int32_t>::max();
+  }
+  return static_cast<int32_t>(kib);
 }
 
 template <typename DataType>
@@ -246,6 +325,140 @@ std::vector<DataType> MakeScatterHostMatrix(int64_t rows, int64_t cols) {
     }
   }
   return host;
+}
+
+template <typename DataType>
+DataType RealScalar(double value);
+
+template <>
+float RealScalar<float>(double value) {
+  return static_cast<float>(value);
+}
+
+template <>
+double RealScalar<double>(double value) {
+  return value;
+}
+
+template <>
+cuFloatComplex RealScalar<cuFloatComplex>(double value) {
+  return make_cuFloatComplex(static_cast<float>(value), 0.0f);
+}
+
+template <>
+cuDoubleComplex RealScalar<cuDoubleComplex>(double value) {
+  return make_cuDoubleComplex(value, 0.0);
+}
+
+template <typename DataType>
+DataType ProbeRhsValue();
+
+template <>
+float ProbeRhsValue<float>() {
+  return 1.0f;
+}
+
+template <>
+double ProbeRhsValue<double>() {
+  return 1.0;
+}
+
+template <>
+cuFloatComplex ProbeRhsValue<cuFloatComplex>() {
+  return make_cuFloatComplex(1.0f, -1.0f);
+}
+
+template <>
+cuDoubleComplex ProbeRhsValue<cuDoubleComplex>() {
+  return make_cuDoubleComplex(1.0, -1.0);
+}
+
+template <typename DataType>
+DataType ExpectedProbeSolution(int64_t row, int64_t n);
+
+template <>
+float ExpectedProbeSolution<float>(int64_t row, int64_t n) {
+  return static_cast<float>(1.0 / static_cast<double>(n + row + 1));
+}
+
+template <>
+double ExpectedProbeSolution<double>(int64_t row, int64_t n) {
+  return 1.0 / static_cast<double>(n + row + 1);
+}
+
+template <>
+cuFloatComplex ExpectedProbeSolution<cuFloatComplex>(int64_t row, int64_t n) {
+  const float scale = static_cast<float>(1.0 / static_cast<double>(n + row + 1));
+  return make_cuFloatComplex(scale, -scale);
+}
+
+template <>
+cuDoubleComplex ExpectedProbeSolution<cuDoubleComplex>(int64_t row, int64_t n) {
+  const double scale = 1.0 / static_cast<double>(n + row + 1);
+  return make_cuDoubleComplex(scale, -scale);
+}
+
+template <typename DataType>
+double AbsoluteDifference(DataType lhs, DataType rhs);
+
+template <>
+double AbsoluteDifference<float>(float lhs, float rhs) {
+  return std::abs(static_cast<double>(lhs) - static_cast<double>(rhs));
+}
+
+template <>
+double AbsoluteDifference<double>(double lhs, double rhs) {
+  return std::abs(lhs - rhs);
+}
+
+template <>
+double AbsoluteDifference<cuFloatComplex>(cuFloatComplex lhs,
+                                          cuFloatComplex rhs) {
+  const double real = static_cast<double>(cuCrealf(lhs) - cuCrealf(rhs));
+  const double imag = static_cast<double>(cuCimagf(lhs) - cuCimagf(rhs));
+  return std::hypot(real, imag);
+}
+
+template <>
+double AbsoluteDifference<cuDoubleComplex>(cuDoubleComplex lhs,
+                                           cuDoubleComplex rhs) {
+  const double real = cuCreal(lhs) - cuCreal(rhs);
+  const double imag = cuCimag(lhs) - cuCimag(rhs);
+  return std::hypot(real, imag);
+}
+
+template <typename DataType>
+std::vector<DataType> MakePotrsHostA(int64_t n) {
+  std::vector<DataType> host(static_cast<size_t>(n * n));
+  for (int64_t col = 0; col < n; ++col) {
+    for (int64_t row = 0; row < n; ++row) {
+      host[static_cast<size_t>(row + col * n)] =
+          (row == col) ? RealScalar<DataType>(n + row + 1)
+                       : RealScalar<DataType>(0.0);
+    }
+  }
+  return host;
+}
+
+template <typename DataType>
+std::vector<DataType> MakePotrsHostB(int64_t n) {
+  std::vector<DataType> host(static_cast<size_t>(n));
+  for (int64_t row = 0; row < n; ++row) {
+    host[static_cast<size_t>(row)] = ProbeRhsValue<DataType>();
+  }
+  return host;
+}
+
+template <typename DataType>
+double MaxPotrsSolutionError(const std::vector<DataType>& solution, int64_t n) {
+  double max_error = 0.0;
+  for (int64_t row = 0; row < n; ++row) {
+    max_error =
+        std::max(max_error, AbsoluteDifference<DataType>(
+                                solution[static_cast<size_t>(row)],
+                                ExpectedProbeSolution<DataType>(row, n)));
+  }
+  return max_error;
 }
 
 template <typename DataType>
@@ -315,6 +528,284 @@ absl::Status RunCusolverMpScatterLayoutProbe(
   return absl::OkStatus();
 }
 
+template <typename DataType>
+absl::Status RunCusolverMpPotrsProbe(
+    const CusolverMpApi& api, CusolverMpOpaqueHandle handle,
+    CusolverMpOpaqueGrid grid, cudaStream_t cuda_stream, int64_t n,
+    int64_t tile_size, int64_t local_physical_rows,
+    int64_t local_physical_cols_a, int64_t local_physical_cols_b,
+    int32_t process_row, int32_t process_col, int32_t nccl_rank,
+    ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
+    std::array<int32_t, kPotrsProbeSize>* probe) {
+  constexpr int64_t kNrhs = 1;
+
+  const int32_t process_rows = (*probe)[4];
+  const int32_t process_cols = (*probe)[5];
+  const int64_t local_rows = LocalNumroc(n, tile_size, process_row,
+                                         static_cast<int32_t>(process_rows));
+  const int64_t local_cols_a = LocalNumroc(n, tile_size, process_col,
+                                           static_cast<int32_t>(process_cols));
+  const int64_t local_cols_b = LocalNumroc(kNrhs, tile_size, process_col,
+                                           static_cast<int32_t>(process_cols));
+  (*probe)[18] = static_cast<int32_t>(local_rows);
+  (*probe)[19] = static_cast<int32_t>(local_cols_a);
+  (*probe)[20] = static_cast<int32_t>(local_rows);
+  (*probe)[21] = static_cast<int32_t>(local_cols_b);
+  if (local_physical_rows < local_rows ||
+      local_physical_cols_a < local_cols_a ||
+      local_physical_cols_b < local_cols_b) {
+    (*probe)[0] = kOutputShapeMismatch;
+    return absl::OkStatus();
+  }
+
+  CusolverMpOpaqueMatrixDesc desc_a = nullptr;
+  CusolverMpOpaqueMatrixDesc desc_b = nullptr;
+  cusolverStatus_t status = api.create_matrix_desc(
+      &desc_a, grid, SolverTraits<DataType>::cuda_data_type, n, n, tile_size,
+      tile_size, /*RSRC_A=*/0, /*CSRC_A=*/0, local_physical_rows);
+  if (status != CUSOLVER_STATUS_SUCCESS || desc_a == nullptr) {
+    (*probe)[0] = kCreateMatrixDescFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    return absl::OkStatus();
+  }
+  (*probe)[10] = 1;
+
+  status = api.create_matrix_desc(
+      &desc_b, grid, SolverTraits<DataType>::cuda_data_type, n, kNrhs,
+      tile_size, tile_size, /*RSRC_B=*/0, /*CSRC_B=*/0,
+      local_physical_rows);
+  if (status != CUSOLVER_STATUS_SUCCESS || desc_b == nullptr) {
+    (*probe)[0] = kCreateMatrixDescFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    api.destroy_matrix_desc(desc_a);
+    return absl::OkStatus();
+  }
+
+  void* d_potrf_work = nullptr;
+  void* d_potrs_work = nullptr;
+  void* h_potrf_work = nullptr;
+  void* h_potrs_work = nullptr;
+  int* d_potrf_info = nullptr;
+  int* d_potrs_info = nullptr;
+  auto cleanup = [&]() {
+    if (d_potrf_work != nullptr) cudaFree(d_potrf_work);
+    if (d_potrs_work != nullptr) cudaFree(d_potrs_work);
+    if (d_potrf_info != nullptr) cudaFree(d_potrf_info);
+    if (d_potrs_info != nullptr) cudaFree(d_potrs_info);
+    if (h_potrf_work != nullptr) std::free(h_potrf_work);
+    if (h_potrs_work != nullptr) std::free(h_potrs_work);
+    api.destroy_matrix_desc(desc_b);
+    api.destroy_matrix_desc(desc_a);
+  };
+
+  size_t potrf_workspace_device = 0;
+  size_t potrf_workspace_host = 0;
+  size_t potrs_workspace_device = 0;
+  size_t potrs_workspace_host = 0;
+  status = api.potrf_buffer_size(
+      handle, CUBLAS_FILL_MODE_LOWER, n, a_out->untyped_data(), /*ia=*/1,
+      /*ja=*/1, desc_a, SolverTraits<DataType>::cuda_data_type,
+      &potrf_workspace_device, &potrf_workspace_host);
+  if (status != CUSOLVER_STATUS_SUCCESS) {
+    (*probe)[0] = kPotrfWorkspaceFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*probe)[22] = SizeToKiBForProbe(potrf_workspace_device);
+  (*probe)[23] = SizeToKiBForProbe(potrf_workspace_host);
+
+  status = api.potrs_buffer_size(
+      handle, CUBLAS_FILL_MODE_LOWER, n, kNrhs, a_out->untyped_data(),
+      /*ia=*/1, /*ja=*/1, desc_a, b_out->untyped_data(), /*ib=*/1,
+      /*jb=*/1, desc_b, SolverTraits<DataType>::cuda_data_type,
+      &potrs_workspace_device, &potrs_workspace_host);
+  if (status != CUSOLVER_STATUS_SUCCESS) {
+    (*probe)[0] = kPotrsWorkspaceFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*probe)[24] = SizeToKiBForProbe(potrs_workspace_device);
+  (*probe)[25] = SizeToKiBForProbe(potrs_workspace_host);
+
+  cudaError_t cuda_status = cudaSuccess;
+  if (potrf_workspace_device > 0) {
+    cuda_status = cudaMalloc(&d_potrf_work, potrf_workspace_device);
+    if (cuda_status != cudaSuccess) {
+      (*probe)[0] = kDeviceAllocFailed;
+      cleanup();
+      return absl::OkStatus();
+    }
+  }
+  if (potrs_workspace_device > 0) {
+    cuda_status = cudaMalloc(&d_potrs_work, potrs_workspace_device);
+    if (cuda_status != cudaSuccess) {
+      (*probe)[0] = kDeviceAllocFailed;
+      cleanup();
+      return absl::OkStatus();
+    }
+  }
+  cuda_status = cudaMalloc(reinterpret_cast<void**>(&d_potrf_info),
+                           sizeof(int));
+  if (cuda_status != cudaSuccess) {
+    (*probe)[0] = kDeviceAllocFailed;
+    cleanup();
+    return absl::OkStatus();
+  }
+  cuda_status = cudaMalloc(reinterpret_cast<void**>(&d_potrs_info),
+                           sizeof(int));
+  if (cuda_status != cudaSuccess) {
+    (*probe)[0] = kDeviceAllocFailed;
+    cleanup();
+    return absl::OkStatus();
+  }
+  if (potrf_workspace_host > 0) {
+    h_potrf_work = std::malloc(potrf_workspace_host);
+    if (h_potrf_work == nullptr) {
+      (*probe)[0] = kHostAllocFailed;
+      cleanup();
+      return absl::OkStatus();
+    }
+  }
+  if (potrs_workspace_host > 0) {
+    h_potrs_work = std::malloc(potrs_workspace_host);
+    if (h_potrs_work == nullptr) {
+      (*probe)[0] = kHostAllocFailed;
+      cleanup();
+      return absl::OkStatus();
+    }
+  }
+
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemsetAsync(
+      a_out->untyped_data(), 0, a_out->size_bytes(), cuda_stream));
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemsetAsync(
+      b_out->untyped_data(), 0, b_out->size_bytes(), cuda_stream));
+  JAXMG_RETURN_IF_CUDA_ERROR(
+      cudaMemsetAsync(d_potrf_info, 0, sizeof(int), cuda_stream));
+  JAXMG_RETURN_IF_CUDA_ERROR(
+      cudaMemsetAsync(d_potrs_info, 0, sizeof(int), cuda_stream));
+
+  std::vector<DataType> host_a;
+  std::vector<DataType> host_b;
+  const void* host_a_ptr = nullptr;
+  const void* host_b_ptr = nullptr;
+  if (nccl_rank == 0) {
+    host_a = MakePotrsHostA<DataType>(n);
+    host_b = MakePotrsHostB<DataType>(n);
+    host_a_ptr = host_a.data();
+    host_b_ptr = host_b.data();
+  }
+
+  status = api.scatter_h2d(handle, n, n, a_out->untyped_data(), /*IA=*/1,
+                           /*JA=*/1, desc_a, /*root=*/0, host_a_ptr,
+                           /*h_ldsrc=*/n);
+  if (status != CUSOLVER_STATUS_SUCCESS) {
+    (*probe)[0] = kScatterFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*probe)[30] = 1;
+
+  status = api.scatter_h2d(handle, n, kNrhs, b_out->untyped_data(), /*IA=*/1,
+                           /*JA=*/1, desc_b, /*root=*/0, host_b_ptr,
+                           /*h_ldsrc=*/n);
+  if (status != CUSOLVER_STATUS_SUCCESS) {
+    (*probe)[0] = kScatterFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*probe)[31] = 1;
+
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+
+  status = api.potrf(handle, CUBLAS_FILL_MODE_LOWER, n, a_out->untyped_data(),
+                     /*ia=*/1, /*ja=*/1, desc_a,
+                     SolverTraits<DataType>::cuda_data_type, d_potrf_work,
+                     potrf_workspace_device, h_potrf_work,
+                     potrf_workspace_host, d_potrf_info);
+  if (status != CUSOLVER_STATUS_SUCCESS) {
+    (*probe)[0] = kPotrfFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*probe)[26] = 1;
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+
+  int h_potrf_info = -1;
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
+      &h_potrf_info, d_potrf_info, sizeof(int), cudaMemcpyDeviceToHost,
+      cuda_stream));
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  (*probe)[27] = h_potrf_info;
+  if (h_potrf_info != 0) {
+    (*probe)[0] = kPotrfInfoNonzero;
+    cleanup();
+    return absl::OkStatus();
+  }
+
+  status = api.potrs(handle, CUBLAS_FILL_MODE_LOWER, n, kNrhs,
+                     a_out->untyped_data(), /*ia=*/1, /*ja=*/1, desc_a,
+                     b_out->untyped_data(), /*ib=*/1, /*jb=*/1, desc_b,
+                     SolverTraits<DataType>::cuda_data_type, d_potrs_work,
+                     potrs_workspace_device, h_potrs_work,
+                     potrs_workspace_host, d_potrs_info);
+  if (status != CUSOLVER_STATUS_SUCCESS) {
+    (*probe)[0] = kPotrsFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*probe)[28] = 1;
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+
+  int h_potrs_info = -1;
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
+      &h_potrs_info, d_potrs_info, sizeof(int), cudaMemcpyDeviceToHost,
+      cuda_stream));
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  (*probe)[29] = h_potrs_info;
+  if (h_potrs_info != 0) {
+    (*probe)[0] = kPotrsInfoNonzero;
+    cleanup();
+    return absl::OkStatus();
+  }
+
+  std::vector<DataType> host_solution;
+  void* host_solution_ptr = nullptr;
+  if (nccl_rank == 0) {
+    host_solution.resize(static_cast<size_t>(n));
+    host_solution_ptr = host_solution.data();
+  }
+  status = api.gather_d2h(handle, n, kNrhs, b_out->untyped_data(), /*IA=*/1,
+                          /*JA=*/1, desc_b, /*root=*/0, host_solution_ptr,
+                          /*h_lddst=*/n);
+  if (status != CUSOLVER_STATUS_SUCCESS) {
+    (*probe)[0] = kGatherFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*probe)[32] = 1;
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+
+  if (nccl_rank == 0) {
+    const double max_error = MaxPotrsSolutionError<DataType>(host_solution, n);
+    const double scaled = std::ceil(max_error * kResidualScale);
+    (*probe)[33] = static_cast<int32_t>(
+        std::min<double>(scaled, std::numeric_limits<int32_t>::max()));
+    if ((*probe)[33] > 10) {
+      (*probe)[0] = kResidualTooLarge;
+    }
+  }
+
+  cleanup();
+  return absl::OkStatus();
+}
+
 }  // namespace
 
 absl::Status XlaCusolverMpInitProbePrepare(
@@ -335,6 +826,12 @@ absl::Status XlaCusolverMpInitProbePrepare(
 }
 
 absl::Status XlaCusolverMpScatterLayoutProbePrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests) {
+  return XlaCusolverMpInitProbePrepare(collective_params, clique_requests);
+}
+
+absl::Status XlaCusolverMpPotrsProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
   return XlaCusolverMpInitProbePrepare(collective_params, clique_requests);
@@ -749,6 +1246,268 @@ absl::Status XlaCusolverMpScatterLayoutProbeDispatch(
 
   dlclose(api.library);
   return CopyScatterProbeToDevice(stream, probe, status_out);
+}
+
+absl::Status XlaCusolverMpPotrsProbeDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
+    ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_out,
+    ffi::Result<ffi::AnyBuffer> b_out,
+    ffi::Result<ffi::BufferR1<S32>> status_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  if (stream == nullptr || cuda_stream == nullptr) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_potrs_probe requires XLA and CUDA streams");
+  }
+  if (a.dimensions().size() != 2 || b.dimensions().size() != 2 ||
+      a_out->dimensions().size() != 2 || b_out->dimensions().size() != 2) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_potrs_probe expects rank-2 A and B buffers");
+  }
+  if (a.element_type() != b.element_type() ||
+      a.element_type() != a_out->element_type() ||
+      b.element_type() != b_out->element_type()) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_potrs_probe requires matching A/B dtypes");
+  }
+  if (a.dimensions()[0] != a_out->dimensions()[0] ||
+      a.dimensions()[1] != a_out->dimensions()[1] ||
+      b.dimensions()[0] != b_out->dimensions()[0] ||
+      b.dimensions()[1] != b_out->dimensions()[1]) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_potrs_probe input/output shapes must match");
+  }
+  if (a.dimensions()[0] != b.dimensions()[0]) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_potrs_probe expects A and B to have the same local row "
+        "capacity");
+  }
+  if (status_out->dimensions().size() != 1 ||
+      status_out->dimensions()[0] != kPotrsProbeSize) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "cusolvermp_potrs_probe expects status shape (%d,)",
+        kPotrsProbeSize));
+  }
+
+  std::array<int32_t, kPotrsProbeSize> probe = {
+      kProbeOk,
+      -1,  // CUDA device selected for this FFI invocation.
+      -1,  // NCCL rank reported by the borrowed communicator.
+      -1,  // NCCL communicator size.
+      static_cast<int32_t>(process_rows),
+      static_cast<int32_t>(process_cols),
+      -1,  // cuSOLVERMp version, if available.
+      0,   // libcusolverMp loaded.
+      0,   // cusolverMpHandle_t created.
+      0,   // cusolverMpGrid_t created.
+      0,   // cusolverMpMatrixDescriptor_t for A created.
+      0,   // raw cuSOLVER status from the failing call, if any.
+      static_cast<int32_t>(a.size_bytes()),
+      static_cast<int32_t>(n),
+      static_cast<int32_t>(tile_size),
+      static_cast<int32_t>(a.dimensions()[0]),
+      static_cast<int32_t>(a.dimensions()[1]),
+      static_cast<int32_t>(b.dimensions()[0]),
+      -1,  // local NUMROC rows for A.
+      -1,  // local NUMROC cols for A.
+      -1,  // local NUMROC rows for B.
+      -1,  // local NUMROC cols for B.
+      -1,  // potrf device workspace, KiB.
+      -1,  // potrf host workspace, KiB.
+      -1,  // potrs device workspace, KiB.
+      -1,  // potrs host workspace, KiB.
+      0,   // cusolverMpPotrf called.
+      -1,  // potrf info value copied from device.
+      0,   // cusolverMpPotrs called.
+      -1,  // potrs info value copied from device.
+      0,   // A scatter called.
+      0,   // B scatter called.
+      0,   // B gather called.
+      -1,  // rank-0 residual error scaled by 1e6.
+      -1,  // dtype code.
+      static_cast<int32_t>(b.dimensions()[1]),
+      -1,
+      -1,
+      -1,
+      -1,
+  };
+
+  int cuda_device = -1;
+  cudaError_t cuda_status = cudaGetDevice(&cuda_device);
+  if (cuda_status != cudaSuccess) {
+    probe[0] = kCudaDeviceFailed;
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+  probe[1] = cuda_device;
+
+  if (collective_params == nullptr || collective_cliques == nullptr) {
+    probe[0] = kCollectiveContextMissing;
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+
+  absl::StatusOr<GpuCliqueKey> clique_key =
+      AllAssignedDevicesP2PCliqueKey(*collective_params);
+  if (!clique_key.ok()) {
+    probe[0] = kCliqueKeyFailed;
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+
+  absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
+      *clique_key, collective_params->global_device_id);
+  if (!gpu_comm.ok() || *gpu_comm == nullptr) {
+    probe[0] = kCommunicatorMissing;
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+
+  void* platform_handle = (*gpu_comm)->platform_comm().handle;
+  if (platform_handle == nullptr) {
+    probe[0] = kNcclHandleMissing;
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+  ncclComm_t nccl_comm = reinterpret_cast<ncclComm_t>(platform_handle);
+
+  int nccl_rank = -1;
+  int nccl_count = -1;
+  ncclResult_t rank_status = ncclCommUserRank(nccl_comm, &nccl_rank);
+  ncclResult_t count_status = ncclCommCount(nccl_comm, &nccl_count);
+  if (rank_status != ncclSuccess || count_status != ncclSuccess) {
+    probe[0] = kNcclRankMismatch;
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+  probe[2] = nccl_rank;
+  probe[3] = nccl_count;
+
+  if (process_rows <= 0 || process_cols <= 0 ||
+      process_rows * process_cols != nccl_count || n <= 0 || tile_size <= 0) {
+    probe[0] = kGridShapeMismatch;
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+
+  CusolverMpApi api = LoadCusolverMpApi(&probe);
+  if (probe[0] != kProbeOk || !HasRequiredSymbols(api)) {
+    if (api.library != nullptr) {
+      dlclose(api.library);
+    }
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+  if (api.scatter_h2d == nullptr) {
+    probe[0] = kScatterSymbolMissing;
+    dlclose(api.library);
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+  if (api.gather_d2h == nullptr) {
+    probe[0] = kGatherSymbolMissing;
+    dlclose(api.library);
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+  if (!HasPotrsSymbols(api)) {
+    probe[0] = kSolverSymbolMissing;
+    dlclose(api.library);
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+
+  CusolverMpOpaqueHandle handle = nullptr;
+  cusolverStatus_t cusolver_status =
+      api.create(&handle, cuda_device, cuda_stream);
+  if (cusolver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
+    probe[0] = kCreateHandleFailed;
+    probe[11] = static_cast<int32_t>(cusolver_status);
+    dlclose(api.library);
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+  probe[8] = 1;
+
+  int version = -1;
+  cusolver_status = api.get_version(handle, &version);
+  if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
+    probe[0] = kGetVersionFailed;
+    probe[11] = static_cast<int32_t>(cusolver_status);
+    api.destroy(handle);
+    dlclose(api.library);
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+  probe[6] = version;
+
+  CusolverMpOpaqueGrid grid = nullptr;
+  cusolver_status = api.create_grid(
+      handle, &grid, nccl_comm, static_cast<int32_t>(process_rows),
+      static_cast<int32_t>(process_cols), kCusolverMpGridMappingRowMajor);
+  if (cusolver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
+    probe[0] = kCreateGridFailed;
+    probe[11] = static_cast<int32_t>(cusolver_status);
+    api.destroy(handle);
+    dlclose(api.library);
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+  probe[9] = 1;
+
+  const int32_t process_row = nccl_rank / static_cast<int32_t>(process_cols);
+  const int32_t process_col = nccl_rank % static_cast<int32_t>(process_cols);
+
+  absl::Status potrs_status;
+  switch (a.element_type()) {
+    case F32:
+      probe[34] = 1;
+      potrs_status = RunCusolverMpPotrsProbe<float>(
+          api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
+          a.dimensions()[1], b.dimensions()[1], process_row, process_col,
+          nccl_rank, a_out, b_out, &probe);
+      break;
+    case F64:
+      probe[34] = 2;
+      potrs_status = RunCusolverMpPotrsProbe<double>(
+          api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
+          a.dimensions()[1], b.dimensions()[1], process_row, process_col,
+          nccl_rank, a_out, b_out, &probe);
+      break;
+    case C64:
+      probe[34] = 3;
+      potrs_status = RunCusolverMpPotrsProbe<cuFloatComplex>(
+          api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
+          a.dimensions()[1], b.dimensions()[1], process_row, process_col,
+          nccl_rank, a_out, b_out, &probe);
+      break;
+    case C128:
+      probe[34] = 4;
+      potrs_status = RunCusolverMpPotrsProbe<cuDoubleComplex>(
+          api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
+          a.dimensions()[1], b.dimensions()[1], process_row, process_col,
+          nccl_rank, a_out, b_out, &probe);
+      break;
+    default:
+      probe[0] = kUnsupportedDtype;
+      break;
+  }
+  if (!potrs_status.ok()) {
+    api.destroy_grid(grid);
+    api.destroy(handle);
+    dlclose(api.library);
+    return potrs_status;
+  }
+
+  if (probe[0] == kProbeOk) {
+    cusolver_status = api.destroy_grid(grid);
+    if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
+      probe[0] = kDestroyGridFailed;
+      probe[11] = static_cast<int32_t>(cusolver_status);
+    }
+  } else {
+    api.destroy_grid(grid);
+  }
+
+  if (probe[0] == kProbeOk) {
+    cusolver_status = api.destroy(handle);
+    if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
+      probe[0] = kDestroyHandleFailed;
+      probe[11] = static_cast<int32_t>(cusolver_status);
+    }
+  } else {
+    api.destroy(handle);
+  }
+
+  dlclose(api.library);
+  return CopyPotrsProbeToDevice(stream, probe, status_out);
 }
 
 }  // namespace xla::gpu

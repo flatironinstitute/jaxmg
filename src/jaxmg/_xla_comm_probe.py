@@ -271,6 +271,7 @@ def _as_i64_attr(name: str, value) -> np.ndarray:
 _RECT_JAX_LAYOUT = (1, 0)
 _CUSOLVERMP_INIT_PROBE_SIZE = 16
 _CUSOLVERMP_SCATTER_LAYOUT_PROBE_SIZE = 24
+_CUSOLVERMP_POTRS_PROBE_SIZE = 40
 
 
 def cusolvermp_init_probe(
@@ -517,6 +518,107 @@ def cusolvermp_scatter_layout_probe_shardmap(
         )
 
     return impl(matrix)
+
+
+def cusolvermp_potrs_probe(
+    a: Array,
+    b: Array,
+    *,
+    process_rows: int,
+    process_cols: int,
+    n: int,
+    tile_size: int,
+) -> tuple[Array, Array, Array]:
+    """Run a tiny cuSOLVERMp ``potrf``/``potrs`` diagnostic.
+
+    The native handler ignores the initial contents of ``a`` and ``b``. Rank 0
+    creates a deterministic diagonal SPD matrix and a single right-hand side on
+    the host, scatters both through ``cusolverMpMatrixScatterH2D``, runs
+    ``cusolverMpPotrf`` and ``cusolverMpPotrs`` using the borrowed XLA/NCCL
+    communicator, and gathers the solution on rank 0 for a residual check.
+
+    This proves the solver can consume the communicator and descriptors. It is
+    intentionally still a diagnostic, not the production cuSOLVERMp path.
+    """
+    if a.ndim != 2 or b.ndim != 2:
+        raise ValueError("cusolvermp_potrs_probe expects rank-2 A and B buffers.")
+    if a.dtype != b.dtype:
+        raise TypeError("cusolvermp_potrs_probe requires matching A/B dtypes.")
+    if a.dtype not in (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128):
+        raise TypeError(
+            "cusolvermp_potrs_probe supports float32, float64, complex64, "
+            "and complex128."
+        )
+    if a.shape[0] != b.shape[0]:
+        raise ValueError("A and B must have matching local row capacity.")
+
+    process_rows = int(process_rows)
+    process_cols = int(process_cols)
+    n = int(n)
+    tile_size = int(tile_size)
+    if process_rows <= 0 or process_cols <= 0:
+        raise ValueError("process_rows and process_cols must be positive.")
+    if n <= 0 or tile_size <= 0:
+        raise ValueError("n and tile_size must be positive.")
+
+    ensure_init_jaxmg_backend()
+
+    out_type = (
+        jax.ShapeDtypeStruct(a.shape, a.dtype),
+        jax.ShapeDtypeStruct(b.shape, b.dtype),
+        jax.ShapeDtypeStruct((_CUSOLVERMP_POTRS_PROBE_SIZE,), jnp.int32),
+    )
+    ffi_fn = partial(
+        jax.ffi.ffi_call(
+            "cusolvermp_potrs_probe",
+            out_type,
+            input_layouts=(_RECT_JAX_LAYOUT, _RECT_JAX_LAYOUT),
+            output_layouts=(_RECT_JAX_LAYOUT, _RECT_JAX_LAYOUT, (0,)),
+            input_output_aliases={0: 0, 1: 1},
+        ),
+        process_rows=process_rows,
+        process_cols=process_cols,
+        n=n,
+        tile_size=tile_size,
+    )
+    return ffi_fn(a, b)
+
+
+def cusolvermp_potrs_probe_shardmap(
+    a: Array,
+    b: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    status_specs: P,
+    *,
+    process_rows: int,
+    process_cols: int,
+    n: int,
+    tile_size: int,
+) -> tuple[Array, Array, Array]:
+    """Run :func:`cusolvermp_potrs_probe` over a sharded 2D process grid."""
+    if not isinstance(matrix_specs, P) or not isinstance(status_specs, P):
+        raise TypeError("matrix_specs and status_specs must be PartitionSpec values.")
+
+    @partial(jax.jit, donate_argnums=(0, 1))
+    @partial(
+        jax.shard_map,
+        mesh=mesh,
+        in_specs=(matrix_specs, matrix_specs),
+        out_specs=(matrix_specs, matrix_specs, status_specs),
+        check_vma=False,
+    )
+    def impl(_a, _b):
+        return cusolvermp_potrs_probe(
+            _a,
+            _b,
+            process_rows=process_rows,
+            process_cols=process_cols,
+            n=n,
+            tile_size=tile_size,
+        )
+
+    return impl(a, b)
 
 
 def xla_comm_chunk_permute_probe(

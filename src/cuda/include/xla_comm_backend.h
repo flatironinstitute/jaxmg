@@ -453,6 +453,16 @@ absl::Status XlaCusolverMpScatterLayoutProbeDispatch(
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
+absl::Status XlaCusolverMpPotrsProbePrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests);
+absl::Status XlaCusolverMpPotrsProbeDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
+    ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_out,
+    ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
 
 // Redistribution handlers. The step/batch variants are retained for focused
 // testing and diagnostics. The production solvers use the native-plan variant
