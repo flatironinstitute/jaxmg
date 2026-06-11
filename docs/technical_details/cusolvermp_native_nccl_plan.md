@@ -265,9 +265,9 @@ Only after this succeeds should the branch add `syevd`/`syevd_no_V`.
 `cusolverMpSyevd` maps directly to both APIs through `jobz = "V"` and
 `jobz = "N"`. `potri` does not have a direct `cusolverMpPotri` equivalent in
 the current cuSOLVERMp C API documentation, so it needs a separate design
-decision before migration. The likely options are emulation with `Potrs` on a
-distributed identity right hand side, leaving `potri` unsupported in the first
-cuSOLVERMp backend, or retaining the cuSolverMg implementation for that API.
+decision before migration. The first cuSOLVERMp backend should not support
+`potri`; it should fail clearly or stay on a separate legacy path rather than
+silently emulating an inverse with a large distributed identity solve.
 
 The first goal is correctness on one node. Multi-node validation comes after the
 single-node descriptor/layout semantics are proven.

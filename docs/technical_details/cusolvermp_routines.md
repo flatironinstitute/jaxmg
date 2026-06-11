@@ -35,7 +35,7 @@ matches the layout the current 2D redistribution prototype targets.
 | `potrs` | `cusolverMgPotrf` + `cusolverMgPotrs` | Directly supported by `cusolverMpPotrf` + `cusolverMpPotrs` | First real solver target. Requires descriptors for `A` and `B`, square `MB_A == NB_A`, and aligned `A`/`B` row blocking. |
 | `syevd` | `cusolverMgSyevd` | Directly supported by `cusolverMpSyevd` | Good second target after `potrs`. `jobz = "V"` maps to eigenvalues plus eigenvectors. |
 | `syevd_no_V` | `cusolverMgSyevd` with no eigenvectors | Directly supported by `cusolverMpSyevd` | `jobz = "N"` maps to eigenvalues only. |
-| `potri` | `cusolverMgPotrf` + `cusolverMgPotri` | No direct `cusolverMpPotri` entry in the current C API documentation | Needs an explicit design decision. Possible options are to emulate the inverse with `Potrf` plus `Potrs` on a distributed identity matrix, keep `potri` unsupported in the first cuSOLVERMp backend, or keep the cuSolverMg path for this one API until a better route exists. |
+| `potri` | `cusolverMgPotrf` + `cusolverMgPotri` | No direct `cusolverMpPotri` entry in the current C API documentation | Not supported by the first cuSOLVERMp backend. It should remain out of scope until there is a separate design for inverse support. |
 
 The practical migration order should therefore be:
 
@@ -43,8 +43,9 @@ The practical migration order should therefore be:
    user's main Cholesky-solve workflow.
 2. `syevd_no_V` and `syevd`, because `cusolverMpSyevd` exists and maps onto the
    current API shape.
-3. `potri`, only after deciding whether the extra memory cost of a distributed
-   identity solve is acceptable.
+3. Do not migrate `potri` in the first cuSOLVERMp backend. It should fail
+   clearly, or remain on a separate legacy path, rather than silently emulating
+   an inverse with a large distributed identity solve.
 
 ## Other cuSOLVERMp Routines Worth Knowing
 
@@ -59,10 +60,10 @@ NewtonSchulz
 ```
 
 These are useful context but are not immediate replacements for the current
-JAXMg public API. `Laset` may become useful if `potri` is emulated through
-`Potrs`, because it could help initialize a distributed identity-like right hand
-side. `Getrf/Getrs` could support a future general linear solve API, but that is
-not part of the current JAXMg interface. `NewtonSchulz` is also not a general
+JAXMg public API. `Laset` may become useful for future utilities, but it should
+not be used to hide a `potri` emulation path in the first cuSOLVERMp backend.
+`Getrf/Getrs` could support a future general linear solve API, but that is not
+part of the current JAXMg interface. `NewtonSchulz` is also not a general
 replacement for `potri`: the documented routine is an orthogonalization/polar
 factor iteration with its own process-grid and data-type limitations.
 
