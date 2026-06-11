@@ -15,6 +15,7 @@ from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 from jaxmg._block_cyclic_2d_execute import (
     execute_edge_padding_compaction_batches_shardmap,
     execute_padded_block_cyclic_2d_shardmap,
+    execute_reverse_padded_block_cyclic_2d_shardmap,
     execute_tile_aligned_native_2d_plan_shardmap,
     execute_fragment_transfer_batches_shardmap,
     required_edge_padding_compaction_scratch_size,
@@ -160,6 +161,27 @@ def _initial_edge_padded_host(host, plan):
                 * padding.local_logical_cols,
             ]
     return physical
+
+
+def _assert_block_sharded_logical_regions(out_host, host, plan):
+    padding = plan.padding
+    for process_row in range(plan.grid.process_rows):
+        for process_col in range(plan.grid.process_cols):
+            row_start = process_row * padding.local_physical_rows
+            col_start = process_col * padding.local_physical_cols
+            expected = host[
+                process_row
+                * padding.local_logical_rows : (process_row + 1)
+                * padding.local_logical_rows,
+                process_col
+                * padding.local_logical_cols : (process_col + 1)
+                * padding.local_logical_cols,
+            ]
+            actual = out_host[
+                row_start : row_start + padding.local_logical_rows,
+                col_start : col_start + padding.local_logical_cols,
+            ]
+            np.testing.assert_array_equal(actual, expected)
 
 
 def _run_executor_case(grid, host, scratch_specs):
@@ -346,6 +368,71 @@ def _run_padded_block_cyclic_case(grid, host, scratch_specs):
     _assert_logical_block_cyclic_region(np.asarray(out), host, grid, tile_shape)
 
 
+def _run_reverse_padded_block_cyclic_case(grid, host, scratch_specs):
+    if len(jax.devices("gpu")) < grid.num_processes:
+        pytest.skip(f"{grid.num_processes} GPUs are required. Skipping")
+
+    devices = np.asarray(jax.devices("gpu")[: grid.num_processes], dtype=object).reshape(
+        grid.process_rows, grid.process_cols
+    )
+    mesh = Mesh(devices, ("pr", "pc"))
+    tile_shape = TileShape(rows=4, cols=4)
+    compaction_plan = build_edge_padding_compaction_plan(
+        logical_rows=host.shape[0],
+        logical_cols=host.shape[1],
+        tile_shape=tile_shape,
+        grid=grid,
+    )
+    physical = _initial_edge_padded_host(host, compaction_plan)
+    scratch_per_rank = required_padded_block_cyclic_2d_scratch_size(
+        logical_rows=host.shape[0],
+        logical_cols=host.shape[1],
+        grid=grid,
+        tile_rows=tile_shape.rows,
+        tile_cols=tile_shape.cols,
+    )
+
+    matrix = jax.device_put(
+        jnp.asarray(physical),
+        NamedSharding(mesh, P("pr", "pc")),
+    )
+    scratch = jax.device_put(
+        jnp.full((grid.num_processes * scratch_per_rank,), -1, dtype=jnp.float32),
+        NamedSharding(mesh, scratch_specs),
+    )
+
+    cyclic, scratch = execute_padded_block_cyclic_2d_shardmap(
+        matrix,
+        scratch,
+        mesh,
+        P("pr", "pc"),
+        scratch_specs,
+        logical_rows=host.shape[0],
+        logical_cols=host.shape[1],
+        grid=grid,
+        tile_rows=tile_shape.rows,
+        tile_cols=tile_shape.cols,
+    )
+    restored, scratch_out = execute_reverse_padded_block_cyclic_2d_shardmap(
+        cyclic,
+        scratch,
+        mesh,
+        P("pr", "pc"),
+        scratch_specs,
+        logical_rows=host.shape[0],
+        logical_cols=host.shape[1],
+        grid=grid,
+        tile_rows=tile_shape.rows,
+        tile_cols=tile_shape.cols,
+    )
+    restored.block_until_ready()
+    scratch_out.block_until_ready()
+
+    _assert_block_sharded_logical_regions(
+        np.asarray(restored), host, compaction_plan
+    )
+
+
 def test_column_owner_executor_reorders_two_process_columns():
     host = np.arange(32, dtype=np.float32).reshape(4, 8)
 
@@ -460,6 +547,16 @@ def test_padded_block_cyclic_executor_runs_for_cusolvermp_layout():
     host = np.arange(100, dtype=np.float32).reshape(10, 10)
 
     _run_padded_block_cyclic_case(
+        ProcessGrid(process_rows=2, process_cols=2),
+        host,
+        P(("pr", "pc")),
+    )
+
+
+def test_reverse_padded_block_cyclic_executor_restores_block_sharded_layout():
+    host = np.arange(100, dtype=np.float32).reshape(10, 10)
+
+    _run_reverse_padded_block_cyclic_case(
         ProcessGrid(process_rows=2, process_cols=2),
         host,
         P(("pr", "pc")),

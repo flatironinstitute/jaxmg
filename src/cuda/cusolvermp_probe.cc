@@ -272,6 +272,12 @@ bool HasDistributedPotrsSymbols(const CusolverMpApi& api) {
          api.potrs_buffer_size != nullptr && api.potrs != nullptr;
 }
 
+bool HasDistributedPotrsSolveSymbols(const CusolverMpApi& api) {
+  return HasRequiredSymbols(api) && api.potrf_buffer_size != nullptr &&
+         api.potrf != nullptr && api.potrs_buffer_size != nullptr &&
+         api.potrs != nullptr;
+}
+
 absl::Status CopyScatterProbeToDevice(
     se::Stream* stream, const std::array<int32_t, kScatterProbeSize>& probe,
     ffi::Result<ffi::BufferR1<S32>> out) {
@@ -845,7 +851,8 @@ absl::Status RunCusolverMpDistributedPotrsProbe(
     int32_t process_row, int32_t process_col, int32_t nccl_rank,
     ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_out,
     ffi::Result<ffi::AnyBuffer> b_out,
-    std::array<int32_t, kPotrsProbeSize>* probe) {
+    std::array<int32_t, kPotrsProbeSize>* probe,
+    bool validate_solution = true) {
   const int32_t process_rows = (*probe)[4];
   const int32_t process_cols = (*probe)[5];
   const int64_t local_rows = LocalNumroc(n, tile_size, process_row,
@@ -1048,32 +1055,39 @@ absl::Status RunCusolverMpDistributedPotrsProbe(
     return absl::OkStatus();
   }
 
-  std::vector<DataType> host_solution;
-  void* host_solution_ptr = nullptr;
-  if (nccl_rank == 0) {
-    host_solution.resize(static_cast<size_t>(n * nrhs));
-    host_solution_ptr = host_solution.data();
-  }
-  status = api.gather_d2h(handle, n, nrhs, b_out->untyped_data(), /*IA=*/1,
-                          /*JA=*/1, desc_b, /*root=*/0, host_solution_ptr,
-                          /*h_lddst=*/n);
-  if (status != CUSOLVER_STATUS_SUCCESS) {
-    (*probe)[0] = kGatherFailed;
-    (*probe)[11] = static_cast<int32_t>(status);
-    cleanup();
-    return absl::OkStatus();
-  }
-  (*probe)[32] = 1;
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  if (validate_solution) {
+    if (api.gather_d2h == nullptr) {
+      (*probe)[0] = kGatherSymbolMissing;
+      cleanup();
+      return absl::OkStatus();
+    }
+    std::vector<DataType> host_solution;
+    void* host_solution_ptr = nullptr;
+    if (nccl_rank == 0) {
+      host_solution.resize(static_cast<size_t>(n * nrhs));
+      host_solution_ptr = host_solution.data();
+    }
+    status = api.gather_d2h(handle, n, nrhs, b_out->untyped_data(), /*IA=*/1,
+                            /*JA=*/1, desc_b, /*root=*/0, host_solution_ptr,
+                            /*h_lddst=*/n);
+    if (status != CUSOLVER_STATUS_SUCCESS) {
+      (*probe)[0] = kGatherFailed;
+      (*probe)[11] = static_cast<int32_t>(status);
+      cleanup();
+      return absl::OkStatus();
+    }
+    (*probe)[32] = 1;
+    JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
-  if (nccl_rank == 0) {
-    const double max_error =
-        MaxPotrsSolutionError<DataType>(host_solution, n, nrhs);
-    const double scaled = std::ceil(max_error * kResidualScale);
-    (*probe)[33] = static_cast<int32_t>(
-        std::min<double>(scaled, std::numeric_limits<int32_t>::max()));
-    if ((*probe)[33] > 10) {
-      (*probe)[0] = kResidualTooLarge;
+    if (nccl_rank == 0) {
+      const double max_error =
+          MaxPotrsSolutionError<DataType>(host_solution, n, nrhs);
+      const double scaled = std::ceil(max_error * kResidualScale);
+      (*probe)[33] = static_cast<int32_t>(
+          std::min<double>(scaled, std::numeric_limits<int32_t>::max()));
+      if ((*probe)[33] > 10) {
+        (*probe)[0] = kResidualTooLarge;
+      }
     }
   }
 
@@ -1791,14 +1805,14 @@ absl::Status XlaCusolverMpPotrsProbeDispatch(
   return CopyPotrsProbeToDevice(stream, probe, status_out);
 }
 
-absl::Status XlaCusolverMpDistributedPotrsProbeDispatch(
+absl::Status CusolverMpDistributedPotrsDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
     int64_t tile_size, ffi::AnyBuffer a, ffi::AnyBuffer b,
     ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    const CollectiveCliques* collective_cliques, bool validate_solution) {
   if (stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         "cusolvermp_distributed_potrs_probe requires XLA and CUDA streams");
@@ -1935,12 +1949,13 @@ absl::Status XlaCusolverMpDistributedPotrsProbeDispatch(
     }
     return CopyPotrsProbeToDevice(stream, probe, status_out);
   }
-  if (api.gather_d2h == nullptr) {
+  if (validate_solution && api.gather_d2h == nullptr) {
     probe[0] = kGatherSymbolMissing;
     dlclose(api.library);
     return CopyPotrsProbeToDevice(stream, probe, status_out);
   }
-  if (!HasDistributedPotrsSymbols(api)) {
+  if (validate_solution ? !HasDistributedPotrsSymbols(api)
+                        : !HasDistributedPotrsSolveSymbols(api)) {
     probe[0] = kSolverSymbolMissing;
     dlclose(api.library);
     return CopyPotrsProbeToDevice(stream, probe, status_out);
@@ -1991,28 +2006,32 @@ absl::Status XlaCusolverMpDistributedPotrsProbeDispatch(
       potrs_status = RunCusolverMpDistributedPotrsProbe<float>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
-          process_row, process_col, nccl_rank, a, b, a_out, b_out, &probe);
+          process_row, process_col, nccl_rank, a, b, a_out, b_out, &probe,
+          validate_solution);
       break;
     case F64:
       probe[34] = 2;
       potrs_status = RunCusolverMpDistributedPotrsProbe<double>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
-          process_row, process_col, nccl_rank, a, b, a_out, b_out, &probe);
+          process_row, process_col, nccl_rank, a, b, a_out, b_out, &probe,
+          validate_solution);
       break;
     case C64:
       probe[34] = 3;
       potrs_status = RunCusolverMpDistributedPotrsProbe<cuFloatComplex>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
-          process_row, process_col, nccl_rank, a, b, a_out, b_out, &probe);
+          process_row, process_col, nccl_rank, a, b, a_out, b_out, &probe,
+          validate_solution);
       break;
     case C128:
       probe[34] = 4;
       potrs_status = RunCusolverMpDistributedPotrsProbe<cuDoubleComplex>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
-          process_row, process_col, nccl_rank, a, b, a_out, b_out, &probe);
+          process_row, process_col, nccl_rank, a, b, a_out, b_out, &probe,
+          validate_solution);
       break;
     default:
       probe[0] = kUnsupportedDtype;
@@ -2047,6 +2066,41 @@ absl::Status XlaCusolverMpDistributedPotrsProbeDispatch(
 
   dlclose(api.library);
   return CopyPotrsProbeToDevice(stream, probe, status_out);
+}
+
+absl::Status XlaCusolverMpDistributedPotrsProbeDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
+    int64_t tile_size, ffi::AnyBuffer a, ffi::AnyBuffer b,
+    ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
+    ffi::Result<ffi::BufferR1<S32>> status_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return CusolverMpDistributedPotrsDispatchImpl(
+      stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
+      tile_size, a, b, a_out, b_out, status_out, collective_params,
+      collective_cliques, /*validate_solution=*/true);
+}
+
+absl::Status XlaCusolverMpPotrsPrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests) {
+  return XlaCusolverMpDistributedPotrsProbePrepare(collective_params,
+                                                  clique_requests);
+}
+
+absl::Status XlaCusolverMpPotrsDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
+    int64_t tile_size, ffi::AnyBuffer a, ffi::AnyBuffer b,
+    ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
+    ffi::Result<ffi::BufferR1<S32>> status_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return CusolverMpDistributedPotrsDispatchImpl(
+      stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
+      tile_size, a, b, a_out, b_out, status_out, collective_params,
+      collective_cliques, /*validate_solution=*/false);
 }
 
 }  // namespace xla::gpu

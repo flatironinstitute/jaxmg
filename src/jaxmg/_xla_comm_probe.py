@@ -733,6 +733,108 @@ def cusolvermp_distributed_potrs_probe_shardmap(
     return impl(a, b)
 
 
+def cusolvermp_potrs(
+    a: Array,
+    b: Array,
+    *,
+    process_rows: int,
+    process_cols: int,
+    n: int,
+    nrhs: int,
+    tile_size: int,
+) -> tuple[Array, Array, Array]:
+    """Run cuSOLVERMp ``potrf``/``potrs`` on distributed device buffers.
+
+    ``a`` and ``b`` must already be in cuSOLVERMp-compatible 2D block-cyclic
+    local layout. Unlike the diagnostic probe, this production FFI target does
+    not gather the solution back to host for a residual check; the solved ``b``
+    stays distributed on device for the caller to reverse-redistribute.
+    """
+    if a.ndim != 2 or b.ndim != 2:
+        raise ValueError("cusolvermp_potrs expects rank-2 A and B buffers.")
+    if a.dtype != b.dtype:
+        raise TypeError("cusolvermp_potrs requires matching A/B dtypes.")
+    if a.dtype not in (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128):
+        raise TypeError(
+            "cusolvermp_potrs supports float32, float64, complex64, "
+            "and complex128."
+        )
+    if a.shape[0] != b.shape[0]:
+        raise ValueError("A and B must have matching local row capacity.")
+
+    process_rows = int(process_rows)
+    process_cols = int(process_cols)
+    n = int(n)
+    nrhs = int(nrhs)
+    tile_size = int(tile_size)
+    if process_rows <= 0 or process_cols <= 0:
+        raise ValueError("process_rows and process_cols must be positive.")
+    if n <= 0 or nrhs <= 0 or tile_size <= 0:
+        raise ValueError("n, nrhs, and tile_size must be positive.")
+
+    ensure_init_jaxmg_backend()
+
+    out_type = (
+        jax.ShapeDtypeStruct(a.shape, a.dtype),
+        jax.ShapeDtypeStruct(b.shape, b.dtype),
+        jax.ShapeDtypeStruct((_CUSOLVERMP_POTRS_PROBE_SIZE,), jnp.int32),
+    )
+    ffi_fn = partial(
+        jax.ffi.ffi_call(
+            "cusolvermp_potrs",
+            out_type,
+            input_layouts=(_RECT_JAX_LAYOUT, _RECT_JAX_LAYOUT),
+            output_layouts=(_RECT_JAX_LAYOUT, _RECT_JAX_LAYOUT, (0,)),
+            input_output_aliases={0: 0, 1: 1},
+        ),
+        process_rows=process_rows,
+        process_cols=process_cols,
+        n=n,
+        nrhs=nrhs,
+        tile_size=tile_size,
+    )
+    return ffi_fn(a, b)
+
+
+def cusolvermp_potrs_shardmap(
+    a: Array,
+    b: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    status_specs: P,
+    *,
+    process_rows: int,
+    process_cols: int,
+    n: int,
+    nrhs: int,
+    tile_size: int,
+) -> tuple[Array, Array, Array]:
+    """Run production cuSOLVERMp ``potrs`` over a 2D process grid."""
+    if not isinstance(matrix_specs, P) or not isinstance(status_specs, P):
+        raise TypeError("matrix_specs and status_specs must be PartitionSpec values.")
+
+    @partial(jax.jit, donate_argnums=(0, 1))
+    @partial(
+        jax.shard_map,
+        mesh=mesh,
+        in_specs=(matrix_specs, matrix_specs),
+        out_specs=(matrix_specs, matrix_specs, status_specs),
+        check_vma=False,
+    )
+    def impl(_a, _b):
+        return cusolvermp_potrs(
+            _a,
+            _b,
+            process_rows=process_rows,
+            process_cols=process_cols,
+            n=n,
+            nrhs=nrhs,
+            tile_size=tile_size,
+        )
+
+    return impl(a, b)
+
+
 def xla_comm_chunk_permute_probe(
     token: Array, *, targets, src_offsets, dst_offsets, count: int
 ) -> Array:
@@ -1710,6 +1812,7 @@ def _xla_rect_padded_2d_native_plan_impl(
     tile_cols: int,
     logical_rows: int,
     logical_cols: int,
+    reverse: bool = False,
 ) -> tuple[Array, Array]:
     (
         process_rows,
@@ -1748,6 +1851,7 @@ def _xla_rect_padded_2d_native_plan_impl(
         tile_cols=tile_cols,
         logical_rows=logical_rows,
         logical_cols=logical_cols,
+        reverse=int(bool(reverse)),
     )
     return ffi_fn(matrix, scratch)
 
@@ -1762,6 +1866,7 @@ def xla_rect_padded_2d_native_plan(
     tile_cols: int,
     logical_rows: int,
     logical_cols: int,
+    reverse: bool = False,
 ) -> tuple[Array, Array]:
     """Apply the native padded 2D redistribution schedule through raw NCCL."""
     return _xla_rect_padded_2d_native_plan_impl(
@@ -1773,6 +1878,7 @@ def xla_rect_padded_2d_native_plan(
         tile_cols=tile_cols,
         logical_rows=logical_rows,
         logical_cols=logical_cols,
+        reverse=reverse,
     )
 
 
@@ -1789,6 +1895,7 @@ def xla_rect_padded_2d_native_plan_shardmap(
     tile_cols: int,
     logical_rows: int,
     logical_cols: int,
+    reverse: bool = False,
 ) -> tuple[Array, Array]:
     """Run :func:`xla_rect_padded_2d_native_plan` over a 2D sharded matrix."""
     if not isinstance(matrix_specs, P) or not isinstance(scratch_specs, P):
@@ -1812,6 +1919,7 @@ def xla_rect_padded_2d_native_plan_shardmap(
             tile_cols=tile_cols,
             logical_rows=logical_rows,
             logical_cols=logical_cols,
+            reverse=reverse,
         )
 
     return impl(matrix, scratch)

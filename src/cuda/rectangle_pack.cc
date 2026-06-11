@@ -420,6 +420,37 @@ absl::StatusOr<std::vector<int64_t>> BuildRowSlabSlotMap(
   return target_for_source;
 }
 
+absl::StatusOr<std::vector<int64_t>> InvertSlotMap(
+    absl::Span<const int64_t> target_for_source) {
+  std::vector<int64_t> inverse(target_for_source.size(), -1);
+  for (int64_t source = 0;
+       source < static_cast<int64_t>(target_for_source.size()); ++source) {
+    const int64_t target = target_for_source[source];
+    if (target < 0 ||
+        target >= static_cast<int64_t>(target_for_source.size())) {
+      return absl::InternalError(absl::StrFormat(
+          "native 2D redistribution cannot invert invalid target slot %d",
+          target));
+    }
+    if (inverse[target] >= 0) {
+      return absl::InternalError(absl::StrFormat(
+          "native 2D redistribution cannot invert non-bijective slot map: "
+          "target slot %d has sources %d and %d",
+          target, inverse[target], source));
+    }
+    inverse[target] = source;
+  }
+  for (int64_t slot = 0; slot < static_cast<int64_t>(inverse.size()); ++slot) {
+    if (inverse[slot] < 0) {
+      return absl::InternalError(absl::StrFormat(
+          "native 2D redistribution cannot invert slot map with missing "
+          "target slot %d",
+          slot));
+    }
+  }
+  return inverse;
+}
+
 absl::StatusOr<std::map<int64_t, std::vector<int64_t>>> BuildNative2DCycles(
     absl::Span<const int64_t> target_for_source) {
   std::vector<uint8_t> visited(target_for_source.size(), 0);
@@ -567,7 +598,8 @@ absl::Status AppendAxisGroupSerialCycles(
 
 absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
-    int64_t tile_cols, int64_t local_rows, int64_t local_cols) {
+    int64_t tile_cols, int64_t local_rows, int64_t local_cols,
+    bool reverse = false) {
   if (process_rows <= 0 || process_cols <= 0 || tile_rows <= 0 ||
       tile_cols <= 0) {
     return absl::InvalidArgumentError(
@@ -583,50 +615,79 @@ absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
   const int64_t col_blocks_per_rank = local_cols / tile_cols;
   std::vector<Native2DStep> steps;
 
-  absl::StatusOr<std::vector<int64_t>> column_slot_map =
-      BuildColumnSlabSlotMap(process_rows, process_cols, col_blocks_per_rank);
-  if (!column_slot_map.ok()) {
-    return column_slot_map.status();
-  }
-  absl::StatusOr<std::map<int64_t, std::vector<int64_t>>> column_cycles =
-      BuildNative2DCycles(*column_slot_map);
-  if (!column_cycles.ok()) {
-    return column_cycles.status();
-  }
-  SlotDecoder decode_column_slot = [&](int64_t slot) {
-    return ColumnPhaseSlotToRankLocal(slot, process_cols, col_blocks_per_rank,
-                                      local_rows, tile_cols);
+  auto append_column_phase = [&](int64_t phase) -> absl::Status {
+    absl::StatusOr<std::vector<int64_t>> slot_map =
+        BuildColumnSlabSlotMap(process_rows, process_cols,
+                               col_blocks_per_rank);
+    if (!slot_map.ok()) {
+      return slot_map.status();
+    }
+    if (reverse) {
+      absl::StatusOr<std::vector<int64_t>> inverse = InvertSlotMap(*slot_map);
+      if (!inverse.ok()) {
+        return inverse.status();
+      }
+      slot_map = std::move(*inverse);
+    }
+    absl::StatusOr<std::map<int64_t, std::vector<int64_t>>> cycles =
+        BuildNative2DCycles(*slot_map);
+    if (!cycles.ok()) {
+      return cycles.status();
+    }
+    SlotDecoder decode_slot = [&](int64_t slot) {
+      return ColumnPhaseSlotToRankLocal(
+          slot, process_cols, col_blocks_per_rank, local_rows, tile_cols);
+    };
+    const int64_t slots_per_process_row =
+        process_cols * col_blocks_per_rank;
+    SlotGroup axis_group = [&](int64_t slot) {
+      return slot / slots_per_process_row;
+    };
+    return AppendAxisGroupSerialCycles(phase, decode_slot, axis_group,
+                                       *cycles, &steps);
   };
-  const int64_t column_slots_per_process_row =
-      process_cols * col_blocks_per_rank;
-  SlotGroup column_axis_group = [&](int64_t slot) {
-    return slot / column_slots_per_process_row;
-  };
-  JAXMG_RETURN_IF_ERROR(AppendAxisGroupSerialCycles(
-      /*phase=*/0, decode_column_slot, column_axis_group, *column_cycles,
-      &steps));
 
-  absl::StatusOr<std::vector<int64_t>> row_slot_map =
-      BuildRowSlabSlotMap(process_rows, process_cols, row_blocks_per_rank);
-  if (!row_slot_map.ok()) {
-    return row_slot_map.status();
-  }
-  absl::StatusOr<std::map<int64_t, std::vector<int64_t>>> row_cycles =
-      BuildNative2DCycles(*row_slot_map);
-  if (!row_cycles.ok()) {
-    return row_cycles.status();
-  }
-  SlotDecoder decode_row_slot = [&](int64_t slot) {
-    return RowPhaseSlotToRankLocal(slot, process_rows, process_cols,
-                                   row_blocks_per_rank, tile_rows, local_cols);
+  auto append_row_phase = [&](int64_t phase) -> absl::Status {
+    absl::StatusOr<std::vector<int64_t>> slot_map =
+        BuildRowSlabSlotMap(process_rows, process_cols, row_blocks_per_rank);
+    if (!slot_map.ok()) {
+      return slot_map.status();
+    }
+    if (reverse) {
+      absl::StatusOr<std::vector<int64_t>> inverse = InvertSlotMap(*slot_map);
+      if (!inverse.ok()) {
+        return inverse.status();
+      }
+      slot_map = std::move(*inverse);
+    }
+    absl::StatusOr<std::map<int64_t, std::vector<int64_t>>> cycles =
+        BuildNative2DCycles(*slot_map);
+    if (!cycles.ok()) {
+      return cycles.status();
+    }
+    SlotDecoder decode_slot = [&](int64_t slot) {
+      return RowPhaseSlotToRankLocal(slot, process_rows, process_cols,
+                                     row_blocks_per_rank, tile_rows,
+                                     local_cols);
+    };
+    const int64_t slots_per_process_col =
+        process_rows * row_blocks_per_rank;
+    SlotGroup axis_group = [&](int64_t slot) {
+      return slot / slots_per_process_col;
+    };
+    return AppendAxisGroupSerialCycles(phase, decode_slot, axis_group,
+                                       *cycles, &steps);
   };
-  const int64_t row_slots_per_process_col =
-      process_rows * row_blocks_per_rank;
-  SlotGroup row_axis_group = [&](int64_t slot) {
-    return slot / row_slots_per_process_col;
-  };
-  JAXMG_RETURN_IF_ERROR(AppendAxisGroupSerialCycles(
-      /*phase=*/1, decode_row_slot, row_axis_group, *row_cycles, &steps));
+
+  if (reverse) {
+    // Forward redistribution applies column-owner movement before row-owner
+    // movement. The inverse must undo those phases in the opposite order.
+    JAXMG_RETURN_IF_ERROR(append_row_phase(/*phase=*/0));
+    JAXMG_RETURN_IF_ERROR(append_column_phase(/*phase=*/1));
+  } else {
+    JAXMG_RETURN_IF_ERROR(append_column_phase(/*phase=*/0));
+    JAXMG_RETURN_IF_ERROR(append_row_phase(/*phase=*/1));
+  }
 
   return steps;
 }
@@ -816,6 +877,45 @@ absl::StatusOr<std::vector<Native2DStep>> BuildEdgePaddingNative2DSteps(
   }
 
   return steps;
+}
+
+std::vector<Native2DStep> ReverseEdgePaddingSteps(
+    const std::vector<Native2DStep>& forward_steps) {
+  // Edge-padding compaction is an open-chain movement: real slabs are pulled
+  // into earlier padding holes and the old source bytes are left undefined.
+  // The inverse used for solver output does not need to restore padding bytes;
+  // it only needs to move the logical matrix entries back into the per-shard
+  // block-sharded positions. Swapping source/target rectangles and reversing
+  // the wave order gives that inverse while preserving the same bounded
+  // scratch policy as the forward pass.
+  int64_t max_horizontal_wave = 0;
+  int64_t max_vertical_wave = 0;
+  for (const Native2DStep& step : forward_steps) {
+    if (step.phase == 0) {
+      max_horizontal_wave = std::max(max_horizontal_wave, step.sequence);
+    } else {
+      max_vertical_wave = std::max(max_vertical_wave, step.sequence);
+    }
+  }
+
+  std::vector<Native2DStep> reverse_steps;
+  reverse_steps.reserve(forward_steps.size());
+  for (const Native2DStep& step : forward_steps) {
+    const bool was_horizontal = step.phase == 0;
+    const int64_t reverse_phase = was_horizontal ? 1 : 0;
+    const int64_t reverse_sequence =
+        (was_horizontal ? max_horizontal_wave : max_vertical_wave) -
+        step.sequence;
+    reverse_steps.push_back(Native2DStep{
+        reverse_phase,
+        reverse_sequence,
+        Native2DStepKind::kMove,
+        step.target_rank,
+        step.source_rank,
+        step.target,
+        step.source});
+  }
+  return reverse_steps;
 }
 
 std::vector<Native2DStepBatch> BatchNative2DSteps(
@@ -1465,7 +1565,7 @@ absl::Status RectPadded2DNativePlanDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
     int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
-    ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    int64_t reverse, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
     ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
@@ -1539,13 +1639,18 @@ absl::Status RectPadded2DNativePlanDispatchImpl(
   }
   absl::StatusOr<std::vector<Native2DStep>> slab_steps =
       BuildSlabNative2DSteps(process_rows, process_cols, tile_rows, tile_cols,
-                             local_rows, local_cols);
+                             local_rows, local_cols, reverse != 0);
   if (!slab_steps.ok()) {
     return slab_steps.status();
   }
 
+  std::vector<Native2DStep> reverse_edge_steps;
+  if (reverse != 0) {
+    reverse_edge_steps = ReverseEdgePaddingSteps(*edge_steps);
+  }
+
   std::vector<Native2DStepBatch> edge_batches =
-      BatchNative2DSteps(*edge_steps);
+      BatchNative2DSteps(reverse != 0 ? reverse_edge_steps : *edge_steps);
   std::vector<Native2DStepBatch> slab_batches =
       BatchNative2DSteps(*slab_steps);
   const int64_t max_step_elements =
@@ -1569,6 +1674,17 @@ absl::Status RectPadded2DNativePlanDispatchImpl(
     return absl::OkStatus();
   }
 
+  if (reverse != 0) {
+    JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
+        stream, comm_stream, cuda_stream, slab_batches, local_rows, local_cols,
+        rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+        matrix_out_base, scratch_out_base, *comm));
+    return ExecuteNative2DStepBatches(
+        stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
+        rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+        matrix_out_base, scratch_out_base, *comm);
+  }
+
   JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
       stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
       rank_value, num_ranks, element_bytes, max_step_elements, matrix,
@@ -1583,14 +1699,14 @@ absl::Status XlaRectPadded2DNativePlanDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
     int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
-    ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    int64_t reverse, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
     ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return RectPadded2DNativePlanDispatchImpl(
       stream, comm_stream, cuda_stream, process_rows, process_cols, tile_rows,
-      tile_cols, logical_rows, logical_cols, matrix, scratch,
+      tile_cols, logical_rows, logical_cols, reverse, matrix, scratch,
       matrix_out, scratch_out, collective_params, collective_cliques);
 }
 

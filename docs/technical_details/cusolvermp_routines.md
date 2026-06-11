@@ -32,7 +32,7 @@ matches the layout the current 2D redistribution prototype targets.
 
 | JAXMg API | Current backend | cuSOLVERMp status | Migration note |
 | --- | --- | --- | --- |
-| `potrs` | `cusolverMgPotrf` + `cusolverMgPotrs` | Directly supported by `cusolverMpPotrf` + `cusolverMpPotrs` | First real solver target. Requires descriptors for `A` and `B`, square `MB_A == NB_A`, and aligned `A`/`B` row blocking. |
+| `potrs` / `potrs_mp` | `cusolverMgPotrf` + `cusolverMgPotrs` for `potrs`; cuSOLVERMp for `potrs_mp` | Directly supported by `cusolverMpPotrf` + `cusolverMpPotrs` | `potrs_mp` is the first end-to-end cuSOLVERMp path. It requires a 2D block-sharded JAX mesh, square `MB_A == NB_A`, and local shard padding before native 2D redistribution. |
 | `syevd` | `cusolverMgSyevd` | Directly supported by `cusolverMpSyevd` | Good second target after `potrs`. `jobz = "V"` maps to eigenvalues plus eigenvectors. |
 | `syevd_no_V` | `cusolverMgSyevd` with no eigenvectors | Directly supported by `cusolverMpSyevd` | `jobz = "N"` maps to eigenvalues only. |
 | `potri` | `cusolverMgPotrf` + `cusolverMgPotri` | No direct `cusolverMpPotri` entry in the current C API documentation | Not supported by the first cuSOLVERMp backend. It should remain out of scope until there is a separate design for inverse support. |
@@ -69,8 +69,7 @@ factor iteration with its own process-grid and data-type limitations.
 
 ## Constraints to Probe Next
 
-Before adding production cuSOLVERMp solver calls, the next native diagnostic
-should prove the following on a tiny single-node case:
+The native diagnostics have now proved the following on tiny single-node cases:
 
 1. The borrowed XLA communicator handle is a valid NCCL communicator for
    `cusolverMpCreateDeviceGrid`.
@@ -84,8 +83,9 @@ should prove the following on a tiny single-node case:
 5. Repeated calls do not leak handles, descriptors, grids, host workspaces, or
    device workspaces.
 
-Only after this diagnostic passes should the branch wire cuSOLVERMp into the
-public `jaxmg.potrs` path.
+Those diagnostics have been used to wire the first production-style entry point,
+`jaxmg.potrs_mp`. The historical `jaxmg.potrs` path is still the 1D cuSolverMg
+solver while the cuSOLVERMp API and output redistribution are hardened.
 
 The next diagnostic is `cusolvermp_potrs_probe`. It still does not use JAXMg's
 GPU-to-GPU redistribution output. Instead it isolates the cuSOLVERMp solver
@@ -115,18 +115,19 @@ host scatter helper from the solver input path:
 5. run `cusolverMpPotrf` followed by `cusolverMpPotrs`;
 6. gather only the final solution on rank 0 for diagnostic residual checking.
 
-This checkpoint is intentionally still a probe rather than the public solver
-path. It proves that cuSOLVERMp can consume local matrices produced by JAXMg's
-redistribution code, but it still uses a small synthetic diagonal system and a
-host gather for validation. The production path still needs API integration,
-workspace policy, error handling, and a JAX-facing output redistribution.
+This checkpoint has now been promoted into the production FFI target
+`cusolvermp_potrs`. The production target uses the same distributed input
+contract but does not require `cusolverMpMatrixGatherD2H`; the solved `B`
+remains distributed on device and is reverse-redistributed by `jaxmg.potrs_mp`.
+The diagnostic probe remains useful because it still gathers on rank 0 and
+checks a deterministic residual.
 
-The current distributed-input probe uses multiple right-hand sides when the
-process grid has more than one process column. That is a test-shape constraint
-from the current rectangular redistribution planner: the logical column count
-must divide the process columns before padding is added. Supporting a single
-RHS on a multi-process-column grid will need either a special vector layout or
-an explicit padded RHS policy before it becomes a production `potrs` interface.
+The current high-level `potrs_mp` interface requires the logical `A` and `B`
+dimensions to divide evenly over the corresponding process-grid dimensions
+before per-shard tile padding is added. This is conservative and keeps the
+first implementation aligned with the existing native redistribution planner.
+Supporting a single RHS on a multi-process-column grid will need either a
+special vector layout or an explicit global RHS padding policy.
 
 ## CSD3 cuSOLVERMp SDK Environment
 

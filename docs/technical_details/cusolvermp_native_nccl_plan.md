@@ -38,10 +38,20 @@ The branch has already proved these pieces independently:
 8. The solver diagnostic can also consume `A` and `B` buffers produced by
    JAXMg's native 2D redistribution, avoiding `cusolverMpMatrixScatterH2D` on
    the input side.
+9. The native padded 2D redistribution now has a reverse mode. It applies the
+   inverse slab scheduler first and then reverses edge-padding compaction so a
+   cuSOLVERMp-layout output can be returned to a JAX-facing block-sharded
+   logical layout.
+10. `jaxmg.potrs_mp` wires the first end-to-end cuSOLVERMp path:
+    local shard padding, forward 2D redistribution, production
+    `cusolvermp_potrs`, reverse 2D redistribution, and local unpadding of the
+    solved right-hand side.
 
-The current executor is still a bridge implementation. Python builds and loops
-over transfer batches, while the native backend executes one rectangle-transfer
-shape group at a time.
+The current production redistribution path no longer loops over Python-planned
+rectangle batches. The native backend builds and executes the slab schedule in
+one FFI call, using bounded per-rank scratch and direct NCCL send/recv through
+the borrowed XLA communicator. The lower-level Python-planned rectangle
+executor remains only as a diagnostic test path.
 
 ## Target Native Redistribution
 
@@ -92,14 +102,16 @@ offset = local_col * local_rows + local_row
 
 ## Scratch Policy
 
-Each rank gets a local scratch buffer split into two slots:
+Each rank gets a local scratch buffer split into three slots:
 
 ```text
-scratch_send = S[0 : max_fragment_elements]
-scratch_recv = S[max_fragment_elements : 2 * max_fragment_elements]
+scratch_saved = S[0 : max_step_elements]
+scratch_send  = S[max_step_elements : 2 * max_step_elements]
+scratch_recv  = S[2 * max_step_elements : 3 * max_step_elements]
 ```
 
-This is sufficient only because each execution batch maintains:
+The saved slot is needed for closed permutation cycles. This remains bounded
+because each execution batch maintains:
 
 ```text
 each rank appears as source at most once
@@ -137,6 +149,10 @@ exposes a valid `ncclComm_t` for the CUDA backend and that its lifetime and
 stream ordering rules are safe for this use.
 
 ## Implementation Stages
+
+Stages 1-7 have now been reached on the `cusolvermp_multi_node` branch for the
+single-node development path. The remaining work is hardening and expanding
+coverage rather than proving basic feasibility.
 
 ### Stage 1: Column-Major Executor Validation
 
@@ -257,6 +273,21 @@ by JAXMg:
 potrf
 potrs
 ```
+
+Current status:
+
+```text
+jaxmg.potrs_mp
+  -> pad local 2D shards
+  -> native padded 2D redistribution
+  -> cusolverMpPotrf + cusolverMpPotrs
+  -> reverse native padded 2D redistribution
+  -> unpad local RHS shards
+```
+
+The production cuSOLVERMp FFI target is registered as `cusolvermp_potrs`. The
+older `cusolvermp_*_probe` functions remain internal diagnostics and are no
+longer top-level `jaxmg` exports.
 
 The first diagnostic should:
 

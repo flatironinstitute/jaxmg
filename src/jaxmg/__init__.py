@@ -1,4 +1,5 @@
 from ._potrs import potrs, potrs_shardmap_ctx
+from ._potrs_mp import potrs_mp
 from ._potri import potri, potri_shardmap_ctx, potri_symmetrize
 from ._syevd import syevd, syevd_shardmap_ctx
 from ._xla_comm_probe import (
@@ -16,12 +17,6 @@ from ._xla_comm_probe import (
     xla_comm_chunk_permute_probe_shardmap,
     xla_comm_matrix_column_native_plan,
     xla_comm_matrix_column_native_plan_shardmap,
-    cusolvermp_scatter_layout_probe,
-    cusolvermp_scatter_layout_probe_shardmap,
-    cusolvermp_potrs_probe,
-    cusolvermp_potrs_probe_shardmap,
-    cusolvermp_distributed_potrs_probe,
-    cusolvermp_distributed_potrs_probe_shardmap,
 )
 from ._cyclic_1d import (
     cyclic_1d,
@@ -36,6 +31,7 @@ from ._cyclic_1d import (
 __all__ = [
     "potrs",
     "potrs_shardmap_ctx",
+    "potrs_mp",
     "potri",
     "potri_shardmap_ctx",
     "potri_symmetrize",
@@ -55,12 +51,6 @@ __all__ = [
     "xla_comm_chunk_permute_probe_shardmap",
     "xla_comm_matrix_column_native_plan",
     "xla_comm_matrix_column_native_plan_shardmap",
-    "cusolvermp_scatter_layout_probe",
-    "cusolvermp_scatter_layout_probe_shardmap",
-    "cusolvermp_potrs_probe",
-    "cusolvermp_potrs_probe_shardmap",
-    "cusolvermp_distributed_potrs_probe",
-    "cusolvermp_distributed_potrs_probe_shardmap",
     "cyclic_1d",
     "pad_rows",
     "unpad_rows",

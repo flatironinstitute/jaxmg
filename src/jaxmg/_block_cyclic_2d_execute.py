@@ -400,4 +400,73 @@ def execute_padded_block_cyclic_2d_shardmap(
         tile_cols=tile_shape.cols,
         logical_rows=logical_rows,
         logical_cols=logical_cols,
+        reverse=False,
+    )
+
+
+def execute_reverse_padded_block_cyclic_2d_shardmap(
+    matrix: Array,
+    scratch: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    scratch_specs: P,
+    *,
+    logical_rows: int,
+    logical_cols: int,
+    grid: ProcessGrid,
+    tile_rows: int,
+    tile_cols: int,
+) -> tuple[Array, Array]:
+    """Undo the fused native padded 2D redistribution.
+
+    ``matrix`` is expected to be in the local cuSOLVERMp 2D block-cyclic
+    layout produced by :func:`execute_padded_block_cyclic_2d_shardmap`. The
+    native handler first applies the inverse tile-slab scheduler and then
+    reverses edge-padding compaction, returning a per-rank padded block-sharded
+    layout. Padding bytes are not meaningful and should be sliced away by the
+    caller.
+    """
+    if grid.num_processes <= 0:
+        raise ValueError("grid must contain at least one process.")
+    tile_shape = TileShape(rows=int(tile_rows), cols=int(tile_cols))
+    compaction_plan = build_edge_padding_compaction_plan(
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
+        tile_shape=tile_shape,
+        grid=grid,
+    )
+    padding = compaction_plan.padding
+    expected_shape = (padding.physical_rows, padding.physical_cols)
+    if tuple(matrix.shape) != expected_shape:
+        raise ValueError(
+            "matrix shape must be the physical padded shape "
+            f"{expected_shape}, got {tuple(matrix.shape)}."
+        )
+
+    required_scratch = required_padded_block_cyclic_2d_scratch_size(
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
+        grid=grid,
+        tile_rows=tile_shape.rows,
+        tile_cols=tile_shape.cols,
+    )
+    if required_scratch and scratch.shape[0] // grid.num_processes < required_scratch:
+        raise ValueError(
+            "scratch is too small for reverse padded 2D block-cyclic "
+            "redistribution."
+        )
+
+    return xla_rect_padded_2d_native_plan_shardmap(
+        matrix,
+        scratch,
+        mesh,
+        matrix_specs,
+        scratch_specs,
+        process_rows=grid.process_rows,
+        process_cols=grid.process_cols,
+        tile_rows=tile_shape.rows,
+        tile_cols=tile_shape.cols,
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
+        reverse=True,
     )
