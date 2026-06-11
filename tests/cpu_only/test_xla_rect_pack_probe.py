@@ -22,44 +22,7 @@ def test_rect_pack_validation_accepts_valid_fragment():
         target_col=1,
     )
 
-    assert args == (0, 1, 2, 2, 3, 0, 1)
-
-
-def test_rect_pack_validation_accepts_column_major_layout():
-    matrix = jnp.zeros((4, 5), dtype=jnp.float32)
-    scratch = jnp.zeros((6,), dtype=jnp.float32)
-
-    args = _validate_rect_pack_args(
-        matrix,
-        scratch,
-        layout="column_major",
-        row_start=1,
-        col_start=2,
-        row_count=2,
-        col_count=3,
-        target_row=0,
-        target_col=1,
-    )
-
-    assert args == (1, 1, 2, 2, 3, 0, 1)
-
-
-def test_rect_pack_validation_rejects_unknown_layout():
-    matrix = jnp.zeros((4, 5), dtype=jnp.float32)
-    scratch = jnp.zeros((4,), dtype=jnp.float32)
-
-    with pytest.raises(ValueError, match="layout"):
-        _validate_rect_pack_args(
-            matrix,
-            scratch,
-            layout="blocked",
-            row_start=0,
-            col_start=0,
-            row_count=1,
-            col_count=1,
-            target_row=0,
-            target_col=0,
-        )
+    assert args == (1, 2, 2, 3, 0, 1)
 
 
 def test_rect_pack_validation_rejects_bad_rank():
@@ -137,7 +100,6 @@ def test_rect_transfer_validation_accepts_valid_schedule():
     args = _validate_rect_transfer_args(
         matrix,
         scratch,
-        layout="column_major",
         targets=[1, 0],
         src_row_starts=[1, 2],
         src_col_starts=[2, 3],
@@ -147,13 +109,12 @@ def test_rect_transfer_validation_accepts_valid_schedule():
         col_count=2,
     )
 
-    assert args[0] == 1
-    assert args[1].tolist() == [1, 0]
-    assert args[2].tolist() == [1, 2]
-    assert args[3].tolist() == [2, 3]
-    assert args[4].tolist() == [0, 1]
-    assert args[5].tolist() == [1, 0]
-    assert args[6:] == (2, 2)
+    assert args[0].tolist() == [1, 0]
+    assert args[1].tolist() == [1, 2]
+    assert args[2].tolist() == [2, 3]
+    assert args[3].tolist() == [0, 1]
+    assert args[4].tolist() == [1, 0]
+    assert args[5:] == (2, 2)
 
 
 def test_rect_transfer_validation_rejects_mismatched_schedule_lengths():

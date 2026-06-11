@@ -259,28 +259,10 @@ def _initialize():
         _register_optional_cuda_target_bundle(
             bin_dir,
             _xla_comm_backend_library,
-            "xla_rect_transfer_nccl_probe",
-            {
-                "prepare": "XlaRectTransferNcclProbePrepareFFI",
-                "execute": "XlaRectTransferNcclProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
             "xla_rect_2d_native_plan",
             {
                 "prepare": "XlaRect2DNativePlanPrepareFFI",
                 "execute": "XlaRect2DNativePlanFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "xla_rect_2d_native_plan_nccl",
-            {
-                "prepare": "XlaRect2DNativePlanNcclPrepareFFI",
-                "execute": "XlaRect2DNativePlanNcclFFI",
             },
         )
         _register_optional_cuda_target_bundle(
@@ -292,16 +274,6 @@ def _initialize():
                 "execute": "XlaRectPadded2DNativePlanFFI",
             },
         )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "xla_rect_padded_2d_native_plan_nccl",
-            {
-                "prepare": "XlaRectPadded2DNativePlanNcclPrepareFFI",
-                "execute": "XlaRectPadded2DNativePlanNcclFFI",
-            },
-        )
-
     else:
         warnings.warn(
             "No GPUs found, only use this mode for testing or generating documentation.",

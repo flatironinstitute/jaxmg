@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Literal
 
 
-MemoryLayout = Literal["row_major", "column_major"]
 RedistributionPhase = Literal["column_owner", "row_owner"]
 EdgePaddingPhase = Literal["horizontal", "vertical"]
 
@@ -222,7 +221,6 @@ class FragmentTransferBatch:
 class MemoryAccessClassification:
     """Whether a rectangular region is contiguous under a local memory layout."""
 
-    layout: MemoryLayout
     row_count: int
     col_count: int
     local_rows: int
@@ -796,8 +794,6 @@ def build_two_phase_2d_plan(
 
 def build_two_phase_fragment_transfer_schedule(
     plan: BlockCyclic2DPlan,
-    *,
-    layout: MemoryLayout = "row_major",
 ) -> tuple[TwoPhaseFragmentTransfer, ...]:
     """Build a concrete fragment transfer schedule for the two-phase plan.
 
@@ -822,7 +818,6 @@ def build_two_phase_fragment_transfer_schedule(
             fragment.col_count,
             local_rows,
             local_cols,
-            layout=layout,
         )
 
         if fragment.source_owner.process_col != target_owner.process_col:
@@ -1032,8 +1027,6 @@ def column_owner_intermediate_local_rect(
 
 def build_executable_fragment_transfer_schedule(
     plan: BlockCyclic2DPlan,
-    *,
-    layout: MemoryLayout = "row_major",
 ) -> tuple[ExecutableFragmentTransfer, ...]:
     """Build concrete local-rectangle moves for the two-phase redistribution.
 
@@ -1063,7 +1056,6 @@ def build_executable_fragment_transfer_schedule(
             fragment.col_count,
             local_rows,
             local_cols,
-            layout=layout,
         )
 
         if (
@@ -1163,10 +1155,8 @@ def classify_rectangular_region(
     col_count: int,
     local_rows: int,
     local_cols: int,
-    *,
-    layout: MemoryLayout = "row_major",
 ) -> MemoryAccessClassification:
-    """Classify whether a local rectangular region can be moved contiguously."""
+    """Classify whether a column-major local region can move contiguously."""
     if row_count <= 0 or col_count <= 0:
         raise ValueError("region dimensions must be positive.")
     if local_rows <= 0 or local_cols <= 0:
@@ -1174,51 +1164,30 @@ def classify_rectangular_region(
     if row_count > local_rows or col_count > local_cols:
         raise ValueError("region cannot exceed local matrix dimensions.")
 
-    if layout == "row_major":
-        if row_count == 1:
-            return MemoryAccessClassification(
-                layout, row_count, col_count, local_rows, local_cols, True,
-                "one row is contiguous in the current native offset model",
-            )
-        if col_count == local_cols:
-            return MemoryAccessClassification(
-                layout, row_count, col_count, local_rows, local_cols, True,
-                "full-width row slab is contiguous in the current native offset model",
-            )
+    if col_count == 1:
         return MemoryAccessClassification(
-            layout, row_count, col_count, local_rows, local_cols, False,
-            "multi-row sub-column region is strided and needs pack/unpack",
+            row_count, col_count, local_rows, local_cols, True,
+            "one column is contiguous in column-major layout",
         )
-
-    if layout == "column_major":
-        if col_count == 1:
-            return MemoryAccessClassification(
-                layout, row_count, col_count, local_rows, local_cols, True,
-                "one column is contiguous in column-major layout",
-            )
-        if row_count == local_rows:
-            return MemoryAccessClassification(
-                layout, row_count, col_count, local_rows, local_cols, True,
-                "full-height column slab is contiguous in column-major layout",
-            )
+    if row_count == local_rows:
         return MemoryAccessClassification(
-            layout, row_count, col_count, local_rows, local_cols, False,
-            "multi-column sub-row region is strided and needs pack/unpack",
+            row_count, col_count, local_rows, local_cols, True,
+            "full-height column slab is contiguous in column-major layout",
         )
-
-    raise ValueError(f"unknown memory layout {layout!r}.")
+    return MemoryAccessClassification(
+        row_count, col_count, local_rows, local_cols, False,
+        "multi-column sub-row region is strided and needs pack/unpack",
+    )
 
 
 def classify_proposed_phase_regions(
     plan: BlockCyclic2DPlan,
-    *,
-    layout: MemoryLayout = "row_major",
 ) -> dict[str, MemoryAccessClassification]:
     """Classify the natural grouped regions for the two separable phases.
 
-    For the current row-major native model, moving a column tile through a
-    process row is a strided sub-column region, while moving a complete row slab
-    inside one process column is contiguous if grouped over all local columns.
+    For cuSOLVERMp's column-major local model, moving a complete column slab
+    through a process row is contiguous if grouped over all local rows, while
+    smaller multi-column row fragments still need pack/unpack scratch.
     """
     padding = plan.padding
     tile_shape = plan.tile_shape
@@ -1228,20 +1197,17 @@ def classify_proposed_phase_regions(
             min(tile_shape.cols, padding.local_physical_cols),
             padding.local_physical_rows,
             padding.local_physical_cols,
-            layout=layout,
         ),
         "row_slab": classify_rectangular_region(
             min(tile_shape.rows, padding.local_physical_rows),
             padding.local_physical_cols,
             padding.local_physical_rows,
             padding.local_physical_cols,
-            layout=layout,
         ),
         "single_tile": classify_rectangular_region(
             min(tile_shape.rows, padding.local_physical_rows),
             min(tile_shape.cols, padding.local_physical_cols),
             padding.local_physical_rows,
             padding.local_physical_cols,
-            layout=layout,
         ),
     }

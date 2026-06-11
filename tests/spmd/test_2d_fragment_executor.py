@@ -162,7 +162,7 @@ def _initial_edge_padded_host(host, plan):
     return physical
 
 
-def _run_executor_case(grid, host, scratch_specs, *, layout="row_major", transport="xla"):
+def _run_executor_case(grid, host, scratch_specs):
     if len(jax.devices("gpu")) < grid.num_processes:
         pytest.skip(f"{grid.num_processes} GPUs are required. Skipping")
 
@@ -199,8 +199,6 @@ def _run_executor_case(grid, host, scratch_specs, *, layout="row_major", transpo
         scratch_specs,
         batches,
         grid=grid,
-        layout=layout,
-        transport=transport,
     )
     out.block_until_ready()
     scratch_out.block_until_ready()
@@ -208,9 +206,7 @@ def _run_executor_case(grid, host, scratch_specs, *, layout="row_major", transpo
     np.testing.assert_array_equal(np.asarray(out), expected)
 
 
-def _run_native_executor_case(
-    grid, host, scratch_specs, *, layout="row_major", transport="xla"
-):
+def _run_native_executor_case(grid, host, scratch_specs):
     if len(jax.devices("gpu")) < grid.num_processes:
         pytest.skip(f"{grid.num_processes} GPUs are required. Skipping")
 
@@ -245,8 +241,6 @@ def _run_native_executor_case(
         grid=grid,
         tile_rows=tile_shape.rows,
         tile_cols=tile_shape.cols,
-        layout=layout,
-        transport=transport,
     )
     out.block_until_ready()
     scratch_out.block_until_ready()
@@ -254,9 +248,7 @@ def _run_native_executor_case(
     np.testing.assert_array_equal(np.asarray(out), expected)
 
 
-def _run_edge_padding_compaction_case(
-    grid, host, scratch_specs, *, layout="row_major", transport="xla"
-):
+def _run_edge_padding_compaction_case(grid, host, scratch_specs):
     if len(jax.devices("gpu")) < grid.num_processes:
         pytest.skip(f"{grid.num_processes} GPUs are required. Skipping")
 
@@ -292,8 +284,6 @@ def _run_edge_padding_compaction_case(
         scratch_specs,
         batches,
         grid=grid,
-        layout=layout,
-        transport=transport,
     )
     out.block_until_ready()
     scratch_out.block_until_ready()
@@ -305,9 +295,7 @@ def _run_edge_padding_compaction_case(
     )
 
 
-def _run_padded_block_cyclic_case(
-    grid, host, scratch_specs, *, layout="row_major", transport="xla"
-):
+def _run_padded_block_cyclic_case(grid, host, scratch_specs):
     if len(jax.devices("gpu")) < grid.num_processes:
         pytest.skip(f"{grid.num_processes} GPUs are required. Skipping")
 
@@ -351,8 +339,6 @@ def _run_padded_block_cyclic_case(
         grid=grid,
         tile_rows=tile_shape.rows,
         tile_cols=tile_shape.cols,
-        layout=layout,
-        transport=transport,
     )
     out.block_until_ready()
     scratch_out.block_until_ready()
@@ -390,61 +376,33 @@ def test_two_by_two_executor_runs_column_then_row_phases():
     )
 
 
-def test_two_by_two_executor_runs_column_major_layout():
-    host = np.arange(64, dtype=np.float32).reshape(8, 8)
-
-    _run_executor_case(
-        ProcessGrid(process_rows=2, process_cols=2),
-        host,
-        P(("pr", "pc")),
-        layout="column_major",
-    )
-
-
-@pytest.mark.parametrize("transport", ["xla", "nccl"])
-def test_native_one_by_two_executor_runs_row_major_layout(transport):
+def test_native_one_by_two_executor_runs():
     host = np.arange(64, dtype=np.float32).reshape(4, 16)
 
     _run_native_executor_case(
         ProcessGrid(process_rows=1, process_cols=2),
         host,
         P("pc"),
-        transport=transport,
     )
 
 
-@pytest.mark.parametrize("transport", ["xla", "nccl"])
-def test_native_two_by_one_executor_runs_row_major_layout(transport):
+def test_native_two_by_one_executor_runs():
     host = np.arange(64, dtype=np.float32).reshape(16, 4)
 
     _run_native_executor_case(
         ProcessGrid(process_rows=2, process_cols=1),
         host,
         P("pr"),
-        transport=transport,
     )
 
 
-@pytest.mark.parametrize("transport", ["xla", "nccl"])
-def test_native_two_by_two_executor_runs_row_major_layout(transport):
+def test_native_two_by_two_executor_runs():
     host = np.arange(64, dtype=np.float32).reshape(8, 8)
 
     _run_native_executor_case(
         ProcessGrid(process_rows=2, process_cols=2),
         host,
         P(("pr", "pc")),
-        transport=transport,
-    )
-
-
-def test_native_two_by_two_executor_runs_column_major_layout():
-    host = np.arange(64, dtype=np.float32).reshape(8, 8)
-
-    _run_native_executor_case(
-        ProcessGrid(process_rows=2, process_cols=2),
-        host,
-        P(("pr", "pc")),
-        layout="column_major",
     )
 
 
@@ -455,17 +413,6 @@ def test_native_two_by_two_executor_runs_larger_slab_cycles():
         ProcessGrid(process_rows=2, process_cols=2),
         host,
         P(("pr", "pc")),
-    )
-
-
-def test_native_two_by_two_executor_runs_larger_column_major_slab_cycles():
-    host = np.arange(256, dtype=np.float32).reshape(16, 16)
-
-    _run_native_executor_case(
-        ProcessGrid(process_rows=2, process_cols=2),
-        host,
-        P(("pr", "pc")),
-        layout="column_major",
     )
 
 
@@ -496,11 +443,9 @@ def test_padded_block_cyclic_executor_runs_compaction_then_redistribution():
         (ProcessGrid(process_rows=2, process_cols=1), P("pr")),
     ],
 )
-@pytest.mark.parametrize("transport", ["xla", "nccl"])
 def test_padded_block_cyclic_executor_runs_degenerate_2gpu_grids(
     grid,
     scratch_specs,
-    transport,
 ):
     host = np.arange(100, dtype=np.float32).reshape(10, 10)
 
@@ -508,21 +453,14 @@ def test_padded_block_cyclic_executor_runs_degenerate_2gpu_grids(
         grid,
         host,
         scratch_specs,
-        layout="column_major",
-        transport=transport,
     )
 
 
-@pytest.mark.parametrize("transport", ["xla", "nccl"])
-def test_padded_block_cyclic_executor_runs_column_major_for_cusolvermp_layout(
-    transport,
-):
+def test_padded_block_cyclic_executor_runs_for_cusolvermp_layout():
     host = np.arange(100, dtype=np.float32).reshape(10, 10)
 
     _run_padded_block_cyclic_case(
         ProcessGrid(process_rows=2, process_cols=2),
         host,
         P(("pr", "pc")),
-        layout="column_major",
-        transport=transport,
     )

@@ -489,7 +489,7 @@ def test_fragment_transfer_batch_size_rejects_non_positive_limit():
         batch_fragment_transfers((), max_transfers_per_batch=0)
 
 
-def test_current_row_major_layout_makes_column_phase_strided():
+def test_column_major_layout_makes_column_phase_contiguous():
     plan = build_two_phase_2d_plan(
         logical_rows=16,
         logical_cols=32,
@@ -499,10 +499,10 @@ def test_current_row_major_layout_makes_column_phase_strided():
 
     classes = classify_proposed_phase_regions(plan)
 
-    assert classes["column_tile"].requires_pack
-    assert "strided" in classes["column_tile"].reason
-    assert classes["row_slab"].contiguous
-    assert "full-width row slab" in classes["row_slab"].reason
+    assert classes["column_tile"].contiguous
+    assert "full-height column slab" in classes["column_tile"].reason
+    assert classes["row_slab"].requires_pack
+    assert "strided" in classes["row_slab"].reason
     assert classes["single_tile"].requires_pack
 
 
@@ -531,20 +531,18 @@ def test_rectangular_region_classification_rejects_impossible_regions():
         )
 
 
-def test_column_major_layout_flips_contiguous_axis():
+def test_rectangular_region_classification_uses_column_major_layout():
     column = classify_rectangular_region(
         row_count=4,
         col_count=1,
         local_rows=8,
         local_cols=8,
-        layout="column_major",
     )
     row = classify_rectangular_region(
         row_count=1,
         col_count=4,
         local_rows=8,
         local_cols=8,
-        layout="column_major",
     )
 
     assert column.contiguous

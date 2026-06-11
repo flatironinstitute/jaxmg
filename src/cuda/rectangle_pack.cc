@@ -21,12 +21,11 @@
 //   contiguous scratch -> matrix_out[target_row:target_row + row_count,
 //                                   target_col:target_col + col_count]
 //
-// The physical addressing depends on the local matrix layout. Current JAXMg
-// cuSolverMg diagnostics use row-major local buffers. cuSOLVERMp expects local
-// matrices to be column-major, so this probe deliberately supports both:
+// cuSOLVERMp expects each local matrix to be stored in column-major order. The
+// Python FFI wrappers therefore request column-major local buffers and this file
+// uses one addressing convention throughout:
 //
-//   layout == 0: scratch is packed row-major, one source row at a time.
-//   layout == 1: scratch is packed column-major, one source column at a time.
+//   scratch is packed column-major, one source column at a time.
 //
 // cudaMemcpy2DAsync provides this pack/unpack behavior without introducing a
 // custom CUDA kernel yet. The future communicator path can use the same packed
@@ -43,16 +42,6 @@
 namespace xla::gpu {
 
 namespace {
-
-enum class RectLayout : int64_t {
-  kRowMajor = 0,
-  kColumnMajor = 1,
-};
-
-enum class NativeTransferBackend {
-  kXlaCollectivePermute,
-  kRawNcclSendRecv,
-};
 
 absl::Status NcclToStatus(ncclResult_t result, const char* file, int line) {
   if (result == ncclSuccess) {
@@ -184,20 +173,6 @@ absl::Status RunRawNcclSendRecv(
   return absl::OkStatus();
 }
 
-absl::StatusOr<RectLayout> DecodeRectLayout(int64_t layout) {
-  switch (layout) {
-    case static_cast<int64_t>(RectLayout::kRowMajor):
-      return RectLayout::kRowMajor;
-    case static_cast<int64_t>(RectLayout::kColumnMajor):
-      return RectLayout::kColumnMajor;
-    default:
-      return absl::InvalidArgumentError(absl::StrFormat(
-          "xla_rect_pack_unpack_probe received unknown layout %d; expected 0 "
-          "(row-major) or 1 (column-major)",
-          layout));
-  }
-}
-
 struct RectCopySpec {
   size_t matrix_pitch;
   size_t packed_pitch;
@@ -225,21 +200,10 @@ absl::Status ValidateRect(const char* caller, int64_t row_start,
   return absl::OkStatus();
 }
 
-RectCopySpec BuildRectCopySpec(RectLayout layout, int64_t local_rows,
-                               int64_t local_cols, int64_t row_start,
-                               int64_t col_start, int64_t row_count,
-                               int64_t col_count, size_t element_bytes) {
-  if (layout == RectLayout::kRowMajor) {
-    return RectCopySpec{
-        static_cast<size_t>(local_cols) * element_bytes,
-        static_cast<size_t>(col_count) * element_bytes,
-        static_cast<size_t>(col_count) * element_bytes,
-        static_cast<size_t>(row_count),
-        static_cast<uint64_t>(row_start * local_cols + col_start) *
-            element_bytes,
-    };
-  }
-
+RectCopySpec BuildRectCopySpec(int64_t local_rows, int64_t row_start,
+                               int64_t col_start,
+                               int64_t row_count, int64_t col_count,
+                               size_t element_bytes) {
   return RectCopySpec{
       static_cast<size_t>(local_rows) * element_bytes,
       static_cast<size_t>(row_count) * element_bytes,
@@ -339,7 +303,7 @@ absl::Status CheckNativeLocalRect(const NativeLocalRect& rect,
 // comes only from applying the same sequence step across independent process
 // rows or columns. For example, one global tile-column move is represented as
 // matching local column-slab moves in every process row, and those
-// same-sequence moves are batched into one CollectivePermute round when their
+// same-sequence moves are batched into one raw-NCCL send/recv round when their
 // ranks do not conflict.
 
 NativeLocalRect ColumnSlabRect(int64_t local_rows, int64_t tile_cols,
@@ -902,15 +866,13 @@ std::vector<Native2DStepBatch> BatchNative2DSteps(
   return batches;
 }
 
-absl::Status PackRect(cudaStream_t cuda_stream, RectLayout layout,
-                      int64_t local_rows, int64_t local_cols,
+absl::Status PackRect(cudaStream_t cuda_stream, int64_t local_rows,
                       int64_t row_start, int64_t col_start,
                       int64_t row_count, int64_t col_count,
                       size_t element_bytes, se::DeviceAddressBase matrix_base,
                       se::DeviceAddressBase packed_base) {
-  RectCopySpec spec =
-      BuildRectCopySpec(layout, local_rows, local_cols, row_start, col_start,
-                        row_count, col_count, element_bytes);
+  RectCopySpec spec = BuildRectCopySpec(
+      local_rows, row_start, col_start, row_count, col_count, element_bytes);
   const void* source =
       matrix_base.GetByteSlice(spec.matrix_offset, spec.copy_bytes).opaque();
   void* packed = packed_base.opaque();
@@ -920,15 +882,14 @@ absl::Status PackRect(cudaStream_t cuda_stream, RectLayout layout,
   return absl::OkStatus();
 }
 
-absl::Status UnpackRect(cudaStream_t cuda_stream, RectLayout layout,
-                        int64_t local_rows, int64_t local_cols,
+absl::Status UnpackRect(cudaStream_t cuda_stream, int64_t local_rows,
                         int64_t row_start, int64_t col_start,
                         int64_t row_count, int64_t col_count,
-                        size_t element_bytes, se::DeviceAddressBase packed_base,
+                        size_t element_bytes,
+                        se::DeviceAddressBase packed_base,
                         se::DeviceAddressBase matrix_base) {
-  RectCopySpec spec =
-      BuildRectCopySpec(layout, local_rows, local_cols, row_start, col_start,
-                        row_count, col_count, element_bytes);
+  RectCopySpec spec = BuildRectCopySpec(
+      local_rows, row_start, col_start, row_count, col_count, element_bytes);
   const void* packed = packed_base.opaque();
   void* target =
       matrix_base.GetByteSlice(spec.matrix_offset, spec.copy_bytes).opaque();
@@ -955,9 +916,8 @@ int64_t MaxStepElementCount(const std::vector<Native2DStep>& steps) {
 
 absl::Status ExecuteNative2DStepBatches(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    RectLayout layout, const std::vector<Native2DStepBatch>& batches,
-    int64_t local_rows, int64_t local_cols, int64_t rank_value,
-    int64_t num_ranks, NativeTransferBackend transfer_backend,
+    const std::vector<Native2DStepBatch>& batches, int64_t local_rows,
+    int64_t local_cols, int64_t rank_value, int64_t num_ranks,
     size_t element_bytes, int64_t slot_elements, ffi::AnyBuffer matrix,
     se::DeviceAddressBase matrix_out_base,
     se::DeviceAddressBase scratch_out_base, GpuCommunicator* comm) {
@@ -994,8 +954,8 @@ absl::Status ExecuteNative2DStepBatches(
         continue;
       }
       JAXMG_RETURN_IF_ERROR(PackRect(
-          cuda_stream, layout, local_rows, local_cols,
-          send_step->source.row_start, send_step->source.col_start,
+          cuda_stream, local_rows, send_step->source.row_start,
+          send_step->source.col_start,
           send_step->source.row_count, send_step->source.col_count,
           element_bytes, matrix_out_base, saved_slot));
       continue;
@@ -1003,8 +963,8 @@ absl::Status ExecuteNative2DStepBatches(
 
     if (batch.kind == Native2DStepKind::kMove && send_step != nullptr) {
       JAXMG_RETURN_IF_ERROR(PackRect(
-          cuda_stream, layout, local_rows, local_cols,
-          send_step->source.row_start, send_step->source.col_start,
+          cuda_stream, local_rows, send_step->source.row_start,
+          send_step->source.col_start,
           send_step->source.row_count, send_step->source.col_count,
           element_bytes, matrix_out_base, send_slot));
     }
@@ -1040,43 +1000,24 @@ absl::Status ExecuteNative2DStepBatches(
           batch.kind == Native2DStepKind::kRestoreScratch ? saved_slot
                                                           : send_slot;
       JAXMG_RETURN_IF_ERROR(UnpackRect(
-          cuda_stream, layout, local_rows, local_cols,
-          recv_step->target.row_start, recv_step->target.col_start,
+          cuda_stream, local_rows, recv_step->target.row_start,
+          recv_step->target.col_start,
           recv_step->target.row_count, recv_step->target.col_count,
           element_bytes, local_source, matrix_out_base));
       continue;
     }
 
-    if (transfer_backend == NativeTransferBackend::kXlaCollectivePermute) {
-      absl::Status status = comm_stream->WaitFor(stream);
-      if (!status.ok()) {
-        return status;
-      }
-      Future<> future = comm->CollectivePermute(
-          collective_send_slot, recv_slot, matrix.element_type(),
-          static_cast<size_t>(collective_elements), source_rank, target_ranks,
-          GpuCollectives::On(*comm_stream));
-      status = future.Await();
-      if (!status.ok()) {
-        return status;
-      }
-      status = stream->WaitFor(comm_stream);
-      if (!status.ok()) {
-        return status;
-      }
-    } else {
-      const uint64_t collective_bytes =
-          static_cast<uint64_t>(collective_elements) * element_bytes;
-      JAXMG_RETURN_IF_ERROR(RunRawNcclSendRecv(
-          "xla_rect_native_2d_raw_nccl", stream, comm_stream, cuda_stream, comm,
-          rank_value, num_ranks, collective_send_slot, recv_slot,
-          collective_bytes, source_rank, absl::MakeConstSpan(target_ranks)));
-    }
+    const uint64_t collective_bytes =
+        static_cast<uint64_t>(collective_elements) * element_bytes;
+    JAXMG_RETURN_IF_ERROR(RunRawNcclSendRecv(
+        "xla_rect_native_2d", stream, comm_stream, cuda_stream, comm,
+        rank_value, num_ranks, collective_send_slot, recv_slot,
+        collective_bytes, source_rank, absl::MakeConstSpan(target_ranks)));
 
     if (recv_step != nullptr) {
       JAXMG_RETURN_IF_ERROR(UnpackRect(
-          cuda_stream, layout, local_rows, local_cols,
-          recv_step->target.row_start, recv_step->target.col_start,
+          cuda_stream, local_rows, recv_step->target.row_start,
+          recv_step->target.col_start,
           recv_step->target.row_count, recv_step->target.col_count,
           element_bytes, recv_slot, matrix_out_base));
     }
@@ -1090,8 +1031,8 @@ absl::Status ExecuteNative2DStepBatches(
 absl::Status XlaRectPackUnpackProbePrepare() { return absl::OkStatus(); }
 
 absl::Status XlaRectPackUnpackProbeDispatch(
-    cudaStream_t cuda_stream, int64_t layout, int64_t row_start,
-    int64_t col_start, int64_t row_count, int64_t col_count,
+    cudaStream_t cuda_stream, int64_t row_start, int64_t col_start,
+    int64_t row_count, int64_t col_count,
     int64_t target_row, int64_t target_col, ffi::AnyBuffer matrix,
     ffi::AnyBuffer scratch,
     ffi::Result<ffi::AnyBuffer> matrix_out,
@@ -1123,8 +1064,6 @@ absl::Status XlaRectPackUnpackProbeDispatch(
     return absl::InvalidArgumentError(
         "xla_rect_pack_unpack_probe requires a non-empty matrix");
   }
-  absl::StatusOr<RectLayout> decoded_layout = DecodeRectLayout(layout);
-  JAXMG_RETURN_IF_ERROR(decoded_layout.status());
 
   const int64_t local_rows = matrix.dimensions()[0];
   const int64_t local_cols = matrix.dimensions()[1];
@@ -1150,12 +1089,11 @@ absl::Status XlaRectPackUnpackProbeDispatch(
 
   JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, matrix, matrix_out));
   JAXMG_RETURN_IF_ERROR(PackRect(
-      cuda_stream, *decoded_layout, local_rows, local_cols, row_start,
-      col_start, row_count, col_count, element_bytes, matrix_base,
-      scratch_out_base));
+      cuda_stream, local_rows, row_start, col_start, row_count,
+      col_count, element_bytes, matrix_base, scratch_out_base));
   JAXMG_RETURN_IF_ERROR(UnpackRect(
-      cuda_stream, *decoded_layout, local_rows, local_cols, target_row,
-      target_col, row_count, col_count, element_bytes, scratch_out_base,
+      cuda_stream, local_rows, target_row, target_col, row_count,
+      col_count, element_bytes, scratch_out_base,
       matrix_out_base));
 
   return absl::OkStatus();
@@ -1185,8 +1123,7 @@ absl::Status XlaRectTransferProbePrepare(
 
 absl::Status RectTransferProbeDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t layout, absl::Span<const int64_t> targets,
-    absl::Span<const int64_t> src_row_starts,
+    absl::Span<const int64_t> targets, absl::Span<const int64_t> src_row_starts,
     absl::Span<const int64_t> src_col_starts,
     absl::Span<const int64_t> dst_row_starts,
     absl::Span<const int64_t> dst_col_starts, int64_t row_count,
@@ -1194,8 +1131,7 @@ absl::Status RectTransferProbeDispatchImpl(
     ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques,
-    NativeTransferBackend transfer_backend) {
+    const CollectiveCliques* collective_cliques) {
   if (stream == nullptr || comm_stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         "xla_rect_transfer_probe requires XLA and CUDA stream contexts");
@@ -1227,8 +1163,6 @@ absl::Status RectTransferProbeDispatchImpl(
     return absl::InvalidArgumentError(
         "xla_rect_transfer_probe requires a non-empty matrix");
   }
-  absl::StatusOr<RectLayout> decoded_layout = DecodeRectLayout(layout);
-  JAXMG_RETURN_IF_ERROR(decoded_layout.status());
 
   absl::StatusOr<GpuCliqueKey> clique_key =
       NodeScopedP2PCliqueKey(*collective_params);
@@ -1325,9 +1259,9 @@ absl::Status RectTransferProbeDispatchImpl(
   const int64_t target_rank_value = targets[rank_value];
   if (target_rank_value >= 0) {
     JAXMG_RETURN_IF_ERROR(PackRect(
-        cuda_stream, *decoded_layout, local_rows, local_cols,
-        src_row_starts[rank_value], src_col_starts[rank_value], row_count,
-        col_count, element_bytes, matrix_base, send_slot));
+        cuda_stream, local_rows, src_row_starts[rank_value],
+        src_col_starts[rank_value], row_count, col_count, element_bytes,
+        matrix_base, send_slot));
   }
 
   std::optional<RankId> source_rank;
@@ -1347,9 +1281,9 @@ absl::Status RectTransferProbeDispatchImpl(
   if (source_rank.has_value() && source_rank->value() == rank_value &&
       target_rank_value == rank_value) {
     JAXMG_RETURN_IF_ERROR(UnpackRect(
-        cuda_stream, *decoded_layout, local_rows, local_cols,
-        dst_row_starts[rank_value], dst_col_starts[rank_value], row_count,
-        col_count, element_bytes, send_slot, matrix_out_base));
+        cuda_stream, local_rows, dst_row_starts[rank_value],
+        dst_col_starts[rank_value], row_count, col_count, element_bytes,
+        send_slot, matrix_out_base));
     return absl::OkStatus();
   }
 
@@ -1358,35 +1292,14 @@ absl::Status RectTransferProbeDispatchImpl(
     target_ranks.push_back(RankId(target_rank_value));
   }
 
-  if (transfer_backend == NativeTransferBackend::kXlaCollectivePermute) {
-    absl::Status status = comm_stream->WaitFor(stream);
-    if (!status.ok()) {
-      return status;
-    }
-
-    Future<> future = (*comm)->CollectivePermute(
-        send_slot, recv_slot, matrix.element_type(),
-        static_cast<size_t>(rect_elements), source_rank, target_ranks,
-        GpuCollectives::On(*comm_stream));
-    status = future.Await();
-    if (!status.ok()) {
-      return status;
-    }
-    status = stream->WaitFor(comm_stream);
-    if (!status.ok()) {
-      return status;
-    }
-  } else {
-    JAXMG_RETURN_IF_ERROR(RunRawNcclSendRecv(
-        "xla_rect_transfer_nccl_probe", stream, comm_stream, cuda_stream, *comm,
-        rank_value, num_ranks, send_slot, recv_slot, rect_bytes, source_rank,
-        absl::MakeConstSpan(target_ranks)));
-  }
+  JAXMG_RETURN_IF_ERROR(RunRawNcclSendRecv(
+      "xla_rect_transfer_probe", stream, comm_stream, cuda_stream, *comm,
+      rank_value, num_ranks, send_slot, recv_slot, rect_bytes, source_rank,
+      absl::MakeConstSpan(target_ranks)));
 
   if (source_rank.has_value()) {
     JAXMG_RETURN_IF_ERROR(UnpackRect(
-        cuda_stream, *decoded_layout, local_rows, local_cols,
-        dst_row_starts[source_for_this_rank],
+        cuda_stream, local_rows, dst_row_starts[source_for_this_rank],
         dst_col_starts[source_for_this_rank], row_count, col_count,
         element_bytes, recv_slot, matrix_out_base));
   }
@@ -1396,8 +1309,7 @@ absl::Status RectTransferProbeDispatchImpl(
 
 absl::Status XlaRectTransferProbeDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t layout, absl::Span<const int64_t> targets,
-    absl::Span<const int64_t> src_row_starts,
+    absl::Span<const int64_t> targets, absl::Span<const int64_t> src_row_starts,
     absl::Span<const int64_t> src_col_starts,
     absl::Span<const int64_t> dst_row_starts,
     absl::Span<const int64_t> dst_col_starts, int64_t row_count,
@@ -1407,29 +1319,9 @@ absl::Status XlaRectTransferProbeDispatch(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return RectTransferProbeDispatchImpl(
-      stream, comm_stream, cuda_stream, layout, targets, src_row_starts,
-      src_col_starts, dst_row_starts, dst_col_starts, row_count, col_count,
-      matrix, scratch, matrix_out, scratch_out, collective_params,
-      collective_cliques, NativeTransferBackend::kXlaCollectivePermute);
-}
-
-absl::Status XlaRectTransferNcclProbeDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t layout, absl::Span<const int64_t> targets,
-    absl::Span<const int64_t> src_row_starts,
-    absl::Span<const int64_t> src_col_starts,
-    absl::Span<const int64_t> dst_row_starts,
-    absl::Span<const int64_t> dst_col_starts, int64_t row_count,
-    int64_t col_count, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
-    ffi::Result<ffi::AnyBuffer> matrix_out,
-    ffi::Result<ffi::AnyBuffer> scratch_out,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
-  return RectTransferProbeDispatchImpl(
-      stream, comm_stream, cuda_stream, layout, targets, src_row_starts,
-      src_col_starts, dst_row_starts, dst_col_starts, row_count, col_count,
-      matrix, scratch, matrix_out, scratch_out, collective_params,
-      collective_cliques, NativeTransferBackend::kRawNcclSendRecv);
+      stream, comm_stream, cuda_stream, targets, src_row_starts, src_col_starts,
+      dst_row_starts, dst_col_starts, row_count, col_count, matrix, scratch,
+      matrix_out, scratch_out, collective_params, collective_cliques);
 }
 
 absl::Status XlaRect2DNativePlanPrepare(
@@ -1456,13 +1348,12 @@ absl::Status XlaRect2DNativePlanPrepare(
 
 absl::Status Rect2DNativePlanDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t layout, int64_t process_rows, int64_t process_cols,
-    int64_t tile_rows, int64_t tile_cols, ffi::AnyBuffer matrix,
+    int64_t process_rows, int64_t process_cols, int64_t tile_rows,
+    int64_t tile_cols, ffi::AnyBuffer matrix,
     ffi::AnyBuffer scratch, ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques,
-    NativeTransferBackend transfer_backend) {
+    const CollectiveCliques* collective_cliques) {
   if (stream == nullptr || comm_stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         "xla_rect_2d_native_plan requires XLA and CUDA stream contexts");
@@ -1490,9 +1381,6 @@ absl::Status Rect2DNativePlanDispatchImpl(
     return absl::InvalidArgumentError(
         "xla_rect_2d_native_plan requires matrix and scratch dtypes to match");
   }
-
-  absl::StatusOr<RectLayout> decoded_layout = DecodeRectLayout(layout);
-  JAXMG_RETURN_IF_ERROR(decoded_layout.status());
 
   absl::StatusOr<GpuCliqueKey> clique_key =
       NodeScopedP2PCliqueKey(*collective_params);
@@ -1548,39 +1436,23 @@ absl::Status Rect2DNativePlanDispatchImpl(
   JAXMG_RETURN_IF_ERROR(CopyScratchIfNeeded(cuda_stream, scratch, scratch_out));
 
   return ExecuteNative2DStepBatches(
-      stream, comm_stream, cuda_stream, *decoded_layout, batches, local_rows,
-      local_cols, rank_value, num_ranks, transfer_backend, element_bytes,
-      slab_elements, matrix, matrix_out_base, scratch_out_base, *comm);
+      stream, comm_stream, cuda_stream, batches, local_rows, local_cols,
+      rank_value, num_ranks, element_bytes, slab_elements, matrix,
+      matrix_out_base, scratch_out_base, *comm);
 }
 
 absl::Status XlaRect2DNativePlanDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t layout, int64_t process_rows, int64_t process_cols,
-    int64_t tile_rows, int64_t tile_cols, ffi::AnyBuffer matrix,
+    int64_t process_rows, int64_t process_cols, int64_t tile_rows,
+    int64_t tile_cols, ffi::AnyBuffer matrix,
     ffi::AnyBuffer scratch, ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return Rect2DNativePlanDispatchImpl(
-      stream, comm_stream, cuda_stream, layout, process_rows, process_cols,
-      tile_rows, tile_cols, matrix, scratch, matrix_out, scratch_out,
-      collective_params, collective_cliques,
-      NativeTransferBackend::kXlaCollectivePermute);
-}
-
-absl::Status XlaRect2DNativePlanNcclDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t layout, int64_t process_rows, int64_t process_cols,
-    int64_t tile_rows, int64_t tile_cols, ffi::AnyBuffer matrix,
-    ffi::AnyBuffer scratch, ffi::Result<ffi::AnyBuffer> matrix_out,
-    ffi::Result<ffi::AnyBuffer> scratch_out,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
-  return Rect2DNativePlanDispatchImpl(
-      stream, comm_stream, cuda_stream, layout, process_rows, process_cols,
-      tile_rows, tile_cols, matrix, scratch, matrix_out, scratch_out,
-      collective_params, collective_cliques,
-      NativeTransferBackend::kRawNcclSendRecv);
+      stream, comm_stream, cuda_stream, process_rows, process_cols, tile_rows,
+      tile_cols, matrix, scratch, matrix_out, scratch_out, collective_params,
+      collective_cliques);
 }
 
 absl::Status XlaRectPadded2DNativePlanPrepare(
@@ -1591,14 +1463,13 @@ absl::Status XlaRectPadded2DNativePlanPrepare(
 
 absl::Status RectPadded2DNativePlanDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t layout, int64_t process_rows, int64_t process_cols,
-    int64_t tile_rows, int64_t tile_cols, int64_t logical_rows,
-    int64_t logical_cols, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    int64_t process_rows, int64_t process_cols, int64_t tile_rows,
+    int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
+    ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
     ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques,
-    NativeTransferBackend transfer_backend) {
+    const CollectiveCliques* collective_cliques) {
   if (stream == nullptr || comm_stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         "xla_rect_padded_2d_native_plan requires XLA and CUDA stream contexts");
@@ -1629,9 +1500,6 @@ absl::Status RectPadded2DNativePlanDispatchImpl(
         "xla_rect_padded_2d_native_plan requires matrix and scratch dtypes to "
         "match");
   }
-
-  absl::StatusOr<RectLayout> decoded_layout = DecodeRectLayout(layout);
-  JAXMG_RETURN_IF_ERROR(decoded_layout.status());
 
   absl::StatusOr<GpuCliqueKey> clique_key =
       NodeScopedP2PCliqueKey(*collective_params);
@@ -1702,47 +1570,28 @@ absl::Status RectPadded2DNativePlanDispatchImpl(
   }
 
   JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
-      stream, comm_stream, cuda_stream, *decoded_layout, edge_batches,
-      local_rows, local_cols, rank_value, num_ranks, transfer_backend,
-      element_bytes, max_step_elements, matrix, matrix_out_base,
-      scratch_out_base, *comm));
+      stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
+      rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+      matrix_out_base, scratch_out_base, *comm));
   return ExecuteNative2DStepBatches(
-      stream, comm_stream, cuda_stream, *decoded_layout, slab_batches,
-      local_rows, local_cols, rank_value, num_ranks, transfer_backend,
-      element_bytes, max_step_elements, matrix, matrix_out_base,
-      scratch_out_base, *comm);
+      stream, comm_stream, cuda_stream, slab_batches, local_rows, local_cols,
+      rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+      matrix_out_base, scratch_out_base, *comm);
 }
 
 absl::Status XlaRectPadded2DNativePlanDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t layout, int64_t process_rows, int64_t process_cols,
-    int64_t tile_rows, int64_t tile_cols, int64_t logical_rows,
-    int64_t logical_cols, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    int64_t process_rows, int64_t process_cols, int64_t tile_rows,
+    int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
+    ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
     ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return RectPadded2DNativePlanDispatchImpl(
-      stream, comm_stream, cuda_stream, layout, process_rows, process_cols,
-      tile_rows, tile_cols, logical_rows, logical_cols, matrix, scratch,
-      matrix_out, scratch_out, collective_params, collective_cliques,
-      NativeTransferBackend::kXlaCollectivePermute);
-}
-
-absl::Status XlaRectPadded2DNativePlanNcclDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t layout, int64_t process_rows, int64_t process_cols,
-    int64_t tile_rows, int64_t tile_cols, int64_t logical_rows,
-    int64_t logical_cols, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
-    ffi::Result<ffi::AnyBuffer> matrix_out,
-    ffi::Result<ffi::AnyBuffer> scratch_out,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
-  return RectPadded2DNativePlanDispatchImpl(
-      stream, comm_stream, cuda_stream, layout, process_rows, process_cols,
-      tile_rows, tile_cols, logical_rows, logical_cols, matrix, scratch,
-      matrix_out, scratch_out, collective_params, collective_cliques,
-      NativeTransferBackend::kRawNcclSendRecv);
+      stream, comm_stream, cuda_stream, process_rows, process_cols, tile_rows,
+      tile_cols, logical_rows, logical_cols, matrix, scratch,
+      matrix_out, scratch_out, collective_params, collective_cliques);
 }
 
 }  // namespace xla::gpu
