@@ -16,6 +16,54 @@ rank = process_row * process_cols + process_col
 The JAX mesh must be built explicitly so that this row-major order matches the
 cuSOLVERMp process grid created with `CUSOLVERMP_GRID_MAPPING_ROW_MAJOR`.
 
+## One Process Per Node Launch Contract
+
+The first supported multi-node launch mode is one Slurm task per node:
+
+```bash
+#SBATCH --nodes=2
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:4
+
+srun python run_potrs_mp_multinode.py
+```
+
+Each Python process should call `jaxmg.initialize_node_process()` before any
+operation that may initialize the JAX backend, including `jax.devices()`, array
+creation on GPU, or JIT compilation:
+
+```python
+import jax
+import jax.numpy as jnp
+from jax.sharding import NamedSharding, PartitionSpec as P
+
+import jaxmg
+
+jaxmg.initialize_node_process()
+
+mesh = jaxmg.make_cusolvermp_mesh(2, 4)
+sharding = NamedSharding(mesh, P("pr", "pc"))
+```
+
+On Slurm and Open MPI, JAX can often infer `coordinator_address`,
+`num_processes`, and `process_id` automatically. JAXMg still passes
+`local_device_ids` explicitly because GPU Slurm/Open MPI launches can otherwise
+default to one local device per process. If the scheduler environment does not
+make the local GPU count visible, pass `local_device_ids` directly or set
+`JAXMG_LOCAL_DEVICE_COUNT`.
+
+`initialize_node_process()` also sets:
+
+```text
+JAXMG_EXECUTION_MODE=SPMD
+JAXMG_NUMBER_OF_DEVICES=<local GPU count>
+```
+
+This keeps the backend in node-local SPMD mode even though
+`jax.distributed.initialize()` has been called. Explicit one-process-per-GPU
+MPMD support should use `JAXMG_EXECUTION_MODE=MPMD` once that mode is validated
+for the cuSOLVERMp path.
+
 ## SPMD Checkpoints
 
 The first multi-node checkpoints should be diagnostic and small:

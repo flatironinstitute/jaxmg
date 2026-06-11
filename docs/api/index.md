@@ -43,6 +43,16 @@ JAX-facing layout.
 
 ---
 
+## Distributed Helpers
+
+`initialize_node_process` initializes JAX distributed execution for the first supported multi-node launch
+mode: one Python process per node, with that process controlling every local GPU. `make_cusolvermp_mesh`
+then builds the row-major 2D mesh expected by `potrs_mp`.
+
+[Full distributed helper module →](distributed.md)
+
+---
+
 ## potri
 
 Multi-GPU matrix inversion helper for symmetric (Hermitian) positive-definite matrices.

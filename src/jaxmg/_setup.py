@@ -125,16 +125,38 @@ def _register_xla_comm_cusolvermg_targets(bin_dir):
 def _detect_runtime_mode():
     """Return ``(mode, devices_per_node)`` for the current JAX runtime.
 
-    JAXMg has two single-node cuSolverMg orchestration modes:
+    JAXMg has two native orchestration modes:
 
     - SPMD: one Python process controls all local GPUs.
     - MPMD: one Python process participates per GPU/rank through
       ``jax.distributed``. cuSolverMg is still single-node, so the number of
       participating local ranks must be supplied by ``JAXMG_NUMBER_OF_DEVICES``
       when it cannot be inferred from a non-distributed local device set.
+
+    The cuSOLVERMp multi-node target starts from distributed SPMD: one Python
+    process per node, each process controlling every local GPU. That mode sets
+    ``JAXMG_EXECUTION_MODE=SPMD`` via ``initialize_node_process`` and must not
+    fall into the old MPMD compatibility path merely because
+    ``jax.distributed`` is initialized.
     """
+    requested_mode = os.environ.get("JAXMG_EXECUTION_MODE", "").upper()
+    if requested_mode:
+        if requested_mode not in {"SPMD", "MPMD"}:
+            raise ValueError("JAXMG_EXECUTION_MODE must be either SPMD or MPMD.")
+        if "JAXMG_NUMBER_OF_DEVICES" in os.environ:
+            devices_per_node = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
+        else:
+            devices_per_node = jax.local_device_count()
+        if devices_per_node <= 0:
+            raise ValueError("JAXMG_NUMBER_OF_DEVICES must be positive.")
+        return requested_mode, devices_per_node
+
     if not jax.distributed.is_initialized():
         return "SPMD", jax.local_device_count()
+
+    local_device_count = jax.local_device_count()
+    if local_device_count > 1:
+        return "SPMD", local_device_count
 
     if "JAXMG_NUMBER_OF_DEVICES" in os.environ:
         devices_per_node = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])

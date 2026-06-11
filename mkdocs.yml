@@ -99,6 +99,7 @@ nav:
         - "examples/block_cyclic_data_layout.ipynb"
     - API:
         - "api/index.md"
+        - "api/distributed.md"
         - "api/potrs.md"
         - "api/potrs_mp.md"
         - "api/potri.md"
