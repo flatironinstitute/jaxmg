@@ -12,24 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Local rectangle pack/unpack diagnostics for future cuSOLVERMp redistribution.
+// Rectangle movement and native 2D block-cyclic redistribution.
 //
-// The 2D block-cyclic planner expresses movement in logical matrix coordinates:
+// This file owns the GPU data motion needed before and after cuSOLVERMp.  It is
+// intentionally separate from cusolvermp_probe.cc: rectangle_pack.cc moves bytes
+// between JAX-facing block-sharded buffers and cuSOLVERMp-facing local
+// 2D-block-cyclic buffers, while cusolvermp_probe.cc creates descriptors and
+// calls cuSOLVERMp routines on the resulting layout.
 //
-//   matrix[row_start:row_start + row_count,
-//          col_start:col_start + col_count] -> contiguous scratch
-//   contiguous scratch -> matrix_out[target_row:target_row + row_count,
-//                                   target_col:target_col + col_count]
+// File workflow:
+//   1. Borrow the raw NCCL communicator from XLA's GpuCommunicator and validate
+//      that the NCCL rank/count match the XLA collective rank/count.
+//   2. Pack rectangular column-major local matrix regions into bounded scratch
+//      using cudaMemcpy2DAsync.
+//   3. Move packed payloads with grouped NCCL send/recv calls on an XLA-ordered
+//      stream.
+//   4. Unpack received payloads into their destination rectangles.
+//   5. Build native edge-padding compaction schedules so local shard padding is
+//      converted into global right/bottom edge padding.
+//   6. Build native column-owner then row-owner slab cycles for the cuSOLVERMp
+//      2D block-cyclic ownership rule.
+//   7. Execute the forward and reverse padded redistribution in one FFI call
+//      per matrix, using one saved slab, one send slab, and one receive slab per
+//      rank.
 //
-// cuSOLVERMp expects each local matrix to be stored in column-major order. The
-// Python FFI wrappers therefore request column-major local buffers and this file
-// uses one addressing convention throughout:
-//
-//   scratch is packed column-major, one source column at a time.
-//
-// cudaMemcpy2DAsync provides this pack/unpack behavior without introducing a
-// custom CUDA kernel yet. The future communicator path can use the same packed
-// scratch representation as the send/receive payload.
+// The lower-level pack/unpack and rectangle-transfer handlers remain in this
+// file as diagnostics.  The public cuSOLVERMp path uses the fused padded native
+// plan handlers, which plan and execute the complete schedule in C++.
 
 #include <algorithm>
 #include <functional>

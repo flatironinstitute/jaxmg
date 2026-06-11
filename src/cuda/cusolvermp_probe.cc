@@ -12,25 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Diagnostic cuSOLVERMp initialization probe.
+// cuSOLVERMp dynamic boundary and first production potrs implementation.
 //
-// This file is deliberately not a solver implementation. It is the first
-// boundary test between the existing XLA/NCCL communicator work and the future
-// cuSOLVERMp backend:
+// This file owns the native cuSOLVERMp integration layer.  It deliberately
+// keeps the cuSOLVERMp dependency behind dlopen/dlsym for now: ordinary CUDA
+// toolkit installs do not consistently ship cusolverMp.h/libcusolverMp.so, but
+// the rest of the JAXMg XLA-communicator backend should still build and run its
+// diagnostics when cuSOLVERMp is absent from the loader path.
 //
-//   1. request an XLA communicator over every assigned rank;
-//   2. borrow the raw NCCL handle from XLA's GpuCommunicator;
-//   3. dynamically load cuSOLVERMp if it is present on the host;
-//   4. create/destroy a cuSOLVERMp handle;
-//   5. create/destroy a cuSOLVERMp process grid from the borrowed NCCL handle;
-//   6. create/destroy a tiny matrix descriptor compatible with that grid.
+// File workflow:
+//   1. Request an all-assigned XLA GPU communicator for the active FFI call.
+//   2. Borrow the raw NCCL handle stored inside XLA's GpuCommunicator.
+//   3. Create a cuSOLVERMp handle and row-major cuSOLVERMp process grid.
+//   4. Create column-major local matrix descriptors over JAXMg device buffers.
+//   5. Run diagnostic probes that isolate initialization, scatter layout, and
+//      host-generated potrs inputs.
+//   6. Run the production `cusolvermp_potrs` handler on buffers that have
+//      already been redistributed by rectangle_pack.cc into 2D block-cyclic
+//      cuSOLVERMp layout.
 //
-// CSD3's current CUDA 12.1 module and the pip nvidia-cusolver package do not
-// ship cusolverMp.h/libcusolverMp.so. To keep the rest of the backend
-// buildable, this probe uses dlopen/dlsym and returns a device status vector
-// when cuSOLVERMp is absent instead of introducing a hard link dependency.
-// Once the production cuSOLVERMp dependency is available, this file can be
-// tightened to include the real header and link against the library directly.
+// The probe entry points intentionally return device status vectors instead of
+// failing hard.  That makes them useful in CI and on systems where the NVIDIA
+// HPC SDK is not installed.  The production path uses the same status vector
+// convention so Python can distinguish a missing cuSOLVERMp runtime from a
+// numerical cuSOLVERMp failure.
 
 #include <algorithm>
 #include <array>

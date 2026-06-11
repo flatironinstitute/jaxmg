@@ -436,7 +436,7 @@ def cusolvermp_scatter_layout_probe(
     ``cusolverMpMatrixScatterH2D`` with a deterministic host matrix generated
     on rank 0. The returned matrix is the rank-local device buffer that
     cuSOLVERMp produced, exposed through JAX with the same local column-major
-    layout used by the 2D redistribution prototype.
+    layout used by the 2D redistribution implementation.
 
     This is a diagnostic oracle. It intentionally depends on an internal/EA
     NVIDIA scatter helper and should not be used in the production solver path.
@@ -1473,8 +1473,8 @@ def xla_rect_pack_unpack_probe(
 ) -> tuple[Array, Array]:
     """Pack a local strided rectangle to scratch and unpack it elsewhere.
 
-    This diagnostic exercises the local CUDA primitive needed by the future
-    cuSOLVERMp 2D redistribution. It does not use the XLA communicator: it only
+    This diagnostic exercises the local CUDA primitive used by the cuSOLVERMp
+    2D redistribution. It does not use the XLA communicator: it only
     verifies that a rectangular fragment can be copied from a rank-2 local
     buffer into contiguous rank-1 scratch and back into a rank-2 output buffer
     on XLA's CUDA stream.

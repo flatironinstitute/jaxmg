@@ -1,3 +1,19 @@
+"""CPU planning utilities for JAX block-sharded to cuSOLVERMp layout changes.
+
+cuSOLVERMp expects 2D block-cyclic ownership over a process grid and
+column-major local matrices.  The objects in this module describe that mapping
+without touching device memory.  They are used for three purposes:
+
+1. validating the ownership mathematics against small CPU references;
+2. computing local padding and scratch requirements for the public wrapper; and
+3. documenting the dependency waves used by the native C++ redistribution.
+
+The production cuSOLVERMp path no longer sends a Python-built move list to C++.
+The native handler rebuilds the equivalent edge-padding and slab schedules from
+scalar metadata, while this module remains the readable reference model and the
+source of Python-side validation.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -153,7 +169,7 @@ class TwoPhaseTileMove:
 
 @dataclass(frozen=True)
 class TwoPhaseFragmentTransfer:
-    """Concrete tile-fragment transfer for a future CUDA/NCCL implementation."""
+    """Concrete tile-fragment transfer used by the reference scheduler."""
 
     phase: RedistributionPhase
     tile_row: int
@@ -193,8 +209,8 @@ class TwoPhaseFragmentTransfer:
 class FragmentTransferBatch:
     """One conflict-free round of fragment transfers.
 
-    A future NCCL implementation can submit all transfers in one batch as a
-    grouped communication round while using a bounded per-rank scratch policy:
+    The native NCCL implementation submits equivalent conflict-free transfer
+    groups while using a bounded per-rank scratch policy:
     no rank appears as a source or target more than once in the batch.
     """
 
@@ -888,8 +904,8 @@ def batch_fragment_transfers(
     ordering of the proposed algorithm by executing every ``column_owner`` batch
     before every ``row_owner`` batch. Within one phase it greedily places
     transfers into the earliest batch whose source and target ranks are both
-    free. This gives the future CUDA/NCCL layer a simple invariant: one packed
-    send buffer and one receive target per rank are enough for each batch.
+    free. This gives the CUDA/NCCL layer a simple invariant: one packed send
+    buffer and one receive target per rank are enough for each batch.
     """
     if max_transfers_per_batch is not None and max_transfers_per_batch <= 0:
         raise ValueError("max_transfers_per_batch must be positive when set.")

@@ -19,14 +19,14 @@ cusolverMpMatrixDescriptor_t
 The handle is tied to one CUDA device and stream. The grid is created from an
 already-initialized `ncclComm_t` plus the process-grid dimensions. This is the
 reason the current XLA-communicator work matters for cuSOLVERMp: the future
-solver backend must either borrow the XLA-owned NCCL communicator safely or
-create a compatible communicator that does not conflict with XLA's collective
-ordering.
+multi-node solver backend must continue to borrow the XLA-owned NCCL
+communicator safely or create a compatible communicator that does not conflict
+with XLA's collective ordering.
 
 The matrix descriptor carries the global matrix shape, tile shape
 `MB_A x NB_A`, source process row/column, and local leading dimension. Current
 cuSOLVERMp documentation only supports `RSRC_A = 0` and `CSRC_A = 0`, which
-matches the layout the current 2D redistribution prototype targets.
+matches the layout targeted by the current 2D redistribution implementation.
 
 ## Current JAXMg API Mapping
 
@@ -87,9 +87,8 @@ Those diagnostics have been used to wire the first production-style entry point,
 `jaxmg.potrs_mp`. The historical `jaxmg.potrs` path is still the 1D cuSolverMg
 solver while the cuSOLVERMp API and output redistribution are hardened.
 
-The next diagnostic is `cusolvermp_potrs_probe`. It still does not use JAXMg's
-GPU-to-GPU redistribution output. Instead it isolates the cuSOLVERMp solver
-boundary:
+The `cusolvermp_potrs_probe` diagnostic does not use JAXMg's GPU-to-GPU
+redistribution output. Instead it isolates the cuSOLVERMp solver boundary:
 
 1. borrow XLA's NCCL communicator from the FFI collective context;
 2. create a cuSOLVERMp handle, row-major process grid, and descriptors;
@@ -101,12 +100,12 @@ boundary:
    known diagonal solve residual.
 
 Passing this probe means cuSOLVERMp can consume the borrowed communicator for a
-real Cholesky solve. It does not yet prove the production path, because the
-input layout still comes from NVIDIA's host scatter helper instead of JAXMg's
-native GPU-to-GPU 2D redistribution.
+real Cholesky solve. It does not prove the production input path by itself,
+because the input layout comes from NVIDIA's host scatter helper instead of
+JAXMg's native GPU-to-GPU 2D redistribution.
 
-The next diagnostic is `cusolvermp_distributed_potrs_probe`. It removes the
-host scatter helper from the solver input path:
+The `cusolvermp_distributed_potrs_probe` diagnostic removes the host scatter
+helper from the solver input path:
 
 1. build ordinary JAX-sharded test matrices on the host;
 2. add the same edge padding expected by the 2D redistribution planner;

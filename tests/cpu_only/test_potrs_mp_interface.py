@@ -33,3 +33,30 @@ def test_potrs_mp_rejects_rhs_leading_dimension_mismatch():
 
     with pytest.raises(ValueError, match="matching leading dimensions"):
         potrs_mp(a, b, 2, mesh=mesh, matrix_specs=P("pr", "pc"))
+
+
+def test_potrs_mp_rejects_mismatched_dtypes():
+    mesh = Mesh(np.asarray(jax.devices()[:1], dtype=object).reshape(1, 1), ("pr", "pc"))
+    a = jnp.eye(4, dtype=jnp.float32)
+    b = jnp.ones((4, 4), dtype=jnp.complex64)
+
+    with pytest.raises(TypeError, match="matching A/B dtypes"):
+        potrs_mp(a, b, 2, mesh=mesh, matrix_specs=P("pr", "pc"))
+
+
+def test_potrs_mp_rejects_non_positive_tile_size():
+    mesh = Mesh(np.asarray(jax.devices()[:1], dtype=object).reshape(1, 1), ("pr", "pc"))
+    a = jnp.eye(4, dtype=jnp.float32)
+    b = jnp.ones((4, 4), dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="T_A must be positive"):
+        potrs_mp(a, b, 0, mesh=mesh, matrix_specs=P("pr", "pc"))
+
+
+def test_potrs_mp_rejects_padding_when_pad_false():
+    mesh = Mesh(np.asarray(jax.devices()[:1], dtype=object).reshape(1, 1), ("pr", "pc"))
+    a = jnp.eye(5, dtype=jnp.float32)
+    b = jnp.ones((5, 1), dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="tile-aligned local shards"):
+        potrs_mp(a, b, 4, mesh=mesh, matrix_specs=P("pr", "pc"), pad=False)

@@ -1,3 +1,16 @@
+"""Python sharding wrappers for the native 2D redistribution handlers.
+
+The routines here are thin adapters between JAX arrays and the Bazel-built CUDA
+FFI targets.  They keep the public Python side responsible for shape checks,
+scratch sizing, and shard_map placement, while the native backend performs the
+actual pack, NCCL transfer, unpack, and cycle scheduling work.
+
+The lower-level rectangle-transfer functions are retained for diagnostics.  The
+production cuSOLVERMp path uses the padded native handlers, which compact
+per-shard padding to the global bottom/right edges and then perform the
+tile-aligned column-owner plus row-owner redistribution in one native call.
+"""
+
 from __future__ import annotations
 
 from collections import defaultdict

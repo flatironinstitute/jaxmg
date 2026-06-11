@@ -1,3 +1,20 @@
+"""Public cuSOLVERMp Cholesky solve wrapper.
+
+The native cuSOLVERMp backend consumes a 2D block-cyclic, column-major local
+layout, while users naturally construct ordinary JAX block-sharded arrays. This
+module owns the high-level Python orchestration around the native handlers:
+
+1. validate that ``A`` and ``B`` are compatible with a 2D JAX process grid;
+2. locally pad each JAX shard so both local axes are tile-aligned;
+3. allocate bounded per-rank scratch for native redistribution;
+4. call the native forward 2D redistribution handler;
+5. call the production ``cusolvermp_potrs`` FFI target; and
+6. reverse-redistribute and unpad the solved right-hand side.
+
+The expensive data movement and cuSOLVERMp calls are native C++/CUDA work. The
+Python layer keeps only shape, sharding, and scratch-size policy visible.
+"""
+
 from __future__ import annotations
 
 from functools import partial

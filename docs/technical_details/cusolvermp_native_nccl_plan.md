@@ -1,7 +1,7 @@
-# Native NCCL cuSOLVERMp Implementation Plan
+# Native NCCL cuSOLVERMp Status and Plan
 
-This document records the intended path from the current Python-orchestrated
-2D redistribution prototype to the production cuSOLVERMp backend.
+This document records the current native cuSOLVERMp path and the remaining work
+needed to turn the single-node implementation into a multi-node backend.
 
 The end goal is:
 
@@ -14,9 +14,9 @@ JAX block-sharded input
   -> JAX-facing output
 ```
 
-The production path should not allocate a second full distributed matrix. It
-should use bounded per-rank scratch and should execute the redistribution inside
-one native FFI handler.
+The production path does not allocate a second full distributed matrix. It uses
+bounded per-rank scratch and executes the forward and reverse redistribution
+inside native FFI handlers.
 
 ## Current Checkpoints
 
@@ -53,9 +53,9 @@ one FFI call, using bounded per-rank scratch and direct NCCL send/recv through
 the borrowed XLA communicator. The lower-level Python-planned rectangle
 executor remains only as a diagnostic test path.
 
-## Target Native Redistribution
+## Native Redistribution Contract
 
-The native redistribution should receive:
+The native redistribution receives:
 
 ```text
 matrix buffer A
@@ -69,7 +69,7 @@ XLA/NCCL communicator
 CUDA/XLA streams
 ```
 
-It should then execute:
+It then executes:
 
 ```text
 for phase in [column_owner, row_owner]:
@@ -124,9 +124,9 @@ to compute the required size from matrix shape, tile shape, and process grid.
 
 ## NCCL Execution Model
 
-The current prototype uses XLA `CollectivePermute` for each transfer group. A
-fully optimized direct-NCCL implementation should use the same batch structure
-but submit the communication as grouped NCCL calls:
+The current single-node production path uses the borrowed XLA-owned
+`ncclComm_t` directly. Each conflict-free batch is submitted as grouped NCCL
+send/recv calls:
 
 ```c
 ncclGroupStart();
@@ -141,111 +141,31 @@ if (rank receives in this batch) {
 ncclGroupEnd();
 ```
 
-After the NCCL group completes on the communication stream, the compute stream
-unpacks `scratch_recv` into the final destination rectangle.
+After the NCCL group is ordered on the chosen stream, the receive payload is
+unpacked into the final destination rectangle.  The native code validates the
+borrowed communicator with `ncclCommUserRank` and `ncclCommCount` before using
+it.
 
-The direct-NCCL path depends on proving that the borrowed XLA communicator
-exposes a valid `ncclComm_t` for the CUDA backend and that its lifetime and
-stream ordering rules are safe for this use.
+The remaining risk is no longer whether the handle is NCCL on the CUDA backend.
+The remaining risk is lifetime and ordering in larger distributed jobs: XLA
+still owns the communicator, and JAXMg only borrows it during the FFI call.
 
-## Implementation Stages
+## Implemented Single-Node Stages
 
-Stages 1-7 have now been reached on the `cusolvermp_multi_node` branch for the
-single-node development path. The remaining work is hardening and expanding
-coverage rather than proving basic feasibility.
+The `cusolvermp_multi_node` branch has reached these stages on a single
+multi-GPU node:
 
-### Stage 1: Column-Major Executor Validation
+1. Column-major local layout validation against a CPU reference.
+2. Independent cuSOLVERMp scatter-layout validation using
+   `cusolverMpMatrixScatterH2D`.
+3. Native schedule construction in C++ from scalar metadata.
+4. Native edge-padding compaction and 2D slab redistribution.
+5. Raw NCCL validation through the borrowed XLA communicator.
+6. Native grouped NCCL send/recv execution with bounded scratch.
+7. cuSOLVERMp `potrf`/`potrs` over redistributed JAX buffers.
+8. Reverse native redistribution back to the JAX-facing block-sharded layout.
 
-Validate the current Python-orchestrated executor with `layout="column_major"`.
-This proves the 2D schedule works with the same local memory convention that
-cuSOLVERMp expects.
-
-Required tests:
-
-1. `2 x 2` GPU executor with column-major layout.
-2. CPU reference that checks final local buffers using:
-
-   ```text
-   offset = local_col * local_rows + local_row
-   ```
-
-3. Non-square local shard cases if supported by the process grid and tile shape.
-
-### Stage 2: Independent cuSOLVERMp Layout Reference
-
-Compare our final local buffers against an independent reference.
-
-Preferred reference:
-
-1. Use NVIDIA's `cusolverMpMatrixScatterH2D` on a tiny matrix.
-2. Gather or inspect the resulting local device buffers.
-3. Compare against JAXMg's redistributed buffers.
-
-Fallback reference:
-
-1. Implement a CPU ScaLAPACK-style 2D block-cyclic local-buffer reference.
-2. Validate owner rank, local coordinates, and column-major physical offsets.
-
-This stage should settle whether our rank ordering,
-`rank = process_row * P_c + process_col`, matches the cuSOLVERMp grid we create.
-
-### Stage 3: Native Schedule Builder
-
-Move the schedule construction from Python to C++.
-
-Native code should construct:
-
-1. tile extents;
-2. split tile fragments where initial JAX shards cross tile boundaries;
-3. source and target local rectangles;
-4. column-owner and row-owner transfers;
-5. conflict-free batches grouped by rectangle shape.
-
-Python should pass only stable scalar metadata:
-
-```text
-logical rows/cols
-local padded rows/cols
-MB_A / NB_A
-P_r / P_c
-layout
-```
-
-This removes Python from the inner redistribution loop.
-
-### Stage 4: Native XLA-Collective Executor
-
-Before switching to raw NCCL, build a fused native executor using the existing
-XLA `CollectivePermute` abstraction.
-
-This stage should:
-
-1. allocate or receive bounded scratch;
-2. build all batches natively;
-3. execute all pack -> `CollectivePermute` -> unpack steps inside one FFI call;
-4. preserve stream ordering without a full device synchronization unless needed.
-
-This gives a fair baseline for the fully native implementation while still
-using the safer XLA communicator abstraction.
-
-### Stage 5: Raw `ncclComm_t` Diagnostic
-
-Add a diagnostic-only FFI target that proves:
-
-1. `platform_comm().handle` is present;
-2. the handle is actually an NCCL communicator on CUDA;
-3. `ncclCommUserRank`, `ncclCommCount`, or an equivalent NCCL sanity call works;
-4. a tiny direct NCCL send/recv or all-reduce succeeds using the borrowed handle.
-
-This target should not change solver behavior. It is purely a safety gate before
-direct NCCL is used for redistribution or passed to cuSOLVERMp.
-
-### Stage 6: Native NCCL Batch Executor
-
-Replace the per-batch communication implementation with direct NCCL
-`ncclGroupStart` / `ncclSend` / `ncclRecv` / `ncclGroupEnd`.
-
-Keep the same schedule and scratch invariants:
+The schedule and scratch invariants are:
 
 ```text
 one send slot per rank
@@ -253,11 +173,10 @@ one receive slot per rank
 no duplicate source or target ranks inside a batch
 ```
 
-Validate against the Stage 4 XLA-collective executor.
+## Current Production `potrs_mp` Path
 
-### Stage 7: cuSOLVERMp Handle and Descriptor Integration
-
-Create the cuSOLVERMp objects after redistribution:
+The production cuSOLVERMp FFI target creates the cuSOLVERMp objects after
+redistribution:
 
 ```text
 cusolverMpHandle_t
@@ -265,9 +184,8 @@ cusolverMpGrid_t
 cusolverMpMatrixDescriptor_t
 ```
 
-This stage is deliberately narrower than "port all solvers". The first target
-is `potrs`, because cuSOLVERMp directly supports the same Cholesky sequence used
-by JAXMg:
+The first target is `potrs`, because cuSOLVERMp directly supports the same
+Cholesky sequence used by JAXMg:
 
 ```text
 potrf
@@ -285,36 +203,12 @@ jaxmg.potrs_mp
   -> unpad local RHS shards
 ```
 
-The production cuSOLVERMp FFI target is registered as `cusolvermp_potrs`. The
-older `cusolvermp_*_probe` functions remain internal diagnostics and are no
+The production cuSOLVERMp FFI target is registered as `cusolvermp_potrs`.
+The older `cusolvermp_*_probe` functions remain internal diagnostics and are no
 longer top-level `jaxmg` exports.
 
-The first diagnostic should:
-
-1. borrow the XLA-owned `ncclComm_t`;
-2. create the cuSOLVERMp handle and grid on the callback stream;
-3. create matrix descriptors for `A` and `B`;
-4. query `cusolverMpPotrf_bufferSize` and `cusolverMpPotrs_bufferSize`;
-5. allocate bounded host/device workspace;
-6. scatter a tiny host matrix with `cusolverMpMatrixScatterH2D`;
-7. run `cusolverMpPotrf` and `cusolverMpPotrs`.
-
-That isolates the cuSOLVERMp boundary. The second diagnostic replaces the input
-scatter with the JAXMg path:
-
-1. create ordinary block-sharded JAX buffers;
-2. edge-pad them according to the 2D redistribution planner;
-3. run the native 2D GPU redistribution for both `A` and `B`;
-4. create cuSOLVERMp descriptors over those redistributed local buffers;
-5. run `cusolverMpPotrf` and `cusolverMpPotrs`;
-6. gather only the solved `B` for residual checking.
-
-This is the first end-to-end layout test for the intended production input
-path. It is still diagnostic-only: the public `potrs` wrapper needs a dedicated
-RHS padding policy, repeated-call memory handling, and output redistribution
-before it should replace the cuSolverMg backend.
-
-Only after this succeeds should the branch add `syevd`/`syevd_no_V`.
+After `potrs_mp` remains stable under larger single-node and multi-node
+validation, the branch can add `syevd`/`syevd_no_V`.
 `cusolverMpSyevd` maps directly to both APIs through `jobz = "V"` and
 `jobz = "N"`. `potri` does not have a direct `cusolverMpPotri` equivalent in
 the current cuSOLVERMp C API documentation, so it needs a separate design
@@ -322,34 +216,21 @@ decision before migration. The first cuSOLVERMp backend should not support
 `potri`; it should fail clearly or stay on a separate legacy path rather than
 silently emulating an inverse with a large distributed identity solve.
 
-The first goal is correctness on one node. Multi-node validation comes after the
-single-node descriptor/layout semantics are proven.
+## Remaining Multi-Node Stages
 
-### Stage 8: Reverse Redistribution
-
-Decide what the public API should return.
-
-For JAXMg compatibility, solver outputs should likely be converted back to a
-normal JAX-facing sharding unless the user explicitly opts into cuSOLVERMp local
-layout outputs.
-
-Reverse redistribution can reuse the same schedule with source and target
-rectangles swapped and phases reversed:
-
-```text
-row_owner reverse
-then column_owner reverse
-```
-
-### Stage 9: Multi-Node Validation
-
-Once single-node direct NCCL and cuSOLVERMp calls work:
+The next target is SPMD multi-node validation. A distributed JAX job should:
 
 1. run the communicator diagnostic across nodes;
 2. run rectangle transfer across nodes;
 3. run full 2D redistribution across nodes;
 4. run tiny cuSOLVERMp solve across nodes;
 5. stress repeated solves for communicator lifetime and memory leaks.
+
+MPMD support should come after the SPMD path is stable. The old cuSolverMg MPMD
+path needed node-scoped host pointer exchange because cuSolverMg is single-node.
+cuSOLVERMp is a distributed library, so MPMD support should be designed around a
+global cuSOLVERMp process grid instead of copying the old node-local pointer
+exchange scheme blindly.
 
 ## Non-Goals for the First Production Cut
 

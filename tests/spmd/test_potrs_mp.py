@@ -46,16 +46,27 @@ def _rhs(n: int, nrhs: int, dtype) -> np.ndarray:
 
 
 @pytest.mark.parametrize(
-    "dtype,rtol,atol",
+    "process_rows,process_cols,n,nrhs,dtype,rtol,atol",
     [
-        (np.float64, 1e-10, 1e-10),
-        (np.complex128, 1e-10, 1e-10),
+        (2, 2, 10, 8, np.float64, 1e-10, 1e-10),
+        (2, 2, 10, 8, np.complex128, 1e-10, 1e-10),
+        (1, 4, 12, 8, np.float32, 2e-4, 2e-4),
+        (4, 1, 12, 4, np.complex64, 2e-4, 2e-4),
     ],
 )
-def test_potrs_mp_solves_and_restores_block_sharded_rhs(dtype, rtol, atol):
-    n = 8
-    nrhs = 8
-    devices = np.asarray(jax.devices("gpu")[:4], dtype=object).reshape(2, 2)
+def test_potrs_mp_solves_and_restores_block_sharded_rhs(
+    process_rows,
+    process_cols,
+    n,
+    nrhs,
+    dtype,
+    rtol,
+    atol,
+):
+    devices = np.asarray(jax.devices("gpu")[:4], dtype=object).reshape(
+        process_rows,
+        process_cols,
+    )
     mesh = Mesh(devices, ("pr", "pc"))
     sharding = NamedSharding(mesh, P("pr", "pc"))
 
@@ -75,7 +86,8 @@ def test_potrs_mp_solves_and_restores_block_sharded_rhs(dtype, rtol, atol):
     out.block_until_ready()
     status.block_until_ready()
 
-    statuses = np.asarray(status).reshape(4, 40)
+    num_processes = process_rows * process_cols
+    statuses = np.asarray(status).reshape(num_processes, 40)
     status_codes = set(statuses[:, 0].tolist())
     if status_codes == {1}:
         pytest.skip("libcusolverMp is not available on the loader path.")
@@ -83,9 +95,12 @@ def test_potrs_mp_solves_and_restores_block_sharded_rhs(dtype, rtol, atol):
         pytest.skip("cuSOLVERMp potrf/potrs symbols are not available.")
 
     assert status_codes == {0}, statuses
-    np.testing.assert_array_equal(statuses[:, 2], np.arange(4))
-    np.testing.assert_array_equal(statuses[:, 3], np.full(4, 4))
-    np.testing.assert_array_equal(statuses[:, 32], np.zeros(4))
+    np.testing.assert_array_equal(statuses[:, 2], np.arange(num_processes))
+    np.testing.assert_array_equal(
+        statuses[:, 3],
+        np.full(num_processes, num_processes),
+    )
+    np.testing.assert_array_equal(statuses[:, 32], np.zeros(num_processes))
 
     expected = np.linalg.solve(a_host, b_host)
     np.testing.assert_allclose(np.asarray(out), expected, rtol=rtol, atol=atol)

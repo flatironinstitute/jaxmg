@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Shared declarations for the XLA communicator cuSolverMg backend.
+// Shared declarations for the XLA communicator native backend.
 //
 // This backend is built by Bazel inside the pinned OpenXLA source tree. XLA
 // collective FFI contexts depend on generated XLA protobufs and runtime
@@ -24,13 +24,19 @@
 //      into one cuSolverMg host invocation in SPMD mode.
 //   3. XLA communicator clique helpers and the rank-0 broadcast utility.
 //   4. 1D redistribution entry points.
-//   5. Diagnostic probe handlers.
-//   6. Fused production solver handlers registered under the historical JAXMg
-//      FFI target names.
+//   5. 2D rectangle/redistribution entry points used by the cuSOLVERMp path.
+//   6. cuSOLVERMp diagnostic and production potrs entry points.
+//   7. Fused cuSolverMg production solver handlers registered under the
+//      historical JAXMg FFI target names.
 //
-// The production path is:
+// The 1D cuSolverMg production path is:
 //   Python wrapper -> FFI handler -> XLA communicator lookup -> 1D cyclic
 //   reshuffle -> cuSolverMg host call -> optional broadcast/reverse reshuffle.
+//
+// The first cuSOLVERMp production path is:
+//   Python wrapper -> local shard padding -> native 2D redistribution ->
+//   cuSOLVERMp potrf/potrs over borrowed NCCL communicator -> reverse native
+//   2D redistribution -> local unpadding.
 
 #ifndef JAXMG_XLA_COMM_BACKEND_H_
 #define JAXMG_XLA_COMM_BACKEND_H_

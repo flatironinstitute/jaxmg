@@ -38,8 +38,9 @@ transfer records:
 5. the logical rectangle being moved; and
 6. whether that rectangle is contiguous under the current local memory layout.
 
-This schedule is the intended input shape for the future CUDA/NCCL movement
-prototype.
+This schedule was the input shape for the first CUDA/NCCL movement prototype.
+The current production path rebuilds the equivalent schedule natively from
+scalar shape metadata, but the Python plan remains the readable reference model.
 
 The planner also groups transfers into conflict-free batches. Every
 `column_owner` batch is ordered before every `row_owner` batch. Within one
@@ -117,8 +118,8 @@ right until all horizontal padding sits at the right edge. No live data is
 overwritten because every destination is known to be a hole before the move is
 issued.
 
-The production planner should not emit one move per tile slot unless it has to.
-It should operate on maximal aligned intervals:
+The production planner does not emit one move per tile slot unless it has to.
+It operates on maximal aligned intervals:
 
 ```text
 hole interval = first contiguous padding interval
@@ -137,9 +138,9 @@ interval becomes the new hole interval. This gives a small number of dependency
 waves in the common uniform-padding case, while preserving the low-memory
 property of the hole-propagation algorithm.
 
-The horizontal pass is independent for every process row. The planner should
-therefore build horizontal waves and batch all process rows that are at the same
-dependency depth:
+The horizontal pass is independent for every process row. The native planner
+therefore builds horizontal waves and batches all process rows that are at the
+same dependency depth:
 
 ```text
 for wave in horizontal_waves:
@@ -195,9 +196,8 @@ The current Python/JAX diagnostic path now exposes this ordering directly.
 CPU-planned compaction waves through the rectangle-transfer FFI for focused
 debugging, while `execute_padded_block_cyclic_2d_shardmap` now calls one native
 FFI target that plans and executes both edge compaction and tile-aligned 2D
-redistribution internally. This is not yet the final cuSOLVERMp backend. It
-assumes the caller already has a physical padded buffer and it verifies the
-movement path before adding the cuSOLVERMp descriptor/handle layer.
+redistribution internally. `jaxmg.potrs_mp` now uses this movement path before
+creating cuSOLVERMp descriptors and calling cuSOLVERMp `potrf`/`potrs`.
 
 ### Parallelism and Scratch Invariants
 
@@ -320,73 +320,38 @@ scatter layout for this case.
 
 ## Contiguity
 
-The current native memory model is row-major for the movement engine: a full
-row/vector slot is contiguous, while a sub-column region spanning multiple rows
-is strided.
-
-That has direct consequences for the proposed two-phase algorithm:
-
-1. A column-owner move is naturally a column-tile region. Under the current
-   row-major offset model this is strided and will need pack/unpack kernels, many
-   smaller sends, or a different storage view.
-2. A row-owner move can be grouped as a full-width row slab inside a process
-   column. Under the current row-major offset model this can be contiguous.
-3. Moving individual `MB_A x NB_A` tiles is generally strided unless the tile
-   covers the complete local width or has only one row.
-
-The fragment schedule is intentionally conservative: it marks each raw
-tile-fragment move independently. For ordinary tile sizes this means both
-column-owner and row-owner fragment moves require layout-aware packing. The
-current cuSolverMg backend is expressed with row-major local buffers, but
-cuSolverMp expects local matrices in column-major format. The logical
-redistribution plan is the same in either case; only the local address
-calculation used to pack/unpack a fragment changes. In column-major format,
-vertical column fragments are naturally contiguous and horizontal row fragments
-are strided. The row-owner phase may still be optimized later by grouping
-compatible fragments into full-width row slabs before issuing communication.
-
-The next implementation checkpoint should therefore not be a cuSOLVERMp solver
-call. It should be a GPU movement prototype that proves the column-owner phase
-can pack, send, receive, and unpack strided column-tile regions without requiring
-a second full matrix allocation.
-
-## First GPU Primitive
-
-The first native checkpoint is `xla_rect_pack_unpack_probe`, registered as an
-optional CUDA FFI diagnostic. It takes a rank-2 local matrix shard plus rank-1
-scratch, then performs:
+The implemented cuSOLVERMp movement path uses column-major local addressing:
 
 ```text
-source rectangle in matrix -> contiguous scratch -> target rectangle in matrix
+offset = local_col * local_rows + local_row
 ```
 
-using `cudaMemcpy2DAsync` on XLA's CUDA stream. The probe supports both
-row-major and column-major local matrix layouts. Row-major scratch is packed one
-logical source row at a time; column-major scratch is packed one logical source
-column at a time, matching cuSolverMp's local matrix convention. This
-deliberately does not use the XLA communicator yet. It isolates the local
-strided-addressing part of the 2D redistribution, which is needed before a
-packed fragment can be handed to NCCL/XLA communication for the inter-rank
-movement.
-
-The next checkpoint is `xla_rect_transfer_probe`. It adds the communicator step
-around the same layout-aware pack/unpack primitive:
+This matches the local matrix convention required by cuSOLVERMp.  A column slab
+is therefore naturally contiguous, while a row slab is strided across local
+columns.  The native executor handles both cases with the same pack/unpack
+primitive:
 
 ```text
 source rectangle in matrix
-  -> send scratch slot
-  -> XLA CollectivePermute
-  -> receive scratch slot
+  -> contiguous send scratch
+  -> NCCL send/recv
+  -> contiguous receive scratch
   -> target rectangle in matrix
 ```
 
-The diagnostic uses two scratch slots per rank. This is intentional: a rank may
-send and receive in the same transfer round, and the receive payload must not
-overwrite the packed send payload before the communicator has consumed it. The
-probe accepts a static one-to-one `targets[source_rank] = target_rank` schedule
-plus source and destination rectangle offsets indexed by source rank. That shape
-matches one conservative fragment-transfer batch produced by the 2D planner,
-but it still stops short of executing the full block-cyclic redistribution.
+`cudaMemcpy2DAsync` performs the column-major rectangle pack and unpack.  The
+native scheduler then submits the communication through grouped NCCL send/recv
+calls using the borrowed XLA-owned NCCL communicator.  This avoids allocating a
+second full matrix while still allowing strided row-owner slabs to be moved as
+single logical rectangles.
 
-The production roadmap from these diagnostics to a fully native NCCL/cuSOLVERMp
-backend is documented in `cusolvermp_native_nccl_plan.md`.
+The diagnostic handlers remain useful when changing this code:
+
+1. `xla_rect_pack_unpack_probe` isolates the local column-major addressing.
+2. `xla_rect_transfer_probe` isolates one packed rectangle transfer.
+3. `xla_rect_2d_native_plan` validates the tile-aligned slab scheduler.
+4. `xla_rect_padded_2d_native_plan` is the production redistribution handler
+   used by `jaxmg.potrs_mp`.
+
+The production roadmap from the single-node native NCCL/cuSOLVERMp path to
+multi-node validation is documented in `cusolvermp_native_nccl_plan.md`.
