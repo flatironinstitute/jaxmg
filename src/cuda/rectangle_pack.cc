@@ -195,12 +195,15 @@ absl::Status CheckNativeLocalRect(const NativeLocalRect& rect,
 // Each phase is still an in-place permutation, so we decompose it into the same
 // closed cycles used by the 1D code. Closed cycles save one live slab in
 // scratch, rotate the remaining slabs tail-to-head, then restore the saved
-// slab. Dependency order is preserved inside each cycle: sequence k+1 is never
-// merged into sequence k. Parallelism comes from applying the same sequence step
-// across independent process rows/columns. For example, one global tile-column
-// move is represented as matching local column-slab moves in every process row,
-// and those same-sequence moves are batched into one CollectivePermute round
-// when their ranks do not conflict.
+// slab. The important low-memory invariant is the same as the original 1D
+// JAXMg reshuffler: within one process row/column group, only one tile slab is
+// in flight at a time. Different cycles in that same group are therefore
+// serialized by assigning increasing dependency sequence numbers. Parallelism
+// comes only from applying the same sequence step across independent process
+// rows or columns. For example, one global tile-column move is represented as
+// matching local column-slab moves in every process row, and those
+// same-sequence moves are batched into one CollectivePermute round when their
+// ranks do not conflict.
 
 NativeLocalRect ColumnSlabRect(int64_t local_rows, int64_t tile_cols,
                                int64_t local_col_block) {
@@ -381,13 +384,15 @@ absl::StatusOr<std::map<int64_t, std::vector<int64_t>>> BuildNative2DCycles(
 
 using SlotDecoder = std::function<Native2DSlot(int64_t)>;
 
-absl::Status AppendCycleSteps(int64_t phase, const SlotDecoder& decode_slot,
-                              const std::vector<int64_t>& slots,
-                              std::vector<Native2DStep>* steps) {
+absl::StatusOr<int64_t> AppendCycleSteps(int64_t phase,
+                                         const SlotDecoder& decode_slot,
+                                         const std::vector<int64_t>& slots,
+                                         int64_t sequence_offset,
+                                         std::vector<Native2DStep>* steps) {
   const bool is_closed = slots.size() > 1 && slots.front() == slots.back();
   if (is_closed) {
     const Native2DSlot saved = decode_slot(slots[slots.size() - 2]);
-    steps->push_back(Native2DStep{phase, /*sequence=*/0,
+    steps->push_back(Native2DStep{phase, sequence_offset,
                                   Native2DStepKind::kSaveScratch, saved.rank,
                                   -1, saved.rect,
                                   NativeLocalRect{0, 0, 0, 0}});
@@ -397,17 +402,17 @@ absl::Status AppendCycleSteps(int64_t phase, const SlotDecoder& decode_slot,
          --index, ++sequence) {
       const Native2DSlot source = decode_slot(slots[index]);
       const Native2DSlot target = decode_slot(slots[index + 1]);
-      steps->push_back(Native2DStep{phase, sequence, Native2DStepKind::kMove,
-                                    source.rank, target.rank, source.rect,
-                                    target.rect});
+      steps->push_back(Native2DStep{
+          phase, sequence_offset + sequence, Native2DStepKind::kMove,
+          source.rank, target.rank, source.rect, target.rect});
     }
 
     const Native2DSlot target = decode_slot(slots[0]);
-    steps->push_back(Native2DStep{phase, sequence,
+    steps->push_back(Native2DStep{phase, sequence_offset + sequence,
                                   Native2DStepKind::kRestoreScratch,
                                   saved.rank, target.rank,
                                   NativeLocalRect{0, 0, 0, 0}, target.rect});
-    return absl::OkStatus();
+    return sequence + 1;
   }
 
   int64_t sequence = 0;
@@ -415,9 +420,46 @@ absl::Status AppendCycleSteps(int64_t phase, const SlotDecoder& decode_slot,
        --index, ++sequence) {
     const Native2DSlot source = decode_slot(slots[index]);
     const Native2DSlot target = decode_slot(slots[index + 1]);
-    steps->push_back(Native2DStep{phase, sequence, Native2DStepKind::kMove,
-                                  source.rank, target.rank, source.rect,
-                                  target.rect});
+    steps->push_back(Native2DStep{
+        phase, sequence_offset + sequence, Native2DStepKind::kMove,
+        source.rank, target.rank, source.rect, target.rect});
+  }
+  return sequence;
+}
+
+using SlotGroup = std::function<int64_t(int64_t)>;
+
+absl::Status AppendAxisGroupSerialCycles(
+    int64_t phase, const SlotDecoder& decode_slot, const SlotGroup& slot_group,
+    const std::map<int64_t, std::vector<int64_t>>& cycles,
+    std::vector<Native2DStep>* steps) {
+  std::map<int64_t, std::vector<std::vector<int64_t>>> cycles_by_axis_group;
+  for (const auto& [_, cycle] : cycles) {
+    if (cycle.empty()) {
+      continue;
+    }
+    const int64_t group = slot_group(cycle.front());
+    for (int64_t slot : cycle) {
+      if (slot_group(slot) != group) {
+        return absl::InternalError(absl::StrFormat(
+            "native 2D redistribution cycle crosses axis groups: first group "
+            "%d, slot %d is in group %d",
+            group, slot, slot_group(slot)));
+      }
+    }
+    cycles_by_axis_group[group].push_back(cycle);
+  }
+
+  for (const auto& [_, group_cycles] : cycles_by_axis_group) {
+    int64_t sequence_offset = 0;
+    for (const std::vector<int64_t>& cycle : group_cycles) {
+      absl::StatusOr<int64_t> sequence_count =
+          AppendCycleSteps(phase, decode_slot, cycle, sequence_offset, steps);
+      if (!sequence_count.ok()) {
+        return sequence_count.status();
+      }
+      sequence_offset += *sequence_count;
+    }
   }
   return absl::OkStatus();
 }
@@ -454,11 +496,14 @@ absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
     return ColumnPhaseSlotToRankLocal(slot, process_cols, col_blocks_per_rank,
                                       local_rows, tile_cols);
   };
-  for (const auto& cycle : *column_cycles) {
-    JAXMG_RETURN_IF_ERROR(
-        AppendCycleSteps(/*phase=*/0, decode_column_slot, cycle.second,
-                         &steps));
-  }
+  const int64_t column_slots_per_process_row =
+      process_cols * col_blocks_per_rank;
+  SlotGroup column_axis_group = [&](int64_t slot) {
+    return slot / column_slots_per_process_row;
+  };
+  JAXMG_RETURN_IF_ERROR(AppendAxisGroupSerialCycles(
+      /*phase=*/0, decode_column_slot, column_axis_group, *column_cycles,
+      &steps));
 
   absl::StatusOr<std::vector<int64_t>> row_slot_map =
       BuildRowSlabSlotMap(process_rows, process_cols, row_blocks_per_rank);
@@ -474,10 +519,13 @@ absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
     return RowPhaseSlotToRankLocal(slot, process_rows, process_cols,
                                    row_blocks_per_rank, tile_rows, local_cols);
   };
-  for (const auto& cycle : *row_cycles) {
-    JAXMG_RETURN_IF_ERROR(
-        AppendCycleSteps(/*phase=*/1, decode_row_slot, cycle.second, &steps));
-  }
+  const int64_t row_slots_per_process_col =
+      process_rows * row_blocks_per_rank;
+  SlotGroup row_axis_group = [&](int64_t slot) {
+    return slot / row_slots_per_process_col;
+  };
+  JAXMG_RETURN_IF_ERROR(AppendAxisGroupSerialCycles(
+      /*phase=*/1, decode_row_slot, row_axis_group, *row_cycles, &steps));
 
   return steps;
 }
