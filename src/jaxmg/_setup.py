@@ -227,10 +227,28 @@ def _initialize():
         _register_optional_cuda_target_bundle(
             bin_dir,
             _xla_comm_backend_library,
+            "xla_comm_global_allreduce_probe",
+            {
+                "prepare": "XlaCommGlobalAllReduceProbePrepareFFI",
+                "execute": "XlaCommGlobalAllReduceProbeFFI",
+            },
+        )
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            _xla_comm_backend_library,
             "xla_comm_ring_permute_probe",
             {
                 "prepare": "XlaCommRingPermuteProbePrepareFFI",
                 "execute": "XlaCommRingPermuteProbeFFI",
+            },
+        )
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            _xla_comm_backend_library,
+            "xla_comm_global_ring_permute_probe",
+            {
+                "prepare": "XlaCommGlobalRingPermuteProbePrepareFFI",
+                "execute": "XlaCommGlobalRingPermuteProbeFFI",
             },
         )
         _register_optional_cuda_target_bundle(

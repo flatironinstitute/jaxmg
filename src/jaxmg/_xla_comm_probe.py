@@ -101,6 +101,57 @@ def xla_comm_allreduce_probe_shardmap(token: Array, mesh: Mesh, in_specs: P) -> 
     return impl(token)
 
 
+def xla_comm_global_allreduce_probe(token: Array) -> Array:
+    """Run a SUM all-reduce over all devices assigned to the JAX computation.
+
+    This is the multi-node companion to :func:`xla_comm_allreduce_probe`.
+    The older probe intentionally uses the node-scoped communicator used by the
+    current cuSolverMg path; this probe requests the all-assigned communicator
+    needed by cuSOLVERMp redistribution and solver setup.
+    """
+    ensure_init_jaxmg_backend()
+
+    if token.dtype != jnp.uint32:
+        raise TypeError("xla_comm_global_allreduce_probe expects a uint32 token.")
+    if token.ndim != 1:
+        raise ValueError("xla_comm_global_allreduce_probe expects a rank-1 token.")
+
+    out_type = (jax.ShapeDtypeStruct(token.shape, token.dtype),)
+    ffi_fn = jax.ffi.ffi_call(
+        "xla_comm_global_allreduce_probe",
+        out_type,
+        input_layouts=((0,),),
+        output_layouts=((0,),),
+    )
+    (out,) = ffi_fn(token)
+    return out
+
+
+def xla_comm_global_allreduce_probe_shardmap(
+    token: Array, mesh: Mesh, in_specs: P
+) -> Array:
+    """Run :func:`xla_comm_global_allreduce_probe` once per shard over ``mesh``."""
+    if not isinstance(in_specs, P):
+        raise TypeError("in_specs must be a PartitionSpec.")
+    if len(in_specs._partitions) != 1 or in_specs._partitions[0] is None:
+        raise ValueError("token must be sharded with PartitionSpec P(<axis_name>).")
+
+    axis_name = in_specs._partitions[0]
+
+    @partial(jax.jit)
+    @partial(
+        jax.shard_map,
+        mesh=mesh,
+        in_specs=in_specs,
+        out_specs=P(axis_name),
+        check_vma=False,
+    )
+    def impl(_token):
+        return xla_comm_global_allreduce_probe(_token)
+
+    return impl(token)
+
+
 def xla_comm_ring_permute_probe(token: Array) -> Array:
     """Move a rank-1 ``uint32`` shard to the next rank in a ring.
 
@@ -146,6 +197,56 @@ def xla_comm_ring_permute_probe_shardmap(
     )
     def impl(_token):
         return xla_comm_ring_permute_probe(_token)
+
+    return impl(token)
+
+
+def xla_comm_global_ring_permute_probe(token: Array) -> Array:
+    """Move a rank-1 ``uint32`` shard around a global all-assigned ring.
+
+    Rank ``i`` sends to ``(i + 1) % n`` across the full JAX distributed device
+    set. This validates the point-to-point communicator scope needed by the
+    cuSOLVERMp 2D redistribution path.
+    """
+    ensure_init_jaxmg_backend()
+
+    if token.dtype != jnp.uint32:
+        raise TypeError("xla_comm_global_ring_permute_probe expects a uint32 token.")
+    if token.ndim != 1:
+        raise ValueError("xla_comm_global_ring_permute_probe expects a rank-1 token.")
+
+    out_type = (jax.ShapeDtypeStruct(token.shape, token.dtype),)
+    ffi_fn = jax.ffi.ffi_call(
+        "xla_comm_global_ring_permute_probe",
+        out_type,
+        input_layouts=((0,),),
+        output_layouts=((0,),),
+    )
+    (out,) = ffi_fn(token)
+    return out
+
+
+def xla_comm_global_ring_permute_probe_shardmap(
+    token: Array, mesh: Mesh, in_specs: P
+) -> Array:
+    """Run :func:`xla_comm_global_ring_permute_probe` over ``mesh``."""
+    if not isinstance(in_specs, P):
+        raise TypeError("in_specs must be a PartitionSpec.")
+    if len(in_specs._partitions) != 1 or in_specs._partitions[0] is None:
+        raise ValueError("token must be sharded with PartitionSpec P(<axis_name>).")
+
+    axis_name = in_specs._partitions[0]
+
+    @partial(jax.jit)
+    @partial(
+        jax.shard_map,
+        mesh=mesh,
+        in_specs=in_specs,
+        out_specs=P(axis_name),
+        check_vma=False,
+    )
+    def impl(_token):
+        return xla_comm_global_ring_permute_probe(_token)
 
     return impl(token)
 

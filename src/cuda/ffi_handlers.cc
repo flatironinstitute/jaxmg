@@ -69,6 +69,23 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveCliques>());
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommGlobalAllReduceProbePrepareFFI,
+    XlaCommGlobalAllReduceProbePrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommGlobalAllReduceProbeFFI, XlaCommGlobalAllReduceProbeDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<0>>()
+        .Arg<ffi::BufferR1<U32>>()
+        .Ret<ffi::BufferR1<U32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCommRingPermuteProbePrepareFFI, XlaCommRingPermuteProbePrepare,
     ffi::Ffi::BindPrepare()
         .Ctx<ffi::CollectiveParams>()
@@ -76,6 +93,23 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCommRingPermuteProbeFFI, XlaCommRingPermuteProbeDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Arg<ffi::BufferR1<U32>>()
+        .Ret<ffi::BufferR1<U32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommGlobalRingPermuteProbePrepareFFI,
+    XlaCommGlobalRingPermuteProbePrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCommGlobalRingPermuteProbeFFI, XlaCommGlobalRingPermuteProbeDispatch,
     ffi::Ffi::Bind()
         .Ctx<ffi::Stream>()
         .Ctx<ffi::CommunicationStream<1>>()

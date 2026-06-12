@@ -36,6 +36,181 @@
 #include "include/xla_comm_backend.h"
 
 namespace xla::gpu {
+namespace {
+
+enum class ProbeCliqueScope {
+  kNodeScoped,
+  kAllAssigned,
+};
+
+absl::StatusOr<GpuCliqueKey> ProbeCliqueKey(
+    const CollectiveParams& collective_params, bool p2p,
+    ProbeCliqueScope scope) {
+  if (scope == ProbeCliqueScope::kAllAssigned) {
+    return p2p ? AllAssignedDevicesP2PCliqueKey(collective_params)
+               : AllAssignedDevicesCliqueKey(collective_params);
+  }
+  return p2p ? NodeScopedP2PCliqueKey(collective_params)
+             : NodeScopedCliqueKey(collective_params);
+}
+
+absl::StatusOr<std::vector<GlobalDeviceId>> ProbeDeviceGroup(
+    const CollectiveParams& collective_params, ProbeCliqueScope scope) {
+  if (scope == ProbeCliqueScope::kAllAssigned) {
+    return AllAssignedGlobalDeviceGroup(collective_params);
+  }
+  return NodeScopedGlobalDeviceGroup(collective_params);
+}
+
+absl::Status RequestProbeClique(
+    const char* caller, const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests, bool p2p,
+    ProbeCliqueScope scope) {
+  if (collective_params == nullptr || clique_requests == nullptr) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s requires XLA collective prepare contexts", caller));
+  }
+
+  absl::StatusOr<GpuCliqueKey> clique_key =
+      ProbeCliqueKey(*collective_params, p2p, scope);
+  if (!clique_key.ok()) {
+    return clique_key.status();
+  }
+
+  absl::StatusOr<std::vector<GlobalDeviceId>> device_group =
+      ProbeDeviceGroup(*collective_params, scope);
+  if (!device_group.ok()) {
+    return device_group.status();
+  }
+  return clique_requests->RequestClique(*clique_key, {*device_group});
+}
+
+absl::Status AllReduceProbeDispatchImpl(
+    const char* caller, se::Stream* stream, se::Stream* comm_stream,
+    ffi::BufferR1<U32> src, ffi::Result<ffi::BufferR1<U32>> dst,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques, ProbeCliqueScope scope) {
+  if (stream == nullptr || comm_stream == nullptr) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s requires XLA stream contexts", caller));
+  }
+  if (collective_params == nullptr || collective_cliques == nullptr) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s requires XLA collective contexts", caller));
+  }
+  if (src.dimensions().size() != 1 || dst->dimensions().size() != 1 ||
+      src.dimensions()[0] != dst->dimensions()[0]) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s expects matching rank-1 input/output", caller));
+  }
+
+  absl::StatusOr<GpuCliqueKey> clique_key =
+      ProbeCliqueKey(*collective_params, /*p2p=*/false, scope);
+  if (!clique_key.ok()) {
+    return clique_key.status();
+  }
+
+  absl::StatusOr<Communicator*> comm = collective_cliques->GetComm(
+      *clique_key, collective_params->global_device_id);
+  if (!comm.ok()) {
+    return comm.status();
+  }
+
+  // XLA passes two streams: the main execution stream and a communication
+  // stream. The explicit WaitFor calls preserve ordering without forcing a host
+  // device-wide synchronization.
+  absl::Status status = comm_stream->WaitFor(stream);
+  if (!status.ok()) {
+    return status;
+  }
+
+  Future<> future = (*comm)->AllReduce(
+      src.device_memory(), dst->device_memory(), src.element_type(),
+      src.element_count(), ReductionKind::SUM, GpuCollectives::On(*comm_stream));
+  status = future.Await();
+  if (!status.ok()) {
+    return status;
+  }
+
+  return stream->WaitFor(comm_stream);
+}
+
+absl::Status RingPermuteProbeDispatchImpl(
+    const char* caller, se::Stream* stream, se::Stream* comm_stream,
+    ffi::BufferR1<U32> src, ffi::Result<ffi::BufferR1<U32>> dst,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques, ProbeCliqueScope scope) {
+  if (stream == nullptr || comm_stream == nullptr) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s requires XLA stream contexts", caller));
+  }
+  if (collective_params == nullptr || collective_cliques == nullptr) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s requires XLA collective contexts", caller));
+  }
+  if (src.dimensions().size() != 1 || dst->dimensions().size() != 1 ||
+      src.dimensions()[0] != dst->dimensions()[0]) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s expects matching rank-1 input/output", caller));
+  }
+
+  absl::StatusOr<GpuCliqueKey> clique_key =
+      ProbeCliqueKey(*collective_params, /*p2p=*/true, scope);
+  if (!clique_key.ok()) {
+    return clique_key.status();
+  }
+
+  const int64_t num_ranks = static_cast<int64_t>(clique_key->num_devices());
+  if (num_ranks <= 0) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s requires a non-empty clique", caller));
+  }
+
+  if (num_ranks == 1) {
+    // Degenerate one-rank collectives still preserve input/output aliasing and
+    // layout behavior, but no communicator traffic is required.
+    se::DeviceAddressBase dst_addr = dst->device_memory();
+    return stream->MemcpyD2D(&dst_addr, src.device_memory(), src.size_bytes());
+  }
+
+  std::optional<RankId> rank =
+      clique_key->rank(collective_params->global_device_id);
+  if (!rank.has_value()) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s could not resolve this device rank", caller));
+  }
+
+  absl::StatusOr<Communicator*> comm = collective_cliques->GetComm(
+      *clique_key, collective_params->global_device_id);
+  if (!comm.ok()) {
+    return comm.status();
+  }
+
+  const int64_t rank_value = static_cast<int64_t>(rank->value());
+  std::optional<RankId> source_rank =
+      RankId((rank_value + num_ranks - 1) % num_ranks);
+  std::vector<RankId> target_ranks = {
+      RankId((rank_value + 1) % num_ranks),
+  };
+
+  absl::Status status = comm_stream->WaitFor(stream);
+  if (!status.ok()) {
+    return status;
+  }
+
+  Future<> future = (*comm)->CollectivePermute(
+      src.device_memory(), dst->device_memory(), src.element_type(),
+      src.element_count(), source_rank, target_ranks,
+      GpuCollectives::On(*comm_stream));
+  status = future.Await();
+  if (!status.ok()) {
+    return status;
+  }
+
+  return stream->WaitFor(comm_stream);
+}
+
+}  // namespace
 
 // Every collective FFI handler has a prepare stage and an execute stage. The
 // prepare stage requests the communicator clique that XLA must make available
@@ -128,23 +303,9 @@ absl::Status XlaCommCollectiveProbeDispatch(
 absl::Status XlaCommAllReduceProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
-  if (collective_params == nullptr || clique_requests == nullptr) {
-    return absl::InvalidArgumentError(
-        "xla_comm_allreduce_probe requires XLA collective prepare contexts");
-  }
-
-  absl::StatusOr<GpuCliqueKey> clique_key =
-      NodeScopedCliqueKey(*collective_params);
-  if (!clique_key.ok()) {
-    return clique_key.status();
-  }
-
-  absl::StatusOr<std::vector<GlobalDeviceId>> device_group =
-      NodeScopedGlobalDeviceGroup(*collective_params);
-  if (!device_group.ok()) {
-    return device_group.status();
-  }
-  return clique_requests->RequestClique(*clique_key, {*device_group});
+  return RequestProbeClique("xla_comm_allreduce_probe", collective_params,
+                            clique_requests, /*p2p=*/false,
+                            ProbeCliqueScope::kNodeScoped);
 }
 
 absl::Status XlaCommAllReduceProbeDispatch(
@@ -152,49 +313,30 @@ absl::Status XlaCommAllReduceProbeDispatch(
     ffi::Result<ffi::BufferR1<U32>> dst,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
-  if (stream == nullptr || comm_stream == nullptr) {
-    return absl::InvalidArgumentError(
-        "xla_comm_allreduce_probe requires XLA stream contexts");
-  }
-  if (collective_params == nullptr || collective_cliques == nullptr) {
-    return absl::InvalidArgumentError(
-        "xla_comm_allreduce_probe requires XLA collective contexts");
-  }
-  if (src.dimensions().size() != 1 || dst->dimensions().size() != 1 ||
-      src.dimensions()[0] != dst->dimensions()[0]) {
-    return absl::InvalidArgumentError(
-        "xla_comm_allreduce_probe expects matching rank-1 input/output");
-  }
+  return AllReduceProbeDispatchImpl(
+      "xla_comm_allreduce_probe", stream, comm_stream, src, dst,
+      collective_params, collective_cliques, ProbeCliqueScope::kNodeScoped);
+}
 
-  absl::StatusOr<GpuCliqueKey> clique_key =
-      NodeScopedCliqueKey(*collective_params);
-  if (!clique_key.ok()) {
-    return clique_key.status();
-  }
+// Global all-reduce probe. This is the multi-node diagnostic counterpart to
+// xla_comm_allreduce_probe: it requests one clique over all devices assigned to
+// the JAX distributed computation, not only the devices local to this process.
+absl::Status XlaCommGlobalAllReduceProbePrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests) {
+  return RequestProbeClique("xla_comm_global_allreduce_probe",
+                            collective_params, clique_requests, /*p2p=*/false,
+                            ProbeCliqueScope::kAllAssigned);
+}
 
-  absl::StatusOr<Communicator*> comm = collective_cliques->GetComm(
-      *clique_key, collective_params->global_device_id);
-  if (!comm.ok()) {
-    return comm.status();
-  }
-
-  // XLA passes two streams: the main execution stream and a communication
-  // stream. The explicit WaitFor calls preserve ordering without forcing a host
-  // device-wide synchronization.
-  absl::Status status = comm_stream->WaitFor(stream);
-  if (!status.ok()) {
-    return status;
-  }
-
-  Future<> future = (*comm)->AllReduce(
-      src.device_memory(), dst->device_memory(), src.element_type(),
-      src.element_count(), ReductionKind::SUM, GpuCollectives::On(*comm_stream));
-  status = future.Await();
-  if (!status.ok()) {
-    return status;
-  }
-
-  return stream->WaitFor(comm_stream);
+absl::Status XlaCommGlobalAllReduceProbeDispatch(
+    se::Stream* stream, se::Stream* comm_stream, ffi::BufferR1<U32> src,
+    ffi::Result<ffi::BufferR1<U32>> dst,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return AllReduceProbeDispatchImpl(
+      "xla_comm_global_allreduce_probe", stream, comm_stream, src, dst,
+      collective_params, collective_cliques, ProbeCliqueScope::kAllAssigned);
 }
 
 // Ring permute probe. This exercises the same CollectivePermute path used for
@@ -202,25 +344,11 @@ absl::Status XlaCommAllReduceProbeDispatch(
 absl::Status XlaCommRingPermuteProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
-  if (collective_params == nullptr || clique_requests == nullptr) {
-    return absl::InvalidArgumentError(
-        "xla_comm_ring_permute_probe requires XLA collective prepare contexts");
-  }
-
   // CollectivePermute uses the point-to-point clique key. This mirrors the
   // production reshuffler, which uses CollectivePermute for column movement.
-  absl::StatusOr<GpuCliqueKey> clique_key =
-      NodeScopedP2PCliqueKey(*collective_params);
-  if (!clique_key.ok()) {
-    return clique_key.status();
-  }
-
-  absl::StatusOr<std::vector<GlobalDeviceId>> device_group =
-      NodeScopedGlobalDeviceGroup(*collective_params);
-  if (!device_group.ok()) {
-    return device_group.status();
-  }
-  return clique_requests->RequestClique(*clique_key, {*device_group});
+  return RequestProbeClique("xla_comm_ring_permute_probe", collective_params,
+                            clique_requests, /*p2p=*/true,
+                            ProbeCliqueScope::kNodeScoped);
 }
 
 absl::Status XlaCommRingPermuteProbeDispatch(
@@ -228,74 +356,30 @@ absl::Status XlaCommRingPermuteProbeDispatch(
     ffi::Result<ffi::BufferR1<U32>> dst,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
-  if (stream == nullptr || comm_stream == nullptr) {
-    return absl::InvalidArgumentError(
-        "xla_comm_ring_permute_probe requires XLA stream contexts");
-  }
-  if (collective_params == nullptr || collective_cliques == nullptr) {
-    return absl::InvalidArgumentError(
-        "xla_comm_ring_permute_probe requires XLA collective contexts");
-  }
-  if (src.dimensions().size() != 1 || dst->dimensions().size() != 1 ||
-      src.dimensions()[0] != dst->dimensions()[0]) {
-    return absl::InvalidArgumentError(
-        "xla_comm_ring_permute_probe expects matching rank-1 input/output");
-  }
+  return RingPermuteProbeDispatchImpl(
+      "xla_comm_ring_permute_probe", stream, comm_stream, src, dst,
+      collective_params, collective_cliques, ProbeCliqueScope::kNodeScoped);
+}
 
-  absl::StatusOr<GpuCliqueKey> clique_key =
-      NodeScopedP2PCliqueKey(*collective_params);
-  if (!clique_key.ok()) {
-    return clique_key.status();
-  }
+// Global ring permute probe. This uses the all-assigned point-to-point clique,
+// so it validates the same cross-node communicator scope needed by cuSOLVERMp
+// redistribution.
+absl::Status XlaCommGlobalRingPermuteProbePrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests) {
+  return RequestProbeClique("xla_comm_global_ring_permute_probe",
+                            collective_params, clique_requests, /*p2p=*/true,
+                            ProbeCliqueScope::kAllAssigned);
+}
 
-  const int64_t num_ranks = static_cast<int64_t>(clique_key->num_devices());
-  if (num_ranks <= 0) {
-    return absl::InvalidArgumentError(
-        "xla_comm_ring_permute_probe requires a non-empty clique");
-  }
-
-  if (num_ranks == 1) {
-    // Degenerate one-rank collectives still preserve input/output aliasing and
-    // layout behavior, but no communicator traffic is required.
-    se::DeviceAddressBase dst_addr = dst->device_memory();
-    return stream->MemcpyD2D(&dst_addr, src.device_memory(), src.size_bytes());
-  }
-
-  std::optional<RankId> rank =
-      clique_key->rank(collective_params->global_device_id);
-  if (!rank.has_value()) {
-    return absl::InvalidArgumentError(
-        "xla_comm_ring_permute_probe could not resolve this device rank");
-  }
-
-  absl::StatusOr<Communicator*> comm = collective_cliques->GetComm(
-      *clique_key, collective_params->global_device_id);
-  if (!comm.ok()) {
-    return comm.status();
-  }
-
-  const int64_t rank_value = static_cast<int64_t>(rank->value());
-  std::optional<RankId> source_rank =
-      RankId((rank_value + num_ranks - 1) % num_ranks);
-  std::vector<RankId> target_ranks = {
-      RankId((rank_value + 1) % num_ranks),
-  };
-
-  absl::Status status = comm_stream->WaitFor(stream);
-  if (!status.ok()) {
-    return status;
-  }
-
-  Future<> future = (*comm)->CollectivePermute(
-      src.device_memory(), dst->device_memory(), src.element_type(),
-      src.element_count(), source_rank, target_ranks,
-      GpuCollectives::On(*comm_stream));
-  status = future.Await();
-  if (!status.ok()) {
-    return status;
-  }
-
-  return stream->WaitFor(comm_stream);
+absl::Status XlaCommGlobalRingPermuteProbeDispatch(
+    se::Stream* stream, se::Stream* comm_stream, ffi::BufferR1<U32> src,
+    ffi::Result<ffi::BufferR1<U32>> dst,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return RingPermuteProbeDispatchImpl(
+      "xla_comm_global_ring_permute_probe", stream, comm_stream, src, dst,
+      collective_params, collective_cliques, ProbeCliqueScope::kAllAssigned);
 }
 
 // Shifted permute probe. This is a parameterized ring and is useful for

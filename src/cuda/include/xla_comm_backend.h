@@ -356,10 +356,26 @@ absl::Status XlaCommAllReduceProbeDispatch(
     ffi::Result<ffi::BufferR1<U32>> dst,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
+absl::Status XlaCommGlobalAllReduceProbePrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests);
+absl::Status XlaCommGlobalAllReduceProbeDispatch(
+    se::Stream* stream, se::Stream* comm_stream, ffi::BufferR1<U32> src,
+    ffi::Result<ffi::BufferR1<U32>> dst,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
 absl::Status XlaCommRingPermuteProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);
 absl::Status XlaCommRingPermuteProbeDispatch(
+    se::Stream* stream, se::Stream* comm_stream, ffi::BufferR1<U32> src,
+    ffi::Result<ffi::BufferR1<U32>> dst,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+absl::Status XlaCommGlobalRingPermuteProbePrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests);
+absl::Status XlaCommGlobalRingPermuteProbeDispatch(
     se::Stream* stream, se::Stream* comm_stream, ffi::BufferR1<U32> src,
     ffi::Result<ffi::BufferR1<U32>> dst,
     const CollectiveParams* collective_params,

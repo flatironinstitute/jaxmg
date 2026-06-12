@@ -1441,14 +1441,18 @@ absl::Status XlaRect2DNativePlanPrepare(
         "xla_rect_2d_native_plan requires XLA collective prepare contexts");
   }
 
+  // cuSOLVERMp redistribution must be able to move tiles between every rank in
+  // the distributed mesh. A node-scoped clique would only contain local GPUs
+  // inside the current Python process, which is correct for the legacy
+  // cuSolverMg path but insufficient for one-process-per-node multi-node jobs.
   absl::StatusOr<GpuCliqueKey> clique_key =
-      NodeScopedP2PCliqueKey(*collective_params);
+      AllAssignedDevicesP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
 
   absl::StatusOr<std::vector<GlobalDeviceId>> device_group =
-      NodeScopedGlobalDeviceGroup(*collective_params);
+      AllAssignedGlobalDeviceGroup(*collective_params);
   if (!device_group.ok()) {
     return device_group.status();
   }
@@ -1492,7 +1496,7 @@ absl::Status Rect2DNativePlanDispatchImpl(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      NodeScopedP2PCliqueKey(*collective_params);
+      AllAssignedDevicesP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
@@ -1611,7 +1615,7 @@ absl::Status RectPadded2DNativePlanDispatchImpl(
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
-      NodeScopedP2PCliqueKey(*collective_params);
+      AllAssignedDevicesP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     return clique_key.status();
   }
