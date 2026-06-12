@@ -79,8 +79,6 @@ def test_potrs_mp_solves_and_restores_block_sharded_rhs(
         a,
         b,
         T_A=4,
-        mesh=mesh,
-        matrix_specs=P("pr", "pc"),
         return_status=True,
     )
     out.block_until_ready()

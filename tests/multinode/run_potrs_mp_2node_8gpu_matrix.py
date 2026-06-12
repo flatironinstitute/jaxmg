@@ -190,8 +190,6 @@ def _run_case(case: Case) -> None:
         a,
         b,
         T_A=case.tile,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
         return_status=True,
     )
     expected = np.linalg.solve(a_host, b_host)

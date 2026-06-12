@@ -64,6 +64,38 @@ def _validate_2d_matrix_specs(mesh: Mesh, matrix_specs: P) -> tuple[str, str, Pr
     return row_axis, col_axis, grid
 
 
+def _infer_mesh_and_matrix_specs(
+    a: Array,
+    *,
+    mesh: Mesh | None,
+    matrix_specs: P | None,
+) -> tuple[Mesh, P]:
+    """Infer the cuSOLVERMp mesh contract from the input JAX sharding.
+
+    Users normally create a JAX ``Mesh`` and ``NamedSharding`` before calling
+    JAXMg.  The solver should therefore consume the sharding already attached
+    to ``A`` instead of requiring the same mesh/spec to be repeated at the call
+    site.  Explicit ``mesh`` and ``matrix_specs`` remain available for
+    diagnostics and for tests that exercise validation before arrays are
+    physically sharded.
+    """
+    if mesh is not None and matrix_specs is not None:
+        return mesh, matrix_specs
+
+    sharding = getattr(a, "sharding", None)
+    if not isinstance(sharding, NamedSharding):
+        raise ValueError(
+            "potrs_mp could not infer mesh/matrix_specs from A. Shard A with "
+            "jax.sharding.NamedSharding or pass mesh=... and matrix_specs=..."
+        )
+
+    if mesh is None:
+        mesh = sharding.mesh
+    if matrix_specs is None:
+        matrix_specs = sharding.spec
+    return mesh, matrix_specs
+
+
 def _status_specs(row_axis: str, col_axis: str, grid: ProcessGrid) -> P:
     if grid.process_rows == 1:
         return P(col_axis)
@@ -197,8 +229,8 @@ def potrs_mp(
     a: Array,
     b: Array,
     T_A: int,
-    mesh: Mesh,
-    matrix_specs: P,
+    mesh: Mesh | None = None,
+    matrix_specs: P | None = None,
     return_status: bool = False,
     pad: bool = True,
 ) -> Union[Array, Tuple[Array, Array]]:
@@ -210,23 +242,24 @@ def potrs_mp(
     ``potrs`` using the XLA-owned NCCL communicator, then reverse-redistributes
     the solved RHS back to the original block-sharded layout.
 
-    The process grid is inferred from ``matrix_specs`` and ``mesh`` using
-    row-major rank mapping: rank = process_row * process_cols + process_col.
-    That must match the row-major cuSOLVERMp grid descriptor used natively.
+    By default, the process grid is inferred from the ``NamedSharding`` attached
+    to ``a``.  The row-major order of that mesh is used as the cuSOLVERMp rank
+    order: rank = process_row * process_cols + process_col.  That must match
+    the row-major cuSOLVERMp grid descriptor used natively.
 
     Args:
-        a: Square Hermitian/symmetric positive-definite matrix, sharded with
-            ``matrix_specs`` over a 2D mesh.
+        a: Square Hermitian/symmetric positive-definite matrix, normally
+            sharded with ``NamedSharding(mesh, P(row_axis, col_axis))``.
         b: Rank-1 or rank-2 right-hand side, sharded with the same
-            ``matrix_specs``. The current implementation requires both logical
-            dimensions to divide evenly over the corresponding process-grid
-            dimensions before local tile padding is applied.
+            mesh/spec as ``a``. The current implementation requires both
+            logical dimensions to divide evenly over the corresponding
+            process-grid dimensions before local tile padding is applied.
         T_A: Square cuSOLVERMp tile size. JAXMg currently uses
             ``MB_A == NB_A == T_A`` for the Cholesky solve path.
-        mesh: JAX mesh whose row-major device order defines the cuSOLVERMp
-            process-grid rank order.
-        matrix_specs: PartitionSpec for both ``a`` and ``b``; normally
-            ``P('pr', 'pc')``.
+        mesh: Optional JAX mesh override. If omitted, inferred from
+            ``a.sharding.mesh``.
+        matrix_specs: Optional PartitionSpec override for both ``a`` and ``b``.
+            If omitted, inferred from ``a.sharding.spec``.
         return_status: If true, return the per-rank native status vector
             alongside the solved RHS.
         pad: If true, add local row/column capacity so every local shard is
@@ -251,6 +284,11 @@ def potrs_mp(
     if int(T_A) <= 0:
         raise ValueError("T_A must be positive.")
 
+    mesh, matrix_specs = _infer_mesh_and_matrix_specs(
+        a,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+    )
     row_axis, col_axis, grid = _validate_2d_matrix_specs(mesh, matrix_specs)
     scratch_specs = _status_specs(row_axis, col_axis, grid)
     tile_shape = TileShape(rows=int(T_A), cols=int(T_A))

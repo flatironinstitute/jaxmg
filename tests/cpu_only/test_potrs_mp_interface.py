@@ -3,7 +3,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import pytest
-from jax.sharding import Mesh, PartitionSpec as P
+from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
 from jaxmg import potrs_mp
 
@@ -15,6 +15,24 @@ def test_potrs_mp_rejects_non_2d_process_grid_specs():
 
     with pytest.raises(ValueError, match="requires both matrix axes"):
         potrs_mp(a, b, 2, mesh=mesh, matrix_specs=P("x", None))
+
+
+def test_potrs_mp_infers_mesh_and_specs_from_a_sharding():
+    mesh = Mesh(np.asarray(jax.devices()[:1], dtype=object), ("x",))
+    sharding = NamedSharding(mesh, P("x", None))
+    a = jax.device_put(jnp.eye(4, dtype=jnp.float32), sharding)
+    b = jax.device_put(jnp.ones((4, 4), dtype=jnp.float32), sharding)
+
+    with pytest.raises(ValueError, match="requires both matrix axes"):
+        potrs_mp(a, b, 2)
+
+
+def test_potrs_mp_requires_named_sharding_when_mesh_is_omitted():
+    a = jnp.eye(4, dtype=jnp.float32)
+    b = jnp.ones((4, 4), dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="could not infer mesh"):
+        potrs_mp(a, b, 2)
 
 
 def test_potrs_mp_rejects_non_square_a():
