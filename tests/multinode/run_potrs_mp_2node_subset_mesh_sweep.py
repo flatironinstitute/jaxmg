@@ -60,10 +60,31 @@ def _device_process_index(device) -> int:
     return int(value)
 
 
+def _device_id(device) -> int:
+    value = getattr(device, "id", None)
+    if value is None:
+        raise AttributeError(f"device {device!r} has no id")
+    return int(value)
+
+
+def _device_local_hardware_id(device) -> int:
+    """Return a stable local device id for diagnostics and deterministic sorting.
+
+    Some PJRT backends expose ``local_hardware_id`` but leave it as ``None`` for
+    global devices.  In that case the global device id is still stable and is
+    already the order used by XLA's all-assigned clique ranks, so it is a better
+    fallback than failing before the actual subset-mesh case starts.
+    """
+    value = getattr(device, "local_hardware_id", None)
+    if value is None:
+        return _device_id(device)
+    return int(value)
+
+
 def _device_sort_key(device) -> tuple[int, int, int]:
     process_index = _device_process_index(device)
-    device_id = int(getattr(device, "id", 0))
-    local_id = int(getattr(device, "local_hardware_id", device_id))
+    device_id = _device_id(device)
+    local_id = _device_local_hardware_id(device)
     return process_index, device_id, local_id
 
 
@@ -285,8 +306,8 @@ def _run_case(case: GridCase, devices: Sequence[object]) -> None:
         selected_devices=[
             {
                 "process_index": _device_process_index(device),
-                "id": int(getattr(device, "id", -1)),
-                "local_hardware_id": int(getattr(device, "local_hardware_id", -1)),
+                "id": _device_id(device),
+                "local_hardware_id": _device_local_hardware_id(device),
             }
             for device in selected
         ],
