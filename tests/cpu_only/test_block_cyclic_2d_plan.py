@@ -3,6 +3,7 @@ import pytest
 
 from jaxmg._block_cyclic_2d_plan import (
     ProcessGrid,
+    ProcessRankMap,
     TileShape,
     batch_edge_padding_compaction_moves,
     batch_executable_fragment_transfers,
@@ -747,3 +748,29 @@ def test_process_grid_rank_matches_cusolvermp_row_major_mapping():
         for process_row in range(grid.process_rows)
         for process_col in range(grid.process_cols)
     ] == [0, 1, 2, 3, 4, 5]
+
+
+def test_process_rank_map_row_major_identity():
+    grid = ProcessGrid(process_rows=2, process_cols=3)
+    rank_map = ProcessRankMap.row_major(grid)
+
+    assert rank_map.ranks == (0, 1, 2, 3, 4, 5)
+    assert rank_map.rank(1, 2) == 5
+    assert rank_map.is_row_major_identity
+    rank_map.require_row_major_identity("test")
+
+
+def test_process_rank_map_rejects_invalid_permutation():
+    grid = ProcessGrid(process_rows=2, process_cols=2)
+
+    with pytest.raises(ValueError, match="permutation"):
+        ProcessRankMap(grid=grid, ranks=(0, 1, 1, 3))
+
+
+def test_process_rank_map_rejects_non_identity_for_current_solver():
+    grid = ProcessGrid(process_rows=2, process_cols=2)
+    rank_map = ProcessRankMap(grid=grid, ranks=(0, 2, 1, 3))
+
+    assert not rank_map.is_row_major_identity
+    with pytest.raises(NotImplementedError, match="row-major"):
+        rank_map.require_row_major_identity("potrs_mp")

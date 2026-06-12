@@ -169,6 +169,38 @@ constexpr int kResidualScale = 1000000;
 // rank = process_row * process_cols + process_col.
 constexpr int kCusolverMpGridMappingRowMajor = 1;
 
+absl::Status ValidateRowMajorRankMap(const char* caller,
+                                     absl::Span<const int64_t> rank_map,
+                                     int64_t num_ranks) {
+  if (rank_map.size() != static_cast<size_t>(num_ranks)) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s expected rank_map length %d, got %d", caller, num_ranks,
+        rank_map.size()));
+  }
+  std::vector<bool> seen(num_ranks, false);
+  for (int64_t process_rank = 0; process_rank < num_ranks; ++process_rank) {
+    const int64_t communicator_rank = rank_map[process_rank];
+    if (communicator_rank < 0 || communicator_rank >= num_ranks) {
+      return absl::InvalidArgumentError(absl::StrFormat(
+          "%s rank_map[%d]=%d is outside [0, %d)", caller, process_rank,
+          communicator_rank, num_ranks));
+    }
+    if (seen[communicator_rank]) {
+      return absl::InvalidArgumentError(absl::StrFormat(
+          "%s rank_map contains duplicate communicator rank %d", caller,
+          communicator_rank));
+    }
+    seen[communicator_rank] = true;
+    if (communicator_rank != process_rank) {
+      return absl::UnimplementedError(absl::StrFormat(
+          "%s currently supports only row-major identity rank maps; "
+          "rank_map[%d]=%d",
+          caller, process_rank, communicator_rank));
+    }
+  }
+  return absl::OkStatus();
+}
+
 template <typename Fn>
 Fn LoadRequiredSymbol(void* library, const char* name) {
   dlerror();
@@ -1813,8 +1845,9 @@ absl::Status XlaCusolverMpPotrsProbeDispatch(
 absl::Status CusolverMpDistributedPotrsDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
-    int64_t tile_size, ffi::AnyBuffer a, ffi::AnyBuffer b,
-    ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
+    int64_t tile_size, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_out,
+    ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques, bool validate_solution) {
@@ -1945,6 +1978,13 @@ absl::Status CusolverMpDistributedPotrsDispatchImpl(
       tile_size <= 0) {
     probe[0] = kGridShapeMismatch;
     return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+  if (!rank_map.empty()) {
+    absl::Status rank_map_status =
+        ValidateRowMajorRankMap("cusolvermp_potrs", rank_map, nccl_count);
+    if (!rank_map_status.ok()) {
+      return rank_map_status;
+    }
   }
 
   CusolverMpApi api = LoadCusolverMpApi(&probe);
@@ -2083,8 +2123,8 @@ absl::Status XlaCusolverMpDistributedPotrsProbeDispatch(
     const CollectiveCliques* collective_cliques) {
   return CusolverMpDistributedPotrsDispatchImpl(
       stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
-      tile_size, a, b, a_out, b_out, status_out, collective_params,
-      collective_cliques, /*validate_solution=*/true);
+      tile_size, absl::Span<const int64_t>(), a, b, a_out, b_out, status_out,
+      collective_params, collective_cliques, /*validate_solution=*/true);
 }
 
 absl::Status XlaCusolverMpPotrsPrepare(
@@ -2097,14 +2137,15 @@ absl::Status XlaCusolverMpPotrsPrepare(
 absl::Status XlaCusolverMpPotrsDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
-    int64_t tile_size, ffi::AnyBuffer a, ffi::AnyBuffer b,
-    ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
+    int64_t tile_size, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_out,
+    ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return CusolverMpDistributedPotrsDispatchImpl(
       stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
-      tile_size, a, b, a_out, b_out, status_out, collective_params,
+      tile_size, rank_map, a, b, a_out, b_out, status_out, collective_params,
       collective_cliques, /*validate_solution=*/false);
 }
 

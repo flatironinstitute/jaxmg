@@ -56,6 +56,60 @@ class ProcessGrid:
 
 
 @dataclass(frozen=True)
+class ProcessRankMap:
+    """Mapping from cuSOLVERMp process-grid coordinates to communicator ranks.
+
+    The first production cuSOLVERMp backend uses the row-major rank convention
+    required by the current native code and cuSOLVERMp grid descriptor:
+
+        rank = process_row * process_cols + process_col
+
+    This object makes that contract explicit.  It gives the Python wrapper a
+    single place to validate the rank order inferred from a JAX mesh, and it is
+    passed through to the native FFI boundary so future work can replace the
+    identity mapping without changing the public ``potrs_mp`` API again.
+    """
+
+    grid: ProcessGrid
+    ranks: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        ranks = tuple(int(rank) for rank in self.ranks)
+        object.__setattr__(self, "ranks", ranks)
+        if len(ranks) != self.grid.num_processes:
+            raise ValueError(
+                "rank map length must match the process-grid size "
+                f"{self.grid.num_processes}, got {len(ranks)}."
+            )
+        expected = set(range(self.grid.num_processes))
+        actual = set(ranks)
+        if actual != expected:
+            raise ValueError(
+                "rank map must be a permutation of communicator ranks "
+                f"0..{self.grid.num_processes - 1}, got {ranks}."
+            )
+
+    @classmethod
+    def row_major(cls, grid: ProcessGrid) -> "ProcessRankMap":
+        return cls(grid=grid, ranks=tuple(range(grid.num_processes)))
+
+    def rank(self, process_row: int, process_col: int) -> int:
+        return self.ranks[self.grid.rank(process_row, process_col)]
+
+    @property
+    def is_row_major_identity(self) -> bool:
+        return self.ranks == tuple(range(self.grid.num_processes))
+
+    def require_row_major_identity(self, caller: str) -> None:
+        if not self.is_row_major_identity:
+            raise NotImplementedError(
+                f"{caller} currently requires the JAX mesh device order to match "
+                "cuSOLVERMp row-major communicator rank order. Got process-grid "
+                f"rank map {self.ranks}."
+            )
+
+
+@dataclass(frozen=True)
 class TileShape:
     """cuSOLVERMp matrix tile shape."""
 

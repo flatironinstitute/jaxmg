@@ -437,7 +437,7 @@ absl::Status XlaRect2DNativePlanPrepare(
 absl::Status XlaRect2DNativePlanDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
-    int64_t tile_cols, ffi::AnyBuffer matrix,
+    int64_t tile_cols, absl::Span<const int64_t> rank_map, ffi::AnyBuffer matrix,
     ffi::AnyBuffer scratch, ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
@@ -449,7 +449,8 @@ absl::Status XlaRectPadded2DNativePlanDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
     int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
-    int64_t reverse, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    int64_t reverse, absl::Span<const int64_t> rank_map,
+    ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
     ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
@@ -502,9 +503,9 @@ absl::Status XlaCusolverMpPotrsPrepare(
 absl::Status XlaCusolverMpPotrsDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
-    int64_t tile_size, ffi::AnyBuffer a, ffi::AnyBuffer b,
-    ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
-    ffi::Result<ffi::BufferR1<S32>> status,
+    int64_t tile_size, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_out,
+    ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 

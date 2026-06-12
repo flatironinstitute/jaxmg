@@ -98,6 +98,38 @@ absl::Status ValidateBorrowedNcclComm(const char* caller, ncclComm_t comm,
   return absl::OkStatus();
 }
 
+absl::Status ValidateRowMajorRankMap(const char* caller,
+                                     absl::Span<const int64_t> rank_map,
+                                     int64_t num_ranks) {
+  if (rank_map.size() != static_cast<size_t>(num_ranks)) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s expected rank_map length %d, got %d", caller, num_ranks,
+        rank_map.size()));
+  }
+  std::vector<bool> seen(num_ranks, false);
+  for (int64_t process_rank = 0; process_rank < num_ranks; ++process_rank) {
+    const int64_t communicator_rank = rank_map[process_rank];
+    if (communicator_rank < 0 || communicator_rank >= num_ranks) {
+      return absl::InvalidArgumentError(absl::StrFormat(
+          "%s rank_map[%d]=%d is outside [0, %d)", caller, process_rank,
+          communicator_rank, num_ranks));
+    }
+    if (seen[communicator_rank]) {
+      return absl::InvalidArgumentError(absl::StrFormat(
+          "%s rank_map contains duplicate communicator rank %d", caller,
+          communicator_rank));
+    }
+    seen[communicator_rank] = true;
+    if (communicator_rank != process_rank) {
+      return absl::UnimplementedError(absl::StrFormat(
+          "%s currently supports only row-major identity rank maps; "
+          "rank_map[%d]=%d",
+          caller, process_rank, communicator_rank));
+    }
+  }
+  return absl::OkStatus();
+}
+
 struct NcclStreamChoice {
   cudaStream_t stream;
   bool uses_comm_stream;
@@ -1462,7 +1494,8 @@ absl::Status XlaRect2DNativePlanPrepare(
 absl::Status Rect2DNativePlanDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
-    int64_t tile_cols, ffi::AnyBuffer matrix,
+    int64_t tile_cols, absl::Span<const int64_t> rank_map,
+    ffi::AnyBuffer matrix,
     ffi::AnyBuffer scratch, ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
@@ -1506,6 +1539,8 @@ absl::Status Rect2DNativePlanDispatchImpl(
         "xla_rect_2d_native_plan grid %d x %d does not match clique size %d",
         process_rows, process_cols, num_ranks));
   }
+  JAXMG_RETURN_IF_ERROR(ValidateRowMajorRankMap(
+      "xla_rect_2d_native_plan", rank_map, num_ranks));
 
   std::optional<RankId> rank =
       clique_key->rank(collective_params->global_device_id);
@@ -1557,15 +1592,16 @@ absl::Status Rect2DNativePlanDispatchImpl(
 absl::Status XlaRect2DNativePlanDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
-    int64_t tile_cols, ffi::AnyBuffer matrix,
+    int64_t tile_cols, absl::Span<const int64_t> rank_map,
+    ffi::AnyBuffer matrix,
     ffi::AnyBuffer scratch, ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return Rect2DNativePlanDispatchImpl(
       stream, comm_stream, cuda_stream, process_rows, process_cols, tile_rows,
-      tile_cols, matrix, scratch, matrix_out, scratch_out, collective_params,
-      collective_cliques);
+      tile_cols, rank_map, matrix, scratch, matrix_out, scratch_out,
+      collective_params, collective_cliques);
 }
 
 absl::Status XlaRectPadded2DNativePlanPrepare(
@@ -1578,7 +1614,8 @@ absl::Status RectPadded2DNativePlanDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
     int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
-    int64_t reverse, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    int64_t reverse, absl::Span<const int64_t> rank_map,
+    ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
     ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
@@ -1626,6 +1663,8 @@ absl::Status RectPadded2DNativePlanDispatchImpl(
         "size %d",
         process_rows, process_cols, num_ranks));
   }
+  JAXMG_RETURN_IF_ERROR(ValidateRowMajorRankMap(
+      "xla_rect_padded_2d_native_plan", rank_map, num_ranks));
 
   std::optional<RankId> rank =
       clique_key->rank(collective_params->global_device_id);
@@ -1712,15 +1751,16 @@ absl::Status XlaRectPadded2DNativePlanDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
     int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
-    int64_t reverse, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
+    int64_t reverse, absl::Span<const int64_t> rank_map,
+    ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
     ffi::Result<ffi::AnyBuffer> matrix_out,
     ffi::Result<ffi::AnyBuffer> scratch_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return RectPadded2DNativePlanDispatchImpl(
       stream, comm_stream, cuda_stream, process_rows, process_cols, tile_rows,
-      tile_cols, logical_rows, logical_cols, reverse, matrix, scratch,
-      matrix_out, scratch_out, collective_params, collective_cliques);
+      tile_cols, logical_rows, logical_cols, reverse, rank_map, matrix,
+      scratch, matrix_out, scratch_out, collective_params, collective_cliques);
 }
 
 }  // namespace xla::gpu

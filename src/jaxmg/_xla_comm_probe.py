@@ -369,6 +369,43 @@ def _as_i64_attr(name: str, value) -> np.ndarray:
     return array
 
 
+def _row_major_rank_map_attr(
+    rank_map,
+    *,
+    process_rows: int,
+    process_cols: int,
+    caller: str,
+) -> np.ndarray:
+    """Validate the explicit process-grid rank map passed to native FFI.
+
+    Native cuSOLVERMp support currently creates a row-major cuSOLVERMp grid
+    over XLA communicator ranks.  We still pass the map as an attribute because
+    that makes the boundary explicit and gives the native code a stable ABI for
+    future arbitrary-rank-map support.
+    """
+    num_ranks = int(process_rows) * int(process_cols)
+    if rank_map is None:
+        rank_array = np.arange(num_ranks, dtype=np.int64)
+    else:
+        rank_array = _as_i64_attr("rank_map", rank_map)
+    if rank_array.shape != (num_ranks,):
+        raise ValueError(
+            f"{caller} expected rank_map length {num_ranks}, got "
+            f"{rank_array.shape[0]}."
+        )
+    if set(rank_array.tolist()) != set(range(num_ranks)):
+        raise ValueError(
+            f"{caller} rank_map must be a permutation of 0..{num_ranks - 1}."
+        )
+    row_major = np.arange(num_ranks, dtype=np.int64)
+    if not np.array_equal(rank_array, row_major):
+        raise NotImplementedError(
+            f"{caller} currently supports only row-major cuSOLVERMp rank maps. "
+            f"Got {rank_array.tolist()}."
+        )
+    return np.ascontiguousarray(rank_array)
+
+
 _RECT_JAX_LAYOUT = (1, 0)
 _CUSOLVERMP_INIT_PROBE_SIZE = 16
 _CUSOLVERMP_SCATTER_LAYOUT_PROBE_SIZE = 24
@@ -840,6 +877,7 @@ def cusolvermp_potrs(
     *,
     process_rows: int,
     process_cols: int,
+    rank_map=None,
     n: int,
     nrhs: int,
     tile_size: int,
@@ -872,6 +910,12 @@ def cusolvermp_potrs(
         raise ValueError("process_rows and process_cols must be positive.")
     if n <= 0 or nrhs <= 0 or tile_size <= 0:
         raise ValueError("n, nrhs, and tile_size must be positive.")
+    rank_array = _row_major_rank_map_attr(
+        rank_map,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        caller="cusolvermp_potrs",
+    )
 
     ensure_init_jaxmg_backend()
 
@@ -890,6 +934,7 @@ def cusolvermp_potrs(
         ),
         process_rows=process_rows,
         process_cols=process_cols,
+        rank_map=rank_array,
         n=n,
         nrhs=nrhs,
         tile_size=tile_size,
@@ -906,6 +951,7 @@ def cusolvermp_potrs_shardmap(
     *,
     process_rows: int,
     process_cols: int,
+    rank_map=None,
     n: int,
     nrhs: int,
     tile_size: int,
@@ -928,6 +974,7 @@ def cusolvermp_potrs_shardmap(
             _b,
             process_rows=process_rows,
             process_cols=process_cols,
+            rank_map=rank_map,
             n=n,
             nrhs=nrhs,
             tile_size=tile_size,
@@ -1803,6 +1850,7 @@ def _xla_rect_2d_native_plan_impl(
     *,
     process_rows: int,
     process_cols: int,
+    rank_map=None,
     tile_rows: int,
     tile_cols: int,
 ) -> tuple[Array, Array]:
@@ -1818,6 +1866,12 @@ def _xla_rect_2d_native_plan_impl(
         process_cols=process_cols,
         tile_rows=tile_rows,
         tile_cols=tile_cols,
+    )
+    rank_array = _row_major_rank_map_attr(
+        rank_map,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        caller="xla_rect_2d_native_plan",
     )
     ensure_init_jaxmg_backend()
 
@@ -1835,6 +1889,7 @@ def _xla_rect_2d_native_plan_impl(
         ),
         process_rows=process_rows,
         process_cols=process_cols,
+        rank_map=rank_array,
         tile_rows=tile_rows,
         tile_cols=tile_cols,
     )
@@ -1847,6 +1902,7 @@ def xla_rect_2d_native_plan(
     *,
     process_rows: int,
     process_cols: int,
+    rank_map=None,
     tile_rows: int,
     tile_cols: int,
 ) -> tuple[Array, Array]:
@@ -1861,6 +1917,7 @@ def xla_rect_2d_native_plan(
         scratch,
         process_rows=process_rows,
         process_cols=process_cols,
+        rank_map=rank_map,
         tile_rows=tile_rows,
         tile_cols=tile_cols,
     )
@@ -1875,6 +1932,7 @@ def xla_rect_2d_native_plan_shardmap(
     *,
     process_rows: int,
     process_cols: int,
+    rank_map=None,
     tile_rows: int,
     tile_cols: int,
 ) -> tuple[Array, Array]:
@@ -1896,6 +1954,7 @@ def xla_rect_2d_native_plan_shardmap(
             _scratch,
             process_rows=process_rows,
             process_cols=process_cols,
+            rank_map=rank_map,
             tile_rows=tile_rows,
             tile_cols=tile_cols,
         )
@@ -1909,6 +1968,7 @@ def _xla_rect_padded_2d_native_plan_impl(
     *,
     process_rows: int,
     process_cols: int,
+    rank_map=None,
     tile_rows: int,
     tile_cols: int,
     logical_rows: int,
@@ -1932,6 +1992,12 @@ def _xla_rect_padded_2d_native_plan_impl(
         logical_rows=logical_rows,
         logical_cols=logical_cols,
     )
+    rank_array = _row_major_rank_map_attr(
+        rank_map,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        caller="xla_rect_padded_2d_native_plan",
+    )
     ensure_init_jaxmg_backend()
 
     out_type = (
@@ -1948,6 +2014,7 @@ def _xla_rect_padded_2d_native_plan_impl(
         ),
         process_rows=process_rows,
         process_cols=process_cols,
+        rank_map=rank_array,
         tile_rows=tile_rows,
         tile_cols=tile_cols,
         logical_rows=logical_rows,
@@ -1963,6 +2030,7 @@ def xla_rect_padded_2d_native_plan(
     *,
     process_rows: int,
     process_cols: int,
+    rank_map=None,
     tile_rows: int,
     tile_cols: int,
     logical_rows: int,
@@ -1975,6 +2043,7 @@ def xla_rect_padded_2d_native_plan(
         scratch,
         process_rows=process_rows,
         process_cols=process_cols,
+        rank_map=rank_map,
         tile_rows=tile_rows,
         tile_cols=tile_cols,
         logical_rows=logical_rows,
@@ -1992,6 +2061,7 @@ def xla_rect_padded_2d_native_plan_shardmap(
     *,
     process_rows: int,
     process_cols: int,
+    rank_map=None,
     tile_rows: int,
     tile_cols: int,
     logical_rows: int,
@@ -2016,6 +2086,7 @@ def xla_rect_padded_2d_native_plan_shardmap(
             _scratch,
             process_rows=process_rows,
             process_cols=process_cols,
+            rank_map=rank_map,
             tile_rows=tile_rows,
             tile_cols=tile_cols,
             logical_rows=logical_rows,
