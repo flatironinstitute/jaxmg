@@ -306,6 +306,8 @@ def execute_tile_aligned_native_2d_plan_shardmap(
     *,
     grid: ProcessGrid,
     rank_map: ProcessRankMap | None = None,
+    source_rank_map: ProcessRankMap | None = None,
+    target_rank_map: ProcessRankMap | None = None,
     tile_rows: int,
     tile_cols: int,
 ) -> tuple[Array, Array]:
@@ -321,10 +323,20 @@ def execute_tile_aligned_native_2d_plan_shardmap(
     if grid.num_processes <= 0:
         raise ValueError("grid must contain at least one process.")
     if rank_map is None:
-        rank_map = ProcessRankMap.row_major(grid)
-    if rank_map.grid != grid:
-        raise ValueError("rank_map grid must match the execution grid.")
-    rank_map.require_row_major_identity("execute_tile_aligned_native_2d_plan_shardmap")
+        if source_rank_map is None:
+            source_rank_map = ProcessRankMap.row_major(grid)
+        if target_rank_map is None:
+            target_rank_map = ProcessRankMap.row_major(grid)
+    else:
+        if source_rank_map is not None or target_rank_map is not None:
+            raise ValueError(
+                "rank_map cannot be combined with source_rank_map or "
+                "target_rank_map."
+            )
+        source_rank_map = rank_map
+        target_rank_map = rank_map
+    if source_rank_map.grid != grid or target_rank_map.grid != grid:
+        raise ValueError("rank maps must match the execution grid.")
     tile_rows = int(tile_rows)
     tile_cols = int(tile_cols)
     if tile_rows <= 0 or tile_cols <= 0:
@@ -353,7 +365,8 @@ def execute_tile_aligned_native_2d_plan_shardmap(
         scratch_specs,
         process_rows=grid.process_rows,
         process_cols=grid.process_cols,
-        rank_map=rank_map.ranks,
+        source_rank_map=source_rank_map.ranks,
+        target_rank_map=target_rank_map.ranks,
         tile_rows=tile_rows,
         tile_cols=tile_cols,
     )
@@ -370,6 +383,8 @@ def execute_padded_block_cyclic_2d_shardmap(
     logical_cols: int,
     grid: ProcessGrid,
     rank_map: ProcessRankMap | None = None,
+    block_rank_map: ProcessRankMap | None = None,
+    cyclic_rank_map: ProcessRankMap | None = None,
     tile_rows: int,
     tile_cols: int,
 ) -> tuple[Array, Array]:
@@ -384,10 +399,20 @@ def execute_padded_block_cyclic_2d_shardmap(
     if grid.num_processes <= 0:
         raise ValueError("grid must contain at least one process.")
     if rank_map is None:
-        rank_map = ProcessRankMap.row_major(grid)
-    if rank_map.grid != grid:
-        raise ValueError("rank_map grid must match the execution grid.")
-    rank_map.require_row_major_identity("execute_padded_block_cyclic_2d_shardmap")
+        if block_rank_map is None:
+            block_rank_map = ProcessRankMap.row_major(grid)
+        if cyclic_rank_map is None:
+            cyclic_rank_map = ProcessRankMap.row_major(grid)
+    else:
+        if block_rank_map is not None or cyclic_rank_map is not None:
+            raise ValueError(
+                "rank_map cannot be combined with block_rank_map or "
+                "cyclic_rank_map."
+            )
+        block_rank_map = rank_map
+        cyclic_rank_map = rank_map
+    if block_rank_map.grid != grid or cyclic_rank_map.grid != grid:
+        raise ValueError("rank maps must match the execution grid.")
     tile_shape = TileShape(rows=int(tile_rows), cols=int(tile_cols))
     compaction_plan = build_edge_padding_compaction_plan(
         logical_rows=logical_rows,
@@ -423,7 +448,8 @@ def execute_padded_block_cyclic_2d_shardmap(
         scratch_specs,
         process_rows=grid.process_rows,
         process_cols=grid.process_cols,
-        rank_map=rank_map.ranks,
+        block_rank_map=block_rank_map.ranks,
+        cyclic_rank_map=cyclic_rank_map.ranks,
         tile_rows=tile_shape.rows,
         tile_cols=tile_shape.cols,
         logical_rows=logical_rows,
@@ -443,6 +469,8 @@ def execute_reverse_padded_block_cyclic_2d_shardmap(
     logical_cols: int,
     grid: ProcessGrid,
     rank_map: ProcessRankMap | None = None,
+    block_rank_map: ProcessRankMap | None = None,
+    cyclic_rank_map: ProcessRankMap | None = None,
     tile_rows: int,
     tile_cols: int,
 ) -> tuple[Array, Array]:
@@ -458,12 +486,20 @@ def execute_reverse_padded_block_cyclic_2d_shardmap(
     if grid.num_processes <= 0:
         raise ValueError("grid must contain at least one process.")
     if rank_map is None:
-        rank_map = ProcessRankMap.row_major(grid)
-    if rank_map.grid != grid:
-        raise ValueError("rank_map grid must match the execution grid.")
-    rank_map.require_row_major_identity(
-        "execute_reverse_padded_block_cyclic_2d_shardmap"
-    )
+        if block_rank_map is None:
+            block_rank_map = ProcessRankMap.row_major(grid)
+        if cyclic_rank_map is None:
+            cyclic_rank_map = ProcessRankMap.row_major(grid)
+    else:
+        if block_rank_map is not None or cyclic_rank_map is not None:
+            raise ValueError(
+                "rank_map cannot be combined with block_rank_map or "
+                "cyclic_rank_map."
+            )
+        block_rank_map = rank_map
+        cyclic_rank_map = rank_map
+    if block_rank_map.grid != grid or cyclic_rank_map.grid != grid:
+        raise ValueError("rank maps must match the execution grid.")
     tile_shape = TileShape(rows=int(tile_rows), cols=int(tile_cols))
     compaction_plan = build_edge_padding_compaction_plan(
         logical_rows=logical_rows,
@@ -500,7 +536,8 @@ def execute_reverse_padded_block_cyclic_2d_shardmap(
         scratch_specs,
         process_rows=grid.process_rows,
         process_cols=grid.process_cols,
-        rank_map=rank_map.ranks,
+        block_rank_map=block_rank_map.ranks,
+        cyclic_rank_map=cyclic_rank_map.ranks,
         tile_rows=tile_shape.rows,
         tile_cols=tile_shape.cols,
         logical_rows=logical_rows,

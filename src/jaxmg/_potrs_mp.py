@@ -113,9 +113,10 @@ def _process_rank_map_from_mesh(
     process-grid slot to the rank it will have in the all-assigned communicator
     order used by JAXMg's native backend.
 
-    The current native solver supports only the row-major identity map.  We
-    still build the full map here so non-conforming meshes fail explicitly
-    before any GPU data movement begins.
+    The redistribution layer uses this map to translate between the user's JAX
+    mesh order and the dense row-major rank order used by cuSOLVERMp.  Physical
+    GPU ids do not have to be contiguous; they only need to form a unique set
+    of devices participating in this JAX mesh.
     """
     axis_names = tuple(mesh.axis_names)
     if row_axis not in axis_names or col_axis not in axis_names:
@@ -283,7 +284,8 @@ def _redistribute_to_cusolvermp(
     matrix_specs: P,
     scratch_specs: P,
     grid: ProcessGrid,
-    rank_map: ProcessRankMap,
+    block_rank_map: ProcessRankMap,
+    cyclic_rank_map: ProcessRankMap,
     tile_shape: TileShape,
     logical_rows: int,
     logical_cols: int,
@@ -297,7 +299,8 @@ def _redistribute_to_cusolvermp(
         logical_rows=logical_rows,
         logical_cols=logical_cols,
         grid=grid,
-        rank_map=rank_map,
+        block_rank_map=block_rank_map,
+        cyclic_rank_map=cyclic_rank_map,
         tile_rows=tile_shape.rows,
         tile_cols=tile_shape.cols,
     )
@@ -311,7 +314,8 @@ def _redistribute_from_cusolvermp(
     matrix_specs: P,
     scratch_specs: P,
     grid: ProcessGrid,
-    rank_map: ProcessRankMap,
+    block_rank_map: ProcessRankMap,
+    cyclic_rank_map: ProcessRankMap,
     tile_shape: TileShape,
     logical_rows: int,
     logical_cols: int,
@@ -325,7 +329,8 @@ def _redistribute_from_cusolvermp(
         logical_rows=logical_rows,
         logical_cols=logical_cols,
         grid=grid,
-        rank_map=rank_map,
+        block_rank_map=block_rank_map,
+        cyclic_rank_map=cyclic_rank_map,
         tile_rows=tile_shape.rows,
         tile_cols=tile_shape.cols,
     )
@@ -396,13 +401,13 @@ def potrs_mp(
         matrix_specs=matrix_specs,
     )
     row_axis, col_axis, grid = _validate_2d_matrix_specs(mesh, matrix_specs)
-    rank_map = _process_rank_map_from_mesh(
+    jax_rank_map = _process_rank_map_from_mesh(
         mesh,
         row_axis=row_axis,
         col_axis=col_axis,
         grid=grid,
     )
-    rank_map.require_row_major_identity("potrs_mp")
+    solver_rank_map = ProcessRankMap.row_major(grid)
     scratch_specs = _status_specs(row_axis, col_axis, grid)
     tile_shape = TileShape(rows=int(T_A), cols=int(T_A))
 
@@ -453,7 +458,8 @@ def potrs_mp(
         matrix_specs=matrix_specs,
         scratch_specs=scratch_specs,
         grid=grid,
-        rank_map=rank_map,
+        block_rank_map=jax_rank_map,
+        cyclic_rank_map=solver_rank_map,
         tile_shape=tile_shape,
         logical_rows=a.shape[0],
         logical_cols=a.shape[1],
@@ -465,7 +471,8 @@ def potrs_mp(
         matrix_specs=matrix_specs,
         scratch_specs=scratch_specs,
         grid=grid,
-        rank_map=rank_map,
+        block_rank_map=jax_rank_map,
+        cyclic_rank_map=solver_rank_map,
         tile_shape=tile_shape,
         logical_rows=b.shape[0],
         logical_cols=b.shape[1],
@@ -482,7 +489,7 @@ def potrs_mp(
         n=a.shape[0],
         nrhs=b.shape[1],
         tile_size=tile_shape.rows,
-        rank_map=rank_map,
+        rank_map=solver_rank_map,
     )
 
     b_solved_padded, scratch = _redistribute_from_cusolvermp(
@@ -492,7 +499,8 @@ def potrs_mp(
         matrix_specs=matrix_specs,
         scratch_specs=scratch_specs,
         grid=grid,
-        rank_map=rank_map,
+        block_rank_map=jax_rank_map,
+        cyclic_rank_map=solver_rank_map,
         tile_shape=tile_shape,
         logical_rows=b.shape[0],
         logical_cols=b.shape[1],

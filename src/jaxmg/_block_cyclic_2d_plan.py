@@ -59,15 +59,15 @@ class ProcessGrid:
 class ProcessRankMap:
     """Mapping from cuSOLVERMp process-grid coordinates to communicator ranks.
 
-    The first production cuSOLVERMp backend uses the row-major rank convention
-    required by the current native code and cuSOLVERMp grid descriptor:
+    cuSOLVERMp itself uses the dense row-major rank convention encoded by its
+    grid descriptor:
 
         rank = process_row * process_cols + process_col
 
-    This object makes that contract explicit.  It gives the Python wrapper a
-    single place to validate the rank order inferred from a JAX mesh, and it is
-    passed through to the native FFI boundary so future work can replace the
-    identity mapping without changing the public ``potrs_mp`` API again.
+    JAX meshes may use a different device order. This object makes the
+    coordinate-to-communicator-rank map explicit so the native redistribution
+    can translate from the JAX-facing block-sharded layout into the canonical
+    cuSOLVERMp layout, then translate the result back after the solve.
     """
 
     grid: ProcessGrid
