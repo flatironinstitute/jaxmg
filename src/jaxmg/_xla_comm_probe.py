@@ -1875,8 +1875,6 @@ def _xla_rect_2d_native_plan_impl(
     process_rows: int,
     process_cols: int,
     rank_map=None,
-    source_rank_map=None,
-    target_rank_map=None,
     tile_rows: int,
     tile_cols: int,
 ) -> tuple[Array, Array]:
@@ -1893,24 +1891,8 @@ def _xla_rect_2d_native_plan_impl(
         tile_rows=tile_rows,
         tile_cols=tile_cols,
     )
-    if rank_map is not None:
-        if source_rank_map is not None or target_rank_map is not None:
-            raise ValueError(
-                "rank_map cannot be combined with source_rank_map or "
-                "target_rank_map."
-            )
-        source_rank_map = rank_map
-        target_rank_map = rank_map
-    source_rank_array = _rank_map_attr(
-        "source_rank_map",
-        source_rank_map,
-        process_rows=process_rows,
-        process_cols=process_cols,
-        caller="xla_rect_2d_native_plan",
-    )
-    target_rank_array = _rank_map_attr(
-        "target_rank_map",
-        target_rank_map,
+    rank_array = _row_major_rank_map_attr(
+        rank_map,
         process_rows=process_rows,
         process_cols=process_cols,
         caller="xla_rect_2d_native_plan",
@@ -1931,8 +1913,7 @@ def _xla_rect_2d_native_plan_impl(
         ),
         process_rows=process_rows,
         process_cols=process_cols,
-        source_rank_map=source_rank_array,
-        target_rank_map=target_rank_array,
+        rank_map=rank_array,
         tile_rows=tile_rows,
         tile_cols=tile_cols,
     )
@@ -1946,8 +1927,6 @@ def xla_rect_2d_native_plan(
     process_rows: int,
     process_cols: int,
     rank_map=None,
-    source_rank_map=None,
-    target_rank_map=None,
     tile_rows: int,
     tile_cols: int,
 ) -> tuple[Array, Array]:
@@ -1963,8 +1942,6 @@ def xla_rect_2d_native_plan(
         process_rows=process_rows,
         process_cols=process_cols,
         rank_map=rank_map,
-        source_rank_map=source_rank_map,
-        target_rank_map=target_rank_map,
         tile_rows=tile_rows,
         tile_cols=tile_cols,
     )
@@ -1980,8 +1957,6 @@ def xla_rect_2d_native_plan_shardmap(
     process_rows: int,
     process_cols: int,
     rank_map=None,
-    source_rank_map=None,
-    target_rank_map=None,
     tile_rows: int,
     tile_cols: int,
 ) -> tuple[Array, Array]:
@@ -2004,8 +1979,6 @@ def xla_rect_2d_native_plan_shardmap(
             process_rows=process_rows,
             process_cols=process_cols,
             rank_map=rank_map,
-            source_rank_map=source_rank_map,
-            target_rank_map=target_rank_map,
             tile_rows=tile_rows,
             tile_cols=tile_cols,
         )
@@ -2020,8 +1993,6 @@ def _xla_rect_padded_2d_native_plan_impl(
     process_rows: int,
     process_cols: int,
     rank_map=None,
-    block_rank_map=None,
-    cyclic_rank_map=None,
     tile_rows: int,
     tile_cols: int,
     logical_rows: int,
@@ -2045,24 +2016,8 @@ def _xla_rect_padded_2d_native_plan_impl(
         logical_rows=logical_rows,
         logical_cols=logical_cols,
     )
-    if rank_map is not None:
-        if block_rank_map is not None or cyclic_rank_map is not None:
-            raise ValueError(
-                "rank_map cannot be combined with block_rank_map or "
-                "cyclic_rank_map."
-            )
-        block_rank_map = rank_map
-        cyclic_rank_map = rank_map
-    block_rank_array = _rank_map_attr(
-        "block_rank_map",
-        block_rank_map,
-        process_rows=process_rows,
-        process_cols=process_cols,
-        caller="xla_rect_padded_2d_native_plan",
-    )
-    cyclic_rank_array = _rank_map_attr(
-        "cyclic_rank_map",
-        cyclic_rank_map,
+    rank_array = _row_major_rank_map_attr(
+        rank_map,
         process_rows=process_rows,
         process_cols=process_cols,
         caller="xla_rect_padded_2d_native_plan",
@@ -2083,8 +2038,7 @@ def _xla_rect_padded_2d_native_plan_impl(
         ),
         process_rows=process_rows,
         process_cols=process_cols,
-        block_rank_map=block_rank_array,
-        cyclic_rank_map=cyclic_rank_array,
+        rank_map=rank_array,
         tile_rows=tile_rows,
         tile_cols=tile_cols,
         logical_rows=logical_rows,
@@ -2101,8 +2055,6 @@ def xla_rect_padded_2d_native_plan(
     process_rows: int,
     process_cols: int,
     rank_map=None,
-    block_rank_map=None,
-    cyclic_rank_map=None,
     tile_rows: int,
     tile_cols: int,
     logical_rows: int,
@@ -2116,8 +2068,6 @@ def xla_rect_padded_2d_native_plan(
         process_rows=process_rows,
         process_cols=process_cols,
         rank_map=rank_map,
-        block_rank_map=block_rank_map,
-        cyclic_rank_map=cyclic_rank_map,
         tile_rows=tile_rows,
         tile_cols=tile_cols,
         logical_rows=logical_rows,
@@ -2136,8 +2086,6 @@ def xla_rect_padded_2d_native_plan_shardmap(
     process_rows: int,
     process_cols: int,
     rank_map=None,
-    block_rank_map=None,
-    cyclic_rank_map=None,
     tile_rows: int,
     tile_cols: int,
     logical_rows: int,
@@ -2163,8 +2111,6 @@ def xla_rect_padded_2d_native_plan_shardmap(
             process_rows=process_rows,
             process_cols=process_cols,
             rank_map=rank_map,
-            block_rank_map=block_rank_map,
-            cyclic_rank_map=cyclic_rank_map,
             tile_rows=tile_rows,
             tile_cols=tile_cols,
             logical_rows=logical_rows,

@@ -57,17 +57,16 @@ class ProcessGrid:
 
 @dataclass(frozen=True)
 class ProcessRankMap:
-    """Mapping from cuSOLVERMp process-grid coordinates to communicator ranks.
+    """Row-major mapping from cuSOLVERMp process-grid coordinates to ranks.
 
     cuSOLVERMp itself uses the dense row-major rank convention encoded by its
     grid descriptor:
 
         rank = process_row * process_cols + process_col
 
-    JAX meshes may use a different device order. This object makes the
-    coordinate-to-communicator-rank map explicit so the native redistribution
-    can translate from the JAX-facing block-sharded layout into the canonical
-    cuSOLVERMp layout, then translate the result back after the solve.
+    JAXMg requires the user-facing JAX mesh to follow that same device order.
+    The object remains explicit at Python/native boundaries so validation can
+    fail early with a readable error if a permuted mesh is supplied.
     """
 
     grid: ProcessGrid
@@ -102,10 +101,14 @@ class ProcessRankMap:
 
     def require_row_major_identity(self, caller: str) -> None:
         if not self.is_row_major_identity:
-            raise NotImplementedError(
-                f"{caller} currently requires the JAX mesh device order to match "
+            raise ValueError(
+                f"{caller} requires the JAX mesh device order to match "
                 "cuSOLVERMp row-major communicator rank order. Got process-grid "
-                f"rank map {self.ranks}."
+                f"rank map {self.ranks}. Construct the mesh with devices in "
+                "row-major order, for example "
+                "Mesh(np.asarray(jax.devices()).reshape(process_rows, "
+                "process_cols), axis_names), or use jax.make_mesh only when "
+                "the resulting mesh has row-major device order."
             )
 
 

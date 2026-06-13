@@ -767,12 +767,12 @@ def test_process_rank_map_rejects_invalid_permutation():
         ProcessRankMap(grid=grid, ranks=(0, 1, 1, 3))
 
 
-def test_process_rank_map_accepts_non_identity_for_redistribution():
+def test_process_rank_map_rejects_non_identity_for_execution():
     grid = ProcessGrid(process_rows=2, process_cols=2)
     rank_map = ProcessRankMap(grid=grid, ranks=(0, 2, 1, 3))
 
     assert not rank_map.is_row_major_identity
     assert rank_map.rank(0, 1) == 2
     assert rank_map.rank(1, 0) == 1
-    with pytest.raises(NotImplementedError, match="row-major"):
+    with pytest.raises(ValueError, match="row-major"):
         rank_map.require_row_major_identity("cusolvermp_potrs")
