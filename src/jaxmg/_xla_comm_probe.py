@@ -382,6 +382,11 @@ def _rank_map_attr(
     if rank_map is None:
         rank_array = np.arange(num_ranks, dtype=np.int64)
     else:
+        # Public helpers pass ProcessRankMap instances, while lower-level
+        # diagnostic callers often pass a plain sequence.  Keep the FFI
+        # boundary permissive and normalize both forms here.
+        if hasattr(rank_map, "ranks"):
+            rank_map = rank_map.ranks
         rank_array = _as_i64_attr(name, rank_map)
     if rank_array.shape != (num_ranks,):
         raise ValueError(
