@@ -194,9 +194,18 @@ def _validate_status(status, *, case: MappingCase) -> None:
     status_codes = {int(row[0]) for _, row in rows}
     if status_codes != {0}:
         raise AssertionError(f"{case.name}: non-zero status codes {status_codes}")
-    for rank, row in rows:
-        if int(row[2]) != rank:
-            raise AssertionError(f"{case.name}: row rank mismatch {row[2]} != {rank}")
+    for process_slot, row in rows:
+        process_row = process_slot // case.process_cols
+        process_col = process_slot % case.process_cols
+        expected_rank = (
+            process_slot
+            if case.grid_mapping == "row_major"
+            else process_col * case.process_rows + process_row
+        )
+        if int(row[2]) != expected_rank:
+            raise AssertionError(
+                f"{case.name}: row rank mismatch {row[2]} != {expected_rank}"
+            )
         if int(row[3]) != case.num_devices:
             raise AssertionError(f"{case.name}: rank count mismatch row={row}")
         if int(row[4]) != case.process_rows or int(row[5]) != case.process_cols:
