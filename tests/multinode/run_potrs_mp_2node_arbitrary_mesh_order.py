@@ -1,4 +1,4 @@
-"""Two-node validation for arbitrary JAX mesh device order.
+"""Distributed validation for arbitrary JAX mesh device order.
 
 The normal cuSOLVERMp helper creates a row-major JAX mesh so its logical
 process-grid coordinates match cuSOLVERMp's dense communicator ranks.  Real
@@ -9,10 +9,11 @@ that:
   * list devices in a non-row-major order; and
   * use arbitrary axis names.
 
-This driver exercises that public JAX workflow.  JAXMg should infer the mesh
-from ``A.sharding``, translate from the JAX-facing mesh order to the canonical
-cuSOLVERMp rank order for the native solve, then translate the result back to
-the original JAX mesh order.
+This driver exercises that public JAX workflow on either one 4-GPU node or a
+two-node allocation.  JAXMg should infer the mesh from ``A.sharding``,
+translate from the JAX-facing mesh order to the canonical cuSOLVERMp rank order
+for the native solve, then translate the result back to the original JAX mesh
+order.
 """
 
 from __future__ import annotations
@@ -382,8 +383,10 @@ def main() -> None:
             local_device_count=jax.local_device_count(),
             global_device_count=jax.device_count(),
         )
-        if jax.process_count() != 2:
-            raise AssertionError(f"expected 2 JAX processes, got {jax.process_count()}")
+        if jax.process_count() < 1:
+            raise AssertionError(
+                f"expected at least 1 JAX process, got {jax.process_count()}"
+            )
         if jax.local_device_count() < 2:
             raise AssertionError(
                 f"expected at least 2 local GPUs per process, got "
