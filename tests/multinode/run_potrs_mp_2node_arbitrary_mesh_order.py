@@ -40,6 +40,7 @@ class ArbitraryMeshCase:
     nrhs: int
     tile: int
     dtype: str
+    min_global_devices: int
     selector: Callable[[Sequence[object]], list[object]]
 
 
@@ -97,7 +98,25 @@ def _canonical_devices(devices: Sequence[object]) -> list[object]:
     return sorted(devices, key=_device_sort_key)
 
 
-def _select_permuted_2x2(devices: Sequence[object]) -> list[object]:
+def _select_permuted_2x2_4g(devices: Sequence[object]) -> list[object]:
+    ordered = _canonical_devices(devices)
+    base = [ordered[0], ordered[1], ordered[2], ordered[3]]
+    return [base[0], base[2], base[1], base[3]]
+
+
+def _select_permuted_1x4_4g(devices: Sequence[object]) -> list[object]:
+    ordered = _canonical_devices(devices)
+    base = [ordered[0], ordered[1], ordered[2], ordered[3]]
+    return [base[2], base[0], base[3], base[1]]
+
+
+def _select_permuted_4x1_4g(devices: Sequence[object]) -> list[object]:
+    ordered = _canonical_devices(devices)
+    base = [ordered[0], ordered[1], ordered[2], ordered[3]]
+    return [base[3], base[1], base[0], base[2]]
+
+
+def _select_permuted_2x2_8g(devices: Sequence[object]) -> list[object]:
     ordered = _canonical_devices(devices)
     base = [ordered[0], ordered[1], ordered[4], ordered[5]]
     return [base[0], base[2], base[1], base[3]]
@@ -109,13 +128,13 @@ def _select_noncontiguous_2x2(devices: Sequence[object]) -> list[object]:
     return [base[0], base[1], base[3], base[2]]
 
 
-def _select_permuted_1x4(devices: Sequence[object]) -> list[object]:
+def _select_permuted_1x4_8g(devices: Sequence[object]) -> list[object]:
     ordered = _canonical_devices(devices)
     base = [ordered[0], ordered[2], ordered[4], ordered[6]]
     return [base[2], base[0], base[3], base[1]]
 
 
-def _select_permuted_4x1(devices: Sequence[object]) -> list[object]:
+def _select_permuted_4x1_8g(devices: Sequence[object]) -> list[object]:
     ordered = _canonical_devices(devices)
     base = [ordered[1], ordered[3], ordered[5], ordered[7]]
     return [base[3], base[1], base[0], base[2]]
@@ -205,48 +224,101 @@ def _assert_addressable_shards_close(
     _emit("case_solution_checked", name=case.name, shards=checked)
 
 
-def _cases() -> list[ArbitraryMeshCase]:
-    return [
+def _cases(global_device_count: int) -> list[ArbitraryMeshCase]:
+    """Return the arbitrary-mesh cases supported by the allocated job.
+
+    The full stress test uses eight global devices so it can cover
+    non-contiguous selected device ids as well as permutations.  CSD3 often
+    has two-node, two-GPU allocations available sooner, so the first three
+    cases are intentionally four-device checks.  They still construct direct
+    JAX meshes with non-row-major device order and arbitrary axis names, which
+    is the production behavior we need to support.
+    """
+    cases = [
         ArbitraryMeshCase(
-            "permuted_2x2_f64_padded",
+            "permuted_2x2_f64_padded_4g",
             2,
             2,
             20,
             12,
             4,
             "float64",
-            _select_permuted_2x2,
-        ),
-        ArbitraryMeshCase(
-            "noncontiguous_2x2_c128_padded",
-            2,
-            2,
-            20,
-            8,
             4,
-            "complex128",
-            _select_noncontiguous_2x2,
+            _select_permuted_2x2_4g,
         ),
         ArbitraryMeshCase(
-            "permuted_1x4_f32_aligned",
+            "permuted_1x4_f32_aligned_4g",
             1,
             4,
             16,
             8,
             4,
             "float32",
-            _select_permuted_1x4,
+            4,
+            _select_permuted_1x4_4g,
         ),
         ArbitraryMeshCase(
-            "permuted_4x1_f64_aligned",
+            "permuted_4x1_f64_aligned_4g",
             4,
             1,
             16,
             4,
             4,
             "float64",
-            _select_permuted_4x1,
+            4,
+            _select_permuted_4x1_4g,
         ),
+    ]
+    cases.extend(
+        [
+            ArbitraryMeshCase(
+                "permuted_2x2_f64_padded_8g",
+                2,
+                2,
+                20,
+                12,
+                4,
+                "float64",
+                8,
+                _select_permuted_2x2_8g,
+            ),
+            ArbitraryMeshCase(
+                "noncontiguous_2x2_c128_padded_8g",
+                2,
+                2,
+                20,
+                8,
+                4,
+                "complex128",
+                8,
+                _select_noncontiguous_2x2,
+            ),
+            ArbitraryMeshCase(
+                "permuted_1x4_f32_aligned_8g",
+                1,
+                4,
+                16,
+                8,
+                4,
+                "float32",
+                8,
+                _select_permuted_1x4_8g,
+            ),
+            ArbitraryMeshCase(
+                "permuted_4x1_f64_aligned_8g",
+                4,
+                1,
+                16,
+                4,
+                4,
+                "float64",
+                8,
+                _select_permuted_4x1_8g,
+            ),
+        ]
+    )
+    return [
+        case for case in cases if case.min_global_devices <= global_device_count
     ]
 
 
@@ -312,14 +384,23 @@ def main() -> None:
         )
         if jax.process_count() != 2:
             raise AssertionError(f"expected 2 JAX processes, got {jax.process_count()}")
-        if jax.local_device_count() != 4:
+        if jax.local_device_count() < 2:
             raise AssertionError(
-                f"expected 4 local GPUs per process, got {jax.local_device_count()}"
+                f"expected at least 2 local GPUs per process, got "
+                f"{jax.local_device_count()}"
             )
-        if len(devices) != 8:
-            raise AssertionError(f"expected 8 global devices, got {len(devices)}")
+        if len(devices) < 4:
+            raise AssertionError(f"expected at least 4 global devices, got {len(devices)}")
 
-        for case in _cases():
+        selected_cases = _cases(len(devices))
+        if not selected_cases:
+            raise AssertionError(f"no arbitrary-mesh cases for {len(devices)} devices")
+        _emit(
+            "selected_cases",
+            global_device_count=len(devices),
+            names=[case.name for case in selected_cases],
+        )
+        for case in selected_cases:
             _run_case(case, devices)
 
         _emit("success")
