@@ -105,13 +105,14 @@ def _process_rank_map_from_mesh(
     col_axis: str,
     grid: ProcessGrid,
 ) -> ProcessRankMap:
-    """Validate that a JAX mesh follows cuSOLVERMp row-major rank order.
+    """Validate that a JAX mesh follows a cuSOLVERMp grid rank order.
 
     Users can construct the mesh with normal JAX APIs, including
     ``jax.make_mesh`` or ``jax.sharding.Mesh``.  JAXMg then checks the actual
     device array attached to that mesh.  The solve currently requires the
-    matrix row/column axes to enumerate devices in the same row-major order as
-    the communicator ranks used by the native backend and cuSOLVERMp.
+    matrix row/column axes to enumerate devices in either row-major or
+    column-major order, because those are the two mappings cuSOLVERMp can
+    describe when creating its process grid.
     """
     axis_names = tuple(mesh.axis_names)
     if row_axis not in axis_names or col_axis not in axis_names:
@@ -160,7 +161,7 @@ def _process_rank_map_from_mesh(
             rank_by_device[_device_rank_key(device)] for device in process_devices
         ),
     )
-    rank_map.require_row_major_identity("potrs_mp")
+    rank_map.require_cusolvermp_grid_mapping("potrs_mp")
     return rank_map
 
 
@@ -347,9 +348,9 @@ def potrs_mp(
     the solved RHS back to the original block-sharded layout.
 
     By default, the process grid is inferred from the ``NamedSharding`` attached
-    to ``a``.  The row-major order of that mesh is used as the cuSOLVERMp rank
-    order: rank = process_row * process_cols + process_col.  That must match
-    the row-major cuSOLVERMp grid descriptor used natively.
+    to ``a``.  The device order of that mesh must match either cuSOLVERMp's
+    row-major process-grid mapping or its column-major process-grid mapping.
+    Exotic mesh permutations are rejected before native code runs.
 
     Args:
         a: Square Hermitian/symmetric positive-definite matrix, normally
@@ -480,6 +481,7 @@ def potrs_mp(
         nrhs=b.shape[1],
         tile_size=tile_shape.rows,
         rank_map=rank_map,
+        grid_mapping=rank_map.cusolvermp_grid_mapping,
     )
 
     b_solved_padded, scratch = _redistribute_from_cusolvermp(

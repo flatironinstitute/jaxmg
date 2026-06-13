@@ -400,18 +400,18 @@ def _rank_map_attr(
     return np.ascontiguousarray(rank_array)
 
 
-def _row_major_rank_map_attr(
+def _standard_grid_rank_map_attr(
     rank_map,
     *,
     process_rows: int,
     process_cols: int,
     caller: str,
 ) -> np.ndarray:
-    """Validate a cuSOLVERMp grid rank map.
+    """Validate a cuSOLVERMp-expressible process-grid rank map.
 
-    cuSOLVERMp receives a dense row-major process grid.  Arbitrary JAX mesh
-    orders are handled by the redistribution layer before and after the solver,
-    not by passing an arbitrary rank map to cuSOLVERMp.
+    cuSOLVERMp can describe row-major and column-major rank assignment for its
+    process grid.  JAXMg accepts exactly those two layouts and rejects arbitrary
+    mesh permutations before native code runs.
     """
     rank_array = _rank_map_attr(
         "rank_map",
@@ -422,12 +422,68 @@ def _row_major_rank_map_attr(
     )
     num_ranks = int(process_rows) * int(process_cols)
     row_major = np.arange(num_ranks, dtype=np.int64)
-    if not np.array_equal(rank_array, row_major):
+    column_major = np.asarray(
+        [
+            process_col * int(process_rows) + process_row
+            for process_row in range(int(process_rows))
+            for process_col in range(int(process_cols))
+        ],
+        dtype=np.int64,
+    )
+    if not np.array_equal(rank_array, row_major) and not np.array_equal(
+        rank_array, column_major
+    ):
         raise NotImplementedError(
-            f"{caller} currently supports only row-major cuSOLVERMp rank maps. "
-            f"Got {rank_array.tolist()}."
+            f"{caller} supports only row-major or column-major cuSOLVERMp "
+            f"rank maps. Got {rank_array.tolist()}."
         )
     return np.ascontiguousarray(rank_array)
+
+
+def _cusolvermp_grid_mapping_attr(
+    rank_map,
+    grid_mapping,
+    *,
+    process_rows: int,
+    process_cols: int,
+    caller: str,
+) -> int:
+    """Return the cuSOLVERMp grid mapping enum for a validated rank map."""
+    rank_array = _standard_grid_rank_map_attr(
+        rank_map,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        caller=caller,
+    )
+    if grid_mapping is None and hasattr(rank_map, "cusolvermp_grid_mapping"):
+        grid_mapping = rank_map.cusolvermp_grid_mapping
+    if grid_mapping is None:
+        row_major = np.arange(int(process_rows) * int(process_cols), dtype=np.int64)
+        grid_mapping = 1 if np.array_equal(rank_array, row_major) else 0
+    grid_mapping = int(grid_mapping)
+    if grid_mapping not in (0, 1):
+        raise ValueError(
+            f"{caller} grid_mapping must be 0 (column-major) or 1 (row-major), "
+            f"got {grid_mapping}."
+        )
+    expected = (
+        np.arange(int(process_rows) * int(process_cols), dtype=np.int64)
+        if grid_mapping == 1
+        else np.asarray(
+            [
+                process_col * int(process_rows) + process_row
+                for process_row in range(int(process_rows))
+                for process_col in range(int(process_cols))
+            ],
+            dtype=np.int64,
+        )
+    )
+    if not np.array_equal(rank_array, expected):
+        raise ValueError(
+            f"{caller} grid_mapping does not match rank_map. "
+            f"grid_mapping={grid_mapping}, rank_map={rank_array.tolist()}."
+        )
+    return grid_mapping
 
 
 _RECT_JAX_LAYOUT = (1, 0)
@@ -902,6 +958,7 @@ def cusolvermp_potrs(
     process_rows: int,
     process_cols: int,
     rank_map=None,
+    grid_mapping=None,
     n: int,
     nrhs: int,
     tile_size: int,
@@ -934,8 +991,15 @@ def cusolvermp_potrs(
         raise ValueError("process_rows and process_cols must be positive.")
     if n <= 0 or nrhs <= 0 or tile_size <= 0:
         raise ValueError("n, nrhs, and tile_size must be positive.")
-    rank_array = _row_major_rank_map_attr(
+    rank_array = _standard_grid_rank_map_attr(
         rank_map,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        caller="cusolvermp_potrs",
+    )
+    grid_mapping = _cusolvermp_grid_mapping_attr(
+        rank_map,
+        grid_mapping,
         process_rows=process_rows,
         process_cols=process_cols,
         caller="cusolvermp_potrs",
@@ -958,6 +1022,7 @@ def cusolvermp_potrs(
         ),
         process_rows=process_rows,
         process_cols=process_cols,
+        grid_mapping=grid_mapping,
         rank_map=rank_array,
         n=n,
         nrhs=nrhs,
@@ -976,6 +1041,7 @@ def cusolvermp_potrs_shardmap(
     process_rows: int,
     process_cols: int,
     rank_map=None,
+    grid_mapping=None,
     n: int,
     nrhs: int,
     tile_size: int,
@@ -999,6 +1065,7 @@ def cusolvermp_potrs_shardmap(
             process_rows=process_rows,
             process_cols=process_cols,
             rank_map=rank_map,
+            grid_mapping=grid_mapping,
             n=n,
             nrhs=nrhs,
             tile_size=tile_size,
@@ -1891,7 +1958,7 @@ def _xla_rect_2d_native_plan_impl(
         tile_rows=tile_rows,
         tile_cols=tile_cols,
     )
-    rank_array = _row_major_rank_map_attr(
+    rank_array = _standard_grid_rank_map_attr(
         rank_map,
         process_rows=process_rows,
         process_cols=process_cols,
@@ -2016,7 +2083,7 @@ def _xla_rect_padded_2d_native_plan_impl(
         logical_rows=logical_rows,
         logical_cols=logical_cols,
     )
-    rank_array = _row_major_rank_map_attr(
+    rank_array = _standard_grid_rank_map_attr(
         rank_map,
         process_rows=process_rows,
         process_cols=process_cols,

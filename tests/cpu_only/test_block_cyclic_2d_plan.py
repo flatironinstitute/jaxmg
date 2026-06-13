@@ -757,7 +757,25 @@ def test_process_rank_map_row_major_identity():
     assert rank_map.ranks == (0, 1, 2, 3, 4, 5)
     assert rank_map.rank(1, 2) == 5
     assert rank_map.is_row_major_identity
+    assert not rank_map.is_column_major_identity
+    assert rank_map.grid_mapping == "row_major"
+    assert rank_map.cusolvermp_grid_mapping == 1
     rank_map.require_row_major_identity("test")
+    rank_map.require_cusolvermp_grid_mapping("test")
+
+
+def test_process_rank_map_column_major_identity():
+    grid = ProcessGrid(process_rows=2, process_cols=3)
+    rank_map = ProcessRankMap.column_major(grid)
+
+    assert rank_map.ranks == (0, 2, 4, 1, 3, 5)
+    assert rank_map.rank(0, 1) == 2
+    assert rank_map.rank(1, 0) == 1
+    assert not rank_map.is_row_major_identity
+    assert rank_map.is_column_major_identity
+    assert rank_map.grid_mapping == "column_major"
+    assert rank_map.cusolvermp_grid_mapping == 0
+    rank_map.require_cusolvermp_grid_mapping("test")
 
 
 def test_process_rank_map_rejects_invalid_permutation():
@@ -767,12 +785,16 @@ def test_process_rank_map_rejects_invalid_permutation():
         ProcessRankMap(grid=grid, ranks=(0, 1, 1, 3))
 
 
-def test_process_rank_map_rejects_non_identity_for_execution():
-    grid = ProcessGrid(process_rows=2, process_cols=2)
-    rank_map = ProcessRankMap(grid=grid, ranks=(0, 2, 1, 3))
+def test_process_rank_map_rejects_exotic_mapping_for_execution():
+    grid = ProcessGrid(process_rows=2, process_cols=3)
+    rank_map = ProcessRankMap(grid=grid, ranks=(0, 1, 3, 2, 4, 5))
 
     assert not rank_map.is_row_major_identity
-    assert rank_map.rank(0, 1) == 2
-    assert rank_map.rank(1, 0) == 1
+    assert not rank_map.is_column_major_identity
+    assert rank_map.grid_mapping is None
     with pytest.raises(ValueError, match="row-major"):
         rank_map.require_row_major_identity("cusolvermp_potrs")
+    with pytest.raises(ValueError, match="row-major or column-major"):
+        rank_map.require_cusolvermp_grid_mapping("cusolvermp_potrs")
+    with pytest.raises(ValueError, match="not a cuSOLVERMp-supported"):
+        _ = rank_map.cusolvermp_grid_mapping

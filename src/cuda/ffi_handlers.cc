@@ -386,6 +386,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<int64_t>("n")
         .Attr<int64_t>("nrhs")
         .Attr<int64_t>("tile_size")
+        .Attr<int64_t>("grid_mapping")
         .Attr<absl::Span<const int64_t>>("rank_map")
         .Arg<ffi::AnyBuffer>()
         .Arg<ffi::AnyBuffer>()

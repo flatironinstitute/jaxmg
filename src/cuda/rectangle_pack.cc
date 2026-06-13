@@ -100,21 +100,35 @@ absl::Status ValidateBorrowedNcclComm(const char* caller, ncclComm_t comm,
   return absl::OkStatus();
 }
 
-absl::Status ValidateRowMajorRankMap(const char* caller,
-                                     absl::Span<const int64_t> rank_map,
-                                     int64_t num_ranks) {
+absl::Status ValidateStandardGridRankMap(const char* caller,
+                                         absl::Span<const int64_t> rank_map,
+                                         int64_t process_rows,
+                                         int64_t process_cols) {
+  const int64_t num_ranks = process_rows * process_cols;
   if (rank_map.size() != static_cast<size_t>(num_ranks)) {
     return absl::InvalidArgumentError(absl::StrFormat(
         "%s expected rank_map length %d, got %d", caller, num_ranks,
         rank_map.size()));
   }
+  bool row_major = true;
+  bool column_major = true;
   for (int64_t process_rank = 0; process_rank < num_ranks; ++process_rank) {
     const int64_t communicator_rank = rank_map[process_rank];
-    if (communicator_rank != process_rank) {
+    const int64_t process_row = process_rank / process_cols;
+    const int64_t process_col = process_rank % process_cols;
+    const int64_t column_major_rank = process_col * process_rows + process_row;
+    row_major = row_major && communicator_rank == process_rank;
+    column_major = column_major && communicator_rank == column_major_rank;
+    if (communicator_rank < 0 || communicator_rank >= num_ranks) {
       return absl::InvalidArgumentError(absl::StrFormat(
-          "%s requires row-major rank_map[%d]=%d, got %d", caller,
-          process_rank, process_rank, communicator_rank));
+          "%s rank_map[%d]=%d is outside [0, %d)", caller, process_rank,
+          communicator_rank, num_ranks));
     }
+  }
+  if (!row_major && !column_major) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s requires a row-major or column-major cuSOLVERMp rank_map",
+        caller));
   }
   return absl::OkStatus();
 }
@@ -1544,8 +1558,8 @@ absl::Status Rect2DNativePlanDispatchImpl(
         "xla_rect_2d_native_plan grid %d x %d does not match clique size %d",
         process_rows, process_cols, num_ranks));
   }
-  JAXMG_RETURN_IF_ERROR(ValidateRowMajorRankMap(
-      "xla_rect_2d_native_plan", rank_map, num_ranks));
+  JAXMG_RETURN_IF_ERROR(ValidateStandardGridRankMap(
+      "xla_rect_2d_native_plan", rank_map, process_rows, process_cols));
 
   std::optional<RankId> rank =
       clique_key->rank(collective_params->global_device_id);
@@ -1668,8 +1682,9 @@ absl::Status RectPadded2DNativePlanDispatchImpl(
         "size %d",
         process_rows, process_cols, num_ranks));
   }
-  JAXMG_RETURN_IF_ERROR(ValidateRowMajorRankMap(
-      "xla_rect_padded_2d_native_plan", rank_map, num_ranks));
+  JAXMG_RETURN_IF_ERROR(ValidateStandardGridRankMap(
+      "xla_rect_padded_2d_native_plan", rank_map, process_rows,
+      process_cols));
 
   std::optional<RankId> rank =
       clique_key->rank(collective_params->global_device_id);

@@ -1,15 +1,13 @@
 """Distributed launch helpers for the cuSOLVERMp backend.
 
 The cuSOLVERMp path has a stricter launch contract than ordinary local JAXMg
-usage. The native solver assumes that the row-major order of the JAX device mesh
-is the same row-major process-grid order passed to cuSOLVERMp:
+usage. The native solver accepts only the two regular process-grid mappings
+that cuSOLVERMp can describe: row-major and column-major. This module provides
+the row-major convenience mesh used by most tests and examples.
 
-    rank = process_row * process_cols + process_col
-
-This module keeps that contract explicit. In particular, the first multi-node
-target is one Python process per node, with that process controlling every GPU
-on the node. Some Slurm/Open MPI JAX launch modes default to one visible device
-per process unless ``local_device_ids`` is passed to
+The first multi-node target is one Python process per node, with that process
+controlling every GPU on the node. Some Slurm/Open MPI JAX launch modes default
+to one visible device per process unless ``local_device_ids`` is passed to
 ``jax.distributed.initialize``. ``initialize_node_process`` therefore infers the
 local GPU ids from the scheduler environment and passes them explicitly before
 any JAX computation is allowed to initialize the backend.

@@ -324,7 +324,9 @@ def execute_tile_aligned_native_2d_plan_shardmap(
         rank_map = ProcessRankMap.row_major(grid)
     if rank_map.grid != grid:
         raise ValueError("rank_map must match the execution grid.")
-    rank_map.require_row_major_identity("execute_tile_aligned_native_2d_plan_shardmap")
+    rank_map.require_cusolvermp_grid_mapping(
+        "execute_tile_aligned_native_2d_plan_shardmap"
+    )
     tile_rows = int(tile_rows)
     tile_cols = int(tile_cols)
     if tile_rows <= 0 or tile_cols <= 0:
@@ -387,7 +389,9 @@ def execute_padded_block_cyclic_2d_shardmap(
         rank_map = ProcessRankMap.row_major(grid)
     if rank_map.grid != grid:
         raise ValueError("rank_map must match the execution grid.")
-    rank_map.require_row_major_identity("execute_padded_block_cyclic_2d_shardmap")
+    rank_map.require_cusolvermp_grid_mapping(
+        "execute_padded_block_cyclic_2d_shardmap"
+    )
     tile_shape = TileShape(rows=int(tile_rows), cols=int(tile_cols))
     compaction_plan = build_edge_padding_compaction_plan(
         logical_rows=logical_rows,
@@ -461,7 +465,7 @@ def execute_reverse_padded_block_cyclic_2d_shardmap(
         rank_map = ProcessRankMap.row_major(grid)
     if rank_map.grid != grid:
         raise ValueError("rank_map must match the execution grid.")
-    rank_map.require_row_major_identity(
+    rank_map.require_cusolvermp_grid_mapping(
         "execute_reverse_padded_block_cyclic_2d_shardmap"
     )
     tile_shape = TileShape(rows=int(tile_rows), cols=int(tile_cols))

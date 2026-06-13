@@ -2,7 +2,7 @@
 
 This driver answers a narrow API question: if users build their process grid
 with native JAX mesh construction, does the resulting ``mesh.devices`` order
-match JAXMg/cuSOLVERMp's row-major process-grid contract?
+match one of JAXMg/cuSOLVERMp's supported process-grid mappings?
 
 For grids that consume all eight devices in the two-node test job, the script
 calls ``jax.make_mesh(shape, axis_names)`` directly.  For smaller grids, JAX
@@ -11,8 +11,9 @@ requires an explicit subset of devices, so the script calls
 native JAX APIs.  No JAXMg mesh helper is used.
 
 Each compatible layout is then used for a small padded ``potrs_mp`` solve.
-If JAX chooses a non-row-major mesh order, the script records the layout and
-verifies that ``potrs_mp`` rejects it before native redistribution.
+If JAX chooses an exotic mesh order that is neither row-major nor column-major,
+the script records the layout and verifies that ``potrs_mp`` rejects it before
+native redistribution.
 """
 
 from __future__ import annotations
@@ -159,10 +160,25 @@ def _mesh_flat_devices(mesh) -> list[object]:
     return list(np.asarray(mesh.devices, dtype=object).reshape(-1))
 
 
-def _is_row_major_mesh(mesh, canonical: Sequence[object]) -> bool:
+def _mesh_grid_mapping(
+    mesh,
+    canonical: Sequence[object],
+    *,
+    process_rows: int,
+    process_cols: int,
+) -> str | None:
     mesh_keys = [_device_sort_key(device) for device in _mesh_flat_devices(mesh)]
     canonical_keys = [_device_sort_key(device) for device in canonical]
-    return mesh_keys == canonical_keys
+    if mesh_keys == canonical_keys:
+        return "row_major"
+    column_major_keys = [
+        canonical_keys[process_col * process_rows + process_row]
+        for process_row in range(process_rows)
+        for process_col in range(process_cols)
+    ]
+    if mesh_keys == column_major_keys:
+        return "column_major"
+    return None
 
 
 def _spd_matrix(n: int) -> np.ndarray:
@@ -242,7 +258,12 @@ def _run_case(case: MeshCase, devices: Sequence[object]) -> None:
         construction = "jax.make_mesh_devices"
 
     canonical = _canonical_devices(selected)
-    is_row_major = _is_row_major_mesh(mesh, canonical)
+    grid_mapping = _mesh_grid_mapping(
+        mesh,
+        canonical,
+        process_rows=case.process_rows,
+        process_cols=case.process_cols,
+    )
     _emit(
         "case_layout",
         name=case.name,
@@ -255,7 +276,8 @@ def _run_case(case: MeshCase, devices: Sequence[object]) -> None:
         selected_devices=_device_payload(selected),
         mesh_devices=_device_payload(_mesh_flat_devices(mesh)),
         canonical_order=_device_payload(canonical),
-        row_major=is_row_major,
+        grid_mapping=grid_mapping,
+        supported_mapping=grid_mapping is not None,
     )
 
     sharding = NamedSharding(mesh, P("x", "y"))
@@ -265,15 +287,15 @@ def _run_case(case: MeshCase, devices: Sequence[object]) -> None:
     a = jax.device_put(jnp.asarray(a_host), sharding)
     b = jax.device_put(jnp.asarray(b_host), sharding)
 
-    if not is_row_major:
+    if grid_mapping is None:
         try:
             jaxmg.potrs_mp(a, b, T_A=case.tile, return_status=True)
         except ValueError as exc:
-            if "row-major" not in str(exc):
+            if "row-major or column-major" not in str(exc):
                 raise
-            _emit("case_rejected_non_row_major", name=case.name, error=str(exc))
+            _emit("case_rejected_exotic_mapping", name=case.name, error=str(exc))
             return
-        raise AssertionError(f"{case.name}: potrs_mp accepted non-row-major mesh")
+        raise AssertionError(f"{case.name}: potrs_mp accepted exotic mesh")
 
     out, status = jaxmg.potrs_mp(a, b, T_A=case.tile, return_status=True)
     _validate_status(status, case=case)

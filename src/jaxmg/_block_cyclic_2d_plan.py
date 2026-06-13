@@ -22,16 +22,17 @@ from typing import Literal
 
 RedistributionPhase = Literal["column_owner", "row_owner"]
 EdgePaddingPhase = Literal["horizontal", "vertical"]
+ProcessGridMapping = Literal["row_major", "column_major"]
 
 
 @dataclass(frozen=True)
 class ProcessGrid:
     """2D process grid used by a cuSOLVERMp descriptor.
 
-    The current planner maps ``(process_row, process_col)`` to a flat rank in
-    row-major order. A cuSOLVERMp caller must therefore create the device grid
-    with ``CUSOLVERMP_GRID_MAPPING_ROW_MAJOR`` unless this planner is extended to
-    carry an explicit grid-mapping choice.
+    ``rank`` returns the dense row-major slot used by Python lists and native
+    rank-map attributes.  cuSOLVERMp can map communicator ranks to the process
+    grid in either row-major or column-major order; JAXMg represents that choice
+    with :class:`ProcessRankMap`.
     """
 
     process_rows: int
@@ -57,16 +58,21 @@ class ProcessGrid:
 
 @dataclass(frozen=True)
 class ProcessRankMap:
-    """Row-major mapping from cuSOLVERMp process-grid coordinates to ranks.
+    """Supported mapping from process-grid coordinates to communicator ranks.
 
-    cuSOLVERMp itself uses the dense row-major rank convention encoded by its
-    grid descriptor:
+    ``ranks`` is indexed by the row-major process-grid slot
 
-        rank = process_row * process_cols + process_col
+        process_rank = process_row * process_cols + process_col
 
-    JAXMg requires the user-facing JAX mesh to follow that same device order.
-    The object remains explicit at Python/native boundaries so validation can
-    fail early with a readable error if a permuted mesh is supplied.
+    and stores the communicator rank located at that grid coordinate.  JAXMg
+    deliberately supports only the two dense layouts that cuSOLVERMp itself can
+    describe:
+
+    * row-major:    ``rank = process_row * process_cols + process_col``
+    * column-major: ``rank = process_col * process_rows + process_row``
+
+    Arbitrary JAX mesh permutations are rejected early because cuSOLVERMp cannot
+    express them with its grid descriptor.
     """
 
     grid: ProcessGrid
@@ -92,12 +98,51 @@ class ProcessRankMap:
     def row_major(cls, grid: ProcessGrid) -> "ProcessRankMap":
         return cls(grid=grid, ranks=tuple(range(grid.num_processes)))
 
+    @classmethod
+    def column_major(cls, grid: ProcessGrid) -> "ProcessRankMap":
+        return cls(
+            grid=grid,
+            ranks=tuple(
+                process_col * grid.process_rows + process_row
+                for process_row in range(grid.process_rows)
+                for process_col in range(grid.process_cols)
+            ),
+        )
+
     def rank(self, process_row: int, process_col: int) -> int:
         return self.ranks[self.grid.rank(process_row, process_col)]
 
     @property
     def is_row_major_identity(self) -> bool:
         return self.ranks == tuple(range(self.grid.num_processes))
+
+    @property
+    def is_column_major_identity(self) -> bool:
+        return self.ranks == ProcessRankMap.column_major(self.grid).ranks
+
+    @property
+    def grid_mapping(self) -> ProcessGridMapping | None:
+        if self.is_row_major_identity:
+            return "row_major"
+        if self.is_column_major_identity:
+            return "column_major"
+        return None
+
+    @property
+    def cusolvermp_grid_mapping(self) -> int:
+        """cuSOLVERMp enum value for the supported grid mapping.
+
+        NVIDIA's headers define ``CUSOLVERMP_GRID_MAPPING_COL_MAJOR = 0`` and
+        ``CUSOLVERMP_GRID_MAPPING_ROW_MAJOR = 1``.  The integer is passed as an
+        FFI attribute because the production backend dynamically loads
+        cuSOLVERMp and does not include ``cusolverMp.h`` directly.
+        """
+        mapping = self.grid_mapping
+        if mapping == "column_major":
+            return 0
+        if mapping == "row_major":
+            return 1
+        raise ValueError("rank map is not a cuSOLVERMp-supported grid mapping.")
 
     def require_row_major_identity(self, caller: str) -> None:
         if not self.is_row_major_identity:
@@ -109,6 +154,16 @@ class ProcessRankMap:
                 "Mesh(np.asarray(jax.devices()).reshape(process_rows, "
                 "process_cols), axis_names), or use jax.make_mesh only when "
                 "the resulting mesh has row-major device order."
+            )
+
+    def require_cusolvermp_grid_mapping(self, caller: str) -> None:
+        if self.grid_mapping is None:
+            raise ValueError(
+                f"{caller} requires the JAX mesh device order to match either "
+                "cuSOLVERMp row-major or column-major communicator rank order. "
+                f"Got process-grid rank map {self.ranks}. Construct the mesh "
+                "with a regular row-major or column-major device layout; "
+                "arbitrary mesh permutations are not supported."
             )
 
 

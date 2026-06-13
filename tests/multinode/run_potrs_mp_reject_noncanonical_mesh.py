@@ -1,11 +1,12 @@
-"""Validate that ``potrs_mp`` rejects non-row-major JAX mesh order.
+"""Validate that ``potrs_mp`` rejects exotic JAX mesh order.
 
 Users should build cuSOLVERMp inputs with ordinary JAX sharding APIs, for
 example ``jax.make_mesh`` or ``jax.sharding.Mesh``.  JAXMg intentionally keeps
 the production solver contract narrower than arbitrary JAX mesh permutations:
-the actual mesh device array must enumerate the process grid in row-major
-communicator order.  This driver checks that permuted meshes fail before the
-native redistribution or cuSOLVERMp solve is launched.
+the actual mesh device array must enumerate the process grid in row-major or
+column-major communicator order, matching cuSOLVERMp's grid mapping enum.  This
+driver checks that other permutations fail before native redistribution or the
+cuSOLVERMp solve is launched.
 """
 
 from __future__ import annotations
@@ -90,7 +91,7 @@ def _canonical_devices(devices: Sequence[object]) -> list[object]:
 def _select_permuted_2x2_4g(devices: Sequence[object]) -> list[object]:
     ordered = _canonical_devices(devices)
     base = [ordered[0], ordered[1], ordered[2], ordered[3]]
-    return [base[0], base[2], base[1], base[3]]
+    return [base[0], base[3], base[1], base[2]]
 
 
 def _select_permuted_1x4_4g(devices: Sequence[object]) -> list[object]:
@@ -104,7 +105,7 @@ def _select_permuted_across_nodes_2x2_8g(
 ) -> list[object]:
     ordered = _canonical_devices(devices)
     base = [ordered[0], ordered[1], ordered[4], ordered[5]]
-    return [base[0], base[2], base[1], base[3]]
+    return [base[0], base[3], base[1], base[2]]
 
 
 def _cases(global_device_count: int) -> list[NonCanonicalMeshCase]:
@@ -160,7 +161,7 @@ def _run_case(case: NonCanonicalMeshCase, devices: Sequence[object]) -> None:
     try:
         jaxmg.potrs_mp(a, b, T_A=4)
     except ValueError as exc:
-        if "row-major" not in str(exc):
+        if "row-major or column-major" not in str(exc):
             raise
         _emit("case_success", name=case.name, error=str(exc))
         return

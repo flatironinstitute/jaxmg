@@ -23,7 +23,8 @@
 // File workflow:
 //   1. Request an all-assigned XLA GPU communicator for the active FFI call.
 //   2. Borrow the raw NCCL handle stored inside XLA's GpuCommunicator.
-//   3. Create a cuSOLVERMp handle and row-major cuSOLVERMp process grid.
+//   3. Create a cuSOLVERMp handle and a row- or column-major cuSOLVERMp
+//      process grid matching the validated JAX mesh order.
 //   4. Create column-major local matrix descriptors over JAXMg device buffers.
 //   5. Run diagnostic probes that isolate initialization, scatter layout, and
 //      host-generated potrs inputs.
@@ -44,6 +45,7 @@
 #include <cstdlib>
 #include <dlfcn.h>
 #include <limits>
+#include <utility>
 #include <vector>
 
 #include "include/xla_comm_backend.h"
@@ -165,13 +167,28 @@ constexpr int kResidualScale = 1000000;
 //   CUSOLVERMP_GRID_MAPPING_ROW_MAJOR = 1
 //   CUSOLVERMP_GRID_MAPPING_COL_MAJOR = 0
 //
-// JAXMg's 2D planner currently uses row-major rank mapping:
-// rank = process_row * process_cols + process_col.
+// JAXMg accepts the two dense grid mappings that cuSOLVERMp itself can
+// describe.  The rank_map FFI attribute is indexed by row-major process-grid
+// slot and stores the communicator rank at that coordinate.
 constexpr int kCusolverMpGridMappingRowMajor = 1;
+constexpr int kCusolverMpGridMappingColMajor = 0;
 
-absl::Status ValidateRowMajorRankMap(const char* caller,
-                                     absl::Span<const int64_t> rank_map,
-                                     int64_t num_ranks) {
+absl::Status ValidateCusolverMpGridMapping(const char* caller,
+                                           int64_t grid_mapping) {
+  if (grid_mapping != kCusolverMpGridMappingColMajor &&
+      grid_mapping != kCusolverMpGridMappingRowMajor) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s grid_mapping must be 0 (column-major) or 1 (row-major), got %d",
+        caller, grid_mapping));
+  }
+  return absl::OkStatus();
+}
+
+absl::Status ValidateStandardRankMapForGridMapping(
+    const char* caller, absl::Span<const int64_t> rank_map,
+    int64_t process_rows, int64_t process_cols, int64_t grid_mapping) {
+  JAXMG_RETURN_IF_ERROR(ValidateCusolverMpGridMapping(caller, grid_mapping));
+  const int64_t num_ranks = process_rows * process_cols;
   if (rank_map.size() != static_cast<size_t>(num_ranks)) {
     return absl::InvalidArgumentError(absl::StrFormat(
         "%s expected rank_map length %d, got %d", caller, num_ranks,
@@ -191,14 +208,36 @@ absl::Status ValidateRowMajorRankMap(const char* caller,
           communicator_rank));
     }
     seen[communicator_rank] = true;
-    if (communicator_rank != process_rank) {
+    const int64_t process_row = process_rank / process_cols;
+    const int64_t process_col = process_rank % process_cols;
+    const int64_t expected =
+        grid_mapping == kCusolverMpGridMappingRowMajor
+            ? process_rank
+            : process_col * process_rows + process_row;
+    if (communicator_rank != expected) {
       return absl::UnimplementedError(absl::StrFormat(
-          "%s currently supports only row-major identity rank maps; "
-          "rank_map[%d]=%d",
-          caller, process_rank, communicator_rank));
+          "%s supports only rank maps matching the requested cuSOLVERMp "
+          "grid_mapping; rank_map[%d]=%d, expected %d",
+          caller, process_rank, communicator_rank, expected));
     }
   }
   return absl::OkStatus();
+}
+
+std::pair<int32_t, int32_t> ProcessCoordFromRank(int nccl_rank,
+                                                 int64_t process_rows,
+                                                 int64_t process_cols,
+                                                 int64_t grid_mapping) {
+  if (grid_mapping == kCusolverMpGridMappingRowMajor) {
+    return {
+        nccl_rank / static_cast<int32_t>(process_cols),
+        nccl_rank % static_cast<int32_t>(process_cols),
+    };
+  }
+  return {
+      nccl_rank % static_cast<int32_t>(process_rows),
+      nccl_rank / static_cast<int32_t>(process_rows),
+  };
 }
 
 template <typename Fn>
@@ -1662,7 +1701,7 @@ absl::Status XlaCusolverMpPotrsProbeDispatch(
       -1,
       -1,
       -1,
-      -1,
+      -1,  // cuSOLVERMp grid mapping: 0 column-major, 1 row-major.
   };
 
   int cuda_device = -1;
@@ -1845,9 +1884,9 @@ absl::Status XlaCusolverMpPotrsProbeDispatch(
 absl::Status CusolverMpDistributedPotrsDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
-    int64_t tile_size, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
-    ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_out,
-    ffi::Result<ffi::AnyBuffer> b_out,
+    int64_t tile_size, int64_t grid_mapping,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
+    ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques, bool validate_solution) {
@@ -1979,9 +2018,16 @@ absl::Status CusolverMpDistributedPotrsDispatchImpl(
     probe[0] = kGridShapeMismatch;
     return CopyPotrsProbeToDevice(stream, probe, status_out);
   }
+  absl::Status grid_mapping_status =
+      ValidateCusolverMpGridMapping("cusolvermp_potrs", grid_mapping);
+  if (!grid_mapping_status.ok()) {
+    return grid_mapping_status;
+  }
+  probe[39] = static_cast<int32_t>(grid_mapping);
   if (!rank_map.empty()) {
-    absl::Status rank_map_status =
-        ValidateRowMajorRankMap("cusolvermp_potrs", rank_map, nccl_count);
+    absl::Status rank_map_status = ValidateStandardRankMapForGridMapping(
+        "cusolvermp_potrs", rank_map, process_rows, process_cols,
+        grid_mapping);
     if (!rank_map_status.ok()) {
       return rank_map_status;
     }
@@ -2031,7 +2077,7 @@ absl::Status CusolverMpDistributedPotrsDispatchImpl(
   CusolverMpOpaqueGrid grid = nullptr;
   cusolver_status = api.create_grid(
       handle, &grid, nccl_comm, static_cast<int32_t>(process_rows),
-      static_cast<int32_t>(process_cols), kCusolverMpGridMappingRowMajor);
+      static_cast<int32_t>(process_cols), static_cast<int>(grid_mapping));
   if (cusolver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
     probe[0] = kCreateGridFailed;
     probe[11] = static_cast<int32_t>(cusolver_status);
@@ -2041,8 +2087,8 @@ absl::Status CusolverMpDistributedPotrsDispatchImpl(
   }
   probe[9] = 1;
 
-  const int32_t process_row = nccl_rank / static_cast<int32_t>(process_cols);
-  const int32_t process_col = nccl_rank % static_cast<int32_t>(process_cols);
+  const auto [process_row, process_col] = ProcessCoordFromRank(
+      nccl_rank, process_rows, process_cols, grid_mapping);
 
   absl::Status potrs_status;
   switch (a.element_type()) {
@@ -2123,7 +2169,8 @@ absl::Status XlaCusolverMpDistributedPotrsProbeDispatch(
     const CollectiveCliques* collective_cliques) {
   return CusolverMpDistributedPotrsDispatchImpl(
       stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
-      tile_size, absl::Span<const int64_t>(), a, b, a_out, b_out, status_out,
+      tile_size, kCusolverMpGridMappingRowMajor,
+      absl::Span<const int64_t>(), a, b, a_out, b_out, status_out,
       collective_params, collective_cliques, /*validate_solution=*/true);
 }
 
@@ -2137,16 +2184,17 @@ absl::Status XlaCusolverMpPotrsPrepare(
 absl::Status XlaCusolverMpPotrsDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
-    int64_t tile_size, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
-    ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_out,
+    int64_t tile_size, int64_t grid_mapping,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
+    ffi::Result<ffi::AnyBuffer> a_out,
     ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return CusolverMpDistributedPotrsDispatchImpl(
       stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
-      tile_size, rank_map, a, b, a_out, b_out, status_out, collective_params,
-      collective_cliques, /*validate_solution=*/false);
+      tile_size, grid_mapping, rank_map, a, b, a_out, b_out, status_out,
+      collective_params, collective_cliques, /*validate_solution=*/false);
 }
 
 }  // namespace xla::gpu
