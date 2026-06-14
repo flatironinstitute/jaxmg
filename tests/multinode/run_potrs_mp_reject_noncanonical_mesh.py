@@ -149,8 +149,13 @@ def _run_case(case: NonCanonicalMeshCase, devices: Sequence[object]) -> None:
     )
     mesh = Mesh(device_grid, ("rows", "cols"))
     sharding = NamedSharding(mesh, P("rows", "cols"))
+
+    # The test is about rejecting an exotic device order inside ``potrs_mp``.
+    # Keep the array shapes divisible by the mesh axes so JAX can place the
+    # buffers and the failure is raised by JAXMg rather than by sharding setup.
+    nrhs = max(2, case.process_cols)
     a = jax.device_put(jnp.eye(8, dtype=jnp.float64), sharding)
-    b = jax.device_put(jnp.ones((8, 2), dtype=jnp.float64), sharding)
+    b = jax.device_put(jnp.ones((8, nrhs), dtype=jnp.float64), sharding)
 
     _emit(
         "case_start",
