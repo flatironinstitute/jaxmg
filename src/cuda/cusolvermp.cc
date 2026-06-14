@@ -1212,6 +1212,7 @@ absl::Status RunCusolverMpSyevd(
     int64_t tile_size, int64_t local_physical_rows,
     int64_t local_physical_cols, int32_t process_row, int32_t process_col,
     ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> eigenvalues_out,
+    ffi::Result<ffi::AnyBuffer> work_out,
     ffi::Result<ffi::AnyBuffer> vectors_out,
     std::array<int32_t, kSyevdProbeSize>* probe, bool compute_vectors) {
   const int32_t process_rows = (*probe)[4];
@@ -1261,7 +1262,10 @@ absl::Status RunCusolverMpSyevd(
     api.destroy_matrix_desc(desc_a);
   };
 
-  JAXMG_RETURN_IF_ERROR(CopyAnyBufferToOutputIfNeeded(cuda_stream, a, vectors_out));
+  // cuSOLVERMp SYEVD overwrites d_A and writes eigenvectors to d_Z when
+  // requested. Keep those buffers distinct: the donated JAX input aliases the
+  // work output used as d_A, while the public eigenvector result is d_Z.
+  JAXMG_RETURN_IF_ERROR(CopyAnyBufferToOutputIfNeeded(cuda_stream, a, work_out));
   JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
   size_t workspace_device = 0;
@@ -1270,10 +1274,12 @@ absl::Status RunCusolverMpSyevd(
   if (compute_vectors) {
     jobz[0] = 'V';
   }
+  void* z_data = compute_vectors ? vectors_out->untyped_data()
+                                 : work_out->untyped_data();
   status = api.syevd_buffer_size(
-      handle, jobz, CUBLAS_FILL_MODE_LOWER, n, vectors_out->untyped_data(),
+      handle, jobz, CUBLAS_FILL_MODE_LOWER, n, work_out->untyped_data(),
       /*IA=*/1, /*JA=*/1, desc_a, eigenvalues_out->untyped_data(),
-      vectors_out->untyped_data(), /*IQ=*/1, /*JQ=*/1, desc_q,
+      z_data, /*IQ=*/1, /*JQ=*/1, desc_q,
       SolverTraits<DataType>::cuda_data_type, &workspace_device,
       &workspace_host);
   if (status != CUSOLVER_STATUS_SUCCESS) {
@@ -1313,9 +1319,9 @@ absl::Status RunCusolverMpSyevd(
   JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
   status = api.syevd(handle, jobz, CUBLAS_FILL_MODE_LOWER, n,
-                     vectors_out->untyped_data(), /*IA=*/1, /*JA=*/1, desc_a,
-                     eigenvalues_out->untyped_data(),
-                     vectors_out->untyped_data(), /*IQ=*/1, /*JQ=*/1, desc_q,
+                     work_out->untyped_data(), /*IA=*/1, /*JA=*/1, desc_a,
+                     eigenvalues_out->untyped_data(), z_data, /*IQ=*/1,
+                     /*JQ=*/1, desc_q,
                      SolverTraits<DataType>::cuda_data_type, d_work,
                      workspace_device, h_work, workspace_host, d_info);
   if (status != CUSOLVER_STATUS_SUCCESS) {
@@ -2334,6 +2340,7 @@ absl::Status CusolverMpSyevdDispatchImpl(
     int64_t tile_size, int64_t grid_mapping, int64_t compute_vectors,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues_out,
+    ffi::Result<ffi::AnyBuffer> work_out,
     ffi::Result<ffi::AnyBuffer> vectors_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
@@ -2342,15 +2349,17 @@ absl::Status CusolverMpSyevdDispatchImpl(
     return absl::InvalidArgumentError(
         "cusolvermp_syevd requires XLA and CUDA streams");
   }
-  if (a.dimensions().size() != 2 || vectors_out->dimensions().size() != 2 ||
+  if (a.dimensions().size() != 2 || work_out->dimensions().size() != 2 ||
+      vectors_out->dimensions().size() != 2 ||
       eigenvalues_out->dimensions().size() != 1) {
     return absl::InvalidArgumentError(
         "cusolvermp_syevd expects rank-2 matrix buffers and rank-1 "
         "eigenvalue output");
   }
-  if (a.element_type() != vectors_out->element_type()) {
+  if (a.element_type() != work_out->element_type() ||
+      a.element_type() != vectors_out->element_type()) {
     return absl::InvalidArgumentError(
-        "cusolvermp_syevd requires matching matrix/vector dtypes");
+        "cusolvermp_syevd requires matching matrix/work/vector dtypes");
   }
   const PrimitiveType expected_eigen_type =
       (a.element_type() == F32 || a.element_type() == C64) ? F32 : F64;
@@ -2358,7 +2367,9 @@ absl::Status CusolverMpSyevdDispatchImpl(
     return absl::InvalidArgumentError(
         "cusolvermp_syevd received an eigenvalue output with the wrong dtype");
   }
-  if (a.dimensions()[0] != vectors_out->dimensions()[0] ||
+  if (a.dimensions()[0] != work_out->dimensions()[0] ||
+      a.dimensions()[1] != work_out->dimensions()[1] ||
+      a.dimensions()[0] != vectors_out->dimensions()[0] ||
       a.dimensions()[1] != vectors_out->dimensions()[1]) {
     return absl::InvalidArgumentError(
         "cusolvermp_syevd input/output matrix shapes must match");
@@ -2529,28 +2540,28 @@ absl::Status CusolverMpSyevdDispatchImpl(
       syevd_status = RunCusolverMpSyevd<float>(
           api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
           a.dimensions()[1], process_row, process_col, a, eigenvalues_out,
-          vectors_out, &probe, compute_vectors != 0);
+          work_out, vectors_out, &probe, compute_vectors != 0);
       break;
     case F64:
       probe[25] = 2;
       syevd_status = RunCusolverMpSyevd<double>(
           api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
           a.dimensions()[1], process_row, process_col, a, eigenvalues_out,
-          vectors_out, &probe, compute_vectors != 0);
+          work_out, vectors_out, &probe, compute_vectors != 0);
       break;
     case C64:
       probe[25] = 3;
       syevd_status = RunCusolverMpSyevd<cuFloatComplex>(
           api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
           a.dimensions()[1], process_row, process_col, a, eigenvalues_out,
-          vectors_out, &probe, compute_vectors != 0);
+          work_out, vectors_out, &probe, compute_vectors != 0);
       break;
     case C128:
       probe[25] = 4;
       syevd_status = RunCusolverMpSyevd<cuDoubleComplex>(
           api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
           a.dimensions()[1], process_row, process_col, a, eigenvalues_out,
-          vectors_out, &probe, compute_vectors != 0);
+          work_out, vectors_out, &probe, compute_vectors != 0);
       break;
     default:
       probe[0] = kUnsupportedDtype;
@@ -2638,6 +2649,7 @@ absl::Status XlaCusolverMpSyevdDispatch(
     int64_t grid_mapping, int64_t compute_vectors,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues_out,
+    ffi::Result<ffi::AnyBuffer> work_out,
     ffi::Result<ffi::AnyBuffer> vectors_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
@@ -2645,7 +2657,7 @@ absl::Status XlaCusolverMpSyevdDispatch(
   return CusolverMpSyevdDispatchImpl(
       stream, comm_stream, cuda_stream, process_rows, process_cols, n,
       tile_size, grid_mapping, compute_vectors, rank_map, a, eigenvalues_out,
-      vectors_out, status_out, collective_params, collective_cliques);
+      work_out, vectors_out, status_out, collective_params, collective_cliques);
 }
 
 }  // namespace xla::gpu

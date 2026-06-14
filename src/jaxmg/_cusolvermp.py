@@ -290,6 +290,7 @@ def cusolvermp_syevd(
     out_type = (
         jax.ShapeDtypeStruct((n,), _real_dtype_for_eigenvalues(a.dtype)),
         jax.ShapeDtypeStruct(a.shape, a.dtype),
+        jax.ShapeDtypeStruct(a.shape, a.dtype),
         jax.ShapeDtypeStruct((_CUSOLVERMP_SYEVD_STATUS_SIZE,), jnp.int32),
     )
     ffi_fn = partial(
@@ -297,7 +298,7 @@ def cusolvermp_syevd(
             "cusolvermp_syevd",
             out_type,
             input_layouts=(_RECT_JAX_LAYOUT,),
-            output_layouts=((0,), _RECT_JAX_LAYOUT, (0,)),
+            output_layouts=((0,), _RECT_JAX_LAYOUT, _RECT_JAX_LAYOUT, (0,)),
             input_output_aliases={0: 1},
         ),
         process_rows=process_rows,
@@ -308,7 +309,8 @@ def cusolvermp_syevd(
         tile_size=tile_size,
         compute_vectors=1 if compute_vectors else 0,
     )
-    return ffi_fn(a)
+    eigenvalues, _, eigenvectors, status = ffi_fn(a)
+    return eigenvalues, eigenvectors, status
 
 
 def cusolvermp_syevd_shardmap(

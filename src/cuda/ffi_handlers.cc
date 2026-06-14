@@ -418,6 +418,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Arg<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
         .Ret<ffi::BufferR1<S32>>()
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
