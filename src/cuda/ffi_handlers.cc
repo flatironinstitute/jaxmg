@@ -370,6 +370,31 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveCliques>());
 
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpSyevdProbePrepareFFI,
+    XlaCusolverMpSyevdProbePrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpSyevdProbeFFI,
+    XlaCusolverMpSyevdProbeDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("n")
+        .Attr<int64_t>("tile_size")
+        .Attr<int64_t>("grid_mapping")
+        .Attr<int64_t>("compute_vectors")
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpPotrsPrepareFFI, XlaCusolverMpPotrsPrepare,
     ffi::Ffi::BindPrepare()
         .Ctx<ffi::CollectiveParams>()

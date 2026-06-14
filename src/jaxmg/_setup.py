@@ -344,6 +344,15 @@ def _initialize():
         _register_optional_cuda_target_bundle(
             bin_dir,
             _xla_comm_backend_library,
+            "cusolvermp_syevd_probe",
+            {
+                "prepare": "XlaCusolverMpSyevdProbePrepareFFI",
+                "execute": "XlaCusolverMpSyevdProbeFFI",
+            },
+        )
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            _xla_comm_backend_library,
             "cusolvermp_potrs",
             {
                 "prepare": "XlaCusolverMpPotrsPrepareFFI",

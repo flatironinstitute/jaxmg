@@ -576,6 +576,30 @@ std::vector<DataType> MakePotrsHostB(int64_t n, int64_t nrhs) {
 }
 
 template <typename DataType>
+std::vector<DataType> MakeSyevdHostA(int64_t n) {
+  std::vector<DataType> host(static_cast<size_t>(n * n));
+  for (int64_t col = 0; col < n; ++col) {
+    for (int64_t row = 0; row < n; ++row) {
+      double value = 0.0;
+      if (row == col) {
+        value = static_cast<double>(n + row + 1);
+      } else {
+        value = 0.01 / static_cast<double>(1 + std::abs(row - col));
+      }
+      host[static_cast<size_t>(row + col * n)] = RealScalar<DataType>(value);
+    }
+  }
+  return host;
+}
+
+template <typename DataType>
+std::vector<DataType> MakeSyevdHostQ(int64_t n) {
+  std::vector<DataType> host(static_cast<size_t>(n * n));
+  std::fill(host.begin(), host.end(), RealScalar<DataType>(-1.0));
+  return host;
+}
+
+template <typename DataType>
 double MaxPotrsSolutionError(const std::vector<DataType>& solution, int64_t n,
                              int64_t nrhs) {
   double max_error = 0.0;
@@ -1231,6 +1255,233 @@ absl::Status RunCusolverMpDistributedPotrsProbe(
         (*probe)[0] = kResidualTooLarge;
       }
     }
+  }
+
+  cleanup();
+  return absl::OkStatus();
+}
+
+template <typename DataType>
+absl::Status RunCusolverMpSyevdSampleProbe(
+    const CusolverMpApi& api, CusolverMpOpaqueHandle handle,
+    CusolverMpOpaqueGrid grid_a, CusolverMpOpaqueGrid grid_q,
+    cudaStream_t cuda_stream, int64_t n, int64_t tile_size,
+    int32_t process_row, int32_t process_col,
+    std::array<int32_t, kSyevdProbeSize>* probe, bool compute_vectors) {
+  using EigenvalueType = typename SolverTraits<DataType>::EigenvalueType;
+
+  const int debug_rank = (*probe)[2];
+  const int32_t process_rows = (*probe)[4];
+  const int32_t process_cols = (*probe)[5];
+  const int64_t local_rows = LocalNumroc(n, tile_size, process_row,
+                                         static_cast<int32_t>(process_rows));
+  const int64_t local_cols = LocalNumroc(n, tile_size, process_col,
+                                         static_cast<int32_t>(process_cols));
+  const int64_t lld = std::max<int64_t>(1, local_rows);
+  const int64_t allocated_cols = std::max<int64_t>(1, local_cols);
+  const size_t matrix_bytes =
+      static_cast<size_t>(lld * allocated_cols) * sizeof(DataType);
+  const size_t eigenvalue_bytes =
+      static_cast<size_t>(std::max<int64_t>(1, n)) * sizeof(EigenvalueType);
+  (*probe)[17] = static_cast<int32_t>(local_rows);
+  (*probe)[18] = static_cast<int32_t>(local_cols);
+  (*probe)[19] = SizeToKiBForProbe(eigenvalue_bytes);
+  (*probe)[28] = 1;  // Matrix input is produced by cuSOLVERMp scatter.
+
+  CusolverMpDebug(
+      debug_rank,
+      "syevd sample enter n=%lld tile=%lld process_coord=(%d,%d) "
+      "local=%lldx%lld lld=%lld compute_vectors=%d dtype=%d",
+      static_cast<long long>(n), static_cast<long long>(tile_size),
+      process_row, process_col, static_cast<long long>(local_rows),
+      static_cast<long long>(local_cols), static_cast<long long>(lld),
+      static_cast<int>(compute_vectors),
+      static_cast<int>(SolverTraits<DataType>::cuda_data_type));
+
+  CusolverMpOpaqueMatrixDesc desc_a = nullptr;
+  CusolverMpOpaqueMatrixDesc desc_q = nullptr;
+  cusolverStatus_t status = api.create_matrix_desc(
+      &desc_a, grid_a, SolverTraits<DataType>::cuda_data_type, n, n,
+      tile_size, tile_size, /*RSRC_A=*/0, /*CSRC_A=*/0, lld);
+  CusolverMpDebug(debug_rank, "syevd sample create desc_a status=%d desc=%p",
+                  static_cast<int>(status), desc_a);
+  if (status != CUSOLVER_STATUS_SUCCESS || desc_a == nullptr) {
+    (*probe)[0] = kCreateMatrixDescFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    return absl::OkStatus();
+  }
+  (*probe)[10] = 1;
+
+  status = api.create_matrix_desc(
+      &desc_q, grid_q, SolverTraits<DataType>::cuda_data_type, n, n,
+      tile_size, tile_size, /*RSRC_Q=*/0, /*CSRC_Q=*/0, lld);
+  CusolverMpDebug(debug_rank, "syevd sample create desc_q status=%d desc=%p",
+                  static_cast<int>(status), desc_q);
+  if (status != CUSOLVER_STATUS_SUCCESS || desc_q == nullptr) {
+    (*probe)[0] = kCreateMatrixDescFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    api.destroy_matrix_desc(desc_a);
+    return absl::OkStatus();
+  }
+  (*probe)[27] = 1;
+
+  void* d_a = nullptr;
+  void* d_q = nullptr;
+  void* d_eigenvalues = nullptr;
+  void* d_work = nullptr;
+  void* h_work = nullptr;
+  int* d_info = nullptr;
+  auto cleanup = [&]() {
+    if (d_a != nullptr) cudaFree(d_a);
+    if (d_q != nullptr) cudaFree(d_q);
+    if (d_eigenvalues != nullptr) cudaFree(d_eigenvalues);
+    if (d_work != nullptr) cudaFree(d_work);
+    if (d_info != nullptr) cudaFree(d_info);
+    if (h_work != nullptr) std::free(h_work);
+    api.destroy_matrix_desc(desc_q);
+    api.destroy_matrix_desc(desc_a);
+  };
+
+  cudaError_t cuda_status = cudaMalloc(&d_a, matrix_bytes);
+  if (cuda_status != cudaSuccess) {
+    (*probe)[0] = kDeviceAllocFailed;
+    cleanup();
+    return absl::OkStatus();
+  }
+  cuda_status = cudaMalloc(&d_q, matrix_bytes);
+  if (cuda_status != cudaSuccess) {
+    (*probe)[0] = kDeviceAllocFailed;
+    cleanup();
+    return absl::OkStatus();
+  }
+  cuda_status = cudaMalloc(&d_eigenvalues, eigenvalue_bytes);
+  if (cuda_status != cudaSuccess) {
+    (*probe)[0] = kDeviceAllocFailed;
+    cleanup();
+    return absl::OkStatus();
+  }
+  JAXMG_RETURN_IF_CUDA_ERROR(
+      cudaMemsetAsync(d_a, 0, matrix_bytes, cuda_stream));
+  JAXMG_RETURN_IF_CUDA_ERROR(
+      cudaMemsetAsync(d_q, 0, matrix_bytes, cuda_stream));
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemsetAsync(
+      d_eigenvalues, 0, eigenvalue_bytes, cuda_stream));
+
+  size_t workspace_device = 0;
+  size_t workspace_host = 0;
+  char compz[] = {'N', '\0'};
+  if (compute_vectors) {
+    compz[0] = 'Z';
+  }
+  CusolverMpDebug(debug_rank,
+                  "syevd sample buffer_size begin compz=%c a=%p d=%p q=%p",
+                  compz[0], d_a, d_eigenvalues, d_q);
+  status = api.syevd_buffer_size(
+      handle, compz, CUBLAS_FILL_MODE_LOWER, n, d_a, /*IA=*/1, /*JA=*/1,
+      desc_a, d_eigenvalues, d_q, /*IQ=*/1, /*JQ=*/1, desc_q,
+      SolverTraits<DataType>::cuda_data_type, &workspace_device,
+      &workspace_host);
+  CusolverMpDebug(debug_rank,
+                  "syevd sample buffer_size end status=%d device=%zu host=%zu",
+                  static_cast<int>(status), workspace_device, workspace_host);
+  if (status != CUSOLVER_STATUS_SUCCESS) {
+    (*probe)[0] = kSyevdWorkspaceFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*probe)[21] = SizeToKiBForProbe(workspace_device);
+  (*probe)[22] = SizeToKiBForProbe(workspace_host);
+
+  if (workspace_device > 0) {
+    cuda_status = cudaMalloc(&d_work, workspace_device);
+    if (cuda_status != cudaSuccess) {
+      (*probe)[0] = kDeviceAllocFailed;
+      cleanup();
+      return absl::OkStatus();
+    }
+  }
+  if (workspace_host > 0) {
+    h_work = std::malloc(workspace_host);
+    if (h_work == nullptr) {
+      (*probe)[0] = kHostAllocFailed;
+      cleanup();
+      return absl::OkStatus();
+    }
+  }
+  cuda_status = cudaMalloc(reinterpret_cast<void**>(&d_info), sizeof(int));
+  if (cuda_status != cudaSuccess) {
+    (*probe)[0] = kDeviceAllocFailed;
+    cleanup();
+    return absl::OkStatus();
+  }
+  JAXMG_RETURN_IF_CUDA_ERROR(
+      cudaMemsetAsync(d_info, 0, sizeof(int), cuda_stream));
+
+  std::vector<DataType> host_a;
+  std::vector<DataType> host_q;
+  const void* host_a_ptr = nullptr;
+  const void* host_q_ptr = nullptr;
+  if (debug_rank == 0) {
+    host_a = MakeSyevdHostA<DataType>(n);
+    host_q = MakeSyevdHostQ<DataType>(n);
+    host_a_ptr = host_a.data();
+    host_q_ptr = host_q.data();
+  }
+
+  CusolverMpDebug(debug_rank, "syevd sample scatter A begin");
+  status = api.scatter_h2d(handle, n, n, d_a, /*IA=*/1, /*JA=*/1, desc_a,
+                           /*root=*/0, host_a_ptr, /*h_ldsrc=*/n);
+  CusolverMpDebug(debug_rank, "syevd sample scatter A end status=%d",
+                  static_cast<int>(status));
+  if (status != CUSOLVER_STATUS_SUCCESS) {
+    (*probe)[0] = kScatterFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*probe)[29] = 1;
+
+  CusolverMpDebug(debug_rank, "syevd sample scatter Q begin");
+  status = api.scatter_h2d(handle, n, n, d_q, /*IQ=*/1, /*JQ=*/1, desc_q,
+                           /*root=*/0, host_q_ptr, /*h_ldsrc=*/n);
+  CusolverMpDebug(debug_rank, "syevd sample scatter Q end status=%d",
+                  static_cast<int>(status));
+  if (status != CUSOLVER_STATUS_SUCCESS) {
+    (*probe)[0] = kScatterFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*probe)[30] = 1;
+
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+
+  CusolverMpDebug(debug_rank, "syevd sample syevd begin");
+  status = api.syevd(handle, compz, CUBLAS_FILL_MODE_LOWER, n, d_a, /*IA=*/1,
+                     /*JA=*/1, desc_a, d_eigenvalues, d_q, /*IQ=*/1,
+                     /*JQ=*/1, desc_q,
+                     SolverTraits<DataType>::cuda_data_type, d_work,
+                     workspace_device, h_work, workspace_host, d_info);
+  CusolverMpDebug(debug_rank, "syevd sample syevd end status=%d",
+                  static_cast<int>(status));
+  if (status != CUSOLVER_STATUS_SUCCESS) {
+    (*probe)[0] = kSyevdFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*probe)[23] = 1;
+
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  int h_info = -1;
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
+      &h_info, d_info, sizeof(int), cudaMemcpyDeviceToHost, cuda_stream));
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  CusolverMpDebug(debug_rank, "syevd sample info=%d", h_info);
+  (*probe)[24] = h_info;
+  if (h_info != 0) {
+    (*probe)[0] = kSyevdInfoNonzero;
   }
 
   cleanup();
@@ -2725,6 +2976,294 @@ absl::Status XlaCusolverMpDistributedPotrsProbeDispatch(
       tile_size, kCusolverMpGridMappingRowMajor,
       absl::Span<const int64_t>(), a, b, a_out, b_out, status_out,
       collective_params, collective_cliques, /*validate_solution=*/true);
+}
+
+absl::Status XlaCusolverMpSyevdProbePrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests) {
+  return XlaCusolverMpDistributedPotrsProbePrepare(collective_params,
+                                                  clique_requests);
+}
+
+absl::Status XlaCusolverMpSyevdProbeDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
+    int64_t grid_mapping, int64_t compute_vectors, ffi::AnyBuffer token,
+    ffi::Result<ffi::BufferR1<S32>> status_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  if (stream == nullptr || cuda_stream == nullptr) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_syevd_probe requires XLA and CUDA streams");
+  }
+  if (token.dimensions().size() != 2) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_syevd_probe expects a rank-2 token buffer");
+  }
+  if (status_out->dimensions().size() != 1 ||
+      status_out->dimensions()[0] != kSyevdProbeSize) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "cusolvermp_syevd_probe expects status shape (%d,)",
+        kSyevdProbeSize));
+  }
+
+  std::array<int32_t, kSyevdProbeSize> probe = {
+      kProbeOk,
+      -1,  // CUDA device selected for this FFI invocation.
+      -1,  // NCCL rank reported by the borrowed communicator.
+      -1,  // NCCL communicator size.
+      static_cast<int32_t>(process_rows),
+      static_cast<int32_t>(process_cols),
+      -1,  // cuSOLVERMp version, if available.
+      0,   // libcusolverMp loaded.
+      0,   // cuSOLVERMp handle created.
+      0,   // cuSOLVERMp grid for A created.
+      0,   // matrix descriptor for A created.
+      0,   // raw cuSOLVER status from the failing call, if any.
+      static_cast<int32_t>(token.size_bytes()),
+      static_cast<int32_t>(n),
+      static_cast<int32_t>(tile_size),
+      static_cast<int32_t>(token.dimensions()[0]),
+      static_cast<int32_t>(token.dimensions()[1]),
+      -1,  // local NUMROC rows.
+      -1,  // local NUMROC cols.
+      -1,  // eigenvalue allocation, KiB.
+      static_cast<int32_t>(compute_vectors != 0),
+      -1,  // syevd device workspace, KiB.
+      -1,  // syevd host workspace, KiB.
+      0,   // cusolverMpSyevd called.
+      -1,  // syevd info value copied from device.
+      -1,  // dtype code.
+      static_cast<int32_t>(grid_mapping),
+      0,   // matrix descriptor for Q created.
+      0,   // matrix came from cuSOLVERMp scatter.
+      0,   // A scatter called.
+      0,   // Q scatter called.
+      0,   // cuSOLVERMp grid for Q created.
+      0,   // reserved.
+      0,   // reserved.
+      0,   // reserved.
+      0,   // reserved.
+  };
+
+  absl::StatusOr<int> buffer_device = DeviceForCudaPointer(token.untyped_data());
+  if (!buffer_device.ok()) {
+    probe[0] = kCudaDeviceFailed;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  int cuda_device = *buffer_device;
+  cudaError_t cuda_status = cudaSetDevice(cuda_device);
+  if (cuda_status != cudaSuccess) {
+    probe[0] = kCudaDeviceFailed;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  probe[1] = cuda_device;
+  CusolverMpDebug(-1,
+                  "syevd probe dispatch device=%d n=%lld tile=%lld "
+                  "grid=%lldx%lld mapping=%lld compute_vectors=%lld",
+                  cuda_device, static_cast<long long>(n),
+                  static_cast<long long>(tile_size),
+                  static_cast<long long>(process_rows),
+                  static_cast<long long>(process_cols),
+                  static_cast<long long>(grid_mapping),
+                  static_cast<long long>(compute_vectors));
+
+  if (collective_params == nullptr || collective_cliques == nullptr) {
+    probe[0] = kCollectiveContextMissing;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+
+  absl::StatusOr<GpuCliqueKey> clique_key =
+      AllAssignedDevicesP2PCliqueKey(*collective_params);
+  if (!clique_key.ok()) {
+    probe[0] = kCliqueKeyFailed;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+
+  absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
+      *clique_key, collective_params->global_device_id);
+  if (!gpu_comm.ok() || *gpu_comm == nullptr) {
+    probe[0] = kCommunicatorMissing;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+
+  void* platform_handle = (*gpu_comm)->platform_comm().handle;
+  if (platform_handle == nullptr) {
+    probe[0] = kNcclHandleMissing;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  ncclComm_t nccl_comm = reinterpret_cast<ncclComm_t>(platform_handle);
+
+  int nccl_rank = -1;
+  int nccl_count = -1;
+  ncclResult_t rank_status = ncclCommUserRank(nccl_comm, &nccl_rank);
+  ncclResult_t count_status = ncclCommCount(nccl_comm, &nccl_count);
+  if (rank_status != ncclSuccess || count_status != ncclSuccess) {
+    probe[0] = kNcclRankMismatch;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  probe[2] = nccl_rank;
+  probe[3] = nccl_count;
+  CusolverMpDebug(nccl_rank, "syevd probe nccl rank=%d count=%d", nccl_rank,
+                  nccl_count);
+
+  if (process_rows <= 0 || process_cols <= 0 ||
+      process_rows * process_cols != nccl_count || n <= 0 ||
+      tile_size <= 0) {
+    probe[0] = kGridShapeMismatch;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  JAXMG_RETURN_IF_ERROR(
+      ValidateCusolverMpGridMapping("cusolvermp_syevd_probe", grid_mapping));
+
+  CusolverMpApi api = LoadCusolverMpApi(&probe);
+  if (probe[0] != kProbeOk || !HasRequiredSymbols(api)) {
+    if (api.library != nullptr) {
+      dlclose(api.library);
+    }
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  if (api.scatter_h2d == nullptr) {
+    probe[0] = kScatterSymbolMissing;
+    dlclose(api.library);
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  if (!HasSyevdSymbols(api)) {
+    probe[0] = kSolverSymbolMissing;
+    dlclose(api.library);
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+
+  CusolverMpOpaqueHandle handle = nullptr;
+  cusolverStatus_t cusolver_status =
+      api.create(&handle, cuda_device, cuda_stream);
+  CusolverMpDebug(nccl_rank, "syevd probe cusolverMpCreate status=%d handle=%p",
+                  static_cast<int>(cusolver_status), handle);
+  if (cusolver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
+    probe[0] = kCreateHandleFailed;
+    probe[11] = static_cast<int32_t>(cusolver_status);
+    dlclose(api.library);
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  probe[8] = 1;
+
+  int version = -1;
+  cusolver_status = api.get_version(handle, &version);
+  if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
+    probe[0] = kGetVersionFailed;
+    probe[11] = static_cast<int32_t>(cusolver_status);
+    api.destroy(handle);
+    dlclose(api.library);
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  probe[6] = version;
+
+  CusolverMpOpaqueGrid grid_a = nullptr;
+  CusolverMpOpaqueGrid grid_q = nullptr;
+  cusolver_status = api.create_grid(
+      handle, &grid_a, nccl_comm, static_cast<int32_t>(process_rows),
+      static_cast<int32_t>(process_cols), static_cast<int>(grid_mapping));
+  CusolverMpDebug(nccl_rank,
+                  "syevd probe create grid_a status=%d grid=%p",
+                  static_cast<int>(cusolver_status), grid_a);
+  if (cusolver_status != CUSOLVER_STATUS_SUCCESS || grid_a == nullptr) {
+    probe[0] = kCreateGridFailed;
+    probe[11] = static_cast<int32_t>(cusolver_status);
+    api.destroy(handle);
+    dlclose(api.library);
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  probe[9] = 1;
+
+  cusolver_status = api.create_grid(
+      handle, &grid_q, nccl_comm, static_cast<int32_t>(process_rows),
+      static_cast<int32_t>(process_cols), static_cast<int>(grid_mapping));
+  CusolverMpDebug(nccl_rank,
+                  "syevd probe create grid_q status=%d grid=%p",
+                  static_cast<int>(cusolver_status), grid_q);
+  if (cusolver_status != CUSOLVER_STATUS_SUCCESS || grid_q == nullptr) {
+    probe[0] = kCreateGridFailed;
+    probe[11] = static_cast<int32_t>(cusolver_status);
+    api.destroy_grid(grid_a);
+    api.destroy(handle);
+    dlclose(api.library);
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  probe[31] = 1;
+
+  const auto [process_row, process_col] = ProcessCoordFromRank(
+      nccl_rank, process_rows, process_cols, grid_mapping);
+
+  absl::Status syevd_status;
+  switch (token.element_type()) {
+    case F32:
+      probe[25] = 1;
+      syevd_status = RunCusolverMpSyevdSampleProbe<float>(
+          api, handle, grid_a, grid_q, cuda_stream, n, tile_size, process_row,
+          process_col, &probe, compute_vectors != 0);
+      break;
+    case F64:
+      probe[25] = 2;
+      syevd_status = RunCusolverMpSyevdSampleProbe<double>(
+          api, handle, grid_a, grid_q, cuda_stream, n, tile_size, process_row,
+          process_col, &probe, compute_vectors != 0);
+      break;
+    case C64:
+      probe[25] = 3;
+      syevd_status = RunCusolverMpSyevdSampleProbe<cuFloatComplex>(
+          api, handle, grid_a, grid_q, cuda_stream, n, tile_size, process_row,
+          process_col, &probe, compute_vectors != 0);
+      break;
+    case C128:
+      probe[25] = 4;
+      syevd_status = RunCusolverMpSyevdSampleProbe<cuDoubleComplex>(
+          api, handle, grid_a, grid_q, cuda_stream, n, tile_size, process_row,
+          process_col, &probe, compute_vectors != 0);
+      break;
+    default:
+      probe[0] = kUnsupportedDtype;
+      break;
+  }
+  if (!syevd_status.ok()) {
+    api.destroy_grid(grid_q);
+    api.destroy_grid(grid_a);
+    api.destroy(handle);
+    dlclose(api.library);
+    return syevd_status;
+  }
+
+  if (probe[0] == kProbeOk) {
+    cusolver_status = api.destroy_grid(grid_q);
+    if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
+      probe[0] = kDestroyGridFailed;
+      probe[11] = static_cast<int32_t>(cusolver_status);
+    }
+  } else {
+    api.destroy_grid(grid_q);
+  }
+
+  if (probe[0] == kProbeOk) {
+    cusolver_status = api.destroy_grid(grid_a);
+    if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
+      probe[0] = kDestroyGridFailed;
+      probe[11] = static_cast<int32_t>(cusolver_status);
+    }
+  } else {
+    api.destroy_grid(grid_a);
+  }
+
+  if (probe[0] == kProbeOk) {
+    cusolver_status = api.destroy(handle);
+    if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
+      probe[0] = kDestroyHandleFailed;
+      probe[11] = static_cast<int32_t>(cusolver_status);
+    }
+  } else {
+    api.destroy(handle);
+  }
+
+  dlclose(api.library);
+  return CopySyevdProbeToDevice(stream, probe, status_out);
 }
 
 absl::Status XlaCusolverMpPotrsPrepare(

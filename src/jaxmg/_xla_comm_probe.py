@@ -490,6 +490,7 @@ _RECT_JAX_LAYOUT = (1, 0)
 _CUSOLVERMP_INIT_PROBE_SIZE = 16
 _CUSOLVERMP_SCATTER_LAYOUT_PROBE_SIZE = 24
 _CUSOLVERMP_POTRS_PROBE_SIZE = 40
+_CUSOLVERMP_SYEVD_PROBE_SIZE = 36
 
 
 def cusolvermp_init_probe(
@@ -949,6 +950,111 @@ def cusolvermp_distributed_potrs_probe_shardmap(
         )
 
     return impl(a, b)
+
+
+def cusolvermp_syevd_probe(
+    token: Array,
+    *,
+    process_rows: int,
+    process_cols: int,
+    n: int,
+    tile_size: int,
+    grid_mapping: int = 1,
+    compute_vectors: bool = True,
+) -> Array:
+    """Run a sample-style cuSOLVERMp ``syevd`` diagnostic.
+
+    The native handler ignores the contents of ``token``. It uses the token only
+    to run one FFI invocation per shard/device, then allocates fresh local
+    cuSOLVERMp buffers, scatters a deterministic host symmetric matrix through
+    ``cusolverMpMatrixScatterH2D``, and calls ``cusolverMpSyevd`` using the
+    borrowed XLA/NCCL communicator.
+
+    This isolates the cuSOLVERMp SYEVD call from JAXMg's native redistribution
+    and from donated JAX input aliasing. A zero first status entry means the
+    cuSOLVERMp sample-style path completed on that rank.
+    """
+    if token.ndim != 2:
+        raise ValueError("cusolvermp_syevd_probe expects a rank-2 token.")
+    if token.dtype not in (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128):
+        raise TypeError(
+            "cusolvermp_syevd_probe supports float32, float64, complex64, "
+            "and complex128."
+        )
+
+    process_rows = int(process_rows)
+    process_cols = int(process_cols)
+    n = int(n)
+    tile_size = int(tile_size)
+    grid_mapping = int(grid_mapping)
+    compute_vectors_int = int(bool(compute_vectors))
+    if process_rows <= 0 or process_cols <= 0:
+        raise ValueError("process_rows and process_cols must be positive.")
+    if n <= 0 or tile_size <= 0:
+        raise ValueError("n and tile_size must be positive.")
+    if grid_mapping not in (0, 1):
+        raise ValueError("grid_mapping must be 0 (column-major) or 1 (row-major).")
+
+    ensure_init_jaxmg_backend()
+
+    out_type = (
+        jax.ShapeDtypeStruct((_CUSOLVERMP_SYEVD_PROBE_SIZE,), jnp.int32),
+    )
+    ffi_fn = partial(
+        jax.ffi.ffi_call(
+            "cusolvermp_syevd_probe",
+            out_type,
+            input_layouts=(_RECT_JAX_LAYOUT,),
+            output_layouts=((0,),),
+        ),
+        process_rows=process_rows,
+        process_cols=process_cols,
+        n=n,
+        tile_size=tile_size,
+        grid_mapping=grid_mapping,
+        compute_vectors=compute_vectors_int,
+    )
+    (status,) = ffi_fn(token)
+    return status
+
+
+def cusolvermp_syevd_probe_shardmap(
+    token: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+    status_specs: P,
+    *,
+    process_rows: int,
+    process_cols: int,
+    n: int,
+    tile_size: int,
+    grid_mapping: int = 1,
+    compute_vectors: bool = True,
+) -> Array:
+    """Run :func:`cusolvermp_syevd_probe` over a 2D process grid."""
+    if not isinstance(matrix_specs, P) or not isinstance(status_specs, P):
+        raise TypeError("matrix_specs and status_specs must be PartitionSpec values.")
+
+    @partial(jax.jit)
+    @partial(
+        jax.shard_map,
+        mesh=mesh,
+        in_specs=matrix_specs,
+        out_specs=status_specs,
+        check_vma=False,
+    )
+    def impl(_token):
+        return cusolvermp_syevd_probe(
+            _token,
+            process_rows=process_rows,
+            process_cols=process_cols,
+            n=n,
+            tile_size=tile_size,
+            grid_mapping=grid_mapping,
+            compute_vectors=compute_vectors,
+        )
+
+    return impl(token)
 
 
 def xla_comm_chunk_permute_probe(
