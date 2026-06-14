@@ -3,9 +3,9 @@
 This script is launched by a cluster runner with one Python process per GPU.
 It expects:
 
-  * 8 JAX processes,
+  * 4 or 8 JAX processes,
   * 1 local GPU per process,
-  * 8 global GPUs total.
+  * one global GPU per process.
 
 The cases cover full 2D process grids and degenerate row-only/column-only
 grids. Both cuSOLVERMp SYEVD modes are exercised:
@@ -280,12 +280,34 @@ def _run_case(case: Case) -> None:
     _emit("case_success", name=case.name)
 
 
+def _cases_for_device_count(device_count: int) -> list[Case]:
+    if device_count == 4:
+        return [
+            Case("grid_2x2_f64_vectors_colpad", 2, 2, 12, 4, "float64", True),
+            Case("grid_2x2_c128_vectors_bothpad", 2, 2, 12, 4, "complex128", True),
+            Case("grid_1x4_f32_values_colonly", 1, 4, 16, 4, "float32", False),
+            Case("grid_4x1_c64_values_rowonly", 4, 1, 16, 4, "complex64", False),
+        ]
+    if device_count == 8:
+        return [
+            Case("grid_2x4_f64_vectors_colpad", 2, 4, 24, 4, "float64", True),
+            Case("grid_4x2_f32_values_rowpad", 4, 2, 24, 4, "float32", False),
+            Case("grid_1x8_c64_vectors_colonly", 1, 8, 32, 8, "complex64", True),
+            Case("grid_8x1_c128_values_rowonly", 8, 1, 32, 8, "complex128", False),
+        ]
+    raise AssertionError(
+        "rank-per-GPU syevd_mp matrix validation currently supports 4 or 8 "
+        f"global devices, got {device_count}."
+    )
+
+
 def main() -> None:
     try:
         local_ids = _initialize_jax_distributed_rank_process()
 
         import jax
 
+        expected_device_count = _int_env("JAXMG_EXPECTED_DEVICE_COUNT", default=8)
         _emit(
             "runtime",
             local_ids=list(local_ids),
@@ -293,23 +315,24 @@ def main() -> None:
             process_count=jax.process_count(),
             local_device_count=jax.local_device_count(),
             global_device_count=jax.device_count(),
+            expected_device_count=expected_device_count,
         )
-        if jax.process_count() != 8:
-            raise AssertionError(f"expected 8 JAX processes, got {jax.process_count()}")
+        if jax.process_count() != expected_device_count:
+            raise AssertionError(
+                f"expected {expected_device_count} JAX processes, got "
+                f"{jax.process_count()}"
+            )
         if jax.local_device_count() != 1:
             raise AssertionError(
                 f"expected 1 local GPU per process, got {jax.local_device_count()}"
             )
-        if jax.device_count() != 8:
-            raise AssertionError(f"expected 8 global GPUs, got {jax.device_count()}")
+        if jax.device_count() != expected_device_count:
+            raise AssertionError(
+                f"expected {expected_device_count} global GPUs, got "
+                f"{jax.device_count()}"
+            )
 
-        cases = [
-            Case("grid_2x4_f64_vectors_colpad", 2, 4, 24, 4, "float64", True),
-            Case("grid_4x2_f32_values_rowpad", 4, 2, 24, 4, "float32", False),
-            Case("grid_1x8_c64_vectors_colonly", 1, 8, 32, 8, "complex64", True),
-            Case("grid_8x1_c128_values_rowonly", 8, 1, 32, 8, "complex128", False),
-        ]
-        for case in cases:
+        for case in _cases_for_device_count(expected_device_count):
             _run_case(case)
 
         _emit("success")
