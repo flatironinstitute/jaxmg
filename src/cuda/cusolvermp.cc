@@ -1272,7 +1272,11 @@ absl::Status RunCusolverMpSyevd(
   size_t workspace_host = 0;
   char jobz[] = {'N', '\0'};
   if (compute_vectors) {
-    jobz[0] = 'V';
+    // cuSOLVERMp names this selector `compz`, not `jobz`.  NVIDIA's current
+    // mp_syevd sample uses 'Z' for the eigenvector-producing path, while 'N'
+    // keeps the eigenvalue-only path.  Keep this aligned with the sample rather
+    // than the cuSOLVERDn `jobz='V'` convention.
+    jobz[0] = 'Z';
   }
   void* z_data = compute_vectors ? vectors_out->untyped_data()
                                  : work_out->untyped_data();
