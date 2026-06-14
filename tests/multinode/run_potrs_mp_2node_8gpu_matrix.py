@@ -1,11 +1,11 @@
 """Two-node cuSOLVERMp validation driver for the public potrs_mp wrapper.
 
 This script is intentionally not a pytest test: it must be launched by a
-cluster runner that starts one Python process per node and initializes JAX's
+cluster runner that starts one Python process per GPU and initializes JAX's
 distributed runtime before device discovery. The expected topology is:
 
-  * 2 JAX processes,
-  * 4 local GPUs per process,
+  * 8 JAX processes,
+  * 1 local GPU per process,
   * 8 global GPUs total.
 
 Within that fixed topology the script exercises several cuSOLVERMp process
@@ -25,6 +25,7 @@ the package repository. This file should remain cluster-agnostic.
 from __future__ import annotations
 
 import json
+import os
 import socket
 import traceback
 from dataclasses import dataclass
@@ -33,8 +34,6 @@ import numpy as np
 from jax import config
 
 config.update("jax_enable_x64", True)
-
-import jaxmg
 
 
 @dataclass(frozen=True)
@@ -54,6 +53,52 @@ def _emit(label: str, **payload) -> None:
         + json.dumps({"label": label, "host": socket.gethostname(), **payload}),
         flush=True,
     )
+
+
+def _int_env(name: str, *, default: int | None = None) -> int:
+    value = os.environ.get(name)
+    if value is None or value == "":
+        if default is None:
+            raise RuntimeError(f"missing required environment variable {name}")
+        return default
+    return int(value)
+
+
+def _visible_device_count() -> int | None:
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if visible is None or visible in {"", "-1", "all", "none", "NoDevFiles"}:
+        return None
+    return len([part for part in visible.split(",") if part.strip()])
+
+
+def _initialize_jax_distributed_rank_process() -> tuple[int, ...]:
+    """Initialize JAX using the standard rank-per-GPU Slurm environment."""
+    import jax
+
+    if jax.distributed.is_initialized():
+        return tuple(range(jax.local_device_count()))
+
+    coordinator_address = os.environ.get("JAX_COORDINATOR_ADDRESS")
+    if not coordinator_address:
+        raise RuntimeError("JAX_COORDINATOR_ADDRESS must be set by the job script")
+
+    process_id = _int_env("SLURM_PROCID")
+    num_processes = _int_env("SLURM_NTASKS")
+    local_rank = _int_env("SLURM_LOCALID", default=0)
+    visible_count = _visible_device_count()
+    local_device_id = 0 if visible_count == 1 else local_rank
+
+    jax.distributed.initialize(
+        coordinator_address=coordinator_address,
+        num_processes=num_processes,
+        process_id=process_id,
+        local_device_ids=[local_device_id],
+        coordinator_bind_address=coordinator_address if process_id == 0 else None,
+        initialization_timeout=180,
+        heartbeat_timeout_seconds=120,
+        shutdown_timeout_seconds=180,
+    )
+    return (local_device_id,)
 
 
 def _local_status_rows(status):
@@ -155,6 +200,7 @@ def _run_case(case: Case) -> None:
     import jax.numpy as jnp
     from jax.sharding import NamedSharding, PartitionSpec as P
 
+    import jaxmg
     from jaxmg._block_cyclic_2d_plan import ProcessGrid
 
     grid = ProcessGrid(case.process_rows, case.process_cols)
@@ -164,7 +210,7 @@ def _run_case(case: Case) -> None:
             f"{jax.device_count()}"
         )
 
-    mesh = jaxmg.make_cusolvermp_mesh(grid.process_rows, grid.process_cols)
+    mesh = jax.make_mesh((grid.process_rows, grid.process_cols), ("pr", "pc"))
     matrix_specs = P("pr", "pc")
     rtol, atol = _tolerances(case.dtype)
 
@@ -206,7 +252,7 @@ def _run_case(case: Case) -> None:
 
 def main() -> None:
     try:
-        local_ids = jaxmg.initialize_node_process(initialization_timeout=120)
+        local_ids = _initialize_jax_distributed_rank_process()
 
         import jax
 
@@ -218,11 +264,11 @@ def main() -> None:
             local_device_count=jax.local_device_count(),
             global_device_count=jax.device_count(),
         )
-        if jax.process_count() != 2:
-            raise AssertionError(f"expected 2 JAX processes, got {jax.process_count()}")
-        if jax.local_device_count() != 4:
+        if jax.process_count() != 8:
+            raise AssertionError(f"expected 8 JAX processes, got {jax.process_count()}")
+        if jax.local_device_count() != 1:
             raise AssertionError(
-                f"expected 4 local GPUs per process, got {jax.local_device_count()}"
+                f"expected 1 local GPU per process, got {jax.local_device_count()}"
             )
         if jax.device_count() != 8:
             raise AssertionError(f"expected 8 global GPUs, got {jax.device_count()}")

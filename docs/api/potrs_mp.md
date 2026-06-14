@@ -4,10 +4,15 @@ For multi-node runs, initialize JAX before constructing devices, arrays, or
 meshes:
 
 ```python
-import jaxmg
+import jax
 
-jaxmg.initialize_node_process()
-mesh = jaxmg.make_cusolvermp_mesh(process_rows=2, process_cols=4)
+jax.distributed.initialize(
+    coordinator_address=coordinator_address,
+    num_processes=num_processes,
+    process_id=process_id,
+    local_device_ids=[local_rank],
+)
+mesh = jax.make_mesh((2, 4), ("pr", "pc"))
 ```
 
 The mesh uses row-major rank order, matching the native cuSOLVERMp descriptor:

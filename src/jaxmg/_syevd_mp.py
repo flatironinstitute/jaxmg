@@ -41,6 +41,31 @@ from ._potrs_mp import (
 from ._setup import ensure_init_jaxmg_backend
 
 
+def _require_rank_per_gpu_process_model(*, caller: str) -> None:
+    """Reject launch modes that violate cuSOLVERMp SYEVD's process contract.
+
+    NVIDIA documents cuSOLVERMp around a one-process-per-GPU model: the
+    cuSOLVERMp handle is tied to one CUDA device, and the NCCL communicator
+    passed to cuSOLVERMp represents process ranks. The host-generated NVIDIA
+    samples follow that model, and the SYEVD path is sensitive to it because it
+    uses additional internal collectives.
+
+    Ordinary JAX distributed setup remains user-owned. This check only inspects
+    the runtime that JAX has already created and gives an early, explicit error
+    when one Python process is controlling multiple local GPUs.
+    """
+    local_device_count = int(jax.local_device_count())
+    if local_device_count != 1:
+        raise RuntimeError(
+            f"{caller} requires a cuSOLVERMp rank-per-GPU launch: each Python "
+            "process must own exactly one local GPU. Call "
+            "jax.distributed.initialize(..., local_device_ids=[local_rank]) "
+            "or otherwise launch one Python process per visible GPU before "
+            "creating the input JAX array. This process currently sees "
+            f"{local_device_count} local devices."
+        )
+
+
 def syevd_mp(
     a: Array,
     T_A: int,
@@ -51,6 +76,11 @@ def syevd_mp(
     pad: bool = True,
 ) -> Union[Array, Tuple[Array, Array], Tuple[Array, Array, Array]]:
     """Compute eigenvalues/eigenvectors with cuSOLVERMp on a 2D process grid.
+
+    Multi-node ``syevd_mp`` follows cuSOLVERMp's rank-per-GPU process model:
+    initialize JAX so each Python process owns exactly one participating GPU.
+    The JAX distributed setup remains user-owned; JAXMg validates the resulting
+    runtime before entering the native cuSOLVERMp call.
 
     Args:
         a: Square symmetric/Hermitian matrix, normally sharded with
@@ -95,6 +125,7 @@ def syevd_mp(
         grid=grid,
         caller="syevd_mp",
     )
+    _require_rank_per_gpu_process_model(caller="syevd_mp")
     scratch_specs = _status_specs(row_axis, col_axis, grid)
     tile_shape = TileShape(rows=int(T_A), cols=int(T_A))
 

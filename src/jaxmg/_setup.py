@@ -124,11 +124,11 @@ def _detect_runtime_mode():
       participating local ranks must be supplied by ``JAXMG_NUMBER_OF_DEVICES``
       when it cannot be inferred from a non-distributed local device set.
 
-    The cuSOLVERMp multi-node target starts from distributed SPMD: one Python
-    process per node, each process controlling every local GPU. That mode sets
-    ``JAXMG_EXECUTION_MODE=SPMD`` via ``initialize_node_process`` and must not
-    fall into the old MPMD compatibility path merely because
-    ``jax.distributed`` is initialized.
+    The cuSOLVERMp multi-node target uses ordinary JAX distributed setup. The
+    SYEVD path follows cuSOLVERMp's rank-per-GPU process model, while POTRS has
+    also been useful in one-process-per-node diagnostics. This runtime-mode
+    detection remains for the legacy cuSolverMg compatibility layer and should
+    not be interpreted as owning JAX distributed initialization for cuSOLVERMp.
     """
     requested_mode = os.environ.get("JAXMG_EXECUTION_MODE", "").upper()
     if requested_mode:

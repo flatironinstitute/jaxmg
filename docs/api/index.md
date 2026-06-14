@@ -42,11 +42,12 @@ JAX-facing layout.
 
 ---
 
-## Distributed Helpers
+## Distributed Setup
 
-`initialize_node_process` initializes JAX distributed execution for the first supported multi-node launch
-mode: one Python process per node, with that process controlling every local GPU. `make_cusolvermp_mesh`
-then builds the row-major 2D mesh expected by `potrs_mp`.
+cuSOLVERMp runs should use ordinary `jax.distributed.initialize()` before any
+device discovery, array creation, or JIT compilation. The `syevd_mp` path follows
+cuSOLVERMp's rank-per-GPU model: one Python process per participating GPU. Build
+the 2D process mesh with normal JAX APIs such as `jax.make_mesh`.
 
 [Full distributed helper module →](distributed.md)
 
