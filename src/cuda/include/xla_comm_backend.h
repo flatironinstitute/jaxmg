@@ -569,8 +569,8 @@ absl::Status XlaCusolverMpSyevdProbePrepare(
 absl::Status XlaCusolverMpSyevdProbeDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
-    int64_t grid_mapping, int64_t compute_vectors, ffi::AnyBuffer token,
-    ffi::Result<ffi::BufferR1<S32>> status,
+    int64_t grid_mapping, int64_t compute_vectors, int64_t use_private_stream,
+    ffi::AnyBuffer token, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 absl::Status XlaCusolverMpPotrsPrepare(

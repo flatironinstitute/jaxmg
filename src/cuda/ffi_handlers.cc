@@ -389,6 +389,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<int64_t>("tile_size")
         .Attr<int64_t>("grid_mapping")
         .Attr<int64_t>("compute_vectors")
+        .Attr<int64_t>("use_private_stream")
         .Arg<ffi::AnyBuffer>()
         .Ret<ffi::BufferR1<S32>>()
         .Ctx<ffi::CollectiveParams>()

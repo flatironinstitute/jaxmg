@@ -2987,8 +2987,8 @@ absl::Status XlaCusolverMpSyevdProbePrepare(
 absl::Status XlaCusolverMpSyevdProbeDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
-    int64_t grid_mapping, int64_t compute_vectors, ffi::AnyBuffer token,
-    ffi::Result<ffi::BufferR1<S32>> status_out,
+    int64_t grid_mapping, int64_t compute_vectors, int64_t use_private_stream,
+    ffi::AnyBuffer token, ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   if (stream == nullptr || cuda_stream == nullptr) {
@@ -3039,7 +3039,7 @@ absl::Status XlaCusolverMpSyevdProbeDispatch(
       0,   // A scatter called.
       0,   // Q scatter called.
       0,   // cuSOLVERMp grid for Q created.
-      0,   // reserved.
+      static_cast<int32_t>(use_private_stream != 0),
       0,   // reserved.
       0,   // reserved.
       0,   // reserved.
@@ -3059,13 +3059,15 @@ absl::Status XlaCusolverMpSyevdProbeDispatch(
   probe[1] = cuda_device;
   CusolverMpDebug(-1,
                   "syevd probe dispatch device=%d n=%lld tile=%lld "
-                  "grid=%lldx%lld mapping=%lld compute_vectors=%lld",
+                  "grid=%lldx%lld mapping=%lld compute_vectors=%lld "
+                  "use_private_stream=%lld",
                   cuda_device, static_cast<long long>(n),
                   static_cast<long long>(tile_size),
                   static_cast<long long>(process_rows),
                   static_cast<long long>(process_cols),
                   static_cast<long long>(grid_mapping),
-                  static_cast<long long>(compute_vectors));
+                  static_cast<long long>(compute_vectors),
+                  static_cast<long long>(use_private_stream));
 
   if (collective_params == nullptr || collective_cliques == nullptr) {
     probe[0] = kCollectiveContextMissing;
@@ -3133,14 +3135,40 @@ absl::Status XlaCusolverMpSyevdProbeDispatch(
     return CopySyevdProbeToDevice(stream, probe, status_out);
   }
 
+  cudaStream_t solver_stream = cuda_stream;
+  cudaStream_t private_stream = nullptr;
+  auto destroy_private_stream = [&]() {
+    if (private_stream != nullptr) {
+      cudaStreamSynchronize(private_stream);
+      cudaStreamDestroy(private_stream);
+      private_stream = nullptr;
+    }
+  };
+  if (use_private_stream != 0) {
+    cuda_status =
+        cudaStreamCreateWithFlags(&private_stream, cudaStreamNonBlocking);
+    CusolverMpDebug(nccl_rank,
+                    "syevd probe private stream create status=%d stream=%p",
+                    static_cast<int>(cuda_status),
+                    reinterpret_cast<void*>(private_stream));
+    if (cuda_status != cudaSuccess || private_stream == nullptr) {
+      probe[0] = kDeviceAllocFailed;
+      probe[11] = static_cast<int32_t>(cuda_status);
+      dlclose(api.library);
+      return CopySyevdProbeToDevice(stream, probe, status_out);
+    }
+    solver_stream = private_stream;
+  }
+
   CusolverMpOpaqueHandle handle = nullptr;
   cusolverStatus_t cusolver_status =
-      api.create(&handle, cuda_device, cuda_stream);
+      api.create(&handle, cuda_device, solver_stream);
   CusolverMpDebug(nccl_rank, "syevd probe cusolverMpCreate status=%d handle=%p",
                   static_cast<int>(cusolver_status), handle);
   if (cusolver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
     probe[0] = kCreateHandleFailed;
     probe[11] = static_cast<int32_t>(cusolver_status);
+    destroy_private_stream();
     dlclose(api.library);
     return CopySyevdProbeToDevice(stream, probe, status_out);
   }
@@ -3152,6 +3180,7 @@ absl::Status XlaCusolverMpSyevdProbeDispatch(
     probe[0] = kGetVersionFailed;
     probe[11] = static_cast<int32_t>(cusolver_status);
     api.destroy(handle);
+    destroy_private_stream();
     dlclose(api.library);
     return CopySyevdProbeToDevice(stream, probe, status_out);
   }
@@ -3169,6 +3198,7 @@ absl::Status XlaCusolverMpSyevdProbeDispatch(
     probe[0] = kCreateGridFailed;
     probe[11] = static_cast<int32_t>(cusolver_status);
     api.destroy(handle);
+    destroy_private_stream();
     dlclose(api.library);
     return CopySyevdProbeToDevice(stream, probe, status_out);
   }
@@ -3185,6 +3215,7 @@ absl::Status XlaCusolverMpSyevdProbeDispatch(
     probe[11] = static_cast<int32_t>(cusolver_status);
     api.destroy_grid(grid_a);
     api.destroy(handle);
+    destroy_private_stream();
     dlclose(api.library);
     return CopySyevdProbeToDevice(stream, probe, status_out);
   }
@@ -3198,25 +3229,25 @@ absl::Status XlaCusolverMpSyevdProbeDispatch(
     case F32:
       probe[25] = 1;
       syevd_status = RunCusolverMpSyevdSampleProbe<float>(
-          api, handle, grid_a, grid_q, cuda_stream, n, tile_size, process_row,
+          api, handle, grid_a, grid_q, solver_stream, n, tile_size, process_row,
           process_col, &probe, compute_vectors != 0);
       break;
     case F64:
       probe[25] = 2;
       syevd_status = RunCusolverMpSyevdSampleProbe<double>(
-          api, handle, grid_a, grid_q, cuda_stream, n, tile_size, process_row,
+          api, handle, grid_a, grid_q, solver_stream, n, tile_size, process_row,
           process_col, &probe, compute_vectors != 0);
       break;
     case C64:
       probe[25] = 3;
       syevd_status = RunCusolverMpSyevdSampleProbe<cuFloatComplex>(
-          api, handle, grid_a, grid_q, cuda_stream, n, tile_size, process_row,
+          api, handle, grid_a, grid_q, solver_stream, n, tile_size, process_row,
           process_col, &probe, compute_vectors != 0);
       break;
     case C128:
       probe[25] = 4;
       syevd_status = RunCusolverMpSyevdSampleProbe<cuDoubleComplex>(
-          api, handle, grid_a, grid_q, cuda_stream, n, tile_size, process_row,
+          api, handle, grid_a, grid_q, solver_stream, n, tile_size, process_row,
           process_col, &probe, compute_vectors != 0);
       break;
     default:
@@ -3227,6 +3258,7 @@ absl::Status XlaCusolverMpSyevdProbeDispatch(
     api.destroy_grid(grid_q);
     api.destroy_grid(grid_a);
     api.destroy(handle);
+    destroy_private_stream();
     dlclose(api.library);
     return syevd_status;
   }
@@ -3261,6 +3293,7 @@ absl::Status XlaCusolverMpSyevdProbeDispatch(
     api.destroy(handle);
   }
 
+  destroy_private_stream();
   dlclose(api.library);
   return CopySyevdProbeToDevice(stream, probe, status_out);
 }

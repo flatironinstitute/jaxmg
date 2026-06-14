@@ -961,6 +961,7 @@ def cusolvermp_syevd_probe(
     tile_size: int,
     grid_mapping: int = 1,
     compute_vectors: bool = True,
+    use_private_stream: bool = False,
 ) -> Array:
     """Run a sample-style cuSOLVERMp ``syevd`` diagnostic.
 
@@ -988,6 +989,7 @@ def cusolvermp_syevd_probe(
     tile_size = int(tile_size)
     grid_mapping = int(grid_mapping)
     compute_vectors_int = int(bool(compute_vectors))
+    use_private_stream_int = int(bool(use_private_stream))
     if process_rows <= 0 or process_cols <= 0:
         raise ValueError("process_rows and process_cols must be positive.")
     if n <= 0 or tile_size <= 0:
@@ -1013,6 +1015,7 @@ def cusolvermp_syevd_probe(
         tile_size=tile_size,
         grid_mapping=grid_mapping,
         compute_vectors=compute_vectors_int,
+        use_private_stream=use_private_stream_int,
     )
     (status,) = ffi_fn(token)
     return status
@@ -1030,6 +1033,7 @@ def cusolvermp_syevd_probe_shardmap(
     tile_size: int,
     grid_mapping: int = 1,
     compute_vectors: bool = True,
+    use_private_stream: bool = False,
 ) -> Array:
     """Run :func:`cusolvermp_syevd_probe` over a 2D process grid."""
     if not isinstance(matrix_specs, P) or not isinstance(status_specs, P):
@@ -1052,6 +1056,7 @@ def cusolvermp_syevd_probe_shardmap(
             tile_size=tile_size,
             grid_mapping=grid_mapping,
             compute_vectors=compute_vectors,
+            use_private_stream=use_private_stream,
         )
 
     return impl(token)
