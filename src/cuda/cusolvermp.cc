@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// cuSOLVERMp dynamic boundary and first production potrs implementation.
+// cuSOLVERMp dynamic boundary, diagnostics, and production potrs implementation.
 //
 // This file owns the native cuSOLVERMp integration layer.  It deliberately
 // keeps the cuSOLVERMp dependency behind dlopen/dlsym for now: ordinary CUDA
@@ -29,7 +29,7 @@
 //   5. Run diagnostic probes that isolate initialization, scatter layout, and
 //      host-generated potrs inputs.
 //   6. Run the production `cusolvermp_potrs` handler on buffers that have
-//      already been redistributed by rectangle_pack.cc into 2D block-cyclic
+//      already been redistributed by block_cyclic_2d.cc into 2D block-cyclic
 //      cuSOLVERMp layout.
 //
 // The probe entry points intentionally return device status vectors instead of

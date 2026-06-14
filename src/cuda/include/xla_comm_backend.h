@@ -24,9 +24,11 @@
 //      into one cuSolverMg host invocation in SPMD mode.
 //   3. XLA communicator clique helpers and the rank-0 broadcast utility.
 //   4. 1D redistribution entry points.
-//   5. 2D rectangle/redistribution entry points used by the cuSOLVERMp path.
-//   6. cuSOLVERMp diagnostic and production potrs entry points.
-//   7. Fused cuSolverMg production solver handlers registered under the
+//   5. Shared 2D rectangle schedule types used by edge_padding_2d.cc,
+//      block_cyclic_2d.cc, and rectangle_pack.cc.
+//   6. 2D rectangle/redistribution entry points used by the cuSOLVERMp path.
+//   7. cuSOLVERMp diagnostic and production potrs entry points.
+//   8. Fused cuSolverMg production solver handlers registered under the
 //      historical JAXMg FFI target names.
 //
 // The 1D cuSolverMg production path is:
@@ -335,6 +337,71 @@ absl::Status ExecuteMatrixColumnNativePlanRaw(
     int64_t local_slots, int64_t column_elements, uint64_t column_bytes,
     int64_t local_scratch_slots, int64_t num_ranks, int64_t rank_value,
     int64_t tile_size, bool reverse);
+
+// Shared 2D redistribution schedule.
+//
+// cuSOLVERMp needs a column-major local 2D block-cyclic layout. JAX users start
+// from ordinary 2D block-sharded buffers. The native implementation represents
+// both the edge-padding compaction and the block-cyclic redistribution as a
+// sequence of rectangle moves over local buffers. These structs are deliberately
+// small value types so they can be constructed in the planning files and then
+// executed by rectangle_pack.cc without sharing ownership or lifetime state.
+struct NativeLocalRect {
+  int64_t row_start;
+  int64_t col_start;
+  int64_t row_count;
+  int64_t col_count;
+};
+
+enum class Native2DStepKind : int64_t {
+  kMove = 0,
+  kSaveScratch = 1,
+  kRestoreScratch = 2,
+};
+
+struct Native2DStep {
+  int64_t phase;
+  int64_t sequence;
+  Native2DStepKind kind;
+  int64_t source_rank;
+  int64_t target_rank;
+  NativeLocalRect source;
+  NativeLocalRect target;
+};
+
+struct Native2DStepBatch {
+  int64_t phase;
+  Native2DStepKind kind;
+  std::vector<Native2DStep> steps;
+};
+
+absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream,
+                                ffi::AnyBuffer matrix,
+                                ffi::Result<ffi::AnyBuffer> matrix_out);
+absl::Status CopyScratchIfNeeded(cudaStream_t cuda_stream,
+                                 ffi::AnyBuffer scratch,
+                                 ffi::Result<ffi::AnyBuffer> scratch_out);
+int64_t MaxStepElementCount(const std::vector<Native2DStep>& steps);
+std::vector<Native2DStepBatch> BatchNative2DSteps(
+    const std::vector<Native2DStep>& steps);
+absl::Status ExecuteNative2DStepBatches(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    const std::vector<Native2DStepBatch>& batches, int64_t local_rows,
+    int64_t local_cols, int64_t rank_value, int64_t num_ranks,
+    size_t element_bytes, int64_t slot_elements, ffi::AnyBuffer matrix,
+    se::DeviceAddressBase matrix_out_base,
+    se::DeviceAddressBase scratch_out_base, GpuCommunicator* comm);
+absl::StatusOr<std::vector<Native2DStep>> BuildEdgePaddingNative2DSteps(
+    int64_t process_rows, int64_t process_cols, int64_t tile_rows,
+    int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
+    int64_t local_rows, int64_t local_cols,
+    absl::Span<const int64_t> rank_map);
+std::vector<Native2DStep> ReverseEdgePaddingSteps(
+    const std::vector<Native2DStep>& forward_steps);
+absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
+    int64_t process_rows, int64_t process_cols, int64_t tile_rows,
+    int64_t tile_cols, int64_t local_rows, int64_t local_cols,
+    absl::Span<const int64_t> rank_map, bool reverse = false);
 
 // Diagnostic handlers. These are useful when changing the XLA integration
 // because they isolate clique construction, communicator lookup, all-reduce,

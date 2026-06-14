@@ -99,9 +99,11 @@ ln -sfn "${ROOT}/src/cuda/utils/xla_comm_common.cc" \
 ln -sfn "${ROOT}/src/cuda/utils/mpmd_ipc.cc" \
   "${BACKEND_PKG}/utils/mpmd_ipc.cc"
 for src in \
+  block_cyclic_2d.cc \
   collective_diagnostics.cc \
-  cusolvermp_probe.cc \
+  cusolvermp.cc \
   cyclic_1d.cc \
+  edge_padding_2d.cc \
   ffi_handlers.cc \
   potri.cc \
   potrs.cc \
