@@ -58,7 +58,7 @@ The intended MPMD checkpoint order is therefore:
    launch;
 2. validate the XLA communicator 1D cyclic reshuffle in the same launch mode;
 3. add the CUDA IPC pointer-sharing layer for `potrs`;
-4. extend the pointer-sharing layer to `potri` and `syevd`;
+4. extend the pointer-sharing layer to `syevd`;
 5. only then consider this backend a replacement for the original `_mp`
    libraries.
 

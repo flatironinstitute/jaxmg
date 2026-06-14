@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// cuSOLVERMp dynamic boundary, diagnostics, and production potrs implementation.
+// cuSOLVERMp dynamic boundary, diagnostics, and production solver handlers.
 //
 // This file owns the native cuSOLVERMp integration layer.  It deliberately
 // keeps the cuSOLVERMp dependency behind dlopen/dlsym for now: ordinary CUDA
@@ -28,9 +28,9 @@
 //   4. Create column-major local matrix descriptors over JAXMg device buffers.
 //   5. Run diagnostic probes that isolate initialization, scatter layout, and
 //      host-generated potrs inputs.
-//   6. Run the production `cusolvermp_potrs` handler on buffers that have
-//      already been redistributed by block_cyclic_2d.cc into 2D block-cyclic
-//      cuSOLVERMp layout.
+//   6. Run the production `cusolvermp_potrs` and `cusolvermp_syevd` handlers on
+//      buffers that have already been redistributed by block_cyclic_2d.cc into
+//      2D block-cyclic cuSOLVERMp layout.
 //
 // The probe entry points intentionally return device status vectors instead of
 // failing hard.  That makes them useful in CI and on systems where the NVIDIA
@@ -102,6 +102,18 @@ using CusolverMpPotrsFn =
                          CusolverMpOpaqueMatrixDesc, void*, int64_t, int64_t,
                          CusolverMpOpaqueMatrixDesc, cudaDataType, void*,
                          size_t, void*, size_t, int*);
+using CusolverMpSyevdBufferSizeFn =
+    cusolverStatus_t (*)(CusolverMpOpaqueHandle, char*, cublasFillMode_t,
+                         int64_t, void*, int64_t, int64_t,
+                         CusolverMpOpaqueMatrixDesc, void*, void*, int64_t,
+                         int64_t, CusolverMpOpaqueMatrixDesc, cudaDataType,
+                         size_t*, size_t*);
+using CusolverMpSyevdFn =
+    cusolverStatus_t (*)(CusolverMpOpaqueHandle, char*, cublasFillMode_t,
+                         int64_t, void*, int64_t, int64_t,
+                         CusolverMpOpaqueMatrixDesc, void*, void*, int64_t,
+                         int64_t, CusolverMpOpaqueMatrixDesc, cudaDataType,
+                         void*, size_t, void*, size_t, int*);
 
 struct CusolverMpApi {
   void* library = nullptr;
@@ -118,6 +130,8 @@ struct CusolverMpApi {
   CusolverMpPotrfFn potrf = nullptr;
   CusolverMpPotrsBufferSizeFn potrs_buffer_size = nullptr;
   CusolverMpPotrsFn potrs = nullptr;
+  CusolverMpSyevdBufferSizeFn syevd_buffer_size = nullptr;
+  CusolverMpSyevdFn syevd = nullptr;
 };
 
 enum ProbeStatus : int32_t {
@@ -154,11 +168,15 @@ enum ProbeStatus : int32_t {
   kGatherSymbolMissing = 30,
   kGatherFailed = 31,
   kResidualTooLarge = 32,
+  kSyevdWorkspaceFailed = 33,
+  kSyevdFailed = 34,
+  kSyevdInfoNonzero = 35,
 };
 
 constexpr int kProbeSize = 16;
 constexpr int kScatterProbeSize = 24;
 constexpr int kPotrsProbeSize = 40;
+constexpr int kSyevdProbeSize = 36;
 constexpr int kResidualScale = 1000000;
 
 // The dynamic probe cannot include cusolverMp.h because ordinary CUDA/cuSolver
@@ -297,6 +315,10 @@ CusolverMpApi LoadCusolverMpApi(std::array<int32_t, ProbeSize>* probe) {
       api.library, "cusolverMpPotrs_bufferSize");
   api.potrs =
       LoadRequiredSymbol<CusolverMpPotrsFn>(api.library, "cusolverMpPotrs");
+  api.syevd_buffer_size = LoadRequiredSymbol<CusolverMpSyevdBufferSizeFn>(
+      api.library, "cusolverMpSyevd_bufferSize");
+  api.syevd =
+      LoadRequiredSymbol<CusolverMpSyevdFn>(api.library, "cusolverMpSyevd");
 
   if (api.create == nullptr || api.destroy == nullptr ||
       api.get_version == nullptr || api.create_grid == nullptr ||
@@ -354,6 +376,11 @@ bool HasDistributedPotrsSolveSymbols(const CusolverMpApi& api) {
          api.potrs != nullptr;
 }
 
+bool HasSyevdSymbols(const CusolverMpApi& api) {
+  return HasRequiredSymbols(api) && api.syevd_buffer_size != nullptr &&
+         api.syevd != nullptr;
+}
+
 absl::Status CopyScatterProbeToDevice(
     se::Stream* stream, const std::array<int32_t, kScatterProbeSize>& probe,
     ffi::Result<ffi::BufferR1<S32>> out) {
@@ -363,6 +390,13 @@ absl::Status CopyScatterProbeToDevice(
 
 absl::Status CopyPotrsProbeToDevice(
     se::Stream* stream, const std::array<int32_t, kPotrsProbeSize>& probe,
+    ffi::Result<ffi::BufferR1<S32>> out) {
+  se::DeviceAddress<int32_t> dst = out->device_memory();
+  return stream->MemcpyH2D(absl::MakeConstSpan(probe), &dst);
+}
+
+absl::Status CopySyevdProbeToDevice(
+    se::Stream* stream, const std::array<int32_t, kSyevdProbeSize>& probe,
     ffi::Result<ffi::BufferR1<S32>> out) {
   se::DeviceAddress<int32_t> dst = out->device_memory();
   return stream->MemcpyH2D(absl::MakeConstSpan(probe), &dst);
@@ -1165,6 +1199,141 @@ absl::Status RunCusolverMpDistributedPotrsProbe(
         (*probe)[0] = kResidualTooLarge;
       }
     }
+  }
+
+  cleanup();
+  return absl::OkStatus();
+}
+
+template <typename DataType>
+absl::Status RunCusolverMpSyevd(
+    const CusolverMpApi& api, CusolverMpOpaqueHandle handle,
+    CusolverMpOpaqueGrid grid, cudaStream_t cuda_stream, int64_t n,
+    int64_t tile_size, int64_t local_physical_rows,
+    int64_t local_physical_cols, int32_t process_row, int32_t process_col,
+    ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> eigenvalues_out,
+    ffi::Result<ffi::AnyBuffer> vectors_out,
+    std::array<int32_t, kSyevdProbeSize>* probe, bool compute_vectors) {
+  const int32_t process_rows = (*probe)[4];
+  const int32_t process_cols = (*probe)[5];
+  const int64_t local_rows = LocalNumroc(n, tile_size, process_row,
+                                         static_cast<int32_t>(process_rows));
+  const int64_t local_cols = LocalNumroc(n, tile_size, process_col,
+                                         static_cast<int32_t>(process_cols));
+  (*probe)[17] = static_cast<int32_t>(local_rows);
+  (*probe)[18] = static_cast<int32_t>(local_cols);
+  if (local_physical_rows < local_rows || local_physical_cols < local_cols) {
+    (*probe)[0] = kOutputShapeMismatch;
+    return absl::OkStatus();
+  }
+
+  CusolverMpOpaqueMatrixDesc desc_a = nullptr;
+  CusolverMpOpaqueMatrixDesc desc_q = nullptr;
+  cusolverStatus_t status = api.create_matrix_desc(
+      &desc_a, grid, SolverTraits<DataType>::cuda_data_type, n, n, tile_size,
+      tile_size, /*RSRC_A=*/0, /*CSRC_A=*/0, local_physical_rows);
+  if (status != CUSOLVER_STATUS_SUCCESS || desc_a == nullptr) {
+    (*probe)[0] = kCreateMatrixDescFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    return absl::OkStatus();
+  }
+  (*probe)[10] = 1;
+
+  status = api.create_matrix_desc(
+      &desc_q, grid, SolverTraits<DataType>::cuda_data_type, n, n, tile_size,
+      tile_size, /*RSRC_Q=*/0, /*CSRC_Q=*/0, local_physical_rows);
+  if (status != CUSOLVER_STATUS_SUCCESS || desc_q == nullptr) {
+    (*probe)[0] = kCreateMatrixDescFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    api.destroy_matrix_desc(desc_a);
+    return absl::OkStatus();
+  }
+  (*probe)[27] = 1;
+
+  void* d_work = nullptr;
+  void* h_work = nullptr;
+  int* d_info = nullptr;
+  auto cleanup = [&]() {
+    if (d_work != nullptr) cudaFree(d_work);
+    if (d_info != nullptr) cudaFree(d_info);
+    if (h_work != nullptr) std::free(h_work);
+    api.destroy_matrix_desc(desc_q);
+    api.destroy_matrix_desc(desc_a);
+  };
+
+  JAXMG_RETURN_IF_ERROR(CopyAnyBufferToOutputIfNeeded(cuda_stream, a, vectors_out));
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+
+  size_t workspace_device = 0;
+  size_t workspace_host = 0;
+  char jobz[] = {'N', '\0'};
+  if (compute_vectors) {
+    jobz[0] = 'V';
+  }
+  status = api.syevd_buffer_size(
+      handle, jobz, CUBLAS_FILL_MODE_LOWER, n, vectors_out->untyped_data(),
+      /*IA=*/1, /*JA=*/1, desc_a, eigenvalues_out->untyped_data(),
+      vectors_out->untyped_data(), /*IQ=*/1, /*JQ=*/1, desc_q,
+      SolverTraits<DataType>::cuda_data_type, &workspace_device,
+      &workspace_host);
+  if (status != CUSOLVER_STATUS_SUCCESS) {
+    (*probe)[0] = kSyevdWorkspaceFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*probe)[21] = SizeToKiBForProbe(workspace_device);
+  (*probe)[22] = SizeToKiBForProbe(workspace_host);
+
+  cudaError_t cuda_status = cudaSuccess;
+  if (workspace_device > 0) {
+    cuda_status = cudaMalloc(&d_work, workspace_device);
+    if (cuda_status != cudaSuccess) {
+      (*probe)[0] = kDeviceAllocFailed;
+      cleanup();
+      return absl::OkStatus();
+    }
+  }
+  if (workspace_host > 0) {
+    h_work = std::malloc(workspace_host);
+    if (h_work == nullptr) {
+      (*probe)[0] = kHostAllocFailed;
+      cleanup();
+      return absl::OkStatus();
+    }
+  }
+  cuda_status = cudaMalloc(reinterpret_cast<void**>(&d_info), sizeof(int));
+  if (cuda_status != cudaSuccess) {
+    (*probe)[0] = kDeviceAllocFailed;
+    cleanup();
+    return absl::OkStatus();
+  }
+  JAXMG_RETURN_IF_CUDA_ERROR(
+      cudaMemsetAsync(d_info, 0, sizeof(int), cuda_stream));
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+
+  status = api.syevd(handle, jobz, CUBLAS_FILL_MODE_LOWER, n,
+                     vectors_out->untyped_data(), /*IA=*/1, /*JA=*/1, desc_a,
+                     eigenvalues_out->untyped_data(),
+                     vectors_out->untyped_data(), /*IQ=*/1, /*JQ=*/1, desc_q,
+                     SolverTraits<DataType>::cuda_data_type, d_work,
+                     workspace_device, h_work, workspace_host, d_info);
+  if (status != CUSOLVER_STATUS_SUCCESS) {
+    (*probe)[0] = kSyevdFailed;
+    (*probe)[11] = static_cast<int32_t>(status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*probe)[23] = 1;
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+
+  int h_info = -1;
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
+      &h_info, d_info, sizeof(int), cudaMemcpyDeviceToHost, cuda_stream));
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  (*probe)[24] = h_info;
+  if (h_info != 0) {
+    (*probe)[0] = kSyevdInfoNonzero;
   }
 
   cleanup();
@@ -2159,6 +2328,265 @@ absl::Status CusolverMpDistributedPotrsDispatchImpl(
   return CopyPotrsProbeToDevice(stream, probe, status_out);
 }
 
+absl::Status CusolverMpSyevdDispatchImpl(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n,
+    int64_t tile_size, int64_t grid_mapping, int64_t compute_vectors,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> eigenvalues_out,
+    ffi::Result<ffi::AnyBuffer> vectors_out,
+    ffi::Result<ffi::BufferR1<S32>> status_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  if (stream == nullptr || cuda_stream == nullptr) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_syevd requires XLA and CUDA streams");
+  }
+  if (a.dimensions().size() != 2 || vectors_out->dimensions().size() != 2 ||
+      eigenvalues_out->dimensions().size() != 1) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_syevd expects rank-2 matrix buffers and rank-1 "
+        "eigenvalue output");
+  }
+  if (a.element_type() != vectors_out->element_type()) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_syevd requires matching matrix/vector dtypes");
+  }
+  const PrimitiveType expected_eigen_type =
+      (a.element_type() == F32 || a.element_type() == C64) ? F32 : F64;
+  if (eigenvalues_out->element_type() != expected_eigen_type) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_syevd received an eigenvalue output with the wrong dtype");
+  }
+  if (a.dimensions()[0] != vectors_out->dimensions()[0] ||
+      a.dimensions()[1] != vectors_out->dimensions()[1]) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_syevd input/output matrix shapes must match");
+  }
+  if (eigenvalues_out->dimensions()[0] != n) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_syevd eigenvalue output length must match n");
+  }
+  if (status_out->dimensions().size() != 1 ||
+      status_out->dimensions()[0] != kSyevdProbeSize) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "cusolvermp_syevd expects status shape (%d,)", kSyevdProbeSize));
+  }
+
+  std::array<int32_t, kSyevdProbeSize> probe = {
+      kProbeOk,
+      -1,  // CUDA device selected for this FFI invocation.
+      -1,  // NCCL rank reported by the borrowed communicator.
+      -1,  // NCCL communicator size.
+      static_cast<int32_t>(process_rows),
+      static_cast<int32_t>(process_cols),
+      -1,  // cuSOLVERMp version, if available.
+      0,   // libcusolverMp loaded.
+      0,   // cuSOLVERMp handle created.
+      0,   // cuSOLVERMp grid created.
+      0,   // matrix descriptor for A created.
+      0,   // raw cuSOLVER status from the failing call, if any.
+      static_cast<int32_t>(a.size_bytes()),
+      static_cast<int32_t>(n),
+      static_cast<int32_t>(tile_size),
+      static_cast<int32_t>(a.dimensions()[0]),
+      static_cast<int32_t>(a.dimensions()[1]),
+      -1,  // local NUMROC rows.
+      -1,  // local NUMROC cols.
+      static_cast<int32_t>(eigenvalues_out->size_bytes()),
+      static_cast<int32_t>(compute_vectors != 0),
+      -1,  // syevd device workspace, KiB.
+      -1,  // syevd host workspace, KiB.
+      0,   // cusolverMpSyevd called.
+      -1,  // syevd info value copied from device.
+      -1,  // dtype code.
+      static_cast<int32_t>(grid_mapping),
+      0,   // matrix descriptor for Q created.
+      0,   // matrix came from native JAX-buffer redistribution.
+      0,   // reserved.
+      0,   // reserved.
+      0,   // reserved.
+      0,   // reserved.
+      0,   // reserved.
+      0,   // reserved.
+      0,   // reserved.
+  };
+
+  int cuda_device = -1;
+  cudaError_t cuda_status = cudaGetDevice(&cuda_device);
+  if (cuda_status != cudaSuccess) {
+    probe[0] = kCudaDeviceFailed;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  probe[1] = cuda_device;
+
+  if (collective_params == nullptr || collective_cliques == nullptr) {
+    probe[0] = kCollectiveContextMissing;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+
+  absl::StatusOr<GpuCliqueKey> clique_key =
+      AllAssignedDevicesP2PCliqueKey(*collective_params);
+  if (!clique_key.ok()) {
+    probe[0] = kCliqueKeyFailed;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+
+  absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
+      *clique_key, collective_params->global_device_id);
+  if (!gpu_comm.ok() || *gpu_comm == nullptr) {
+    probe[0] = kCommunicatorMissing;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+
+  void* platform_handle = (*gpu_comm)->platform_comm().handle;
+  if (platform_handle == nullptr) {
+    probe[0] = kNcclHandleMissing;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  ncclComm_t nccl_comm = reinterpret_cast<ncclComm_t>(platform_handle);
+
+  int nccl_rank = -1;
+  int nccl_count = -1;
+  ncclResult_t rank_status = ncclCommUserRank(nccl_comm, &nccl_rank);
+  ncclResult_t count_status = ncclCommCount(nccl_comm, &nccl_count);
+  if (rank_status != ncclSuccess || count_status != ncclSuccess) {
+    probe[0] = kNcclRankMismatch;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  probe[2] = nccl_rank;
+  probe[3] = nccl_count;
+
+  if (process_rows <= 0 || process_cols <= 0 ||
+      process_rows * process_cols != nccl_count || n <= 0 ||
+      tile_size <= 0) {
+    probe[0] = kGridShapeMismatch;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  JAXMG_RETURN_IF_ERROR(
+      ValidateCusolverMpGridMapping("cusolvermp_syevd", grid_mapping));
+  if (!rank_map.empty()) {
+    JAXMG_RETURN_IF_ERROR(ValidateStandardRankMapForGridMapping(
+        "cusolvermp_syevd", rank_map, process_rows, process_cols,
+        grid_mapping));
+  }
+
+  CusolverMpApi api = LoadCusolverMpApi(&probe);
+  if (probe[0] != kProbeOk || !HasRequiredSymbols(api)) {
+    if (api.library != nullptr) {
+      dlclose(api.library);
+    }
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  if (!HasSyevdSymbols(api)) {
+    probe[0] = kSolverSymbolMissing;
+    dlclose(api.library);
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+
+  CusolverMpOpaqueHandle handle = nullptr;
+  cusolverStatus_t cusolver_status =
+      api.create(&handle, cuda_device, cuda_stream);
+  if (cusolver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
+    probe[0] = kCreateHandleFailed;
+    probe[11] = static_cast<int32_t>(cusolver_status);
+    dlclose(api.library);
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  probe[8] = 1;
+
+  int version = -1;
+  cusolver_status = api.get_version(handle, &version);
+  if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
+    probe[0] = kGetVersionFailed;
+    probe[11] = static_cast<int32_t>(cusolver_status);
+    api.destroy(handle);
+    dlclose(api.library);
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  probe[6] = version;
+
+  CusolverMpOpaqueGrid grid = nullptr;
+  cusolver_status = api.create_grid(
+      handle, &grid, nccl_comm, static_cast<int32_t>(process_rows),
+      static_cast<int32_t>(process_cols), static_cast<int>(grid_mapping));
+  if (cusolver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
+    probe[0] = kCreateGridFailed;
+    probe[11] = static_cast<int32_t>(cusolver_status);
+    api.destroy(handle);
+    dlclose(api.library);
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  probe[9] = 1;
+
+  const auto [process_row, process_col] = ProcessCoordFromRank(
+      nccl_rank, process_rows, process_cols, grid_mapping);
+
+  absl::Status syevd_status;
+  switch (a.element_type()) {
+    case F32:
+      probe[25] = 1;
+      syevd_status = RunCusolverMpSyevd<float>(
+          api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
+          a.dimensions()[1], process_row, process_col, a, eigenvalues_out,
+          vectors_out, &probe, compute_vectors != 0);
+      break;
+    case F64:
+      probe[25] = 2;
+      syevd_status = RunCusolverMpSyevd<double>(
+          api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
+          a.dimensions()[1], process_row, process_col, a, eigenvalues_out,
+          vectors_out, &probe, compute_vectors != 0);
+      break;
+    case C64:
+      probe[25] = 3;
+      syevd_status = RunCusolverMpSyevd<cuFloatComplex>(
+          api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
+          a.dimensions()[1], process_row, process_col, a, eigenvalues_out,
+          vectors_out, &probe, compute_vectors != 0);
+      break;
+    case C128:
+      probe[25] = 4;
+      syevd_status = RunCusolverMpSyevd<cuDoubleComplex>(
+          api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
+          a.dimensions()[1], process_row, process_col, a, eigenvalues_out,
+          vectors_out, &probe, compute_vectors != 0);
+      break;
+    default:
+      probe[0] = kUnsupportedDtype;
+      break;
+  }
+  if (!syevd_status.ok()) {
+    api.destroy_grid(grid);
+    api.destroy(handle);
+    dlclose(api.library);
+    return syevd_status;
+  }
+
+  if (probe[0] == kProbeOk) {
+    cusolver_status = api.destroy_grid(grid);
+    if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
+      probe[0] = kDestroyGridFailed;
+      probe[11] = static_cast<int32_t>(cusolver_status);
+    }
+  } else {
+    api.destroy_grid(grid);
+  }
+
+  if (probe[0] == kProbeOk) {
+    cusolver_status = api.destroy(handle);
+    if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
+      probe[0] = kDestroyHandleFailed;
+      probe[11] = static_cast<int32_t>(cusolver_status);
+    }
+  } else {
+    api.destroy(handle);
+  }
+
+  dlclose(api.library);
+  return CopySyevdProbeToDevice(stream, probe, status_out);
+}
+
 absl::Status XlaCusolverMpDistributedPotrsProbeDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
@@ -2195,6 +2623,29 @@ absl::Status XlaCusolverMpPotrsDispatch(
       stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
       tile_size, grid_mapping, rank_map, a, b, a_out, b_out, status_out,
       collective_params, collective_cliques, /*validate_solution=*/false);
+}
+
+absl::Status XlaCusolverMpSyevdPrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests) {
+  return XlaCusolverMpDistributedPotrsProbePrepare(collective_params,
+                                                  clique_requests);
+}
+
+absl::Status XlaCusolverMpSyevdDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
+    int64_t grid_mapping, int64_t compute_vectors,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> eigenvalues_out,
+    ffi::Result<ffi::AnyBuffer> vectors_out,
+    ffi::Result<ffi::BufferR1<S32>> status_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return CusolverMpSyevdDispatchImpl(
+      stream, comm_stream, cuda_stream, process_rows, process_cols, n,
+      tile_size, grid_mapping, compute_vectors, rank_map, a, eigenvalues_out,
+      vectors_out, status_out, collective_params, collective_cliques);
 }
 
 }  // namespace xla::gpu

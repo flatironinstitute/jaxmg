@@ -28,8 +28,8 @@
 //   3. XlaCommMatrixColumnNativePlanDispatch builds the complete permutation
 //      schedule in C++ and executes it. This is what the public cyclic_1d helper
 //      uses.
-//   4. ExecuteMatrixColumnNativePlanRaw is the shared engine called by potrs,
-//      potri, and syevd after they have already resolved the communicator.
+//   4. ExecuteMatrixColumnNativePlanRaw is the shared engine called by potrs
+//      and syevd after they have already resolved the communicator.
 //
 // The implementation deliberately separates planning from move execution. The
 // planner works in global column slots. The executor translates each slot into

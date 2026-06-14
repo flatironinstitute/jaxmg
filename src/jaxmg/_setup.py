@@ -96,15 +96,6 @@ def _register_xla_comm_cusolvermg_targets(bin_dir):
     _register_cuda_target_bundle(
         bin_dir,
         _xla_comm_backend_library,
-        "potri_mg",
-        {
-            "prepare": "XlaCommPotriMgNativePlanPrepareFFI",
-            "execute": "XlaCommPotriMgNativePlanFFI",
-        },
-    )
-    _register_cuda_target_bundle(
-        bin_dir,
-        _xla_comm_backend_library,
         "syevd_mg",
         {
             "prepare": "XlaCommSyevdMgNativePlanPrepareFFI",
@@ -357,6 +348,15 @@ def _initialize():
             {
                 "prepare": "XlaCusolverMpPotrsPrepareFFI",
                 "execute": "XlaCusolverMpPotrsFFI",
+            },
+        )
+        _register_optional_cuda_target_bundle(
+            bin_dir,
+            _xla_comm_backend_library,
+            "cusolvermp_syevd",
+            {
+                "prepare": "XlaCusolverMpSyevdPrepareFFI",
+                "execute": "XlaCusolverMpSyevdFFI",
             },
         )
     else:

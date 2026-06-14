@@ -9,10 +9,9 @@ The conversion between the natural row-sharded JAX input and the 1D block-cyclic
 internally in the C++/CUDA layer. Users can pass normal row-sharded matrices to the
 high-level functions; the library handles the remapping and padding required by the native kernels so you don't have to manage the cyclic layout yourself.
 
-The experimental cuSOLVERMp path, `potrs_mp`, uses a 2D JAX process grid and redistributes locally padded
-JAX shards into the 2D block-cyclic, column-major local layout expected by cuSOLVERMp. It is currently the
-first production cuSOLVERMp routine on this branch and is validated on a single multi-GPU node; multi-node
-validation is the next development target.
+The cuSOLVERMp paths, `potrs_mp` and `syevd_mp`, use a 2D JAX process grid and
+redistribute locally padded JAX shards into the 2D block-cyclic, column-major
+local layout expected by cuSOLVERMp.
 
 !!! Warning
     The user must supply a tile width `T_A` to the solvers. Choose `T_A` carefully: very small values (e.g. < 128) can make the native kernels much slower. Furthermore, if the shard size of the matrix is not a multiple of `T_A` we must add per-device padding to fit the last tile — that padding requires copying data and increases memory use and runtime. In short: prefer a reasonably large `T_A` (>=128) and, where possible, pick `T_A` so that your shard size is an exact multiple to avoid copying and unnecessary slowdown.
@@ -53,20 +52,6 @@ then builds the row-major 2D mesh expected by `potrs_mp`.
 
 ---
 
-## potri
-
-Multi-GPU matrix inversion helper for symmetric (Hermitian) positive-definite matrices.
-
-$$
-A^{-1} = (L L^{\top})^{-1} = L^{-\top} L^{-1} \quad\text{(real)}\quad\text{or}\quad A^{-1} = L^{-\dagger} L^{-1} \;\text{(complex)}
-$$
-
-Compute the inverse (or the upper-triangular part) of using Cholesky the Cholesky factors.
-
-[Full potri module →](potri.md)
-
----
-
 ## syevd
 
 Multi-GPU eigensolver for symmetric (Hermitian) matrices.
@@ -78,3 +63,15 @@ $$
 Compute eigenvalues $\Lambda$ and (optionally) eigenvectors $V$ of a symmetric (Hermitian) matrix.
 
 [Full syevd module →](syevd.md)
+
+---
+
+## syevd_mp
+
+cuSOLVERMp eigensolver for symmetric (Hermitian) matrices on a 2D process grid.
+
+`syevd_mp` accepts a 2D block-sharded JAX matrix, performs native GPU-to-GPU 2D
+block-cyclic redistribution, runs cuSOLVERMp `syevd`, and returns eigenvalues
+with optional eigenvectors.
+
+[Full syevd_mp module ->](syevd_mp.md)

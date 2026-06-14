@@ -37,8 +37,8 @@ from ._block_cyclic_2d_plan import (
     TileShape,
     calculate_2d_padding,
 )
+from ._cusolvermp import cusolvermp_potrs_shardmap
 from ._setup import ensure_init_jaxmg_backend
-from ._xla_comm_probe import cusolvermp_potrs_shardmap
 
 
 def _mesh_axis_size(mesh: Mesh, axis_name: str) -> int:
@@ -104,6 +104,7 @@ def _process_rank_map_from_mesh(
     row_axis: str,
     col_axis: str,
     grid: ProcessGrid,
+    caller: str,
 ) -> ProcessRankMap:
     """Validate that a JAX mesh follows a cuSOLVERMp grid rank order.
 
@@ -127,7 +128,7 @@ def _process_rank_map_from_mesh(
         )
     if devices.size != grid.num_processes:
         raise ValueError(
-            "potrs_mp currently expects the JAX mesh to contain exactly the "
+            f"{caller} currently expects the JAX mesh to contain exactly the "
             "two axes used by the cuSOLVERMp process grid. Got "
             f"{devices.size} mesh devices for a {grid.process_rows} x "
             f"{grid.process_cols} process grid."
@@ -161,7 +162,7 @@ def _process_rank_map_from_mesh(
             rank_by_device[_device_rank_key(device)] for device in process_devices
         ),
     )
-    rank_map.require_cusolvermp_grid_mapping("potrs_mp")
+    rank_map.require_cusolvermp_grid_mapping(caller)
     return rank_map
 
 
@@ -186,8 +187,9 @@ def _infer_mesh_and_matrix_specs(
     sharding = getattr(a, "sharding", None)
     if not isinstance(sharding, NamedSharding):
         raise ValueError(
-            "potrs_mp could not infer mesh/matrix_specs from A. Shard A with "
-            "jax.sharding.NamedSharding or pass mesh=... and matrix_specs=..."
+            "cuSOLVERMp routine could not infer mesh/matrix_specs from A. "
+            "Shard A with jax.sharding.NamedSharding or pass mesh=... and "
+            "matrix_specs=..."
         )
 
     if mesh is None:
@@ -234,7 +236,7 @@ def _pad_block_sharded_2d(
     )
     if not pad and padding.needs_padding:
         raise ValueError(
-            "potrs_mp requires tile-aligned local shards when pad=False. "
+            "cuSOLVERMp routines require tile-aligned local shards when pad=False. "
             "Use a tile size that divides each local shard or set pad=True."
         )
 
@@ -400,6 +402,7 @@ def potrs_mp(
         row_axis=row_axis,
         col_axis=col_axis,
         grid=grid,
+        caller="potrs_mp",
     )
     scratch_specs = _status_specs(row_axis, col_axis, grid)
     tile_shape = TileShape(rows=int(T_A), cols=int(T_A))

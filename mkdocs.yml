@@ -102,8 +102,8 @@ nav:
         - "api/distributed.md"
         - "api/potrs.md"
         - "api/potrs_mp.md"
-        - "api/potri.md"
         - "api/syevd.md"
+        - "api/syevd_mp.md"
     - Technical Details:
         - "technical_details/col_maj.md"
         - "technical_details/spmd.md"

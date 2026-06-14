@@ -10,11 +10,12 @@
 
 
 # JAXMg
-JAXMg provides a C++ interface between [JAX](https://github.com/google/jax) and [cuSolverMg](https://docs.nvidia.com/cuda/cusolver/index.html#using-the-cuSolverMg-api), NVIDIA’s multi-GPU linear solver.  We provide a jittable API for the following routines.
+JAXMg provides a C++ interface between [JAX](https://github.com/google/jax), [cuSolverMg](https://docs.nvidia.com/cuda/cusolver/index.html#using-the-cuSolverMg-api), and the newer [cuSolverMp](https://docs.nvidia.com/cuda/cusolvermp/) distributed linear algebra runtime. We provide a jittable API for the following routines.
 
 - [cusolverMgPotrs](https://docs.nvidia.com/cuda/cusolver/index.html#cusolvermgpotrs-deprecated): Solves the system of linear equations: $Ax=b$ where $A$ is an $N\times N$ symmetric (Hermitian) positive-definite matrix via a Cholesky decomposition 
-- [cusolverMgPotri](https://docs.nvidia.com/cuda/cusolver/index.html#cusolvermgpotri-deprecated): Computes the inverse of an $N\times N$ symmetric (Hermitian) positive-definite matrix via a Cholesky decomposition.
 - [cusolverMgSyevd](https://docs.nvidia.com/cuda/cusolver/index.html#cusolvermgsyevd-deprecated): Computes eigenvalues and eigenvectors of an $N\times N$ symmetric (Hermitian) matrix.
+- [cusolverMpPotrf/Potrs](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): Solves symmetric (Hermitian) positive-definite systems on a 2D process grid via `jaxmg.potrs_mp`.
+- [cusolverMpSyevd](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): Computes eigenvalues, and optionally eigenvectors, on a 2D process grid via `jaxmg.syevd_mp`.
 
 For more details, see the [API](api/potrs.md).
 
@@ -101,7 +102,11 @@ as expected.
 - [JAXMg for blurred sampling](https://github.com/therooler/nqs_blurred_sampling): Implementation of t-VMC that makes use JAXMg for inverting the QGT.
 
 ## cuSolverMp
-As of CUDA 13, there is a new distributed linear algebra library called [cuSolverMp](https://docs.nvidia.com/cuda/cusolvermp/) with similar capabilities as cuSolverMg, that does support multi-node computations as well as >16 devices. Given the similarities in syntax, it should be straightforward to eventually switch to this API. This will require sharding data into a cyclic 2D form and handling the solver orchestration with MPI.
+The cuSolverMp backend is the migration path for multi-node execution. It uses
+JAX's XLA-owned NCCL communicator through FFI, redistributes ordinary 2D
+JAX-sharded matrices into cuSolverMp's 2D block-cyclic layout, and calls the
+cuSolverMp routines directly. Explicit inverse support is intentionally absent:
+current cuSolverMp releases do not expose a direct explicit-inverse routine.
 
 ## Citations
 ```

@@ -105,7 +105,6 @@ for src in \
   cyclic_1d.cc \
   edge_padding_2d.cc \
   ffi_handlers.cc \
-  potri.cc \
   potrs.cc \
   rectangle_pack.cc \
   syevd.cc; do

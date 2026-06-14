@@ -33,6 +33,6 @@ the CUDA IPC pointer-sharing layer described in `mpmd.md`.
 The native source is split by responsibility under `src/cuda`: shared XLA and
 cuSolverMg declarations live in `include/xla_comm_backend.h`, common helper
 code in `utils/xla_comm_common.cc`, the 1D redistribution in `cyclic_1d.cc`,
-solver handlers in `potrs.cc`, `potri.cc`, and `syevd.cc`, diagnostic
+solver handlers in `potrs.cc` and `syevd.cc`, diagnostic
 communicator probes in `collective_diagnostics.cc`, and exported FFI bindings in
 `ffi_handlers.cc`.

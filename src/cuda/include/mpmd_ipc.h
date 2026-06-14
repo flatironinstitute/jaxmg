@@ -27,7 +27,7 @@
 //   3. SharedMemoryArray<T> publishes one value per rank for handles, workspace
 //      sizes, and solver statuses.
 //   4. MpmdSolverExchange combines the barrier and shared arrays into the
-//      pointer exchange protocol used by potrs, potri, and syevd.
+//      pointer exchange protocol used by potrs and syevd.
 //
 // This layer is not a replacement for the XLA communicator. It only solves the
 // host-side pointer visibility problem that cuSolverMg imposes in MPMD mode.

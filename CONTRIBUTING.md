@@ -36,8 +36,8 @@ python -m pip install --no-deps -e .
 ```
 
 This installs `src/jaxmg/cu12/libjaxmg_xla_comm_backend.so`, which registers
-the production `potrs_mg`, `potri_mg`, `syevd_mg`, `syevd_no_V_mg`, and
-`xla_comm_matrix_column_native_plan` FFI targets.
+the production `potrs_mg`, `syevd_mg`, `syevd_no_V_mg`, `cusolvermp_potrs`,
+`cusolvermp_syevd`, and `xla_comm_matrix_column_native_plan` FFI targets.
 
 The build helper checks out the pinned OpenXLA revision if `XLA_SRC` is not set.
 Use `XLA_SRC` to point at an existing checkout, or `JAXMG_XLA_SOURCE_ROOT` to

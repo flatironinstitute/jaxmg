@@ -219,15 +219,13 @@ struct FusedSyevdState {
 
 extern ReusableHostBarrier fused_potrs_barrier;
 extern FusedPotrsState fused_potrs_state;
-extern ReusableHostBarrier fused_potri_barrier;
-extern FusedMatrixState fused_potri_state;
 extern ReusableHostBarrier fused_syevd_barrier;
 extern FusedSyevdState fused_syevd_state;
 extern ReusableHostBarrier fused_syevd_no_v_barrier;
 extern FusedSyevdState fused_syevd_no_v_state;
 
 // Lightweight opt-in timing helper shared by solver handlers. It is named after
-// the first path it was built for, but is now used by potrs, potri, and syevd.
+// the first path it was built for, but is now used by potrs and syevd.
 class PotrsPhaseTimer {
  public:
   PotrsPhaseTimer(const char* path, int rank, int ranks, int64_t n,
@@ -577,6 +575,18 @@ absl::Status XlaCusolverMpPotrsDispatch(
     ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
+absl::Status XlaCusolverMpSyevdPrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests);
+absl::Status XlaCusolverMpSyevdDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
+    int64_t grid_mapping, int64_t compute_vectors,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> eigenvalues,
+    ffi::Result<ffi::AnyBuffer> vectors, ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
 
 // Redistribution handlers. The step/batch variants are retained for focused
 // testing and diagnostics. The production solvers use the native-plan variant
@@ -623,13 +633,6 @@ absl::Status XlaCommPotrsMgNativePlanDispatch(
     se::OwningScratchAllocator<> scratch, int64_t tile_size, ffi::AnyBuffer a,
     ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> out_a,
     ffi::Result<ffi::AnyBuffer> out_b,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
-absl::Status XlaCommPotriMgNativePlanDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    se::OwningScratchAllocator<> scratch, int64_t tile_size, ffi::AnyBuffer a,
-    ffi::Result<ffi::AnyBuffer> out,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);

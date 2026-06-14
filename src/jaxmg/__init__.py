@@ -1,7 +1,7 @@
 from ._potrs import potrs, potrs_shardmap_ctx
 from ._potrs_mp import potrs_mp
-from ._potri import potri, potri_shardmap_ctx, potri_symmetrize
 from ._syevd import syevd, syevd_shardmap_ctx
+from ._syevd_mp import syevd_mp
 from ._distributed import initialize_node_process, make_cusolvermp_mesh
 from ._xla_comm_probe import (
     xla_comm_collective_probe,
@@ -37,11 +37,9 @@ __all__ = [
     "potrs",
     "potrs_shardmap_ctx",
     "potrs_mp",
-    "potri",
-    "potri_shardmap_ctx",
-    "potri_symmetrize",
     "syevd",
     "syevd_shardmap_ctx",
+    "syevd_mp",
     "initialize_node_process",
     "make_cusolvermp_mesh",
     "xla_comm_collective_probe",

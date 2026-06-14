@@ -33,19 +33,19 @@ matches the layout targeted by the current 2D redistribution implementation.
 | JAXMg API | Current backend | cuSOLVERMp status | Migration note |
 | --- | --- | --- | --- |
 | `potrs` / `potrs_mp` | `cusolverMgPotrf` + `cusolverMgPotrs` for `potrs`; cuSOLVERMp for `potrs_mp` | Directly supported by `cusolverMpPotrf` + `cusolverMpPotrs` | `potrs_mp` is the first end-to-end cuSOLVERMp path. It requires a 2D block-sharded JAX mesh, square `MB_A == NB_A`, and local shard padding before native 2D redistribution. |
-| `syevd` | `cusolverMgSyevd` | Directly supported by `cusolverMpSyevd` | Good second target after `potrs`. `jobz = "V"` maps to eigenvalues plus eigenvectors. |
-| `syevd_no_V` | `cusolverMgSyevd` with no eigenvectors | Directly supported by `cusolverMpSyevd` | `jobz = "N"` maps to eigenvalues only. |
-| `potri` | `cusolverMgPotrf` + `cusolverMgPotri` | No direct `cusolverMpPotri` entry in the current C API documentation | Not supported by the first cuSOLVERMp backend. It should remain out of scope until there is a separate design for inverse support. |
+| `syevd` / `syevd_mp` | `cusolverMgSyevd` for `syevd`; cuSOLVERMp for `syevd_mp` | Directly supported by `cusolverMpSyevd` | `syevd_mp(eigvecs=True)` uses `jobz = "V"` and reverse-redistributes eigenvectors to the JAX-facing layout. |
+| `syevd_no_V` / `syevd_mp(eigvecs=False)` | `cusolverMgSyevd` with no eigenvectors for `syevd_no_V`; cuSOLVERMp for `syevd_mp` | Directly supported by `cusolverMpSyevd` | `jobz = "N"` returns replicated eigenvalues only. |
+| explicit inverse | removed from this release branch | No direct explicit-inverse entry in the current cuSOLVERMp C API documentation | Not supported by this cuSOLVERMp backend. JAXMg should not silently emulate an inverse with a large distributed identity solve. |
 
 The practical migration order should therefore be:
 
-1. `potrs`, because it tests the complete factor/solve path and matches the
-   user's main Cholesky-solve workflow.
-2. `syevd_no_V` and `syevd`, because `cusolverMpSyevd` exists and maps onto the
-   current API shape.
-3. Do not migrate `potri` in the first cuSOLVERMp backend. It should fail
-   clearly, or remain on a separate legacy path, rather than silently emulating
-   an inverse with a large distributed identity solve.
+1. `potrs_mp`, because it tests the complete factor/solve path and matches the
+   main Cholesky-solve workflow.
+2. `syevd_mp`, because `cusolverMpSyevd` exists and maps onto both eigenvalue
+   and eigenvector workflows through the `eigvecs` flag.
+3. Do not include explicit inverse support in this cuSOLVERMp backend. It
+   should fail clearly rather than silently emulating an inverse with a large
+   distributed identity solve.
 
 ## Other cuSOLVERMp Routines Worth Knowing
 
@@ -61,11 +61,12 @@ NewtonSchulz
 
 These are useful context but are not immediate replacements for the current
 JAXMg public API. `Laset` may become useful for future utilities, but it should
-not be used to hide a `potri` emulation path in the first cuSOLVERMp backend.
+not be used to hide an explicit-inverse emulation path in the cuSOLVERMp backend.
 `Getrf/Getrs` could support a future general linear solve API, but that is not
 part of the current JAXMg interface. `NewtonSchulz` is also not a general
-replacement for `potri`: the documented routine is an orthogonalization/polar
-factor iteration with its own process-grid and data-type limitations.
+explicit-inverse replacement: the documented routine is an
+orthogonalization/polar factor iteration with its own process-grid and
+data-type limitations.
 
 ## Constraints to Probe Next
 
@@ -83,9 +84,9 @@ The native diagnostics have now proved the following on tiny single-node cases:
 5. Repeated calls do not leak handles, descriptors, grids, host workspaces, or
    device workspaces.
 
-Those diagnostics have been used to wire the first production-style entry point,
-`jaxmg.potrs_mp`. The historical `jaxmg.potrs` path is still the 1D cuSolverMg
-solver while the cuSOLVERMp API and output redistribution are hardened.
+Those diagnostics have been used to wire the production cuSOLVERMp entry
+points, `jaxmg.potrs_mp` and `jaxmg.syevd_mp`. The historical `jaxmg.potrs`
+and `jaxmg.syevd` paths remain the 1D cuSolverMg solvers.
 
 The `cusolvermp_potrs_probe` diagnostic does not use JAXMg's GPU-to-GPU
 redistribution output. Instead it isolates the cuSOLVERMp solver boundary:
@@ -114,10 +115,11 @@ helper from the solver input path:
 5. run `cusolverMpPotrf` followed by `cusolverMpPotrs`;
 6. gather only the final solution on rank 0 for diagnostic residual checking.
 
-This checkpoint has now been promoted into the production FFI target
-`cusolvermp_potrs`. The production target uses the same distributed input
-contract but does not require `cusolverMpMatrixGatherD2H`; the solved `B`
-remains distributed on device and is reverse-redistributed by `jaxmg.potrs_mp`.
+This checkpoint has now been promoted into production FFI targets
+`cusolvermp_potrs` and `cusolvermp_syevd`. The production targets use the same
+distributed input contract but do not require `cusolverMpMatrixGatherD2H`.
+Solved RHS buffers and eigenvectors remain distributed on device and are
+reverse-redistributed by the public wrappers when needed.
 The diagnostic probe remains useful because it still gathers on rank 0 and
 checks a deterministic residual.
 

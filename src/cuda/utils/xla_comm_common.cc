@@ -147,8 +147,6 @@ absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
 
 ReusableHostBarrier fused_potrs_barrier;
 FusedPotrsState fused_potrs_state;
-ReusableHostBarrier fused_potri_barrier;
-FusedMatrixState fused_potri_state;
 ReusableHostBarrier fused_syevd_barrier;
 FusedSyevdState fused_syevd_state;
 ReusableHostBarrier fused_syevd_no_v_barrier;

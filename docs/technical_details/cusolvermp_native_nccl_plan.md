@@ -1,7 +1,7 @@
 # Native NCCL cuSOLVERMp Status and Plan
 
 This document records the current native cuSOLVERMp path and the remaining work
-needed to turn the single-node implementation into a multi-node backend.
+needed to harden the multi-node backend for larger problem sizes.
 
 The end goal is:
 
@@ -42,10 +42,12 @@ The branch has already proved these pieces independently:
    inverse slab scheduler first and then reverses edge-padding compaction so a
    cuSOLVERMp-layout output can be returned to a JAX-facing block-sharded
    logical layout.
-10. `jaxmg.potrs_mp` wires the first end-to-end cuSOLVERMp path:
-    local shard padding, forward 2D redistribution, production
-    `cusolvermp_potrs`, reverse 2D redistribution, and local unpadding of the
-    solved right-hand side.
+10. `jaxmg.potrs_mp` wires the Cholesky solve path: local shard padding,
+    forward 2D redistribution, production `cusolvermp_potrs`, reverse 2D
+    redistribution, and local unpadding of the solved right-hand side.
+11. `jaxmg.syevd_mp` wires the symmetric/Hermitian eigensolver path on the
+    same redistribution backend. It calls production `cusolvermp_syevd` and
+    reverse-redistributes eigenvectors when requested.
 
 The current production redistribution path no longer loops over Python-planned
 rectangle batches. The native backend builds and executes the slab schedule in
@@ -124,9 +126,8 @@ to compute the required size from matrix shape, tile shape, and process grid.
 
 ## NCCL Execution Model
 
-The current single-node production path uses the borrowed XLA-owned
-`ncclComm_t` directly. Each conflict-free batch is submitted as grouped NCCL
-send/recv calls:
+The production path uses the borrowed XLA-owned `ncclComm_t` directly. Each
+conflict-free batch is submitted as grouped NCCL send/recv calls:
 
 ```c
 ncclGroupStart();
@@ -173,7 +174,7 @@ one receive slot per rank
 no duplicate source or target ranks inside a batch
 ```
 
-## Current Production `potrs_mp` Path
+## Current Production Solver Paths
 
 The production cuSOLVERMp FFI target creates the cuSOLVERMp objects after
 redistribution:
@@ -184,7 +185,7 @@ cusolverMpGrid_t
 cusolverMpMatrixDescriptor_t
 ```
 
-The first target is `potrs`, because cuSOLVERMp directly supports the same
+The first target was `potrs`, because cuSOLVERMp directly supports the same
 Cholesky sequence used by JAXMg:
 
 ```text
@@ -203,28 +204,41 @@ jaxmg.potrs_mp
   -> unpad local RHS shards
 ```
 
-The production cuSOLVERMp FFI target is registered as `cusolvermp_potrs`.
-The older `cusolvermp_*_probe` functions remain internal diagnostics and are no
-longer top-level `jaxmg` exports.
+The Cholesky cuSOLVERMp FFI target is registered as `cusolvermp_potrs`. The
+eigensolver target is registered as `cusolvermp_syevd`:
 
-After `potrs_mp` remains stable under larger single-node and multi-node
-validation, the branch can add `syevd`/`syevd_no_V`.
-`cusolverMpSyevd` maps directly to both APIs through `jobz = "V"` and
-`jobz = "N"`. `potri` does not have a direct `cusolverMpPotri` equivalent in
-the current cuSOLVERMp C API documentation, so it needs a separate design
-decision before migration. The first cuSOLVERMp backend should not support
-`potri`; it should fail clearly or stay on a separate legacy path rather than
-silently emulating an inverse with a large distributed identity solve.
+```text
+jaxmg.syevd_mp(eigvecs=True)
+  -> pad local 2D shards
+  -> native padded 2D redistribution
+  -> cusolverMpSyevd(jobz = "V")
+  -> reverse native padded 2D redistribution of eigenvectors
+  -> unpad local eigenvector shards
+
+jaxmg.syevd_mp(eigvecs=False)
+  -> pad local 2D shards
+  -> native padded 2D redistribution
+  -> cusolverMpSyevd(jobz = "N")
+  -> replicated eigenvalues only
+```
+
+The older `cusolvermp_*_probe` functions remain internal diagnostics and are no
+longer top-level `jaxmg` exports. Explicit inverse support is intentionally not
+part of this cuSOLVERMp backend because the current cuSOLVERMp C API
+documentation does not expose a direct explicit-inverse routine. JAXMg should
+not silently emulate an inverse with a large distributed identity solve.
 
 ## Remaining Multi-Node Stages
 
-The next target is SPMD multi-node validation. A distributed JAX job should:
+The next target is broader SPMD multi-node validation. A distributed JAX job
+should:
 
 1. run the communicator diagnostic across nodes;
 2. run rectangle transfer across nodes;
 3. run full 2D redistribution across nodes;
-4. run tiny cuSOLVERMp solve across nodes;
-5. stress repeated solves for communicator lifetime and memory leaks.
+4. run tiny cuSOLVERMp solve and eigensolver cases across nodes;
+5. stress repeated solves/eigensolves for communicator lifetime and memory
+   leaks.
 
 MPMD support should come after the SPMD path is stable. The old cuSolverMg MPMD
 path needed node-scoped host pointer exchange because cuSolverMg is single-node.
@@ -248,8 +262,8 @@ The first production target should be:
 correct 2D block-cyclic column-major layout
 bounded scratch
 native schedule execution
-single-node cuSOLVERMp correctness
-clean path to multi-node NCCL
+single-node and small multi-node cuSOLVERMp correctness
+clean path to larger multi-node benchmarking
 ```
 
 ## Open Risks
@@ -260,7 +274,7 @@ clean path to multi-node NCCL
    consistently with XLA's FFI stream contexts.
 3. **Rank ordering:** our process-grid rank formula must match the cuSOLVERMp
    grid construction.
-4. **Column-major JAX buffers:** the full executor still needs column-major
-   validation and an independent reference.
-5. **Padding and split tiles:** support can start conservatively, but rejected
-   cases must fail clearly before touching device memory.
+4. **Scale testing:** tiny multi-node cases are not a substitute for larger
+   runtime and memory-pressure benchmarks.
+5. **Padding and split tiles:** validated cases should keep expanding, and
+   unsupported layouts must fail clearly before touching device memory.
