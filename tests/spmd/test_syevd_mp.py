@@ -21,6 +21,12 @@ from jaxmg import syevd_mp
 platforms = {d.platform for d in jax.devices()}
 if "gpu" not in platforms:
     pytest.skip("No GPUs found. Skipping", allow_module_level=True)
+if jax.local_device_count() != 1:
+    pytest.skip(
+        "syevd_mp requires cuSOLVERMp rank-per-GPU execution; covered by "
+        "tests/multinode/run_syevd_mp_2node_8gpu_matrix.py.",
+        allow_module_level=True,
+    )
 if len(jax.devices("gpu")) < 4:
     pytest.skip("At least four GPUs are required. Skipping", allow_module_level=True)
 
