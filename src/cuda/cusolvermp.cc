@@ -606,6 +606,18 @@ absl::Status CopyAnyBufferToOutputIfNeeded(cudaStream_t cuda_stream,
   return absl::OkStatus();
 }
 
+absl::StatusOr<int> DeviceForCudaPointer(const void* ptr) {
+  cudaPointerAttributes attrs;
+  cudaError_t status = cudaPointerGetAttributes(&attrs, ptr);
+  if (status != cudaSuccess) {
+    return absl::InternalError(absl::StrFormat(
+        "cudaPointerGetAttributes failed while resolving the cuSOLVERMp "
+        "buffer device: %s",
+        cudaGetErrorString(status)));
+  }
+  return attrs.device;
+}
+
 template <typename DataType>
 absl::Status RunCusolverMpScatterLayoutProbe(
     const CusolverMpApi& api, CusolverMpOpaqueHandle handle,
@@ -2427,8 +2439,17 @@ absl::Status CusolverMpSyevdDispatchImpl(
       0,   // reserved.
   };
 
-  int cuda_device = -1;
-  cudaError_t cuda_status = cudaGetDevice(&cuda_device);
+  // cuSOLVERMp binds its handle to a concrete CUDA device and stream.  The
+  // current host-thread device is not a reliable source of truth inside a JAX
+  // multi-device FFI callback, so anchor the handle to the device that owns the
+  // donated JAX matrix buffer.
+  absl::StatusOr<int> buffer_device = DeviceForCudaPointer(a.untyped_data());
+  if (!buffer_device.ok()) {
+    probe[0] = kCudaDeviceFailed;
+    return CopySyevdProbeToDevice(stream, probe, status_out);
+  }
+  int cuda_device = *buffer_device;
+  cudaError_t cuda_status = cudaSetDevice(cuda_device);
   if (cuda_status != cudaSuccess) {
     probe[0] = kCudaDeviceFailed;
     return CopySyevdProbeToDevice(stream, probe, status_out);
