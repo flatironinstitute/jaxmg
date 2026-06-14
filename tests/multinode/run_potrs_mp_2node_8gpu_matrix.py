@@ -287,6 +287,10 @@ def main() -> None:
             local_device_count=jax.local_device_count(),
             global_device_count=jax.device_count(),
             expected_device_count=expected_device_count,
+            slurm_localid=os.environ.get("SLURM_LOCALID"),
+            cuda_visible_devices=os.environ.get("CUDA_VISIBLE_DEVICES"),
+            slurm_step_gpus=os.environ.get("SLURM_STEP_GPUS"),
+            local_devices=[str(device) for device in jax.local_devices()],
         )
         if jax.process_count() != expected_device_count:
             raise AssertionError(
