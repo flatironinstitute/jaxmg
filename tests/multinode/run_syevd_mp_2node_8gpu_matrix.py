@@ -188,7 +188,16 @@ def _validate_eigenvectors(
     eigenvalues.block_until_ready()
     eigenvectors.block_until_ready()
     values = np.asarray(eigenvalues)
-    vectors = np.asarray(eigenvectors)
+    try:
+        vectors = np.asarray(eigenvectors)
+    except RuntimeError as exc:
+        if "non-addressable" not in str(exc):
+            raise
+        from jax.experimental import multihost_utils
+
+        vectors = np.asarray(
+            multihost_utils.process_allgather(eigenvectors, tiled=True)
+        )
     expected_values, _ = np.linalg.eigh(a_host)
 
     np.testing.assert_allclose(values, expected_values, rtol=rtol, atol=atol)
