@@ -20,7 +20,7 @@ from jaxmg._block_cyclic_2d_plan import (
     classify_rectangular_region,
     transfer_phase_groups,
 )
-from jaxmg._block_cyclic_2d_execute import required_rect_transfer_scratch_size
+from tests.redistribution_helpers import required_rect_transfer_scratch_size
 
 
 def _rect_slice(rect):

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// cuSOLVERMp dynamic boundary, diagnostics, and production solver handlers.
+// cuSOLVERMp dynamic boundary, diagnostics, and shared solver helpers.
 //
 // This file owns the native cuSOLVERMp integration layer.  It deliberately
 // keeps the cuSOLVERMp dependency behind dlopen/dlsym for now: ordinary CUDA
@@ -28,11 +28,10 @@
 //   4. Create column-major local matrix descriptors over JAXMg device buffers.
 //   5. Run diagnostic probes that isolate initialization, scatter layout, and
 //      host-generated potrs inputs.
-//   6. Run the production fused `cusolvermp_potrs` and
-//      `cusolvermp_syevd` handlers. Those handlers own redistribution:
-//      they enter with padded JAX block-sharded buffers, move them into 2D
-//      block-cyclic cuSOLVERMp layout, call the solver, and reverse-redistribute
-//      outputs before returning to Python.
+//   6. Expose shared cuSOLVERMp solve helpers used by the production
+//      `cusolvermp_potrs` and `cusolvermp_syevd` handlers. Those production
+//      handlers live in cusolvermp_potrs.cc and cusolvermp_syevd.cc so each
+//      user-facing solver has a compact native entry-point file.
 //
 // The probe entry points intentionally return device status vectors instead of
 // failing hard.  That makes them useful in CI and on systems where the NVIDIA
@@ -52,7 +51,7 @@
 #include <utility>
 #include <vector>
 
-#include "include/xla_comm_backend.h"
+#include "../include/xla_comm_backend.h"
 #include "third_party/nccl/nccl.h"
 
 namespace xla::gpu {
@@ -3291,178 +3290,6 @@ absl::Status XlaCusolverMpSyevdProbeDispatch(
   destroy_private_stream();
   dlclose(api.library);
   return CopySyevdProbeToDevice(stream, probe, status_out);
-}
-
-absl::Status XlaCusolverMpPotrsPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests) {
-  return XlaCusolverMpDistributedPotrsProbePrepare(collective_params,
-                                                  clique_requests);
-}
-
-absl::Status XlaCusolverMpPotrsDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    se::ScratchAllocator& scratch, int64_t process_rows,
-    int64_t process_cols, int64_t n, int64_t nrhs, int64_t tile_size,
-    int64_t grid_mapping, absl::Span<const int64_t> rank_map,
-    ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
-    ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
-  if (a.dimensions().size() != 2 || b.dimensions().size() != 2 ||
-      a_work->dimensions().size() != 2 || b_out->dimensions().size() != 2) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_potrs expects rank-2 A/B buffers");
-  }
-  if (a.element_type() != b.element_type() ||
-      a.element_type() != a_work->element_type() ||
-      b.element_type() != b_out->element_type()) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_potrs requires matching A/B dtypes");
-  }
-  if (a.dimensions()[0] != a_work->dimensions()[0] ||
-      a.dimensions()[1] != a_work->dimensions()[1] ||
-      b.dimensions()[0] != b_out->dimensions()[0] ||
-      b.dimensions()[1] != b_out->dimensions()[1]) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_potrs input/output shapes must match");
-  }
-  if (a.dimensions()[0] != b.dimensions()[0]) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_potrs expects A and B to have matching local row "
-        "capacity after padding");
-  }
-
-  absl::StatusOr<int64_t> a_scratch_elements =
-      RequiredPadded2DNativePlanScratchElements(
-          process_rows, process_cols, tile_size, tile_size, n, n,
-          a.dimensions()[0], a.dimensions()[1], rank_map);
-  if (!a_scratch_elements.ok()) {
-    return a_scratch_elements.status();
-  }
-  absl::StatusOr<int64_t> b_scratch_elements =
-      RequiredPadded2DNativePlanScratchElements(
-          process_rows, process_cols, tile_size, tile_size, n, nrhs,
-          b.dimensions()[0], b.dimensions()[1], rank_map);
-  if (!b_scratch_elements.ok()) {
-    return b_scratch_elements.status();
-  }
-  const int64_t scratch_elements =
-      std::max(*a_scratch_elements, *b_scratch_elements);
-  const size_t element_bytes =
-      a.size_bytes() / static_cast<size_t>(a.element_count());
-  const size_t scratch_bytes =
-      std::max<size_t>(1, static_cast<size_t>(scratch_elements)) *
-      element_bytes;
-  absl::StatusOr<void*> redistribution_scratch =
-      AllocateFfiScratch(scratch, scratch_bytes,
-                         "cusolvermp_potrs_redistribution");
-  if (!redistribution_scratch.ok()) {
-    return redistribution_scratch.status();
-  }
-  se::DeviceAddressBase scratch_base(*redistribution_scratch, scratch_bytes);
-
-  JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
-      "cusolvermp_potrs/a_forward", stream, comm_stream, cuda_stream,
-      process_rows, process_cols, tile_size, tile_size, n, n, /*reverse=*/0,
-      rank_map, a, a_work->device_memory(), scratch_base, scratch_elements,
-      collective_params, collective_cliques));
-  JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
-      "cusolvermp_potrs/b_forward", stream, comm_stream, cuda_stream,
-      process_rows, process_cols, tile_size, tile_size, n, nrhs,
-      /*reverse=*/0, rank_map, b, b_out->device_memory(), scratch_base,
-      scratch_elements, collective_params, collective_cliques));
-
-  ffi::AnyBuffer a_cyclic = *a_work;
-  ffi::AnyBuffer b_cyclic = *b_out;
-  JAXMG_RETURN_IF_ERROR(CusolverMpDistributedPotrsDispatchImpl(
-      stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
-      tile_size, grid_mapping, rank_map, a_cyclic, b_cyclic, a_work, b_out,
-      status, collective_params, collective_cliques,
-      /*validate_solution=*/false));
-
-  ffi::AnyBuffer b_solved_cyclic = *b_out;
-  return ExecutePadded2DNativePlanRaw(
-      "cusolvermp_potrs/b_reverse", stream, comm_stream, cuda_stream,
-      process_rows, process_cols, tile_size, tile_size, n, nrhs,
-      /*reverse=*/1, rank_map, b_solved_cyclic, b_out->device_memory(),
-      scratch_base, scratch_elements, collective_params, collective_cliques);
-}
-
-absl::Status XlaCusolverMpSyevdPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests) {
-  return XlaCusolverMpDistributedPotrsProbePrepare(collective_params,
-                                                  clique_requests);
-}
-
-absl::Status XlaCusolverMpSyevdDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    se::ScratchAllocator& scratch, int64_t process_rows,
-    int64_t process_cols, int64_t n, int64_t tile_size,
-    int64_t grid_mapping, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
-    ffi::Result<ffi::AnyBuffer> eigenvalues,
-    ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> vectors,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
-  if (a.dimensions().size() != 2 || work->dimensions().size() != 2 ||
-      vectors->dimensions().size() != 2) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_syevd expects rank-2 matrix buffers");
-  }
-  if (a.element_type() != work->element_type() ||
-      a.element_type() != vectors->element_type()) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_syevd requires matching matrix dtypes");
-  }
-  if (a.dimensions()[0] != work->dimensions()[0] ||
-      a.dimensions()[1] != work->dimensions()[1] ||
-      a.dimensions()[0] != vectors->dimensions()[0] ||
-      a.dimensions()[1] != vectors->dimensions()[1]) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_syevd input/output matrix shapes must match");
-  }
-
-  absl::StatusOr<int64_t> scratch_elements_or =
-      RequiredPadded2DNativePlanScratchElements(
-          process_rows, process_cols, tile_size, tile_size, n, n,
-          a.dimensions()[0], a.dimensions()[1], rank_map);
-  if (!scratch_elements_or.ok()) {
-    return scratch_elements_or.status();
-  }
-  const int64_t scratch_elements = *scratch_elements_or;
-  const size_t element_bytes =
-      a.size_bytes() / static_cast<size_t>(a.element_count());
-  const size_t scratch_bytes =
-      std::max<size_t>(1, static_cast<size_t>(scratch_elements)) *
-      element_bytes;
-  absl::StatusOr<void*> redistribution_scratch =
-      AllocateFfiScratch(scratch, scratch_bytes,
-                         "cusolvermp_syevd_redistribution");
-  if (!redistribution_scratch.ok()) {
-    return redistribution_scratch.status();
-  }
-  se::DeviceAddressBase scratch_base(*redistribution_scratch, scratch_bytes);
-
-  JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
-      "cusolvermp_syevd/a_forward", stream, comm_stream, cuda_stream,
-      process_rows, process_cols, tile_size, tile_size, n, n, /*reverse=*/0,
-      rank_map, a, work->device_memory(), scratch_base, scratch_elements,
-      collective_params, collective_cliques));
-
-  ffi::AnyBuffer a_cyclic = *work;
-  JAXMG_RETURN_IF_ERROR(CusolverMpSyevdDispatchImpl(
-      stream, comm_stream, cuda_stream, process_rows, process_cols, n,
-      tile_size, grid_mapping, rank_map, a_cyclic, eigenvalues, work, vectors,
-      status, collective_params, collective_cliques));
-
-  ffi::AnyBuffer vectors_cyclic = *vectors;
-  return ExecutePadded2DNativePlanRaw(
-      "cusolvermp_syevd/vectors_reverse", stream, comm_stream,
-      cuda_stream, process_rows, process_cols, tile_size, tile_size, n, n,
-      /*reverse=*/1, rank_map, vectors_cyclic, vectors->device_memory(),
-      scratch_base, scratch_elements, collective_params, collective_cliques);
 }
 
 }  // namespace xla::gpu

@@ -1,9 +1,10 @@
-"""Python sharding wrappers for the native 2D redistribution handlers.
+"""Test-only Python sharding wrappers for native 2D redistribution handlers.
 
-The routines here are thin adapters between JAX arrays and the Bazel-built CUDA
-FFI targets.  They keep the public Python side responsible for shape checks,
-scratch sizing, and shard_map placement, while the native backend performs the
-actual pack, NCCL transfer, unpack, and cycle scheduling work.
+The production package enters cuSOLVERMp through one solver FFI call, so these
+helpers intentionally live in the test tree instead of ``src/jaxmg``. They
+remain useful for exercising the lower-level redistribution diagnostics:
+shape/scratch validation happens in Python, while the native backend performs
+pack, NCCL transfer, unpack, and cycle scheduling work.
 
 The lower-level rectangle-transfer functions are retained for diagnostics.  The
 production cuSOLVERMp path uses the padded native handlers, which compact
@@ -18,7 +19,7 @@ from collections import defaultdict
 from jax import Array
 from jax.sharding import Mesh, PartitionSpec as P
 
-from ._block_cyclic_2d_plan import (
+from jaxmg._block_cyclic_2d_plan import (
     EdgePaddingCompactionBatch,
     EdgePaddingCompactionMove,
     ExecutableFragmentTransfer,
@@ -29,7 +30,7 @@ from ._block_cyclic_2d_plan import (
     batch_edge_padding_compaction_moves,
     build_edge_padding_compaction_plan,
 )
-from ._xla_comm_probe import (
+from jaxmg._xla_comm_probe import (
     xla_rect_2d_native_plan_shardmap,
     xla_rect_padded_2d_native_plan_shardmap,
     xla_rect_transfer_probe_shardmap,

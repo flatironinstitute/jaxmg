@@ -21,11 +21,11 @@
 // Header layout:
 //   1. Error and dtype helpers used by every translation unit.
 //   2. XLA communicator clique helpers.
-//   3. Shared 2D rectangle schedule types used by edge_padding_2d.cc,
-//      block_cyclic_2d.cc, and rectangle_pack.cc.
+//   3. Shared 2D rectangle schedule types used by memory_redist/*.cc.
 //   4. 2D rectangle/redistribution entry points used by diagnostics and
 //      cuSOLVERMp solvers.
-//   5. cuSOLVERMp diagnostic and fused production entry points.
+//   5. cuSOLVERMp diagnostic probes, shared solve helpers, and production FFI
+//      entry points.
 //
 // The production cuSOLVERMp path is:
 //   Python wrapper -> local shard padding -> native 2D redistribution ->
@@ -483,6 +483,33 @@ absl::Status XlaCusolverMpSyevdProbeDispatch(
     ffi::AnyBuffer token, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
+
+// Shared cuSOLVERMp solve helpers.
+//
+// cusolvermp_routines/cusolvermp.cc owns the dynamic dlopen/dlsym boundary and
+// the low-level cuSOLVERMp handle/grid/descriptor lifecycle. Production
+// wrappers in cusolvermp_potrs.cc and cusolvermp_syevd.cc call these helpers
+// after they have redistributed JAX buffers into local 2D block-cyclic form.
+absl::Status CusolverMpDistributedPotrsDispatchImpl(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
+    int64_t tile_size, int64_t grid_mapping,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
+    ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques, bool validate_solution);
+absl::Status CusolverMpSyevdDispatchImpl(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n,
+    int64_t tile_size, int64_t grid_mapping,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> eigenvalues,
+    ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> vectors,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
 absl::Status XlaCusolverMpPotrsPrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);

@@ -33,7 +33,7 @@
 // clique construction, communicator lookup, stream ordering, or the collective
 // primitive itself.
 
-#include "include/xla_comm_backend.h"
+#include "../include/xla_comm_backend.h"
 
 namespace xla::gpu {
 namespace {

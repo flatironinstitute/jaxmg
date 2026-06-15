@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import pytest
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
-from jaxmg._block_cyclic_2d_execute import (
+from tests.redistribution_helpers import (
     execute_edge_padding_compaction_batches_shardmap,
     execute_padded_block_cyclic_2d_shardmap,
     execute_reverse_padded_block_cyclic_2d_shardmap,

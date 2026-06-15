@@ -156,34 +156,35 @@ visible scratch and allocate it internally.
 
 ## Native Code Organisation
 
-The current implementation can be reorganized as the production surface becomes
-smaller. A suggested layout is:
+The production native code is grouped by ownership:
 
 ```text
 src/cuda/
   ffi_handlers.cc
+  include/
+    xla_comm_backend.h
 
-  cusolvermp/
-    api.cc
-    descriptors.cc
-    potrs.cc
-    syevd.cc
+  cusolvermp_routines/
+    cusolvermp.cc
+    cusolvermp_potrs.cc
+    cusolvermp_syevd.cc
 
-  redistribution/
+  memory_redist/
     block_cyclic_2d.cc
     edge_padding_2d.cc
     rectangle_pack.cc
 
+  diagnostics/
+    collective_diagnostics.cc
+
   utils/
-    cuda_helpers.cc
-    status.cc
     xla_comm_common.cc
 ```
 
-Headers should follow the same grouping under `src/cuda/include/`.
-
-This reorganization should happen after the fused targets work, so the move is
-mostly mechanical and does not hide functional changes.
+`ffi_handlers.cc` remains top-level because it is the one exported FFI
+registration surface. The solver-specific files in `cusolvermp_routines/`
+still compile into one shared library and still enter one native FFI call per
+public solver.
 
 ## Comment and Documentation Style
 

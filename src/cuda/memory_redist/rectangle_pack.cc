@@ -41,7 +41,7 @@
 #include <limits>
 #include <vector>
 
-#include "include/xla_comm_backend.h"
+#include "../include/xla_comm_backend.h"
 #include "third_party/nccl/nccl.h"
 
 namespace xla::gpu {

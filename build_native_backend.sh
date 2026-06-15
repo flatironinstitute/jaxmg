@@ -89,20 +89,27 @@ echo "Using OpenXLA checkout: ${XLA_SRC}"
 echo "Using OpenXLA revision: $(git -C "${XLA_SRC}" rev-parse --short HEAD)"
 
 BACKEND_PKG="${XLA_SRC}/jaxmg_backend"
-mkdir -p "${BACKEND_PKG}/include" "${BACKEND_PKG}/utils"
+mkdir -p \
+  "${BACKEND_PKG}/include" \
+  "${BACKEND_PKG}/utils" \
+  "${BACKEND_PKG}/memory_redist" \
+  "${BACKEND_PKG}/cusolvermp_routines" \
+  "${BACKEND_PKG}/diagnostics"
 ln -sfn "${ROOT}/src/cuda/include/xla_comm_backend.h" \
   "${BACKEND_PKG}/include/xla_comm_backend.h"
 ln -sfn "${ROOT}/src/cuda/utils/xla_comm_common.cc" \
   "${BACKEND_PKG}/utils/xla_comm_common.cc"
-for src in \
-  block_cyclic_2d.cc \
-  collective_diagnostics.cc \
-  cusolvermp.cc \
-  edge_padding_2d.cc \
-  ffi_handlers.cc \
-  rectangle_pack.cc; do
-  ln -sfn "${ROOT}/src/cuda/${src}" "${BACKEND_PKG}/${src}"
+for src in block_cyclic_2d.cc edge_padding_2d.cc rectangle_pack.cc; do
+  ln -sfn "${ROOT}/src/cuda/memory_redist/${src}" \
+    "${BACKEND_PKG}/memory_redist/${src}"
 done
+for src in cusolvermp.cc cusolvermp_potrs.cc cusolvermp_syevd.cc; do
+  ln -sfn "${ROOT}/src/cuda/cusolvermp_routines/${src}" \
+    "${BACKEND_PKG}/cusolvermp_routines/${src}"
+done
+ln -sfn "${ROOT}/src/cuda/diagnostics/collective_diagnostics.cc" \
+  "${BACKEND_PKG}/diagnostics/collective_diagnostics.cc"
+ln -sfn "${ROOT}/src/cuda/ffi_handlers.cc" "${BACKEND_PKG}/ffi_handlers.cc"
 
 cp "${BACKEND_BUILD_TEMPLATE}" "${BACKEND_PKG}/BUILD.bazel"
 

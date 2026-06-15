@@ -36,7 +36,7 @@
 #include <algorithm>
 #include <vector>
 
-#include "include/xla_comm_backend.h"
+#include "../include/xla_comm_backend.h"
 
 namespace xla::gpu {
 namespace {

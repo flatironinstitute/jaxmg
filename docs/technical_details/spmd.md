@@ -24,7 +24,6 @@ The production single-process flow is:
 The native source is split by responsibility under `src/cuda`: shared XLA and
 cuSOLVERMp declarations live in `include/xla_comm_backend.h`, common helper
 code in `utils/xla_comm_common.cc`, 2D redistribution in
-`edge_padding_2d.cc`, `block_cyclic_2d.cc`, and `rectangle_pack.cc`,
-cuSOLVERMp solver integration in `cusolvermp.cc`, diagnostic communicator
-probes in `collective_diagnostics.cc`, and exported FFI bindings in
-`ffi_handlers.cc`.
+`memory_redist/`, cuSOLVERMp loading/probes/solver entry points in
+`cusolvermp_routines/`, diagnostic communicator probes in `diagnostics/`, and
+exported FFI bindings in `ffi_handlers.cc`.
