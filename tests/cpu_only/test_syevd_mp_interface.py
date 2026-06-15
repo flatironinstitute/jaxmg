@@ -60,6 +60,13 @@ def test_syevd_mp_rejects_non_positive_tile_size():
         syevd_mp(a, 0, mesh=mesh, matrix_specs=P("pr", "pc"))
 
 
+def test_syevd_mp_rejects_eigenvalue_only_mode():
+    a = jnp.eye(4, dtype=jnp.float32)
+
+    with pytest.raises(NotImplementedError, match="eigvecs=True"):
+        syevd_mp(a, 2, eigvecs=False)
+
+
 def test_syevd_mp_requires_rank_per_gpu_process_model(monkeypatch):
     mesh = _single_device_mesh()
     a = jnp.eye(4, dtype=jnp.float32)

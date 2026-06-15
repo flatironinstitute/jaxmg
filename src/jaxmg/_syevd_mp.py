@@ -7,18 +7,18 @@
 3. redistribute the padded JAX block-sharded layout into cuSOLVERMp's 2D
    block-cyclic, column-major local layout;
 4. call cuSOLVERMp ``syevd`` through the XLA-owned NCCL communicator; and
-5. if eigenvectors were requested, reverse-redistribute them back to the
-   original JAX-facing block-sharded layout and remove local padding.
+5. reverse-redistribute the eigenvectors back to the original JAX-facing
+   block-sharded layout and remove local padding.
 
-Eigenvalues are returned replicated. Eigenvectors, when requested, use the same
-2D JAX sharding as the input matrix. The cuSOLVERMp no-vector path is still
-under validation for the 0.7.2 runtime used in current CSD3 testing; keep
-``eigvecs=False`` experimental until that runtime behavior is resolved.
+Eigenvalues are returned replicated. Eigenvectors use the same 2D JAX sharding
+as the input matrix. The true cuSOLVERMp no-vector path is intentionally not
+exposed: current validated runtimes reject ``compz = "N"``, and computing
+vectors only to discard them would be a misleadingly expensive fallback.
 """
 
 from __future__ import annotations
 
-from typing import Tuple, Union
+from typing import Tuple
 
 import jax
 import jax.numpy as jnp
@@ -76,7 +76,7 @@ def syevd_mp(
     eigvecs: bool = True,
     return_status: bool = False,
     pad: bool = True,
-) -> Union[Array, Tuple[Array, Array], Tuple[Array, Array, Array]]:
+) -> Tuple[Array, Array] | Tuple[Array, Array, Array]:
     """Compute eigenvalues/eigenvectors with cuSOLVERMp on a 2D process grid.
 
     Multi-node ``syevd_mp`` follows cuSOLVERMp's rank-per-GPU process model:
@@ -93,16 +93,15 @@ def syevd_mp(
             ``a.sharding.mesh``.
         matrix_specs: Optional partition spec override. If omitted, inferred
             from ``a.sharding.spec``.
-        eigvecs: If true, return eigenvectors as well as eigenvalues. If false,
-            request eigenvalues only. The cuSOLVERMp 0.7.2 no-vector path is
-            still under validation and may not be available on all runtimes.
+        eigvecs: Must be true. The parameter is retained for source
+            compatibility with existing callers, but cuSOLVERMp no-vector
+            SYEVD is not exposed by this backend.
         return_status: If true, append the per-rank native status array.
         pad: If true, add local row/column capacity so every local shard is
             tile-aligned. If false, incompatible local shard shapes raise.
 
     Returns:
-        ``w`` when ``eigvecs=False``; ``(w, v)`` when ``eigvecs=True``. If
-        ``return_status=True``, the status array is appended to that tuple.
+        ``(w, v)``. If ``return_status=True``, returns ``(w, v, status)``.
     """
     if a.ndim != 2:
         raise ValueError("syevd_mp expects a rank-2 matrix A.")
@@ -114,6 +113,13 @@ def syevd_mp(
         raise ValueError("syevd_mp expects A to be square.")
     if int(T_A) <= 0:
         raise ValueError("T_A must be positive.")
+    if not eigvecs:
+        raise NotImplementedError(
+            "syevd_mp currently supports only eigvecs=True. The cuSOLVERMp "
+            "no-vector path (compz='N') is rejected by the validated "
+            "cuSOLVERMp runtimes, and JAXMg does not emulate it by computing "
+            "and discarding eigenvectors."
+        )
 
     mesh, matrix_specs = _infer_mesh_and_matrix_specs(
         a,
@@ -179,33 +185,28 @@ def syevd_mp(
         tile_size=tile_shape.rows,
         rank_map=rank_map,
         grid_mapping=rank_map.cusolvermp_grid_mapping,
-        compute_vectors=bool(eigvecs),
+        compute_vectors=True,
     )
 
-    if eigvecs:
-        vectors_padded, scratch = _redistribute_from_cusolvermp(
-            vectors_cyclic,
-            scratch,
-            mesh=mesh,
-            matrix_specs=matrix_specs,
-            scratch_specs=scratch_specs,
-            grid=grid,
-            rank_map=rank_map,
-            tile_shape=tile_shape,
-            logical_rows=a.shape[0],
-            logical_cols=a.shape[1],
-        )
-        vectors = _unpad_block_sharded_2d(
-            vectors_padded,
-            mesh=mesh,
-            matrix_specs=matrix_specs,
-            local_rows=a_local_rows,
-            local_cols=a_local_cols,
-        )
-        if return_status:
-            return eigenvalues, vectors, status
-        return eigenvalues, vectors
-
+    vectors_padded, scratch = _redistribute_from_cusolvermp(
+        vectors_cyclic,
+        scratch,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+        scratch_specs=scratch_specs,
+        grid=grid,
+        rank_map=rank_map,
+        tile_shape=tile_shape,
+        logical_rows=a.shape[0],
+        logical_cols=a.shape[1],
+    )
+    vectors = _unpad_block_sharded_2d(
+        vectors_padded,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+        local_rows=a_local_rows,
+        local_cols=a_local_cols,
+    )
     if return_status:
-        return eigenvalues, status
-    return eigenvalues
+        return eigenvalues, vectors, status
+    return eigenvalues, vectors

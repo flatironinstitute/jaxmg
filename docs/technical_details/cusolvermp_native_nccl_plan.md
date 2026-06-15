@@ -209,23 +209,21 @@ The Cholesky cuSOLVERMp FFI target is registered as `cusolvermp_potrs`. The
 eigensolver target is registered as `cusolvermp_syevd`:
 
 ```text
-jaxmg.syevd_mp(eigvecs=True) [under validation]
+jaxmg.syevd_mp(eigvecs=True) [sample-layout probe passes with cuSOLVERMp 0.8.0]
   -> pad local 2D shards
   -> native padded 2D redistribution
-  -> cusolverMpSyevd(compz = "Z" on cuSOLVERMp 0.7.2)
+  -> cusolverMpSyevd(compz = "Z")
   -> reverse native padded 2D redistribution of eigenvectors
   -> unpad local eigenvector shards
 
-jaxmg.syevd_mp(eigvecs=False) [not supported on cuSOLVERMp 0.7.2 yet]
-  -> pad local 2D shards
-  -> native padded 2D redistribution
-  -> cusolverMpSyevd(compz = "N")
-  -> replicated eigenvalues only
+jaxmg.syevd_mp(eigvecs=False) [unsupported]
+  -> raises NotImplementedError before native execution
 ```
 
-The installed cuSOLVERMp 0.7.2 runtime currently reports that eigenvalue-only
-SYEVD is not supported for `compz = "N"`, so the no-vector path should stay
-guarded or disabled unless a newer runtime proves otherwise.
+The cuSOLVERMp 0.7.2 and 0.8.0 runtimes tested so far report that
+eigenvalue-only SYEVD is not supported for `compz = "N"`, so the no-vector path
+is disabled in the public wrapper. The next SYEVD checkpoint is the production
+redistributed-buffer vector path.
 
 The older `cusolvermp_*_probe` functions remain internal diagnostics and are no
 longer top-level `jaxmg` exports. Explicit inverse support is intentionally not

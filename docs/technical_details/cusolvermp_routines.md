@@ -33,19 +33,19 @@ matches the layout targeted by the current 2D redistribution implementation.
 | JAXMg API | Current backend | cuSOLVERMp status | Migration note |
 | --- | --- | --- | --- |
 | `potrs` / `potrs_mp` | `cusolverMgPotrf` + `cusolverMgPotrs` for `potrs`; cuSOLVERMp for `potrs_mp` | Directly supported by `cusolverMpPotrf` + `cusolverMpPotrs` | `potrs_mp` is the first end-to-end cuSOLVERMp path. It requires a 2D block-sharded JAX mesh, square `MB_A == NB_A`, and local shard padding before native 2D redistribution. |
-| `syevd` / `syevd_mp` | `cusolverMgSyevd` for `syevd`; cuSOLVERMp investigation path for `syevd_mp` | `cusolverMpSyevd` exists, but the JAXMg FFI path is still under validation | The installed cuSOLVERMp 0.7.2 API uses a `compz` argument. NVIDIA's sample uses `compz = "Z"` for the eigenvector path, so the branch now follows that convention. |
-| `syevd_no_V` / `syevd_mp(eigvecs=False)` | `cusolverMgSyevd` with no eigenvectors for `syevd_no_V`; cuSOLVERMp no-vector path not yet supported | The installed 0.7.2 runtime rejects `compz = "N"` in current tests | Do not advertise true no-vector cuSOLVERMp SYEVD until it is proven. The only possible fallback is to compute vectors and discard them, which must be documented as expensive. |
+| `syevd` / `syevd_mp` | `cusolverMgSyevd` for `syevd`; cuSOLVERMp vector path for `syevd_mp` | `cusolverMpSyevd` exists and the cuSOLVERMp 0.8.0 sample-layout JAXMg probe succeeds for `compz = "Z"` | The production path should focus on the eigenvector-producing mode. It still needs full redistributed-buffer validation before being treated like `potrs_mp`. |
+| `syevd_no_V` / `syevd_mp(eigvecs=False)` | `cusolverMgSyevd` with no eigenvectors for `syevd_no_V`; not exposed for cuSOLVERMp `syevd_mp` | cuSOLVERMp 0.7.2 and 0.8.0 reject `compz = "N"` in current tests | `syevd_mp(eigvecs=False)` raises `NotImplementedError`. JAXMg should not emulate this by computing vectors and discarding them. |
 | explicit inverse | removed from this release branch | No direct explicit-inverse entry in the current cuSOLVERMp C API documentation | Not supported by this cuSOLVERMp backend. JAXMg should not silently emulate an inverse with a large distributed identity solve. |
 
 The practical migration order should therefore be:
 
 1. `potrs_mp`, because it tests the complete factor/solve path and matches the
    main Cholesky-solve workflow.
-2. `syevd_mp(eigvecs=True)`, because `cusolverMpSyevd` exists, but keep it
-   guarded until the `compz = "Z"` sample-layout diagnostic and production
-   redistributed-buffer test both pass.
-3. Do not include `syevd_mp(eigvecs=False)` as a true no-vector path on
-   cuSOLVERMp 0.7.2 unless `compz = "N"` is proven on the target runtime.
+2. `syevd_mp(eigvecs=True)`, because `cusolverMpSyevd` exists and the
+   `compz = "Z"` sample-layout diagnostic now passes with cuSOLVERMp 0.8.0.
+   The next evidence needed is the production redistributed-buffer test.
+3. Do not include `syevd_mp(eigvecs=False)` as a true no-vector path unless
+   a future cuSOLVERMp runtime proves `compz = "N"` works.
 4. Do not include explicit inverse support in this cuSOLVERMp backend. It
    should fail clearly rather than silently emulating an inverse with a large
    distributed identity solve.

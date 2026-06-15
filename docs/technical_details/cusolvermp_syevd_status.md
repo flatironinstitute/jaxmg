@@ -1,14 +1,14 @@
 # cuSOLVERMp SYEVD Investigation Status
 
-This note records the current state of the cuSOLVERMp migration after the
-rank-per-GPU, native NCCL, and SYEVD diagnostic work. It is a development
-decision record: it should make clear what has been proved, what has failed,
-and which experiment should decide the next code direction.
+This note records the current state of the cuSOLVERMp SYEVD migration after
+the rank-per-GPU, native NCCL, and cuSOLVERMp 0.8.0 diagnostic work. It is a
+development decision record: it should make clear what has been proved, what
+has failed, and which experiment should decide the next code direction.
 
 ## Current Position
 
-The cuSOLVERMp Cholesky solve path is in good shape for small single-node
-rank-per-GPU tests:
+The cuSOLVERMp Cholesky solve path is in good shape for small rank-per-GPU
+tests:
 
 ```text
 JAX block-sharded A and B
@@ -20,212 +20,140 @@ JAX block-sharded A and B
   -> JAX-facing output
 ```
 
-The SYEVD path is not yet in the same state. The standalone NVIDIA
-cuSOLVERMp sample works on CSD3, but the JAXMg FFI path has not yet been shown
-to run `cusolverMpSyevd` successfully. The current active question is whether
-the failure is caused by:
+The SYEVD migration should now focus only on the eigenvector-producing path:
 
-1. the old `compz` value used by JAXMg;
-2. the XLA/JAX stream used inside FFI;
-3. the borrowed XLA-owned NCCL communicator;
-4. the way the JAXMg production path wires descriptors and redistributed
-   buffers; or
-5. a cuSOLVERMp 0.7.2 runtime limitation/bug.
+```text
+jaxmg.syevd_mp(eigvecs=True)
+  -> local shard padding
+  -> native edge-padding and 2D block-cyclic redistribution
+  -> borrowed XLA-owned ncclComm_t
+  -> cusolverMpSyevd(compz = "Z")
+  -> reverse 2D redistribution of eigenvectors
+  -> JAX-facing eigenvalues and eigenvectors
+```
 
-## Installed cuSOLVERMp Runtime
+The true no-vector path is not part of the current release target. Both
+cuSOLVERMp 0.7.2 and the staged cuSOLVERMp 0.8.0 runtime reject
+`compz = "N"` in the current tests. The public `syevd_mp(eigvecs=False)` API
+therefore raises `NotImplementedError` instead of pretending to provide a
+cheap eigenvalue-only solve.
 
-CSD3 testing currently uses NVIDIA HPC SDK 26.3:
+## cuSOLVERMp Runtime Status
+
+CSD3's installed NVIDIA HPC SDK 26.3 currently provides:
 
 ```text
 /rds/user/jlt67/hpc-work/PhD/NVHPC/Linux_x86_64/26.3
-```
-
-The installed cuSOLVERMp library is:
-
-```text
 libcusolverMp.so.0.7.2.0
 ```
 
-The installed headers define:
+A cuSOLVERMp 0.8.0 redistributable has also been staged for probing:
 
-```c
-#define CUSOLVERMP_VER_MAJOR 0
-#define CUSOLVERMP_VER_MINOR 7
-#define CUSOLVERMP_VER_PATCH 2
-#define CUSOLVERMP_VER_BUILD 0
-#define CUSOLVERMP_VERSION 702
+```text
+/rds/user/jlt67/hpc-work/PhD/JAXMG/cusolvermp_0.8.0_probe/
+  libcusolvermp-linux-x86_64-0.8.0.3126_cuda12-archive/
 ```
 
-The v0.8.0 release notes are relevant because they mention fixes in areas that
-overlap our symptoms:
+The 0.8.0 release notes matter for this work because they mention:
 
-1. `cusolverMpSyevd()` performance was improved.
-2. `cusolverMpSetStream()` was added.
-3. the previous restriction on passing the default `NULL`/`0` CUDA stream to
-   `cusolverMpCreate()` was fixed;
-4. a `potrf`/`potrs` issue on non-square process grids was fixed for versions
-   up to and including 0.7.2.
-
-These notes do not prove that the current SYEVD issue is a cuSOLVERMp bug, but
-they are enough reason to prefer testing against 0.8.0 before treating a
-0.7.2-only failure as a JAXMg design failure.
+1. `cusolverMpSyevd()` performance improvements;
+2. `cusolverMpSetStream()`;
+3. a fix for a previous restriction around passing the default CUDA stream to
+   `cusolverMpCreate()`;
+4. a fix for `potrf`/`potrs` on non-square process grids in versions up to and
+   including 0.7.2.
 
 Reference:
 `https://docs.nvidia.com/cuda/cusolvermp/release_notes/index.html#cusolvermp-v0-8-0`
 
 ## Important API Detail: `compz`
 
-The installed CSD3 header exposes the generic SYEVD API:
+The C API exposed by the installed headers accepts a `compz` argument:
 
 ```c
 cusolverMpSyevd(... char* compz, ..., cudaDataType_t computeType, ...)
 ```
 
-The current NVIDIA `mp_syevd.c` sample uses:
+NVIDIA's current `mp_syevd.c` sample uses:
 
 ```c
 char compz = 'Z';
 ```
 
-for the eigenvector path. Earlier JAXMg code used `compz = 'V'`, which matches
-the public-doc language around `jobz = 'V'` but not the sample path for this
-installed API. The branch now uses `compz = 'Z'` when eigenvectors are
-requested.
+for the eigenvector-producing path. Earlier JAXMg experiments used
+`compz = 'V'`, which matches the public-doc language around `jobz = 'V'` but
+does not match the sample for this C API. The branch now uses `compz = 'Z'`
+when eigenvectors are requested.
 
-Eigenvalue-only mode is also not settled. Passing `compz = 'N'` reaches the
-library but the 0.7.2 runtime reports:
+Eigenvalue-only mode is not supported in the tested runtimes. Passing
+`compz = 'N'` reaches the library but the runtime reports:
 
 ```text
 SYEVD does not support eigenvalue only, compz=N
 ```
 
-Until this changes, `syevd_mp(eigvecs=False)` should either be disabled for the
-cuSOLVERMp backend or implemented as an explicitly documented expensive
-fallback that computes eigenvectors and discards them. It should not silently
-pretend to be a cheap no-vector path.
+JAXMg should not emulate this by computing vectors and discarding them unless
+that behavior is explicitly requested in a future API as an expensive fallback.
 
 ## Test Record
 
-The table below records the recent CSD3 jobs that matter for the current
-decision.
-
 | Job | What it tested | Result | Conclusion |
 | --- | --- | --- | --- |
-| `30574045` | Standalone NVIDIA-style raw `mp_syevd.c` binary launched outside JAX/JAXMg. | `COMPLETED`, 21 s. | CSD3's cuSOLVERMp installation can run SYEVD in its normal sample launch mode. This used MPI/Hydra and cuSOLVERMp's own communicator path, not the XLA-owned communicator. |
-| `30580251` | Rank-per-GPU production `potrs_mp` matrix tests before moving on to SYEVD. | Slurm job failed later, but all `potrs_mp` cases reported status code `0`. | The Cholesky path works for 4-rank single-node cases including `2x2`, `1x4`, `4x1`, `float32`, `float64`, `complex64`, `complex128`, padding, and repeated calls. |
-| `30572566` | Small SYEVD sample-layout probe using cuSOLVERMp scatter input, before the `Z` correction. | Failed with cuSOLVER status `7`. | The failure is not caused by JAXMg's 2D redistribution alone, because this probe used cuSOLVERMp's own scatter layout. |
-| `30572754` | SYEVD sample-layout probe comparing XLA stream and private nonblocking CUDA stream, before the `Z` correction. | `compz=N` failed; `compz=V` vector case hung/cancelled. | A private stream alone did not fix the old `V`/`N` behavior. This does not yet decide the new `Z` path. |
+| `30574045` | Standalone NVIDIA-style raw `mp_syevd.c` binary launched outside JAX/JAXMg with the site 0.7.2 runtime. | `COMPLETED`, 21 s. | CSD3 can run SYEVD in the standalone sample mode. This used MPI/Hydra and cuSOLVERMp's own communicator path, not the XLA-owned communicator. |
+| `30580251` | Rank-per-GPU production `potrs_mp` matrix tests before moving on to SYEVD. | Slurm job failed later, but all `potrs_mp` cases reported status code `0`. | The Cholesky path works for 4-rank single-node cases including `2x2`, `1x4`, `4x1`, all supported dtypes, padding, and repeated calls. |
+| `30572566` | Small SYEVD sample-layout probe using cuSOLVERMp scatter input, before the `Z` correction. | Failed with cuSOLVER status `7`. | The failure was not caused by JAXMg's 2D redistribution alone, because this probe used cuSOLVERMp's own scatter layout. |
+| `30572754` | SYEVD sample-layout probe comparing XLA stream and private nonblocking CUDA stream, before the `Z` correction. | `compz=N` failed; `compz=V` vector case hung/cancelled. | A private stream alone did not fix the old `V`/`N` behavior. |
 | `30580388` | Rank-per-GPU 4-rank SYEVD sample-layout probe with allocation-visible launch, before the `Z` correction. | `compz=N` failed; `compz=V` failed inside `mp_stedc` with NCCL/CUDA errors. | The corrected rank-per-GPU launch is not enough if the old `V` flag is used. Failure occurs even without production redistribution. |
-| `30580702` | Rebuild after changing SYEVD vector mode to `compz='Z'`. | `COMPLETED`, 5 min 47 s, commit `8cd7626`. | The installed native backend now contains the `Z` correction. |
-| `30581230` | Active focused diagnostic: sample-layout SYEVD on XLA stream and private stream after the `Z` rebuild. | Pending at time of writing. | This is the current decision point. The vector cases decide whether the `Z` correction is enough. |
+| `30580702` | Rebuild after changing SYEVD vector mode to `compz='Z'`. | `COMPLETED`, 5 min 47 s, commit `8cd7626`. | The installed native backend contains the `Z` correction. |
+| `30582053` | Single-process cuSOLVERMp 0.8.0 version sanity probe. | `COMPLETED`; `cusolverMpGetVersion` returned `800`. | The staged 0.8.0 library can be loaded and used by a basic non-MPI process on CSD3. |
+| `30582082` | Tiny 2-rank MPI + cuSOLVERMp 0.8.0 version probe. | Failed with `SIGILL` before useful rank output. | The standalone MPI launcher path has an environment/runtime problem with the staged 0.8.0 payload. This does not invalidate the JAX/XLA-rank path. |
+| `30582194` | 2-GPU rank-per-GPU JAXMg sample-layout SYEVD probe with cuSOLVERMp 0.8.0. | Slurm job marked failed only because values-only subtests failed. Vector subtests passed on both XLA and private streams. | `compz='Z'` vector SYEVD works through the JAX/XLA borrowed communicator path with cuSOLVERMp 0.8.0 in the sample-layout probe. `compz='N'` remains unsupported. |
+| `30582168` | 4-GPU cuSOLVERMp 0.8.0 JAXMg probe. | Stuck in Slurm configuring/running on one node with no useful output at last check. | Treat as a scheduler/node result, not solver evidence. |
 
-## Interpretation So Far
+## Interpretation
 
-The strongest positive result is the production `potrs_mp` path. It proves that
-these pieces work together for Cholesky solves:
+The strongest positive SYEVD evidence is job `30582194`. It proves that, with
+cuSOLVERMp 0.8.0:
 
-1. rank-per-GPU JAX distributed launch;
-2. borrowed XLA-owned NCCL communicator;
-3. native NCCL send/recv redistribution;
-4. cuSOLVERMp handle, grid, and descriptors;
-5. forward and reverse JAXMg redistribution;
-6. repeated calls without obvious immediate lifetime failure.
+1. JAXMg can load the staged cuSOLVERMp library;
+2. the borrowed XLA-owned communicator can be consumed by cuSOLVERMp SYEVD for
+   the eigenvector-producing path;
+3. the vector path works on both the XLA FFI stream and a private nonblocking
+   CUDA stream in the sample-layout diagnostic;
+4. the old `compz='V'` path was not the correct interface for this C API; and
+5. `compz='N'` should remain disabled.
 
-The strongest negative result is the SYEVD sample-layout probe. Because that
-probe uses cuSOLVERMp's own `MatrixScatterH2D` style layout creation, it
-removes JAXMg's 2D redistribution as the first suspect. The remaining suspects
-are the stream/communicator/runtime/SYEVD interaction.
-
-The private-stream result is informative but not decisive. It failed before the
-`Z` correction, so it only proves:
-
-```text
-private stream + compz='V' did not work
-```
-
-It does not prove:
+This does not yet prove the production `syevd_mp` path. The passing diagnostic
+uses NVIDIA's host scatter/gather style sample layout, not JAXMg's native
+GPU-to-GPU 2D redistribution output. The next production checkpoint is
+therefore:
 
 ```text
-private stream + compz='Z' cannot work
+ordinary JAX-sharded matrix
+  -> JAXMg native 2D redistribution
+  -> cusolverMpSyevd(compz = "Z", cuSOLVERMp 0.8.0)
+  -> reverse JAXMg redistribution of eigenvectors
+  -> eigenvalue/eigenvector residual check
 ```
 
-## Decision Tree After Job 30581230
+If that production vector test fails while the sample-layout vector diagnostic
+passes, the likely issue is in descriptor wiring, redistributed local layout,
+workspace sizing, or reverse redistribution, not in the basic borrowed
+communicator concept.
 
-The next direction should be chosen from the rebuilt `compz='Z'` diagnostic.
+## Current Release Guidance
 
-### Case A: sample vectors pass on both XLA and private streams
-
-Conclusion: the old `V` flag was the main blocker. Then:
-
-1. promote `compz='Z'` into the production `syevd_mp(eigvecs=True)` path;
-2. run production `syevd_mp(eigvecs=True)` on the same tiny rank-per-GPU case;
-3. if production fails while sample-layout passes, focus on JAXMg descriptor,
-   output, and reverse redistribution wiring;
-4. keep `eigvecs=False` disabled unless `N` is separately proven.
-
-### Case B: sample vectors pass only on private stream
-
-Conclusion: `cusolverMpSyevd` is sensitive to the XLA FFI stream. Then:
-
-1. make the SYEVD production path use a private nonblocking CUDA stream;
-2. add explicit stream synchronization before and after the cuSOLVERMp call;
-3. keep the Cholesky path unchanged unless benchmarks or correctness require
-   the same stream policy;
-4. retest production `syevd_mp(eigvecs=True)`.
-
-This would be consistent with the v0.8.0 stream-related release-note changes,
-although it would not prove the exact same default-stream bug.
-
-### Case C: sample vectors fail on both XLA and private streams
-
-Conclusion: the issue is probably not just the CUDA stream. Then:
-
-1. build a diagnostic FFI path that creates a private NCCL communicator instead
-   of borrowing XLA's communicator;
-2. run the same sample-layout SYEVD probe with that private communicator;
-3. if private NCCL works, treat borrowed-communicator compatibility as the
-   blocker for SYEVD and either use private CAL/NCCL for cuSOLVERMp or defer
-   SYEVD;
-4. if private NCCL also fails, test cuSOLVERMp 0.8.0 before making larger
-   JAXMg changes.
-
-### Case D: `compz='N'` still fails
-
-This is expected for 0.7.2 from the current logs. The release branch should not
-advertise true no-vector cuSOLVERMp SYEVD unless it is proven on the target
-runtime.
-
-## Recommended Direction
-
-The release branch should be split conceptually:
-
-1. **Production-ready path:** keep hardening `potrs_mp`.
-2. **Experimental path:** keep `syevd_mp(eigvecs=True)` behind validation until
-   the `Z` diagnostic and production test pass.
-3. **Unsupported for now:** remove or guard `syevd_mp(eigvecs=False)` for
-   cuSOLVERMp 0.7.2, because `compz=N` has not worked.
-
-The next engineering checkpoints are:
-
-1. finish job `30581230`;
-2. decide stream vs communicator vs runtime based on its vector cases;
-3. run one production `syevd_mp(eigvecs=True)` case only if the sample-layout
-   vector probe passes;
-4. otherwise implement a private-communicator diagnostic before touching the
-   production redistribution code again;
-5. test cuSOLVERMp 0.8.0 if CSD3 or another system can provide it.
-
-## Practical Release Guidance
-
-Until SYEVD is resolved, the cleanest user-facing position is:
+The clean user-facing position is:
 
 ```text
 potrs_mp: supported on the validated rank-per-GPU path.
-syevd_mp(eigvecs=True): experimental, pending the Z/private-stream diagnostic.
-syevd_mp(eigvecs=False): unsupported on cuSOLVERMp 0.7.2 unless implemented as
-                         a documented compute-vectors-and-discard fallback.
+syevd_mp(eigvecs=True): active target; sample-layout probe passes with
+                         cuSOLVERMp 0.8.0, production redistributed-buffer
+                         validation still required.
+syevd_mp(eigvecs=False): unsupported; raises NotImplementedError.
 potri / explicit inverse: unsupported in the cuSOLVERMp backend.
 ```
 
-This keeps the codebase honest: the Cholesky migration has real evidence
-behind it, while the eigensolver path remains under active investigation.
+The immediate engineering target is not to debug eigenvalue-only SYEVD. It is
+to make the vector-producing production wrapper pass with the staged
+cuSOLVERMp 0.8.0 runtime.

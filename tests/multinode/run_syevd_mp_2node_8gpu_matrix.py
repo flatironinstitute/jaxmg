@@ -8,12 +8,12 @@ It expects:
   * one global GPU per process.
 
 The cases cover full 2D process grids and degenerate row-only/column-only
-grids. Both cuSOLVERMp SYEVD modes are exercised:
+grids. Only the eigenvector-producing path is exercised. Current validated
+cuSOLVERMp runtimes reject the true no-vector SYEVD mode, so this driver keeps
+the signal focused on the path JAXMg intends to support:
 
-  * ``eigvecs=True`` validates reverse redistribution of eigenvectors back to
-    the JAX-facing block-sharded layout.
-  * ``eigvecs=False`` validates the eigenvalue-only path, where no reverse
-    matrix redistribution is needed.
+  * ``eigvecs=True`` validates cuSOLVERMp SYEVD, eigenvector output, and
+    reverse redistribution back to the JAX-facing block-sharded layout.
 
 The Slurm/PBS wrapper that sets paths and library variables should live outside
 the package repository. This file should remain cluster-agnostic.
@@ -41,7 +41,6 @@ class Case:
     n: int
     tile: int
     dtype: str
-    eigvecs: bool
 
 
 def _emit(label: str, **payload) -> None:
@@ -122,7 +121,7 @@ def _local_status_rows(status):
     return rows
 
 
-def _validate_status(status, *, label: str, grid, eigvecs: bool) -> None:
+def _validate_status(status, *, label: str, grid) -> None:
     rows = _local_status_rows(status)
     if not rows:
         raise AssertionError(f"{label}: no local status rows")
@@ -145,7 +144,7 @@ def _validate_status(status, *, label: str, grid, eigvecs: bool) -> None:
             raise AssertionError(f"{label}: process count mismatch row={row}")
         if int(row[4]) != grid.process_rows or int(row[5]) != grid.process_cols:
             raise AssertionError(f"{label}: process grid mismatch row={row}")
-        if int(row[20]) != int(eigvecs):
+        if int(row[20]) != 1:
             raise AssertionError(f"{label}: eigvec flag mismatch row={row}")
         if int(row[23]) != 1:
             raise AssertionError(f"{label}: cusolverMpSyevd was not called row={row}")
@@ -240,79 +239,54 @@ def _run_case(case: Case) -> None:
         n=case.n,
         tile=case.tile,
         dtype=case.dtype,
-        eigvecs=case.eigvecs,
+        eigvecs=True,
         process_index=jax.process_index(),
     )
 
-    if case.eigvecs:
-        eigenvalues, eigenvectors, status = jaxmg.syevd_mp(
-            a,
-            T_A=case.tile,
-            eigvecs=True,
-            return_status=True,
-        )
-        _validate_status(status, label=case.name, grid=grid, eigvecs=True)
-        _validate_eigenvectors(
-            label=case.name,
-            a_host=a_host,
-            eigenvalues=eigenvalues,
-            eigenvectors=eigenvectors,
-            rtol=rtol,
-            atol=atol,
-        )
-    else:
-        eigenvalues, status = jaxmg.syevd_mp(
-            a,
-            T_A=case.tile,
-            eigvecs=False,
-            return_status=True,
-        )
-        eigenvalues.block_until_ready()
-        _validate_status(status, label=case.name, grid=grid, eigvecs=False)
-        expected_values = np.linalg.eigvalsh(a_host)
-        np.testing.assert_allclose(
-            np.asarray(eigenvalues),
-            expected_values,
-            rtol=rtol,
-            atol=atol,
-        )
+    eigenvalues, eigenvectors, status = jaxmg.syevd_mp(
+        a,
+        T_A=case.tile,
+        eigvecs=True,
+        return_status=True,
+    )
+    _validate_status(status, label=case.name, grid=grid)
+    _validate_eigenvectors(
+        label=case.name,
+        a_host=a_host,
+        eigenvalues=eigenvalues,
+        eigenvectors=eigenvectors,
+        rtol=rtol,
+        atol=atol,
+    )
 
     _emit("case_success", name=case.name)
 
 
 def _cases_for_device_count(device_count: int) -> list[Case]:
-    if device_count == 4:
+    if device_count == 2:
         cases = [
-            Case("grid_2x2_f64_vectors_colpad", 2, 2, 12, 4, "float64", True),
-            Case("grid_2x2_c128_vectors_bothpad", 2, 2, 12, 4, "complex128", True),
-            Case("grid_1x4_f32_values_colonly", 1, 4, 16, 4, "float32", False),
-            Case("grid_4x1_c64_values_rowonly", 4, 1, 16, 4, "complex64", False),
+            Case("grid_1x2_f64_vectors_colpad", 1, 2, 12, 4, "float64"),
+            Case("grid_2x1_c128_vectors_rowpad", 2, 1, 12, 4, "complex128"),
+        ]
+    elif device_count == 4:
+        cases = [
+            Case("grid_2x2_f64_vectors_colpad", 2, 2, 12, 4, "float64"),
+            Case("grid_2x2_c128_vectors_bothpad", 2, 2, 12, 4, "complex128"),
+            Case("grid_1x4_f32_vectors_colonly", 1, 4, 16, 4, "float32"),
+            Case("grid_4x1_c64_vectors_rowonly", 4, 1, 16, 4, "complex64"),
         ]
     elif device_count == 8:
         cases = [
-            Case("grid_2x4_f64_vectors_colpad", 2, 4, 24, 4, "float64", True),
-            Case("grid_4x2_f32_values_rowpad", 4, 2, 24, 4, "float32", False),
-            Case("grid_1x8_c64_vectors_colonly", 1, 8, 32, 8, "complex64", True),
-            Case("grid_8x1_c128_values_rowonly", 8, 1, 32, 8, "complex128", False),
+            Case("grid_2x4_f64_vectors_colpad", 2, 4, 24, 4, "float64"),
+            Case("grid_4x2_f32_vectors_rowpad", 4, 2, 24, 4, "float32"),
+            Case("grid_1x8_c64_vectors_colonly", 1, 8, 32, 8, "complex64"),
+            Case("grid_8x1_c128_vectors_rowonly", 8, 1, 32, 8, "complex128"),
         ]
     else:
         raise AssertionError(
-            "rank-per-GPU syevd_mp matrix validation currently supports 4 or 8 "
+            "rank-per-GPU syevd_mp matrix validation currently supports 2, 4, or 8 "
             f"global devices, got {device_count}."
         )
-
-    # Debugging SYEVD failures often requires isolating the eigenvalue-only
-    # path from the eigenvector-producing path.  Keep this as an environment
-    # filter so cluster wrappers can narrow a run without changing the test.
-    eigvecs_filter = os.environ.get("JAXMG_SYEVD_EIGVECS")
-    if eigvecs_filter:
-        normalized = eigvecs_filter.strip().lower()
-        if normalized not in {"0", "1", "false", "true", "no", "yes"}:
-            raise ValueError(
-                "JAXMG_SYEVD_EIGVECS must be one of 0/1/false/true/no/yes"
-            )
-        want_vectors = normalized in {"1", "true", "yes"}
-        cases = [case for case in cases if case.eigvecs is want_vectors]
 
     name_filter = os.environ.get("JAXMG_SYEVD_CASE")
     if name_filter:
