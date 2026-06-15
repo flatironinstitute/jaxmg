@@ -2,7 +2,7 @@
 
 This driver is for the end-user workflow where the user creates an ordinary
 JAX mesh that may use fewer devices than the full distributed job, shards
-``A`` and ``B`` on that mesh, and calls ``jaxmg.potrs_mp(A, B, T_A=...)``.
+``A`` and ``B`` on that mesh, and calls ``jaxmg.potrs(A, B, T_A=...)``.
 
 The expected launch topology is still one Python process per node over two
 nodes with four local GPUs each. Individual cases deliberately build smaller
@@ -314,7 +314,7 @@ def _run_case(case: GridCase, devices: Sequence[object]) -> None:
             for device in selected
         ],
     )
-    out, status = jaxmg.potrs_mp(a, b, T_A=case.tile, return_status=True)
+    out, status = jaxmg.potrs(a, b, T_A=case.tile, return_status=True)
     expected = np.linalg.solve(a_host, b_host)
     _validate_status(status, case=case)
     _assert_addressable_shards_close(out, expected, case=case)

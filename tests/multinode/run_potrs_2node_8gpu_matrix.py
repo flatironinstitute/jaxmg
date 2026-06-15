@@ -1,4 +1,4 @@
-"""Two-node cuSOLVERMp validation driver for the public potrs_mp wrapper.
+"""Two-node cuSOLVERMp validation driver for the public potrs wrapper.
 
 This script is intentionally not a pytest test: it must be launched by a
 cluster runner that starts one Python process per GPU and initializes JAX's
@@ -232,7 +232,7 @@ def _run_case(case: Case) -> None:
         process_index=jax.process_index(),
     )
 
-    out, status = jaxmg.potrs_mp(
+    out, status = jaxmg.potrs(
         a,
         b,
         T_A=case.tile,
@@ -267,7 +267,7 @@ def _cases_for_device_count(device_count: int) -> list[Case]:
             Case("grid_2x4_c128_bothpad", 2, 4, 32, 8, 8, "complex128"),
         ]
     raise AssertionError(
-        "rank-per-GPU potrs_mp matrix validation currently supports 4 or 8 "
+        "rank-per-GPU potrs matrix validation currently supports 4 or 8 "
         f"global devices, got {device_count}."
     )
 

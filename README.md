@@ -10,12 +10,12 @@
 
 
 # JAXMg
-JAXMg provides a C++ interface between [JAX](https://github.com/google/jax), [cuSolverMg](https://docs.nvidia.com/cuda/cusolver/index.html#using-the-cuSolverMg-api), and the newer [cuSolverMp](https://docs.nvidia.com/cuda/cusolvermp/) distributed linear algebra runtime. We provide a jittable API for the following routines.
+JAXMg provides a jittable C++/CUDA interface between [JAX](https://github.com/google/jax) and [cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/), NVIDIA's distributed linear algebra runtime. The public API exposes two fused cuSOLVERMp routines:
 
-- [cusolverMgPotrs](https://docs.nvidia.com/cuda/cusolver/index.html#cusolvermgpotrs-deprecated): Solves the system of linear equations: $Ax=b$ where $A$ is an $N\times N$ symmetric (Hermitian) positive-definite matrix via a Cholesky decomposition 
-- [cusolverMgSyevd](https://docs.nvidia.com/cuda/cusolver/index.html#cusolvermgsyevd-deprecated): Computes eigenvalues and eigenvectors of an $N\times N$ symmetric (Hermitian) matrix.
-- [cusolverMpPotrf/Potrs](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): Solves symmetric (Hermitian) positive-definite systems on a 2D process grid via `jaxmg.potrs_mp`.
-- [cusolverMpSyevd](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): Computes eigenvalues and eigenvectors on a 2D process grid via `jaxmg.syevd_mp`.
+- [cusolverMpPotrf/Potrs](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): solves symmetric (Hermitian) positive-definite systems on a 2D process grid via `jaxmg.potrs`.
+- [cusolverMpSyevd](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): computes eigenvalues and eigenvectors on a 2D process grid via `jaxmg.syevd`.
+
+Both routines accept ordinary 2D JAX-sharded arrays, locally pad shards when needed, enter one fused native FFI call, redistribute to cuSOLVERMp's 2D block-cyclic layout, call cuSOLVERMp, and redistribute results back to the JAX-facing layout.
 
 For more details, see the [API](api/potrs.md).
 
@@ -68,12 +68,13 @@ dtype = jnp.float64
 A = jnp.diag(jnp.arange(N, dtype=dtype) + 1)
 b = jnp.ones((N, 1), dtype=dtype)
 ndev = len(devices)
-# Make mesh and place data (rows sharded)
-mesh = jax.make_mesh((ndev,), ("x",))
-A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-b = jax.device_put(b, NamedSharding(mesh, P(None, None)))
+# Make a degenerate 2D process grid and place data.
+mesh = jax.make_mesh((ndev, 1), ("pr", "pc"))
+sharding = NamedSharding(mesh, P("pr", "pc"))
+A = jax.device_put(A, sharding)
+b = jax.device_put(b, sharding)
 # Call potrs
-out = potrs(A, b, T_A=T_A, mesh=mesh, in_specs=(P("x", None), ))
+out = potrs(A, b, T_A=T_A)
 print(out)
 expected_out = 1.0 / (jnp.arange(N, dtype=dtype) + 1)
 print(jnp.allclose(out.flatten(), expected_out))
@@ -101,12 +102,12 @@ as expected.
 - [JAXMg + Netket](https://github.com/therooler/netket_jaxmg): Implementation of the MinSR Netket driver that uses JAXMg for inverting the S-matrix. Tested on Multi-node settings.
 - [JAXMg for blurred sampling](https://github.com/therooler/nqs_blurred_sampling): Implementation of t-VMC that makes use JAXMg for inverting the QGT.
 
-## cuSolverMp
-The cuSolverMp backend is the migration path for multi-node execution. It uses
-JAX's XLA-owned NCCL communicator through FFI, redistributes ordinary 2D
-JAX-sharded matrices into cuSolverMp's 2D block-cyclic layout, and calls the
-cuSolverMp routines directly. Explicit inverse support is intentionally absent:
-current cuSolverMp releases do not expose a direct explicit-inverse routine.
+## cuSOLVERMp
+The cuSOLVERMp backend uses JAX's XLA-owned NCCL communicator through FFI,
+redistributes ordinary 2D JAX-sharded matrices into cuSOLVERMp's 2D
+block-cyclic layout, and calls cuSOLVERMp directly. Explicit inverse support is
+intentionally absent: current cuSOLVERMp releases do not expose a direct
+explicit-inverse routine.
 
 ## Citations
 ```

@@ -11,7 +11,7 @@
 
 - Change to the CusolverMp API that's available for CUDA 13.
 
-There has been a discussion with the cuSOLVERMp team at NVIDIA who can potentially assist with this. The main problem is communicating between the different threads/processes that launch cuSOLVERMp from JAX. Since JAX launches a thread/process for each GPU, we need to synchronize these invocations and orchestrate calls to cuSOLVER from a designated master process. The current migration branch now uses the XLA-owned communicator from FFI for the single-node 1D cuSOLVERMg path instead of the old shared-memory/cudaMemcpyPeerAsync shuffler. Multi-node cuSOLVERMp support still needs the 2D block-cyclic redistribution and a multi-node validation path.
+There has been a discussion with the cuSOLVERMp team at NVIDIA who can potentially assist with this. The migration branch now builds a native backend against matching JAX/XLA sources so the fused FFI handlers can borrow the XLA-owned GPU communicator. The production path uses that communicator to redistribute 2D JAX-sharded inputs into cuSOLVERMp's 2D block-cyclic layout and then calls cuSOLVERMp directly.
 
 **Update May 28th:**
 There seems to be a pathway to use the XLA-communicator directly, which is discussed here: 
@@ -36,8 +36,10 @@ python -m pip install --no-deps -e .
 ```
 
 This installs `src/jaxmg/cu12/libjaxmg_xla_comm_backend.so`, which registers
-the production `potrs_mg`, `syevd_mg`, `syevd_no_V_mg`, `cusolvermp_potrs`,
-`cusolvermp_syevd`, and `xla_comm_matrix_column_native_plan` FFI targets.
+the production `cusolvermp_potrs` and `cusolvermp_syevd` FFI
+targets. Additional communicator and cuSOLVERMp probe targets may be registered
+when present in the shared library; these are diagnostic targets, not public
+solver APIs.
 
 The build helper checks out the pinned OpenXLA revision if `XLA_SRC` is not set.
 Use `XLA_SRC` to point at an existing checkout, or `JAXMG_XLA_SOURCE_ROOT` to

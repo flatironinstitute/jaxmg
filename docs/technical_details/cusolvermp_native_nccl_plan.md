@@ -23,8 +23,8 @@ inside native FFI handlers.
 The branch has already proved these pieces independently:
 
 1. XLA communicator access works through the Bazel-built native backend.
-2. The existing 1D cuSolverMg redistribution can use the XLA communicator
-   instead of the old CUDA peer/shared-memory path.
+2. The branch can use the XLA communicator for GPU-to-GPU movement instead of
+   the old CUDA peer/shared-memory path.
 3. A local rectangle can be packed from a rank-local matrix into scratch and
    unpacked elsewhere.
 4. A packed rectangle can be sent rank-to-rank using XLA `CollectivePermute`.
@@ -42,11 +42,11 @@ The branch has already proved these pieces independently:
    inverse slab scheduler first and then reverses edge-padding compaction so a
    cuSOLVERMp-layout output can be returned to a JAX-facing block-sharded
    logical layout.
-10. `jaxmg.potrs_mp` wires the Cholesky solve path: local shard padding,
+10. `jaxmg.potrs` wires the Cholesky solve path: local shard padding,
     forward 2D redistribution, production `cusolvermp_potrs`, reverse 2D
     redistribution, and local unpadding of the solved right-hand side.
-11. `jaxmg.syevd_mp` has a native investigation path on the same redistribution
-    backend, but it is not yet in the same validation state as `potrs_mp`. The
+11. `jaxmg.syevd` has a native investigation path on the same redistribution
+    backend, but it is not yet in the same validation state as `potrs`. The
     current work is isolating cuSOLVERMp 0.7.2 `Syevd` behavior with the
     installed `compz` API, the XLA-owned NCCL communicator, and the FFI stream.
 
@@ -197,7 +197,7 @@ potrs
 Current status:
 
 ```text
-jaxmg.potrs_mp
+jaxmg.potrs
   -> pad local 2D shards
   -> native padded 2D redistribution
   -> cusolverMpPotrf + cusolverMpPotrs
@@ -209,21 +209,18 @@ The Cholesky cuSOLVERMp FFI target is registered as `cusolvermp_potrs`. The
 eigensolver target is registered as `cusolvermp_syevd`:
 
 ```text
-jaxmg.syevd_mp(eigvecs=True) [sample-layout probe passes with cuSOLVERMp 0.8.0]
+jaxmg.syevd [sample-layout probe passes with cuSOLVERMp 0.8.0]
   -> pad local 2D shards
   -> native padded 2D redistribution
   -> cusolverMpSyevd(compz = "Z")
   -> reverse native padded 2D redistribution of eigenvectors
   -> unpad local eigenvector shards
-
-jaxmg.syevd_mp(eigvecs=False) [unsupported]
-  -> raises NotImplementedError before native execution
 ```
 
 The cuSOLVERMp 0.7.2 and 0.8.0 runtimes tested so far report that
 eigenvalue-only SYEVD is not supported for `compz = "N"`, so the no-vector path
-is disabled in the public wrapper. The next SYEVD checkpoint is the production
-redistributed-buffer vector path.
+is not exposed in the public wrapper. The next SYEVD checkpoint is the
+production redistributed-buffer vector path.
 
 The older `cusolvermp_*_probe` functions remain internal diagnostics and are no
 longer top-level `jaxmg` exports. Explicit inverse support is intentionally not
@@ -243,11 +240,9 @@ should:
 5. stress repeated solves/eigensolves for communicator lifetime and memory
    leaks.
 
-MPMD support should come after the SPMD path is stable. The old cuSolverMg MPMD
-path needed node-scoped host pointer exchange because cuSolverMg is single-node.
-cuSOLVERMp is a distributed library, so MPMD support should be designed around a
-global cuSOLVERMp process grid instead of copying the old node-local pointer
-exchange scheme blindly.
+Rank-per-GPU multi-process support should be designed around a global
+cuSOLVERMp process grid. The branch should not reintroduce the old node-local
+pointer exchange scheme used by the removed compatibility backend.
 
 ## Non-Goals for the First Production Cut
 

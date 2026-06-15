@@ -1,9 +1,20 @@
-"""Production cuSOLVERMp FFI wrappers.
+"""Private JAX FFI adapter for the fused cuSOLVERMp backend.
 
-This module is intentionally small: public wrappers such as ``potrs_mp`` and
-``syevd_mp`` own user-facing validation, padding, and redistribution policy.
-The functions here only call native cuSOLVERMp FFI targets on buffers that are
-already in cuSOLVERMp's 2D block-cyclic layout.
+The numerical work is not implemented in this file.  The functions below build
+the JAX call boundary for native C++/CUDA handlers:
+
+1. validate local buffer ranks, dtypes, and scalar attributes;
+2. declare the native FFI symbol names and buffer layouts;
+3. pass the process-grid and communicator-rank metadata as static attributes;
+   and
+4. wrap each local FFI call in ``jax.shard_map`` over the user-provided mesh.
+
+After JAX traces and compiles the call, runtime execution enters the fused
+native handler.  The C++ code allocates scratch, redistributes the padded JAX
+layout into cuSOLVERMp's 2D block-cyclic layout, calls cuSOLVERMp, and
+redistributes outputs back.  Keeping this adapter private prevents public
+solver wrappers from accumulating low-level FFI details such as status-vector
+sizes, output layouts, and input/output aliasing.
 """
 
 from __future__ import annotations
@@ -77,7 +88,7 @@ def _cusolvermp_grid_mapping_attr(
     process_cols: int,
     caller: str,
 ) -> int:
-    """Return the cuSOLVERMp grid-mapping enum for the validated rank map."""
+    """Return cuSOLVERMp's grid-mapping enum for the validated rank map."""
     rank_array = _standard_grid_rank_map_attr(
         rank_map,
         process_rows=process_rows,
@@ -137,8 +148,8 @@ def cusolvermp_potrs(
     n: int,
     nrhs: int,
     tile_size: int,
-) -> tuple[Array, Array, Array]:
-    """Run cuSOLVERMp ``potrf``/``potrs`` on 2D block-cyclic device buffers."""
+) -> tuple[Array, Array]:
+    """Call fused native redistribution + ``potrf/potrs`` on local buffers."""
     if a.ndim != 2 or b.ndim != 2:
         raise ValueError("cusolvermp_potrs expects rank-2 A and B buffers.")
     if a.dtype != b.dtype:
@@ -197,7 +208,8 @@ def cusolvermp_potrs(
         nrhs=nrhs,
         tile_size=tile_size,
     )
-    return ffi_fn(a, b)
+    _, b_out, status = ffi_fn(a, b)
+    return b_out, status
 
 
 def cusolvermp_potrs_shardmap(
@@ -214,8 +226,8 @@ def cusolvermp_potrs_shardmap(
     n: int,
     nrhs: int,
     tile_size: int,
-) -> tuple[Array, Array, Array]:
-    """Run production cuSOLVERMp ``potrs`` over a 2D process grid."""
+) -> tuple[Array, Array]:
+    """Wrap the fused ``potrs`` FFI target in a JAX mesh execution context."""
     if not isinstance(matrix_specs, P) or not isinstance(status_specs, P):
         raise TypeError("matrix_specs and status_specs must be PartitionSpec values.")
 
@@ -224,7 +236,7 @@ def cusolvermp_potrs_shardmap(
         jax.shard_map,
         mesh=mesh,
         in_specs=(matrix_specs, matrix_specs),
-        out_specs=(matrix_specs, matrix_specs, status_specs),
+        out_specs=(matrix_specs, status_specs),
         check_vma=False,
     )
     def impl(_a, _b):
@@ -252,9 +264,8 @@ def cusolvermp_syevd(
     grid_mapping=None,
     n: int,
     tile_size: int,
-    compute_vectors: bool,
 ) -> tuple[Array, Array, Array]:
-    """Run cuSOLVERMp ``syevd`` on a 2D block-cyclic device buffer."""
+    """Call fused native redistribution + vector-producing ``syevd``."""
     if a.ndim != 2:
         raise ValueError("cusolvermp_syevd expects a rank-2 matrix buffer.")
     if a.dtype not in (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128):
@@ -307,7 +318,6 @@ def cusolvermp_syevd(
         rank_map=rank_array,
         n=n,
         tile_size=tile_size,
-        compute_vectors=1 if compute_vectors else 0,
     )
     eigenvalues, _, eigenvectors, status = ffi_fn(a)
     return eigenvalues, eigenvectors, status
@@ -325,9 +335,8 @@ def cusolvermp_syevd_shardmap(
     grid_mapping=None,
     n: int,
     tile_size: int,
-    compute_vectors: bool,
 ) -> tuple[Array, Array, Array]:
-    """Run production cuSOLVERMp ``syevd`` over a 2D process grid."""
+    """Wrap the fused vector ``syevd`` FFI target in a JAX mesh context."""
     if not isinstance(matrix_specs, P) or not isinstance(status_specs, P):
         raise TypeError("matrix_specs and status_specs must be PartitionSpec values.")
 
@@ -348,7 +357,6 @@ def cusolvermp_syevd_shardmap(
             grid_mapping=grid_mapping,
             n=n,
             tile_size=tile_size,
-            compute_vectors=compute_vectors,
         )
 
     return impl(a)

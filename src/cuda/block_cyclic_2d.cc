@@ -14,8 +14,7 @@
 //
 // Native 2D block-cyclic redistribution for cuSOLVERMp.
 //
-// This file is the cuSOLVERMp analogue of cyclic_1d.cc in the cuSolverMg
-// backend. It owns the tile/slab ownership permutation that converts a
+// This file owns the tile/slab ownership permutation that converts a
 // tile-aligned, edge-padded JAX block-sharded matrix into the 2D block-cyclic
 // layout expected by cuSOLVERMp. It composes the edge-padding phase from
 // edge_padding_2d.cc with the low-level rectangle transport in rectangle_pack.cc.
@@ -555,8 +554,8 @@ absl::Status XlaRect2DNativePlanPrepare(
 
   // cuSOLVERMp redistribution must be able to move tiles between every rank in
   // the distributed mesh. A node-scoped clique would only contain local GPUs
-  // inside the current Python process, which is correct for the legacy
-  // cuSolverMg path but insufficient for one-process-per-node multi-node jobs.
+  // inside the current Python process, which is insufficient for multi-node
+  // jobs.
   absl::StatusOr<GpuCliqueKey> clique_key =
       AllAssignedDevicesP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
@@ -688,6 +687,152 @@ absl::Status XlaRectPadded2DNativePlanPrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
   return XlaRect2DNativePlanPrepare(collective_params, clique_requests);
+}
+
+absl::StatusOr<int64_t> RequiredPadded2DNativePlanScratchElements(
+    int64_t process_rows, int64_t process_cols, int64_t tile_rows,
+    int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
+    int64_t local_rows, int64_t local_cols,
+    absl::Span<const int64_t> rank_map) {
+  JAXMG_RETURN_IF_ERROR(ValidateStandardGridRankMap(
+      "required_padded_2d_native_plan_scratch", rank_map, process_rows,
+      process_cols));
+
+  absl::StatusOr<std::vector<Native2DStep>> edge_steps =
+      BuildEdgePaddingNative2DSteps(
+          process_rows, process_cols, tile_rows, tile_cols, logical_rows,
+          logical_cols, local_rows, local_cols, rank_map);
+  if (!edge_steps.ok()) {
+    return edge_steps.status();
+  }
+  absl::StatusOr<std::vector<Native2DStep>> slab_steps =
+      BuildSlabNative2DSteps(process_rows, process_cols, tile_rows, tile_cols,
+                             local_rows, local_cols, rank_map);
+  if (!slab_steps.ok()) {
+    return slab_steps.status();
+  }
+  const int64_t max_step_elements =
+      std::max(MaxStepElementCount(*edge_steps),
+               MaxStepElementCount(*slab_steps));
+  return 3 * max_step_elements;
+}
+
+absl::Status ExecutePadded2DNativePlanRaw(
+    const char* caller, se::Stream* stream, se::Stream* comm_stream,
+    cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,
+    int64_t tile_rows, int64_t tile_cols, int64_t logical_rows,
+    int64_t logical_cols, int64_t reverse,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer matrix,
+    se::DeviceAddressBase matrix_out_base,
+    se::DeviceAddressBase scratch_base, int64_t scratch_elements,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  if (stream == nullptr || comm_stream == nullptr || cuda_stream == nullptr) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s requires XLA and CUDA stream contexts", caller));
+  }
+  if (collective_params == nullptr || collective_cliques == nullptr) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s requires XLA collective contexts", caller));
+  }
+  if (matrix.dimensions().size() != 2) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s expects a rank-2 matrix buffer", caller));
+  }
+
+  absl::StatusOr<GpuCliqueKey> clique_key =
+      AllAssignedDevicesP2PCliqueKey(*collective_params);
+  if (!clique_key.ok()) {
+    return clique_key.status();
+  }
+  const int64_t num_ranks = static_cast<int64_t>(clique_key->num_devices());
+  if (process_rows * process_cols != num_ranks) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s grid %d x %d does not match clique size %d", caller,
+        process_rows, process_cols, num_ranks));
+  }
+  JAXMG_RETURN_IF_ERROR(ValidateStandardGridRankMap(
+      caller, rank_map, process_rows, process_cols));
+
+  std::optional<RankId> rank =
+      clique_key->rank(collective_params->global_device_id);
+  if (!rank.has_value()) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s could not resolve this device rank", caller));
+  }
+  const int64_t rank_value = static_cast<int64_t>(rank->value());
+
+  absl::StatusOr<GpuCommunicator*> comm = collective_cliques->GetComm(
+      *clique_key, collective_params->global_device_id);
+  if (!comm.ok()) {
+    return comm.status();
+  }
+
+  const int64_t local_rows = matrix.dimensions()[0];
+  const int64_t local_cols = matrix.dimensions()[1];
+  absl::StatusOr<std::vector<Native2DStep>> edge_steps =
+      BuildEdgePaddingNative2DSteps(
+          process_rows, process_cols, tile_rows, tile_cols, logical_rows,
+          logical_cols, local_rows, local_cols, rank_map);
+  if (!edge_steps.ok()) {
+    return edge_steps.status();
+  }
+  absl::StatusOr<std::vector<Native2DStep>> slab_steps =
+      BuildSlabNative2DSteps(process_rows, process_cols, tile_rows, tile_cols,
+                             local_rows, local_cols, rank_map, reverse != 0);
+  if (!slab_steps.ok()) {
+    return slab_steps.status();
+  }
+
+  std::vector<Native2DStep> reverse_edge_steps;
+  if (reverse != 0) {
+    reverse_edge_steps = ReverseEdgePaddingSteps(*edge_steps);
+  }
+
+  std::vector<Native2DStepBatch> edge_batches =
+      BatchNative2DSteps(reverse != 0 ? reverse_edge_steps : *edge_steps);
+  std::vector<Native2DStepBatch> slab_batches =
+      BatchNative2DSteps(*slab_steps);
+  const int64_t max_step_elements =
+      std::max(MaxStepElementCount(*edge_steps),
+               MaxStepElementCount(*slab_steps));
+  if (max_step_elements > 0 && scratch_elements < 3 * max_step_elements) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s scratch length %d is smaller than 3 * max(native step elements) "
+        "= %d",
+        caller, scratch_elements, 3 * max_step_elements));
+  }
+
+  const size_t element_bytes =
+      matrix.size_bytes() / static_cast<size_t>(matrix.element_count());
+  if (matrix.device_memory().opaque() != matrix_out_base.opaque()) {
+    JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
+        matrix_out_base.opaque(), matrix.untyped_data(), matrix.size_bytes(),
+        cudaMemcpyDeviceToDevice, cuda_stream));
+  }
+  if (max_step_elements == 0) {
+    return absl::OkStatus();
+  }
+
+  if (reverse != 0) {
+    JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
+        stream, comm_stream, cuda_stream, slab_batches, local_rows, local_cols,
+        rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+        matrix_out_base, scratch_base, *comm));
+    return ExecuteNative2DStepBatches(
+        stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
+        rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+        matrix_out_base, scratch_base, *comm);
+  }
+
+  JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
+      stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
+      rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+      matrix_out_base, scratch_base, *comm));
+  return ExecuteNative2DStepBatches(
+      stream, comm_stream, cuda_stream, slab_batches, local_rows, local_cols,
+      rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+      matrix_out_base, scratch_base, *comm);
 }
 
 absl::Status RectPadded2DNativePlanDispatchImpl(

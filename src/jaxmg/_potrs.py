@@ -1,17 +1,39 @@
-import os
-import jax
+"""Public cuSOLVERMp Cholesky solve wrapper.
+
+``potrs`` is the high-level JAX entry point for the fused cuSOLVERMp backend.
+Users provide ordinary JAX arrays sharded over a 2D ``Mesh``.  The Python layer
+does the parts JAX must see directly:
+
+1. validate the logical matrix/RHS shapes and dtypes;
+2. infer or validate the JAX mesh and ``PartitionSpec``;
+3. check that the mesh order is compatible with a cuSOLVERMp process grid;
+4. pad each local shard so both axes are tile-aligned; and
+5. remove local padding from the solved RHS after native code returns.
+
+The expensive work is a single fused C++/CUDA FFI call.  Native code allocates
+its own scratch, redistributes the padded JAX layout into cuSOLVERMp's 2D
+block-cyclic layout, calls ``cusolverMpPotrf``/``cusolverMpPotrs`` using the
+XLA-owned NCCL communicator, and redistributes the result back to the original
+JAX-facing layout.
+"""
+
+from __future__ import annotations
+
+from typing import Union
+
 import jax.numpy as jnp
 from jax import Array
-from jax.sharding import PartitionSpec as P, Mesh
+from jax.sharding import Mesh, PartitionSpec as P
 
-from typing import Tuple, List, Union
-from functools import partial
-
-from ._cyclic_1d import (
-    calculate_padding,
-    pad_rows,
-    validate_padded_matrix_rows,
-    validate_padded_shard_rows,
+from ._block_cyclic_2d_plan import TileShape
+from ._cusolvermp_ffi import cusolvermp_potrs_shardmap
+from ._cusolvermp_layout import (
+    infer_mesh_and_matrix_specs,
+    pad_block_sharded_2d,
+    process_rank_map_from_mesh,
+    status_specs,
+    unpad_block_sharded_2d,
+    validate_2d_matrix_specs,
 )
 from ._setup import ensure_init_jaxmg_backend
 
@@ -20,267 +42,114 @@ def potrs(
     a: Array,
     b: Array,
     T_A: int,
-    mesh: Mesh,
-    in_specs: Tuple[P] | List[P] | P,
+    mesh: Mesh | None = None,
+    matrix_specs: P | tuple[P, ...] | list[P] | None = None,
+    *,
+    in_specs: P | tuple[P, ...] | list[P] | None = None,
     return_status: bool = False,
-    pad=True,
-) -> Union[Array, Tuple[Array, int]]:
-    """Solve the linear system A x = B using the multi-GPU potrs native kernel.
-
-    Prepares inputs for the native ``potrs_mg`` kernel and executes it via
-    ``jax.ffi.ffi_call`` under ``jax.jit`` and ``jax.shard_map``. Handles
-    per-device padding driven by ``T_A`` and returns the solution (and
-    optionally a host-side solver status).
-
-    Tip:
-        If the shards of the matrix cannot be padded with tiles of size `T_A`
-        (``N / num_gpus % T_A != 0``) we have to add padding to fit the last tile.
-        This requires copying the matrix, which we want to avoid at all costs for
-        large ``N``. Make sure you pick ``T_A`` large enough (>=128) and such that it
-        can evenly cover the shards. In principle, increasing ``T_A`` will increase
-        performance at the cost of memory, but depending on ``N``, the performance
-          will saturate.
+    pad: bool = True,
+) -> Union[Array, tuple[Array, Array]]:
+    """Solve ``A x = B`` with cuSOLVERMp on a 2D JAX process grid.
 
     Args:
-        a (Array): 2D, symmetric matrix representing the coefficient matrix.
-            Expected to be sharded across the mesh along the first (row) axis
-            using a single ``PartitionSpec``: ``P(<axis_name>, None)``.
-        b (Array): 2D right-hand side. Expected to be replicated across
-            devices with ``PartitionSpec`` ``P(None, None)`` or ``P(None)``.
-        T_A (int): Tile width used by the native solver. Each
-            local shard length must be a multiple of ``T_A``. If the user provides a
-            ``T_A`` that is incompatible with the shard size we pad the matrix
-            accordingly. For small tile sizes (``T_A``< 128), the solver can
-            be extremely slow, so ensure that ``T_A`` is large enough. In principle,
-            the larger ``T_A`` the faster the solver runs. See https://arxiv.org/abs/2601.14466
-            for more details.
-        mesh (Mesh): JAX Mesh object used for ``jax.shard_map``.
-        in_specs (PartitionSpec or tuple/list[PartitionSpec]): PartitionSpec
-            describing the input sharding (row sharding). May be provided as a
-            single ``PartitionSpec`` or a single-element container containing one.
-        return_status (bool, optional): If True return ``(x, status)`` where
-            ``status`` is a host-replicated int32 from the native solver. If
-            False return ``x`` only. Default is False.
-        pad (bool, optional): If True (default) apply per-device padding to
-            ``a`` so each local shard length is compatible with ``T_A``; if
-            False the caller must ensure shapes already match the kernel's
-            requirements.
+        a: Square Hermitian/symmetric positive-definite matrix, normally
+            sharded with ``NamedSharding(mesh, P(row_axis, col_axis))``.
+        b: Rank-1 or rank-2 right-hand side.  The current cuSOLVERMp path uses
+            the same 2D mesh/spec contract as ``a`` for the RHS.
+        T_A: Square cuSOLVERMp tile size.  JAXMg currently uses
+            ``MB_A == NB_A == T_A``.
+        mesh: Optional JAX mesh override.  If omitted, inferred from
+            ``a.sharding.mesh``.
+        matrix_specs: Optional 2D ``PartitionSpec`` override.  If omitted,
+            inferred from ``a.sharding.spec``.
+        in_specs: Backwards-compatible alias for ``matrix_specs``.
+        return_status: If true, return the native per-rank status array along
+            with the solved RHS.
+        pad: If true, locally pad shards so every local row/column capacity is
+            tile-aligned.  If false, incompatible shapes raise.
+
     Returns:
-        Array or (Array, int): The solution ``x`` (replicated across devices).
-            If ``return_status=True`` also return the native solver status.
-
-    Raises:
-        AssertionError: If ``a`` or ``b`` are not the correct shape, or if their shapes
-            are incompatible.
-        ValueError: If ``in_specs`` is not a 1-element sequence or if the provided
-            ``PartitionSpec`` objects do not match the required patterns
-            (``P(<axis_name>, None)`` for ``a``).
-    Notes:
-        - The FFI call may donate the ``a`` buffer (``donate_argnums=0``) for
-          zero-copy interaction with the native library.
-        - If the native solver fails the returned solution may contain NaNs and
-          ``status`` will be non-zero.
+        The solved RHS in the same JAX-facing block-sharded layout as ``b``.
+        If ``return_status=True``, returns ``(x, status)``.
     """
-    ensure_init_jaxmg_backend()
-
-    ndev = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
-
-    if isinstance(in_specs, (list, tuple)):
-        if len(in_specs) != 1:
-            raise ValueError(
-                "in_specs must be a single PartitionSpec or a 1-element list/tuple."
-            )
-        in_specs = in_specs[0]
-    if not isinstance(in_specs, P):
-        raise TypeError(
-            "in_specs must be a PartitionSpec or a 1-element list/tuple containing one."
-        )
-    if (in_specs._partitions[0] == None) or (in_specs._partitions[1] != None):
-        raise ValueError(
-            "A must be sharded along the columns with PartitionSpec P(None, str)."
-        )
-
-    assert a.shape[1] == b.shape[0], "A and b must have the same number of columns."
-    assert a.ndim == 2, "a must be a 2D array."
-    assert b.ndim <= 2, "b must be a 1D or 2D array."
-    # ensure b is always 2D
+    if a.ndim != 2:
+        raise ValueError("potrs expects a rank-2 matrix A.")
     if b.ndim == 1:
         b = jnp.expand_dims(b, axis=1)
+    if b.ndim != 2:
+        raise ValueError("potrs expects a rank-1 or rank-2 RHS B.")
+    if a.dtype != b.dtype:
+        raise TypeError("potrs requires matching A/B dtypes.")
+    if a.dtype not in (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128):
+        raise TypeError("potrs supports float32, float64, complex64, and complex128.")
+    if a.shape[0] != a.shape[1]:
+        raise ValueError("potrs expects A to be square.")
+    if a.shape[0] != b.shape[0]:
+        raise ValueError("A and B must have matching leading dimensions.")
+    if int(T_A) <= 0:
+        raise ValueError("T_A must be positive.")
 
-    N_rows, N = a.shape
-    axis_name = in_specs._partitions[0]
-    target_name = "potrs_mg"
-
-    shard_size = N_rows // ndev
-
-    # Keep b in column-major layout
-    input_layouts = ((0, 1), (1, 0))
-    output_layouts = ((0, 1), (1, 0), (0,))
-
-    padding = calculate_padding(shard_size, T_A)
-
-    if not pad or padding == 0 or T_A >= N // ndev:
-        if T_A < N // ndev:
-            validate_padded_matrix_rows(N_rows, N, ndev, T_A)
-        # Identity padding
-        pad_fn = lambda _a: _a
-        padding = 0
-    else:
-        # Make padding fns
-        pad_fn = jax.shard_map(
-            partial(pad_rows, padding=padding),
-            mesh=mesh,
-            in_specs=P(axis_name, None),
-            out_specs=P(axis_name, None),
-            check_vma=True,
-        )
-
-    out_type = (
-        jax.ShapeDtypeStruct((shard_size + padding, N), a.dtype),
-        jax.ShapeDtypeStruct(b.shape, b.dtype),
-        jax.ShapeDtypeStruct((1,), jnp.int32),
-    )
-
-    # Prepare ffi call
-    ffi_fn = partial(
-        jax.ffi.ffi_call(
-            target_name,
-            out_type,
-            input_layouts=input_layouts,
-            output_layouts=output_layouts,
-            input_output_aliases={0: 0, 1: 1},
-        ),
-        T_A=T_A,
-    )
-
-    # Jit with donate_argnums=0 is crucial for buffer sharing
-    @partial(jax.jit, donate_argnums=(0, 1))
-    @partial(
-        jax.shard_map,
+    mesh, matrix_specs = infer_mesh_and_matrix_specs(
+        a,
         mesh=mesh,
-        in_specs=(P(axis_name, None), P(None, None)),
-        out_specs=(P(axis_name, None), P(None, None), P(None)),
-        check_vma=False,
+        matrix_specs=matrix_specs,
+        in_specs=in_specs,
     )
-    def impl(_a, _b):
-        _a = _a.conj()
-        _out_a, _out_b, _status = ffi_fn(_a, _b)
-        return _out_a, _out_b, _status
+    row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
+    rank_map = process_rank_map_from_mesh(
+        mesh,
+        row_axis=row_axis,
+        col_axis=col_axis,
+        grid=grid,
+        caller="potrs",
+    )
+    native_status_specs = status_specs(row_axis, col_axis, grid)
+    tile_shape = TileShape(rows=int(T_A), cols=int(T_A))
 
-    def fn(_a, _b):
-        _a = pad_fn(_a)
-        _out_a, _out_b, _status = impl(_a, _b)
-        return _out_b, _status
-
-    out, status = fn(a, b)
-    if return_status:
-        return out, status[0]
-    else:
-        return out
-
-
-def potrs_shardmap_ctx(a: Array, b: Array, T_A: int, pad=True) -> Tuple[Array, Array]:
-    """Solve A x = B by invoking the native multi-GPU potrs kernel without shard_map.
-
-    This helper is a lightweight, lower-level variant of :func:`jaxmg.potrs` intended
-    for contexts where the input ``a`` is already laid out and sharded at the
-    application level (for example when running inside a custom
-    ``shard_map``/pjit-managed context). It performs the same padding logic
-    driven by ``T_A`` and directly calls the native ``potrs_mg`` FFI targets
-    via ``jax.ffi.ffi_call`` instead of constructing an additional ``shard_map``
-    wrapper.
-
-    Tip:
-        If the shards of the matrix cannot be padded with tiles of size `T_A`
-        (``N / num_gpus % T_A != 0``) we have to add padding to fit the last tile.
-        This requires copying the matrix, which we want to avoid at all costs for
-        large ``N``. Make sure you pick ``T_A`` large enough (>=128) and such that it
-        can evenly cover the shards. In principle, increasing ``T_A`` will increase
-        performance at the cost of memory, but depending on ``N``, the performance
-          will saturate.
-
-    Args:
-        a (Array): 2D coefficient matrix of shape ``(N_rows // ndev, N)``. Must be
-            symmetric for correct solver behavior.
-        b (Array): 2D right-hand side. Its first dimension must equal the
-            number of columns of ``a`` (i.e. ``a.shape[1] == b.shape[0]``).
-        T_A (int): Tile width used by the native solver. Each
-            local shard length must be a multiple of ``T_A``. If the user provides a
-            ``T_A`` that is incompatible with the shard size we pad the matrix
-            accordingly. For small tile sizes (``T_A``< 128), the solver can
-            be extremely slow, so ensure that ``T_A`` is large enough. In principle,
-            the larger ``T_A`` the faster the solver runs.
-        pad (bool, optional): If True (default) apply per-device padding to
-            ``a`` so each local shard length is compatible with ``T_A``. If
-            False the caller must ensure shapes already meet the kernel's
-            requirements.
-
-    Returns:
-        tuple: ``(x, status)`` where ``x`` is the solver result (same shape as
-            ``b``) and ``status`` is the int32 status value returned by the
-            native kernel (shape ``(1,)`` device array).
-
-    Raises:
-        AssertionError: If input arrays are not 2D or their shapes are
-            incompatible.
-
-    Notes:
-        - This function does not perform sharding via ``jax.shard_map`` and
-          therefore must be called only in a shard_map context.
-        - Because it does not use ``donate_argnums``, the input buffers are
-          not donated to the FFI call (no zero-copy donation semantics).
-    """
     ensure_init_jaxmg_backend()
-    ndev = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
-    assert a.shape[1] == b.shape[0], "A and b must have the same number of rows."
-    assert a.ndim == 2, "a must be a 2D array."
-    assert b.ndim == 2, "b must be a 2D array."
-    shard_size, N = a.shape
 
-    # Keep b in column-major layout
-    input_layouts = ((0, 1), (1, 0))
-    output_layouts = ((0, 1), (1, 0), (0,))
-
-    padding = calculate_padding(shard_size, T_A)
-
-    if not pad or padding == 0 or T_A >= N // ndev:
-        if T_A < N // ndev:
-            validate_padded_shard_rows(shard_size, N, ndev, T_A)
-        # Identity padding
-        pad_fn = lambda _a: _a
-        padding = 0
-
-    else:
-        # Make padding fns
-        pad_fn = partial(pad_rows, padding=padding)
-
-    out_type = (
-        jax.ShapeDtypeStruct((shard_size + padding, N), a.dtype),
-        jax.ShapeDtypeStruct(b.shape, b.dtype),
-        jax.ShapeDtypeStruct((1,), jnp.int32),
+    # JAX owns visible padding because it changes array shapes.  Once padded,
+    # native code can move complete tile rectangles without allocating a second
+    # full distributed matrix in Python.
+    a_padded, _ = pad_block_sharded_2d(
+        a,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+        grid=grid,
+        tile_shape=tile_shape,
+        pad=pad,
+    )
+    b_padded, (b_local_rows, b_local_cols) = pad_block_sharded_2d(
+        b,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+        grid=grid,
+        tile_shape=tile_shape,
+        pad=pad,
     )
 
-    # Prepare ffi call
-    ffi_fn = partial(
-        jax.ffi.ffi_call(
-            "potrs_mg",
-            out_type,
-            input_layouts=input_layouts,
-            output_layouts=output_layouts,
-            input_output_aliases={0: 0, 1: 1},
-        ),
-        T_A=T_A,
+    b_solved_padded, native_status = cusolvermp_potrs_shardmap(
+        a_padded,
+        b_padded,
+        mesh,
+        matrix_specs,
+        native_status_specs,
+        process_rows=grid.process_rows,
+        process_cols=grid.process_cols,
+        n=a.shape[0],
+        nrhs=b.shape[1],
+        tile_size=tile_shape.rows,
+        rank_map=rank_map,
+        grid_mapping=rank_map.cusolvermp_grid_mapping,
     )
 
-    # Jit with donate_argnums=0 is crucial for buffer sharing
-    def impl(_a, _b):
-        _a = _a.conj()
-        _out_a, _out_b, _status = ffi_fn(_a, _b)
-        return _out_b, _status
-
-    def fn(_a, _b):
-        _a = pad_fn(_a)
-        _out, _status = impl(_a, _b)
-        return _out, _status
-
-    return fn(a, b)
+    out = unpad_block_sharded_2d(
+        b_solved_padded,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+        local_rows=b_local_rows,
+        local_cols=b_local_cols,
+    )
+    if return_status:
+        return out, native_status
+    return out

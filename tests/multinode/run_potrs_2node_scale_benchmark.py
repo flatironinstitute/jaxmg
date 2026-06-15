@@ -1,4 +1,4 @@
-"""Two-node scale validation and timing driver for ``jaxmg.potrs_mp``.
+"""Two-node scale validation and timing driver for ``jaxmg.potrs``.
 
 The small multi-node drivers validate many layouts with tiny matrices.  This
 driver is the next checkpoint: it keeps the same public API path but moves to
@@ -12,7 +12,7 @@ cluster-launched script, not a pytest test, because it requires:
 
 Each case constructs a dense Hermitian/symmetric positive-definite matrix on
 the host, chooses a known solution ``X``, forms ``B = A @ X``, shards ``A`` and
-``B`` on an ordinary JAX mesh, and calls ``jaxmg.potrs_mp(A, B, T_A=...)``.
+``B`` on an ordinary JAX mesh, and calls ``jaxmg.potrs(A, B, T_A=...)``.
 The timed region starts after host-to-device placement and ends after the
 native solve and reverse redistribution have completed.  Correctness is checked
 against the known ``X`` outside the timed region.
@@ -271,7 +271,7 @@ def _run_case(case: ScaleCase, devices: Sequence[object]) -> None:
         b.block_until_ready()
 
         start = time.perf_counter()
-        out, status = jaxmg.potrs_mp(a, b, T_A=case.tile, return_status=True)
+        out, status = jaxmg.potrs(a, b, T_A=case.tile, return_status=True)
         out.block_until_ready()
         status.block_until_ready()
         seconds = time.perf_counter() - start

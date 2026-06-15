@@ -105,9 +105,9 @@ def xla_comm_global_allreduce_probe(token: Array) -> Array:
     """Run a SUM all-reduce over all devices assigned to the JAX computation.
 
     This is the multi-node companion to :func:`xla_comm_allreduce_probe`.
-    The older probe intentionally uses the node-scoped communicator used by the
-    current cuSolverMg path; this probe requests the all-assigned communicator
-    needed by cuSOLVERMp redistribution and solver setup.
+    The older probe intentionally uses a node-scoped communicator. This probe
+    requests the all-assigned communicator needed by cuSOLVERMp redistribution
+    and solver setup.
     """
     ensure_init_jaxmg_backend()
 
@@ -516,7 +516,7 @@ def cusolvermp_init_probe(
     The result is a rank-1 ``int32`` status vector. ``out[0] == 0`` means the
     full init sequence succeeded. ``out[0] == 1`` means ``libcusolverMp`` was
     not available on the host, which is expected on systems that only provide
-    ordinary cuSOLVER/cuSolverMg.
+    ordinary cuSOLVER.
     """
     ensure_init_jaxmg_backend()
 
@@ -960,7 +960,6 @@ def cusolvermp_syevd_probe(
     n: int,
     tile_size: int,
     grid_mapping: int = 1,
-    compute_vectors: bool = True,
     use_private_stream: bool = False,
 ) -> Array:
     """Run a sample-style cuSOLVERMp ``syevd`` diagnostic.
@@ -988,7 +987,6 @@ def cusolvermp_syevd_probe(
     n = int(n)
     tile_size = int(tile_size)
     grid_mapping = int(grid_mapping)
-    compute_vectors_int = int(bool(compute_vectors))
     use_private_stream_int = int(bool(use_private_stream))
     if process_rows <= 0 or process_cols <= 0:
         raise ValueError("process_rows and process_cols must be positive.")
@@ -1014,7 +1012,6 @@ def cusolvermp_syevd_probe(
         n=n,
         tile_size=tile_size,
         grid_mapping=grid_mapping,
-        compute_vectors=compute_vectors_int,
         use_private_stream=use_private_stream_int,
     )
     (status,) = ffi_fn(token)
@@ -1032,7 +1029,6 @@ def cusolvermp_syevd_probe_shardmap(
     n: int,
     tile_size: int,
     grid_mapping: int = 1,
-    compute_vectors: bool = True,
     use_private_stream: bool = False,
 ) -> Array:
     """Run :func:`cusolvermp_syevd_probe` over a 2D process grid."""
@@ -1055,7 +1051,6 @@ def cusolvermp_syevd_probe_shardmap(
             n=n,
             tile_size=tile_size,
             grid_mapping=grid_mapping,
-            compute_vectors=compute_vectors,
             use_private_stream=use_private_stream,
         )
 
@@ -1164,8 +1159,8 @@ def xla_comm_matrix_column_step(
     contiguous column payload moved by the native handler. ``scratch`` is one
     column payload per participating rank.
 
-    This is a low-level investigation helper. Production 1D reshuffling is
-    exposed through :func:`jaxmg.cyclic_1d`.
+    This is a low-level investigation helper retained for communicator
+    diagnostics. It is not part of the production solver API.
     """
     ensure_init_jaxmg_backend()
 
@@ -1354,9 +1349,10 @@ def xla_comm_matrix_column_native_plan(
 ) -> tuple[Array, Array]:
     """Apply a native-planned communicator-backed 1D cyclic reshuffle.
 
-    The C++ FFI handler builds the same padded block-to-cyclic movement cycles
-    used by :func:`jaxmg.cyclic_1d`, then executes them internally through the
-    XLA communicator. Python supplies only the tile size and buffers.
+    The C++ FFI handler builds padded block-to-cyclic movement cycles and
+    executes them internally through the XLA communicator. Python supplies only
+    the tile size and buffers. This diagnostic is not part of the production
+    solver API.
     """
     ensure_init_jaxmg_backend()
 

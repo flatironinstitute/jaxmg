@@ -196,7 +196,7 @@ The current Python/JAX diagnostic path now exposes this ordering directly.
 CPU-planned compaction waves through the rectangle-transfer FFI for focused
 debugging, while `execute_padded_block_cyclic_2d_shardmap` now calls one native
 FFI target that plans and executes both edge compaction and tile-aligned 2D
-redistribution internally. `jaxmg.potrs_mp` now uses this movement path before
+redistribution internally. `jaxmg.potrs` now uses this movement path before
 creating cuSOLVERMp descriptors and calling cuSOLVERMp `potrf`/`potrs`.
 
 ### Parallelism and Scratch Invariants
@@ -351,7 +351,7 @@ The diagnostic handlers remain useful when changing this code:
 2. `xla_rect_transfer_probe` isolates one packed rectangle transfer.
 3. `xla_rect_2d_native_plan` validates the tile-aligned slab scheduler.
 4. `xla_rect_padded_2d_native_plan` is the production redistribution handler
-   used by `jaxmg.potrs_mp`.
+   used by `jaxmg.potrs`.
 
 The production roadmap from the single-node native NCCL/cuSOLVERMp path to
 multi-node validation is documented in `cusolvermp_native_nccl_plan.md`.

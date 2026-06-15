@@ -1,96 +1,68 @@
-import sys
-import os
+import numpy as np
 
-this_dir = os.path.dirname(os.path.abspath(__file__))
-src_path = os.path.join(this_dir, "..")
-
-import pytest
 import jax
-
-# Setup JAX
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
-from jax.sharding import PartitionSpec as P
-from jaxmg import syevd, syevd_shardmap_ctx
-from jaxmg.utils import JaxMgWarning
+import pytest
+from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
-# These tests exercise the argument-validation paths in `syevd` and avoid
-# invoking the native FFI. They match the current implementation in
-# `src/jaxmg/_syevd.py` (normalization of `in_specs`, type/length checks,
-# PartitionSpec shape checks, and T_A bounds).
+from jaxmg import syevd
 
 
-def mesh_for_tests():
-    return jax.make_mesh((jax.local_device_count(),), ("x",))
+def _single_device_mesh() -> Mesh:
+    return Mesh(np.asarray(jax.devices()[:1], dtype=object).reshape(1, 1), ("pr", "pc"))
 
 
-def test_in_specs_wrong_length_raises_valueerror():
-    a = jnp.eye(4)
-    T_A = 32
-    mesh = mesh_for_tests()
-    # Passing a tuple of length != 1 should raise ValueError per implementation
-    with pytest.raises(ValueError, match="in_specs must be a single PartitionSpec or a 1-element list/tuple"):
-        syevd(a, T_A, mesh, (P(None, "x"), P(None, "x")))
+def test_syevd_rejects_non_2d_process_grid_specs():
+    mesh = Mesh(np.asarray(jax.devices()[:1], dtype=object), ("x",))
+    a = jnp.eye(4, dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="requires both matrix axes"):
+        syevd(a, 2, mesh=mesh, matrix_specs=P("x", None))
 
 
-def test_in_specs_non_partitionspec_raises_typeerror():
-    a = jnp.eye(4)
-    T_A = 32
-    mesh = mesh_for_tests()
-    with pytest.raises(TypeError, match="in_specs must be a PartitionSpec or a 1-element list/tuple containing one"):
-        syevd(a, T_A, mesh, 12345)
+def test_syevd_infers_mesh_and_specs_from_a_sharding():
+    mesh = Mesh(np.asarray(jax.devices()[:1], dtype=object), ("x",))
+    sharding = NamedSharding(mesh, P("x", None))
+    a = jax.device_put(jnp.eye(4, dtype=jnp.float32), sharding)
+
+    with pytest.raises(ValueError, match="requires both matrix axes"):
+        syevd(a, 2)
 
 
-def test_spec_a_invalid_partition_raises_valueerror():
-    a = jnp.eye(4)
-    T_A = 32
-    mesh = mesh_for_tests()
-    # invalid when second partition is not None or first partition is None
-    bad_specs = [P(None, "x"), P(None, None), P("x", "y")]
-    for spec in bad_specs:
-        with pytest.raises(ValueError, match=r"A must be sharded along the rows with PartitionSpec P\(str, None\)"):
-            syevd(a, T_A, mesh, (spec,))
+def test_syevd_requires_named_sharding_when_mesh_is_omitted():
+    a = jnp.eye(4, dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="could not infer mesh"):
+        syevd(a, 2)
 
 
-def test_a_not_2d_raises_assertion():
-    # Use a valid PartitionSpec so we reach the a.ndim check
-    a = jnp.ones((3,))
-    T_A = 32
-    mesh = mesh_for_tests()
-    with pytest.raises(AssertionError, match="a must be a 2D array"):
-        syevd(a, T_A, mesh, (P("x", None),))
+def test_syevd_rejects_non_square_a():
+    mesh = _single_device_mesh()
+    a = jnp.ones((4, 2), dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="A to be square"):
+        syevd(a, 2, mesh=mesh, matrix_specs=P("pr", "pc"))
 
 
-def test_T_A_too_large_raises_valueerror():
-    a = jnp.eye(4)
-    T_A = 2048
-    mesh = mesh_for_tests()
-    try:
-        with pytest.warns(JaxMgWarning, match="T_A has a maximum value of 1024"):
-            syevd(a, T_A, mesh, (P("x", None),))
-    except ValueError:
-        pass
+def test_syevd_rejects_unsupported_dtype():
+    mesh = _single_device_mesh()
+    a = jnp.eye(4, dtype=jnp.int32)
+
+    with pytest.raises(TypeError, match="supports float32"):
+        syevd(a, 2, mesh=mesh, matrix_specs=P("pr", "pc"))
 
 
-def test_syevd_input_aliases_eigenvector_output(monkeypatch):
-    a = jnp.eye(4)
-    T_A = 4
-    mesh = mesh_for_tests()
-    captured = []
+def test_syevd_rejects_non_positive_tile_size():
+    mesh = _single_device_mesh()
+    a = jnp.eye(4, dtype=jnp.float32)
 
-    class StopAfterFfiConstruction(RuntimeError):
-        pass
+    with pytest.raises(ValueError, match="T_A must be positive"):
+        syevd(a, 0, mesh=mesh, matrix_specs=P("pr", "pc"))
 
-    def fake_ffi_call(*args, **kwargs):
-        captured.append(kwargs.get("input_output_aliases"))
-        raise StopAfterFfiConstruction
 
-    monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi_call)
+def test_syevd_rejects_padding_when_pad_false():
+    mesh = _single_device_mesh()
+    a = jnp.eye(5, dtype=jnp.float32)
 
-    with pytest.raises(StopAfterFfiConstruction):
-        syevd(a, T_A, mesh, P("x", None), return_eigenvectors=True, pad=False)
-
-    with pytest.raises(StopAfterFfiConstruction):
-        syevd_shardmap_ctx(a, T_A, return_eigenvectors=True, pad=False)
-
-    assert captured == [{0: 1}, {0: 1}]
+    with pytest.raises(ValueError, match="tile-aligned local shards"):
+        syevd(a, 4, mesh=mesh, matrix_specs=P("pr", "pc"), pad=False)

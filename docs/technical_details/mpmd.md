@@ -1,67 +1,50 @@
-# Multiple Process Multiple Devices (MPMD)
+# Multi-Process Launches
 
-The original JAXMg package had separate `_mp` CUDA libraries for multi-process
-execution. In that mode each Python process owns one GPU, so ordinary
-process-local C++ state cannot be used to share cuSOLVERMg pointer tables or
-host barriers.
+JAXMg no longer exposes separate `_mp` solver wrappers or a separate CUDA IPC
+pointer-sharing backend. Multi-process execution is handled through ordinary
+JAX distributed setup, and the public functions remain:
 
-The XLA communicator migration reintroduces MPMD in stages. The first stage is
-communicator-level support: when `jax.distributed` is initialized, JAXMg detects
-MPMD mode, reads `JAXMG_NUMBER_OF_DEVICES`, and requests a node-scoped XLA
-collective clique. The node scope keeps cuSOLVERMg single-node while still
-allowing the communicator probes and redistribution handlers to use XLA/NCCL
-between participating ranks.
-
-This solves the communication side of the old MPMD design:
-
-1. build the participating rank group from XLA's global device map;
-2. restrict the group to one node-sized chunk;
-3. borrow the XLA-owned communicator during FFI execution;
-4. use that communicator for all-reduce and collective-permute probes;
-5. use the same clique shape for the 1D cyclic reshuffle.
-
-It does not by itself solve cuSOLVERMg pointer ownership. cuSOLVERMg still
-expects one host invocation to pass arrays of device pointers:
-
-```cpp
-void* a_ptrs[num_devices];
-void* work_ptrs[num_devices];
+```python
+jaxmg.potrs(...)
+jaxmg.syevd(...)
 ```
 
-In SPMD those pointers are process-local. In MPMD they belong to different
-processes, so the solver layer still needs a cleaned-up replacement for the old
-CUDA IPC handle exchange:
+The fused cuSOLVERMp FFI handlers use the same native path regardless of
+whether a job is single-node or multi-node:
 
-1. each rank exports its JAX/XLA buffer base pointer and byte offset;
-2. the node-local coordinator opens peer handles with CUDA IPC;
-3. the coordinator builds the cuSOLVERMg pointer tables;
-4. all ranks synchronize workspace allocation and solver completion;
-5. all opened IPC handles are closed before returning to JAX.
+```text
+JAX block-sharded input
+  -> JAX-side local padding
+  -> fused native FFI call
+       -> native 2D redistribution
+       -> borrowed XLA-owned NCCL communicator
+       -> cuSOLVERMp routine
+       -> reverse native redistribution
+  -> JAX-side unpadding
+```
 
-The reusable building blocks for this are `mpmd_ipc.h` and `mpmd_ipc.cc`.
-They provide:
+The supported multi-process contract is rank-per-GPU: one Python process owns
+one participating GPU. User code should call `jax.distributed.initialize()`
+before any operation that can initialize the JAX backend, then build a normal
+JAX mesh over the participating devices.
 
-1. CUDA IPC export/open/close helpers that preserve the byte offset of a JAX
-   buffer inside the underlying CUDA allocation;
-2. a POSIX shared-memory array for exchanging IPC handles, workspace sizes, and
-   solver status values between local ranks;
-3. a process-shared barrier for synchronizing the rank-0 cuSOLVERMg host call
-   with the other one-process-per-GPU FFI invocations.
+```python
+import jax
+from jax.sharding import NamedSharding, PartitionSpec as P
 
-Those utilities do not move matrix data. Matrix redistribution remains on the
-XLA communicator path. CUDA IPC is only for making peer device pointers visible
-to the single cuSOLVERMg host call used by the compatibility backend.
+import jaxmg
 
-The intended MPMD checkpoint order is therefore:
+jax.distributed.initialize(...)
 
-1. validate XLA communicator probes in a `jax.distributed` one-process-per-GPU
-   launch;
-2. validate the XLA communicator 1D cyclic reshuffle in the same launch mode;
-3. add the CUDA IPC pointer-sharing layer for `potrs`;
-4. extend the pointer-sharing layer to `syevd`;
-5. only then consider this backend a replacement for the original `_mp`
-   libraries.
+mesh = jax.make_mesh((2, 4), ("pr", "pc"))
+sharding = NamedSharding(mesh, P("pr", "pc"))
+```
 
-This remains distinct from the future cuSOLVERMp migration. cuSOLVERMp should
-eventually own the true multi-node 2D block-cyclic solver path; MPMD cuSOLVERMg
-is still a single-node compatibility layer.
+JAXMg inspects the resulting mesh and accepts row-major or column-major process
+rank mappings that cuSOLVERMp can represent directly. Exotic mesh permutations
+are rejected early instead of being silently remapped inside native code.
+
+One-process-per-node launches may be useful for diagnostics, but they are not
+the primary cuSOLVERMp contract unless explicitly validated for the target
+routine and runtime. The package does not create or manage distributed JAX
+processes itself.

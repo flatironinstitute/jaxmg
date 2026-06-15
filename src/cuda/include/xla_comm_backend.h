@@ -20,25 +20,17 @@
 //
 // Header layout:
 //   1. Error and dtype helpers used by every translation unit.
-//   2. Small process-local state structs used to bridge concurrent FFI calls
-//      into one cuSolverMg host invocation in SPMD mode.
-//   3. XLA communicator clique helpers and the rank-0 broadcast utility.
-//   4. 1D redistribution entry points.
-//   5. Shared 2D rectangle schedule types used by edge_padding_2d.cc,
+//   2. XLA communicator clique helpers.
+//   3. Shared 2D rectangle schedule types used by edge_padding_2d.cc,
 //      block_cyclic_2d.cc, and rectangle_pack.cc.
-//   6. 2D rectangle/redistribution entry points used by the cuSOLVERMp path.
-//   7. cuSOLVERMp diagnostic and production potrs entry points.
-//   8. Fused cuSolverMg production solver handlers registered under the
-//      historical JAXMg FFI target names.
+//   4. 2D rectangle/redistribution entry points used by diagnostics and
+//      cuSOLVERMp solvers.
+//   5. cuSOLVERMp diagnostic and fused production entry points.
 //
-// The 1D cuSolverMg production path is:
-//   Python wrapper -> FFI handler -> XLA communicator lookup -> 1D cyclic
-//   reshuffle -> cuSolverMg host call -> optional broadcast/reverse reshuffle.
-//
-// The first cuSOLVERMp production path is:
+// The production cuSOLVERMp path is:
 //   Python wrapper -> local shard padding -> native 2D redistribution ->
-//   cuSOLVERMp potrf/potrs over borrowed NCCL communicator -> reverse native
-//   2D redistribution -> local unpadding.
+//   cuSOLVERMp solver over the borrowed XLA/NCCL communicator -> reverse
+//   native 2D redistribution -> local unpadding.
 
 #ifndef JAXMG_XLA_COMM_BACKEND_H_
 #define JAXMG_XLA_COMM_BACKEND_H_
@@ -60,7 +52,7 @@
 
 #include <cuComplex.h>
 #include <cuda_runtime_api.h>
-#include <cusolverMg.h>
+#include <cusolver_common.h>
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
@@ -85,7 +77,7 @@
 namespace xla::gpu {
 namespace ffi = ::xla::ffi;
 
-// Convert CUDA/cuSolverMg errors into absl::Status so all FFI handlers can
+// Convert CUDA/cuSOLVER/cuSOLVERMp errors into absl::Status so all FFI handlers can
 // return failures through the same mechanism used by XLA.
 absl::Status CudaToStatus(cudaError_t err, const char* file, int line);
 absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
@@ -111,9 +103,9 @@ absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
     if (!_jaxmg_status.ok()) return _jaxmg_status;          \
   } while (0)
 
-// cuSolverMg APIs are typed by cudaDataType at runtime, while XLA FFI exposes
+// cuSOLVERMp APIs are typed by cudaDataType at runtime, while XLA FFI exposes
 // primitive element types. The solver traits keep the C++ template type, the
-// cuSolverMg data type, the eigenvalue data type, and the failure fill value in
+// cuSOLVERMp data type, the eigenvalue data type, and the failure fill value in
 // one place for each supported dtype.
 template <typename T>
 struct SolverTraits;
@@ -157,72 +149,6 @@ struct SolverTraits<cuDoubleComplex> {
   static cuDoubleComplex Nan() { return make_cuDoubleComplex(NAN, NAN); }
   static EigenvalueType EigenvalueNan() { return NAN; }
 };
-
-class ReusableHostBarrier {
- public:
-  // Process-local barrier for the FFI invocations participating in one
-  // single-node solver call. This is not a multi-node synchronization
-  // primitive.
-  void ArriveAndWait(int participants) {
-    std::unique_lock<std::mutex> lock(mu_);
-    if (participants_ != participants) {
-      participants_ = participants;
-      arrived_ = 0;
-      generation_ = 0;
-    }
-    const int generation = generation_;
-    if (++arrived_ == participants_) {
-      arrived_ = 0;
-      ++generation_;
-      cv_.notify_all();
-      return;
-    }
-    cv_.wait(lock, [&] { return generation != generation_; });
-  }
-
- private:
-  std::mutex mu_;
-  std::condition_variable cv_;
-  int participants_ = 0;
-  int arrived_ = 0;
-  int generation_ = 0;
-};
-
-// Per-solver pointer exchange state. cuSolverMg consumes host arrays of device
-// pointers from the rank-0 host invocation, while each local FFI invocation owns
-// only its current device's JAX buffers and scratch.
-//
-// These structs are used only in SPMD mode. MPMD uses MpmdSolverExchange in
-// mpmd_ipc.h because the participating ranks are separate host processes.
-struct FusedPotrsState {
-  std::array<void*, 16> a{};
-  std::array<void*, 16> b{};
-  std::array<void*, 16> work{};
-  std::array<int64_t, 16> lwork{};
-  std::array<int32_t, 16> solver_status{};
-};
-
-struct FusedMatrixState {
-  std::array<void*, 16> a{};
-  std::array<void*, 16> work{};
-  std::array<int64_t, 16> lwork{};
-  std::array<int32_t, 16> solver_status{};
-};
-
-struct FusedSyevdState {
-  std::array<void*, 16> a{};
-  std::array<void*, 16> eigenvalues{};
-  std::array<void*, 16> work{};
-  std::array<int64_t, 16> lwork{};
-  std::array<int32_t, 16> solver_status{};
-};
-
-extern ReusableHostBarrier fused_potrs_barrier;
-extern FusedPotrsState fused_potrs_state;
-extern ReusableHostBarrier fused_syevd_barrier;
-extern FusedSyevdState fused_syevd_state;
-extern ReusableHostBarrier fused_syevd_no_v_barrier;
-extern FusedSyevdState fused_syevd_no_v_state;
 
 // Lightweight opt-in timing helper shared by solver handlers. It is named after
 // the first path it was built for, but is now used by potrs and syevd.
@@ -284,19 +210,10 @@ class PotrsPhaseTimer {
 absl::StatusOr<void*> AllocateFfiScratch(se::ScratchAllocator& scratch,
                                          size_t bytes, const char* name);
 
-// Build the XLA collective groups used by this backend. The current production
-// path is single-process/single-node and therefore uses the local device set.
-// The node-scoped helpers are the MPMD migration point: they keep cuSolverMg
-// single-node by grouping ranks in chunks of JAXMG_NUMBER_OF_DEVICES, while
-// still using XLA communicator contexts for collectives inside that node.
-// The all-assigned helpers are for the cuSOLVERMp investigation path, where
-// the communicator must eventually span every rank in the distributed
-// cuSOLVERMp process grid rather than just the current node.
-// LocalDevicesCliqueKey is for ordinary collectives; LocalDevicesP2PCliqueKey
-// uses a communication id for point-to-point style CollectivePermute calls.
-ReplicaGroup LocalDevicesReplicaGroup(const CollectiveParams& params);
-std::vector<GlobalDeviceId> LocalGlobalDeviceGroup(
-    const CollectiveParams& params);
+// Build the XLA collective groups used by this backend. Production cuSOLVERMp
+// solvers use the all-assigned helpers so the borrowed NCCL communicator spans
+// every rank in the process grid. Node-scoped helpers remain for focused
+// diagnostics that intentionally restrict communication to one host group.
 ReplicaGroup AllAssignedDevicesReplicaGroup(const CollectiveParams& params);
 std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
     const CollectiveParams& params);
@@ -305,10 +222,6 @@ absl::StatusOr<std::vector<GlobalDeviceId>> NodeScopedGlobalDeviceGroup(
 absl::StatusOr<ReplicaGroup> NodeScopedReplicaGroup(
     const CollectiveParams& params);
 absl::StatusOr<int> NodeScopedGroupOrdinal(const CollectiveParams& params);
-absl::StatusOr<GpuCliqueKey> LocalDevicesCliqueKey(
-    const CollectiveParams& params);
-absl::StatusOr<GpuCliqueKey> LocalDevicesP2PCliqueKey(
-    const CollectiveParams& params);
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesCliqueKey(
     const CollectiveParams& params);
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
@@ -317,24 +230,6 @@ absl::StatusOr<GpuCliqueKey> NodeScopedCliqueKey(
     const CollectiveParams& params);
 absl::StatusOr<GpuCliqueKey> NodeScopedP2PCliqueKey(
     const CollectiveParams& params);
-
-absl::Status BroadcastBufferFromRank0(
-    const char* caller, se::Stream* stream, se::Stream* comm_stream,
-    Communicator* comm, se::DeviceAddressBase buffer, PrimitiveType element_type,
-    size_t element_count, int64_t num_ranks, int64_t rank_value);
-
-// Execute the native 1D row-sharded <-> cuSolverMg block-cyclic reshuffle.
-// matrix_base and matrix_out_base may alias. scratch_base must be at least one
-// column when local_scratch_slots == 1, which is enough for the closed-cycle
-// permutation algorithm.
-absl::Status ExecuteMatrixColumnNativePlanRaw(
-    const char* caller, se::Stream* stream, se::Stream* comm_stream,
-    Communicator* comm, ffi::AnyBuffer matrix,
-    se::DeviceAddressBase matrix_base, se::DeviceAddressBase matrix_out_base,
-    se::DeviceAddressBase scratch_base, se::DeviceAddressBase scratch_out_base,
-    int64_t local_slots, int64_t column_elements, uint64_t column_bytes,
-    int64_t local_scratch_slots, int64_t num_ranks, int64_t rank_value,
-    int64_t tile_size, bool reverse);
 
 // Shared 2D redistribution schedule.
 //
@@ -400,11 +295,26 @@ absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
     int64_t tile_cols, int64_t local_rows, int64_t local_cols,
     absl::Span<const int64_t> rank_map, bool reverse = false);
+absl::StatusOr<int64_t> RequiredPadded2DNativePlanScratchElements(
+    int64_t process_rows, int64_t process_cols, int64_t tile_rows,
+    int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
+    int64_t local_rows, int64_t local_cols,
+    absl::Span<const int64_t> rank_map);
+absl::Status ExecutePadded2DNativePlanRaw(
+    const char* caller, se::Stream* stream, se::Stream* comm_stream,
+    cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,
+    int64_t tile_rows, int64_t tile_cols, int64_t logical_rows,
+    int64_t logical_cols, int64_t reverse,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer matrix,
+    se::DeviceAddressBase matrix_out_base,
+    se::DeviceAddressBase scratch_base, int64_t scratch_elements,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
 
 // Diagnostic handlers. These are useful when changing the XLA integration
 // because they isolate clique construction, communicator lookup, all-reduce,
 // CollectivePermute, and local rectangle addressing without involving
-// cuSolverMg.
+// cuSOLVERMp.
 absl::Status XlaCommCollectiveProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);
@@ -569,7 +479,7 @@ absl::Status XlaCusolverMpSyevdProbePrepare(
 absl::Status XlaCusolverMpSyevdProbeDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
-    int64_t grid_mapping, int64_t compute_vectors, int64_t use_private_stream,
+    int64_t grid_mapping, int64_t use_private_stream,
     ffi::AnyBuffer token, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
@@ -578,10 +488,10 @@ absl::Status XlaCusolverMpPotrsPrepare(
     CollectiveCliqueRequests* clique_requests);
 absl::Status XlaCusolverMpPotrsDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
-    int64_t tile_size, int64_t grid_mapping,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
-    ffi::Result<ffi::AnyBuffer> a_out,
+    se::ScratchAllocator& scratch, int64_t process_rows,
+    int64_t process_cols, int64_t n, int64_t nrhs, int64_t tile_size,
+    int64_t grid_mapping, absl::Span<const int64_t> rank_map,
+    ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
     ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
@@ -590,75 +500,11 @@ absl::Status XlaCusolverMpSyevdPrepare(
     CollectiveCliqueRequests* clique_requests);
 absl::Status XlaCusolverMpSyevdDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
-    int64_t grid_mapping, int64_t compute_vectors,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    se::ScratchAllocator& scratch, int64_t process_rows,
+    int64_t process_cols, int64_t n, int64_t tile_size,
+    int64_t grid_mapping, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues,
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> vectors,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
-
-// Redistribution handlers. The step/batch variants are retained for focused
-// testing and diagnostics. The production solvers use the native-plan variant
-// so the full permutation schedule is constructed and executed in C++.
-absl::Status XlaCommMatrixColumnStepPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests);
-absl::Status XlaCommMatrixColumnStepDispatch(
-    se::Stream* stream, se::Stream* comm_stream, int64_t kind,
-    int64_t source_rank_attr, int64_t target_rank_attr, int64_t source_col,
-    int64_t target_col, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
-    ffi::Result<ffi::AnyBuffer> matrix_out,
-    ffi::Result<ffi::AnyBuffer> scratch_out,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
-absl::Status XlaCommMatrixColumnBatchPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests);
-absl::Status XlaCommMatrixColumnBatchDispatch(
-    se::Stream* stream, se::Stream* comm_stream,
-    absl::Span<const int64_t> kinds,
-    absl::Span<const int64_t> source_ranks,
-    absl::Span<const int64_t> target_ranks,
-    absl::Span<const int64_t> source_cols,
-    absl::Span<const int64_t> target_cols,
-    absl::Span<const int64_t> scratch_slots, ffi::AnyBuffer matrix,
-    ffi::AnyBuffer scratch, ffi::Result<ffi::AnyBuffer> matrix_out,
-    ffi::Result<ffi::AnyBuffer> scratch_out,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
-absl::Status XlaCommMatrixColumnNativePlanDispatch(
-    se::Stream* stream, se::Stream* comm_stream, int64_t tile_size,
-    ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
-    ffi::Result<ffi::AnyBuffer> matrix_out,
-    ffi::Result<ffi::AnyBuffer> scratch_out,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
-
-// Fused solver handlers. These keep the old Python FFI target names but use the
-// XLA communicator reshuffler internally before and, where needed, after the
-// cuSolverMg call.
-absl::Status XlaCommPotrsMgNativePlanDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    se::OwningScratchAllocator<> scratch, int64_t tile_size, ffi::AnyBuffer a,
-    ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> out_a,
-    ffi::Result<ffi::AnyBuffer> out_b,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
-absl::Status XlaCommSyevdMgNativePlanDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    se::OwningScratchAllocator<> scratch, int64_t tile_size, ffi::AnyBuffer a,
-    ffi::Result<ffi::AnyBuffer> eigenvalues,
-    ffi::Result<ffi::AnyBuffer> vectors,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
-absl::Status XlaCommSyevdNoVMgNativePlanDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    se::OwningScratchAllocator<> scratch, int64_t tile_size, ffi::AnyBuffer a,
-    ffi::Result<ffi::AnyBuffer> eigenvalues,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);

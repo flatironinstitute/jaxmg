@@ -1,14 +1,19 @@
-"""Run ``potrs_mp`` on explicit row-major and column-major JAX meshes.
+"""Probe ``jax.make_mesh`` layout and solve compatibility on two nodes.
 
-JAXMg accepts exactly the two process-grid mappings that cuSOLVERMp can encode:
+This driver answers a narrow API question: if users build their process grid
+with native JAX mesh construction, does the resulting ``mesh.devices`` order
+match one of JAXMg/cuSOLVERMp's supported process-grid mappings?
 
-* row-major:    rank = process_row * process_cols + process_col
-* column-major: rank = process_col * process_rows + process_row
+For grids that consume all eight devices in the two-node test job, the script
+calls ``jax.make_mesh(shape, axis_names)`` directly.  For smaller grids, JAX
+requires an explicit subset of devices, so the script calls
+``jax.make_mesh(shape, axis_names, devices=selected_devices)``.  Both are
+native JAX APIs.  No JAXMg mesh helper is used.
 
-This two-node driver constructs both layouts with ordinary
-``jax.sharding.Mesh`` objects and checks that the full redistribution,
-cuSOLVERMp solve, and reverse redistribution all agree with the dense NumPy
-reference solution.
+Each compatible layout is then used for a small padded ``potrs`` solve.
+If JAX chooses an exotic mesh order that is neither row-major nor column-major,
+the script records the layout and verifies that ``potrs`` rejects it before
+native redistribution.
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ import math
 import socket
 import traceback
 from dataclasses import dataclass
-from typing import Literal, Sequence
+from typing import Sequence
 
 import numpy as np
 from jax import config
@@ -28,19 +33,15 @@ config.update("jax_enable_x64", True)
 import jaxmg
 
 
-GridMapping = Literal["row_major", "column_major"]
-
-
 @dataclass(frozen=True)
-class MappingCase:
+class MeshCase:
     process_rows: int
     process_cols: int
-    grid_mapping: GridMapping
     tile: int = 4
 
     @property
     def name(self) -> str:
-        return f"{self.grid_mapping}_{self.process_rows}x{self.process_cols}"
+        return f"make_mesh_{self.process_rows}x{self.process_cols}"
 
     @property
     def num_devices(self) -> int:
@@ -48,6 +49,9 @@ class MappingCase:
 
     @property
     def n(self) -> int:
+        # Divisible by both process axes, but local dimensions are usually not
+        # multiples of tile.  That keeps the solve small while exercising the
+        # padding path.
         return math.lcm(self.process_rows, self.process_cols) * (self.tile + 1)
 
     @property
@@ -57,7 +61,7 @@ class MappingCase:
 
 def _emit(label: str, **payload) -> None:
     print(
-        "JAXMG_GRID_MAPPING_MODES "
+        "JAXMG_MAKE_MESH_LAYOUT "
         + json.dumps({"label": label, "host": socket.gethostname(), **payload}),
         flush=True,
     )
@@ -113,45 +117,72 @@ def _select_devices_spanning_processes(
     devices: Sequence[object],
     count: int,
 ) -> list[object]:
-    ordered = _canonical_devices(devices)
+    """Choose a deterministic row-major subset using native JAX devices.
+
+    For ``count >= process_count`` this picks at least one device from each
+    process, then fills remaining slots in process/device order.  The returned
+    list is sorted in canonical global rank order so any reordering in
+    ``jax.make_mesh`` is visible in the emitted diagnostics.
+    """
+    if count <= 0:
+        raise ValueError("device count must be positive")
+    if count > len(devices):
+        raise ValueError(f"requested {count} devices from only {len(devices)}")
+
     by_process: dict[int, list[object]] = {}
-    for device in ordered:
+    for device in _canonical_devices(devices):
         by_process.setdefault(_device_process_index(device), []).append(device)
     process_ids = sorted(by_process)
 
     selected: list[object] = []
     if count >= len(process_ids):
-        selected.extend(by_process[process_id][0] for process_id in process_ids)
+        for process_id in process_ids:
+            selected.append(by_process[process_id][0])
 
-    for device in ordered:
-        if len(selected) == count:
-            break
-        if device not in selected:
-            selected.append(device)
+    cursor = {
+        process_id: 1 if by_process[process_id][0] in selected else 0
+        for process_id in process_ids
+    }
+    for process_id in process_ids:
+        while (
+            len(selected) < count
+            and cursor[process_id] < len(by_process[process_id])
+        ):
+            selected.append(by_process[process_id][cursor[process_id]])
+            cursor[process_id] += 1
 
     if len(selected) != count:
         raise RuntimeError(f"selected {len(selected)} devices, expected {count}")
     return _canonical_devices(selected)
 
 
-def _mesh_grid(case: MappingCase, devices: Sequence[object]) -> np.ndarray:
-    canonical = _select_devices_spanning_processes(devices, case.num_devices)
-    if case.grid_mapping == "row_major":
-        flat = canonical
-    else:
-        flat = [
-            canonical[process_col * case.process_rows + process_row]
-            for process_row in range(case.process_rows)
-            for process_col in range(case.process_cols)
-        ]
-    return np.asarray(flat, dtype=object).reshape(
-        case.process_rows,
-        case.process_cols,
-    )
+def _mesh_flat_devices(mesh) -> list[object]:
+    return list(np.asarray(mesh.devices, dtype=object).reshape(-1))
+
+
+def _mesh_grid_mapping(
+    mesh,
+    canonical: Sequence[object],
+    *,
+    process_rows: int,
+    process_cols: int,
+) -> str | None:
+    mesh_keys = [_device_sort_key(device) for device in _mesh_flat_devices(mesh)]
+    canonical_keys = [_device_sort_key(device) for device in canonical]
+    if mesh_keys == canonical_keys:
+        return "row_major"
+    column_major_keys = [
+        canonical_keys[process_col * process_rows + process_row]
+        for process_row in range(process_rows)
+        for process_col in range(process_cols)
+    ]
+    if mesh_keys == column_major_keys:
+        return "column_major"
+    return None
 
 
 def _spd_matrix(n: int) -> np.ndarray:
-    rng = np.random.default_rng(4100 + n)
+    rng = np.random.default_rng(3100 + n)
     x = rng.standard_normal((n, n))
     a = x @ x.T
     a += np.eye(n) * float(n * n)
@@ -180,7 +211,7 @@ def _status_rows(status):
     return rows
 
 
-def _validate_status(status, *, case: MappingCase) -> None:
+def _validate_status(status, *, case: MeshCase) -> None:
     rows = _status_rows(status)
     _emit(
         "case_status",
@@ -190,39 +221,65 @@ def _validate_status(status, *, case: MappingCase) -> None:
             for rank, row in rows
         ],
     )
-    expected_mapping = 1 if case.grid_mapping == "row_major" else 0
     status_codes = {int(row[0]) for _, row in rows}
     if status_codes != {0}:
         raise AssertionError(f"{case.name}: non-zero status codes {status_codes}")
-    for process_slot, row in rows:
-        process_row = process_slot // case.process_cols
-        process_col = process_slot % case.process_cols
-        expected_rank = (
-            process_slot
-            if case.grid_mapping == "row_major"
-            else process_col * case.process_rows + process_row
-        )
-        if int(row[2]) != expected_rank:
-            raise AssertionError(
-                f"{case.name}: row rank mismatch {row[2]} != {expected_rank}"
-            )
+    for rank, row in rows:
+        if int(row[2]) != rank:
+            raise AssertionError(f"{case.name}: row rank mismatch {row[2]} != {rank}")
         if int(row[3]) != case.num_devices:
             raise AssertionError(f"{case.name}: rank count mismatch row={row}")
         if int(row[4]) != case.process_rows or int(row[5]) != case.process_cols:
             raise AssertionError(f"{case.name}: process grid mismatch row={row}")
         if int(row[36]) != case.nrhs:
             raise AssertionError(f"{case.name}: nrhs mismatch row={row}")
-        if int(row[39]) != expected_mapping:
-            raise AssertionError(f"{case.name}: grid mapping mismatch row={row}")
 
 
-def _run_case(case: MappingCase, devices: Sequence[object]) -> None:
+def _run_case(case: MeshCase, devices: Sequence[object]) -> None:
     import jax
     import jax.numpy as jnp
-    from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
+    from jax.sharding import NamedSharding, PartitionSpec as P
 
-    device_grid = _mesh_grid(case, devices)
-    mesh = Mesh(device_grid, ("x", "y"))
+    if case.num_devices > len(devices):
+        _emit("case_skipped", name=case.name, reason="not_enough_devices")
+        return
+
+    if case.num_devices == len(devices):
+        selected = _canonical_devices(devices)
+        mesh = jax.make_mesh((case.process_rows, case.process_cols), ("x", "y"))
+        construction = "jax.make_mesh"
+    else:
+        selected = _select_devices_spanning_processes(devices, case.num_devices)
+        mesh = jax.make_mesh(
+            (case.process_rows, case.process_cols),
+            ("x", "y"),
+            devices=np.asarray(selected, dtype=object),
+        )
+        construction = "jax.make_mesh_devices"
+
+    canonical = _canonical_devices(selected)
+    grid_mapping = _mesh_grid_mapping(
+        mesh,
+        canonical,
+        process_rows=case.process_rows,
+        process_cols=case.process_cols,
+    )
+    _emit(
+        "case_layout",
+        name=case.name,
+        construction=construction,
+        process_rows=case.process_rows,
+        process_cols=case.process_cols,
+        n=case.n,
+        nrhs=case.nrhs,
+        tile=case.tile,
+        selected_devices=_device_payload(selected),
+        mesh_devices=_device_payload(_mesh_flat_devices(mesh)),
+        canonical_order=_device_payload(canonical),
+        grid_mapping=grid_mapping,
+        supported_mapping=grid_mapping is not None,
+    )
+
     sharding = NamedSharding(mesh, P("x", "y"))
     a_host = _spd_matrix(case.n)
     x_expected = _rhs(case.n, case.nrhs)
@@ -230,18 +287,17 @@ def _run_case(case: MappingCase, devices: Sequence[object]) -> None:
     a = jax.device_put(jnp.asarray(a_host), sharding)
     b = jax.device_put(jnp.asarray(b_host), sharding)
 
-    _emit(
-        "case_start",
-        name=case.name,
-        process_rows=case.process_rows,
-        process_cols=case.process_cols,
-        grid_mapping=case.grid_mapping,
-        n=case.n,
-        nrhs=case.nrhs,
-        tile=case.tile,
-        mesh_devices=_device_payload(list(device_grid.reshape(-1))),
-    )
-    out, status = jaxmg.potrs_mp(a, b, T_A=case.tile, return_status=True)
+    if grid_mapping is None:
+        try:
+            jaxmg.potrs(a, b, T_A=case.tile, return_status=True)
+        except ValueError as exc:
+            if "row-major or column-major" not in str(exc):
+                raise
+            _emit("case_rejected_exotic_mapping", name=case.name, error=str(exc))
+            return
+        raise AssertionError(f"{case.name}: potrs accepted exotic mesh")
+
+    out, status = jaxmg.potrs(a, b, T_A=case.tile, return_status=True)
     _validate_status(status, case=case)
     out.block_until_ready()
     checked = 0
@@ -254,15 +310,31 @@ def _run_case(case: MappingCase, devices: Sequence[object]) -> None:
             err_msg=f"{case.name} shard {shard.index}",
         )
         checked += 1
-    _emit("case_success", name=case.name, shards=checked)
+    _emit("case_solution_checked", name=case.name, shards=checked)
+    _emit("case_success", name=case.name)
 
 
-def _cases() -> list[MappingCase]:
-    shapes = [(2, 2), (2, 3), (3, 2), (2, 4), (4, 2)]
+def _cases() -> list[MeshCase]:
     return [
-        MappingCase(rows, cols, mapping)
-        for rows, cols in shapes
-        for mapping in ("row_major", "column_major")
+        MeshCase(1, 2),
+        MeshCase(1, 3),
+        MeshCase(1, 4),
+        MeshCase(1, 5),
+        MeshCase(1, 6),
+        MeshCase(1, 7),
+        MeshCase(1, 8),
+        MeshCase(2, 1),
+        MeshCase(3, 1),
+        MeshCase(4, 1),
+        MeshCase(5, 1),
+        MeshCase(6, 1),
+        MeshCase(7, 1),
+        MeshCase(8, 1),
+        MeshCase(2, 2),
+        MeshCase(2, 3),
+        MeshCase(2, 4),
+        MeshCase(3, 2),
+        MeshCase(4, 2),
     ]
 
 

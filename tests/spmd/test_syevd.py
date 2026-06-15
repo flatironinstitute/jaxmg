@@ -1,201 +1,130 @@
-import sys
 import os
+import sys
+
+import numpy as np
 
 this_dir = os.path.dirname(os.path.abspath(__file__))
 src_path = os.path.join(this_dir, "..")
 sys.path.append(src_path)
+
+from jax import config
+
+config.update("jax_enable_x64", True)
+
 import jax
-
-jax.config.update("jax_enable_x64", True)
-
 import jax.numpy as jnp
-from jax.sharding import PartitionSpec as P, NamedSharding
 import pytest
+from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
-from functools import partial
+from jaxmg import syevd
 
-from jaxmg import syevd, syevd_shardmap_ctx
-from jaxmg.utils import random_psd
-
-platforms = set(d.platform for d in jax.devices())
+platforms = {d.platform for d in jax.devices()}
 if "gpu" not in platforms:
     pytest.skip("No GPUs found. Skipping", allow_module_level=True)
-else:
-    ndev = jax.device_count()
-    mesh = jax.make_mesh((ndev,), ("x",))
-
-    # Test cases
-    N_list = list(i * ndev for i in [2, 3, 4, 10])
-    T_A_list = [1, 2, 3, 5]
-
-
-    @partial(jax.jit, static_argnames=("_T_A",))
-    def jitted_syevd(_a, _T_A):
-        out = partial(syevd, mesh=mesh, in_specs=(P("x", None),), pad=True)(_a, _T_A)
-        return out
-
-
-    @partial(jax.jit, static_argnames=("_T_A",))
-    def jitted_syevd_no_shardmap(_a, _T_A):
-        out = jax.shard_map(
-            partial(syevd_shardmap_ctx, T_A=_T_A),
-            mesh=mesh,
-            in_specs=(P("x", None),),
-            out_specs=(P(None), P(None, None), P(None)),
-            check_vma=False,
-        )(_a)
-        return out
-
-
-    @partial(jax.jit, static_argnames=("_T_A",))
-    def jitted_syevd_no_V(_a, _T_A):
-        out = partial(
-            syevd, mesh=mesh, in_specs=(P("x", None),), return_eigenvectors=False, pad=True
-        )(_a, _T_A)
-        return out
-
-
-    @partial(jax.jit, static_argnames=("_T_A",))
-    def jitted_syevd_no_V_no_shardmap(_a, _T_A):
-        out = jax.shard_map(
-            partial(syevd_shardmap_ctx, T_A=_T_A, return_eigenvectors=False),
-            mesh=mesh,
-            in_specs=(P("x", None),),
-            out_specs=(P(None), P(None)),
-            check_vma=False,
-        )(_a)
-        return out
-
-
-    def cusolver_solve_arange(N, T_A, dtype):
-        A = jnp.diag(jnp.arange(N, dtype=dtype) + 1)
-        eigenvalues_expected = jnp.diag(A)
-        # Make mesh and place data
-        _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-        eigenvalues, V = jitted_syevd(_A.copy(), T_A)
-        eigenvalues.block_until_ready()
-        V.block_until_ready()
-        assert jnp.allclose(eigenvalues_expected, eigenvalues)
-        eigenvalus_VtAV = jnp.diag(V @ A @ V.T)
-        assert jnp.allclose(eigenvalus_VtAV, eigenvalues_expected)
-        eigenvalues_no_shm, V, _ = jitted_syevd_no_shardmap(_A.copy(), T_A)
-        assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm)
-
-
-    def cusolver_solve_psd(N, T_A, dtype):
-        A = random_psd(N, dtype=dtype, seed=1234)
-        eigenvalues_expected, V_expected = jnp.linalg.eigh(A)
-        # Make mesh and place data
-        _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-        eigenvalues, V = jitted_syevd(_A.copy(), T_A)
-        eigenvalues.block_until_ready()
-        V.block_until_ready()
-        norm_syevd = jnp.linalg.norm(V @ A - jnp.diag(eigenvalues) @ V.T)
-        norm_lax = jnp.linalg.norm(
-            V_expected @ A - jnp.diag(eigenvalues_expected) @ V_expected.T
-        )
-        assert jnp.isclose(norm_syevd, norm_lax, rtol=10, atol=1e-8)
-        eigenvalues_no_shm, V, _ = jitted_syevd_no_shardmap(_A.copy(), T_A)
-        assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm, rtol=10, atol=1e-10)
-
-
-    def cusolver_solve_arange_no_V(N, T_A, dtype):
-        A = jnp.diag(jnp.arange(N, dtype=dtype) + 1)
-        eigenvalues_expected = jnp.diag(A)
-        # Make mesh and place data
-        _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-        eigenvalues = jitted_syevd_no_V(_A.copy(), T_A)
-        eigenvalues.block_until_ready()
-        assert jnp.allclose(eigenvalues_expected, eigenvalues)
-        eigenvalues_no_shm, _ = jitted_syevd_no_V_no_shardmap(_A.copy(), T_A)
-        assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm)
-
-
-    def cusolver_solve_psd_no_V(N, T_A, dtype):
-        A = random_psd(N, dtype=dtype, seed=1234)
-        eigenvalues_expected = jnp.linalg.eigvalsh(A)
-        # Make mesh and place data
-        _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-        eigenvalues = jitted_syevd_no_V(_A.copy(), T_A)
-        eigenvalues.block_until_ready()
-        assert jnp.allclose(eigenvalues, eigenvalues_expected, rtol=10, atol=0.0)
-        eigenvalues_no_shm, _ = jitted_syevd_no_V_no_shardmap(_A.copy(), T_A)
-        assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm, rtol=10, atol=0.0)
-
-
-    @pytest.mark.parametrize(
-        "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
+if jax.local_device_count() != 1:
+    pytest.skip(
+        "syevd requires cuSOLVERMp rank-per-GPU execution; covered by "
+        "tests/multinode/run_syevd_2node_8gpu_matrix.py.",
+        allow_module_level=True,
     )
-    @pytest.mark.parametrize("T_A", T_A_list)
-    @pytest.mark.parametrize("N", N_list)
-    def test_cusolver_solve_arange(N, T_A, dtype):
-        cusolver_solve_arange(N, T_A, dtype)
+if len(jax.devices("gpu")) < 4:
+    pytest.skip("At least four GPUs are required. Skipping", allow_module_level=True)
 
 
-    @pytest.mark.parametrize(
-        "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
+def _hermitian(n: int, dtype) -> np.ndarray:
+    dtype = np.dtype(dtype)
+    rng = np.random.default_rng(9700 + n)
+    if np.issubdtype(dtype, np.complexfloating):
+        x = rng.standard_normal((n, n)) + 0.5j * rng.standard_normal((n, n))
+        a = x @ x.conj().T
+        a += np.eye(n, dtype=a.dtype) * float(n)
+        return a.astype(dtype)
+
+    x = rng.standard_normal((n, n))
+    a = x @ x.T
+    a += np.eye(n, dtype=a.dtype) * float(n)
+    return a.astype(dtype)
+
+
+def _validate_status(status, *, process_rows: int, process_cols: int):
+    status.block_until_ready()
+    num_processes = process_rows * process_cols
+    rows = np.asarray(status).reshape(num_processes, 36)
+    status_codes = set(rows[:, 0].tolist())
+    if status_codes == {1}:
+        pytest.skip("libcusolverMp is not available on the loader path.")
+    if status_codes == {21}:
+        pytest.skip("cuSOLVERMp syevd symbols are not available.")
+
+    assert status_codes == {0}, rows
+    np.testing.assert_array_equal(rows[:, 2], np.arange(num_processes))
+    np.testing.assert_array_equal(rows[:, 3], np.full(num_processes, num_processes))
+    np.testing.assert_array_equal(rows[:, 4], np.full(num_processes, process_rows))
+    np.testing.assert_array_equal(rows[:, 5], np.full(num_processes, process_cols))
+    np.testing.assert_array_equal(rows[:, 20], np.ones(num_processes))
+    np.testing.assert_array_equal(rows[:, 23], np.ones(num_processes))
+    np.testing.assert_array_equal(rows[:, 24], np.zeros(num_processes))
+
+
+def _tolerances(dtype) -> tuple[float, float]:
+    dtype = np.dtype(dtype)
+    if dtype == np.dtype("float32") or dtype == np.dtype("complex64"):
+        return 2e-4, 2e-4
+    return 1e-9, 1e-9
+
+
+@pytest.mark.parametrize(
+    "process_rows,process_cols,n,tile,dtype",
+    [
+        (2, 2, 10, 4, np.float64),
+        (2, 2, 8, 4, np.complex128),
+        (1, 4, 12, 4, np.float32),
+        (4, 1, 12, 4, np.complex64),
+    ],
+)
+def test_syevd_solves_and_restores_block_sharded_eigenvectors(
+    process_rows,
+    process_cols,
+    n,
+    tile,
+    dtype,
+):
+    devices = np.asarray(jax.devices("gpu")[:4], dtype=object).reshape(
+        process_rows,
+        process_cols,
     )
-    @pytest.mark.parametrize("T_A", T_A_list)
-    @pytest.mark.parametrize("N", N_list)
-    def test_cusolver_solve_psd(N, T_A, dtype):
-        cusolver_solve_psd(N, T_A, dtype)
+    mesh = Mesh(devices, ("pr", "pc"))
+    sharding = NamedSharding(mesh, P("pr", "pc"))
+    a_host = _hermitian(n, dtype)
+    a = jax.device_put(jnp.asarray(a_host), sharding)
+    rtol, atol = _tolerances(dtype)
 
-
-    @pytest.mark.parametrize(
-        "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
+    eigenvalues, eigenvectors, status = syevd(
+        a,
+        T_A=tile,
+                return_status=True,
     )
-    @pytest.mark.parametrize("T_A", T_A_list)
-    @pytest.mark.parametrize("N", N_list)
-    def test_cusolver_solve_arange_no_v(N, T_A, dtype):
-        cusolver_solve_arange_no_V(N, T_A, dtype)
-
-
-    @pytest.mark.parametrize(
-        "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
+    eigenvalues.block_until_ready()
+    eigenvectors.block_until_ready()
+    _validate_status(
+        status,
+        process_rows=process_rows,
+        process_cols=process_cols,
     )
-    @pytest.mark.parametrize("T_A", T_A_list)
-    @pytest.mark.parametrize("N", N_list)
-    def test_cusolver_solve_psd_no_v(N, T_A, dtype):
-        cusolver_solve_psd_no_V(N, T_A, dtype)
 
-    @pytest.mark.parametrize(
-        "dtype", (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128)
+    expected_values, _ = np.linalg.eigh(a_host)
+    values = np.asarray(eigenvalues)
+    vectors = np.asarray(eigenvectors)
+    np.testing.assert_allclose(values, expected_values, rtol=rtol, atol=atol)
+
+    residual = np.linalg.norm(a_host @ vectors - vectors * values[None, :])
+    scale = max(1.0, np.linalg.norm(a_host))
+    assert residual / scale < max(10 * rtol, 1e-10)
+
+    eye = np.eye(n, dtype=vectors.dtype)
+    np.testing.assert_allclose(
+        vectors.conj().T @ vectors,
+        eye,
+        rtol=max(10 * rtol, 1e-6),
+        atol=max(10 * atol, 1e-6),
     )
-    def test_cusolver_inplace_check(dtype):
-        N = ndev * 2
-        T_A = 1
-        A = random_psd(N, dtype=dtype, seed=1234)
-        # Make mesh and place data
-        _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-        expected = jnp.linalg.eigvalsh(A)
-        eigenvalues, _ = jitted_syevd(_A, T_A)
-        assert jnp.allclose(expected, eigenvalues, atol=1e-4)
-        eigenvalues, _ = jitted_syevd(_A, T_A)
-        assert jnp.allclose(expected, eigenvalues, atol=1e-4)
-
-
-    def test_syevd_loop_shm():
-        N = ndev * 2
-        T_A = 1
-        dtype = jnp.float64
-        A = random_psd(N, dtype=dtype, seed=5678)
-        _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-        fd_start = len(os.listdir("/proc/self/fd"))
-        for i in range(100):
-            out,_ = jitted_syevd(_A,  T_A)
-            out.block_until_ready()
-        fd_end = len(os.listdir("/proc/self/fd"))
-        assert fd_end - fd_start < 100
-
-    def test_syevd_no_V_loop_shm():
-        N = ndev * 2
-        T_A = 1
-        dtype = jnp.float64
-        A = random_psd(N, dtype=dtype, seed=5678)
-        _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-        fd_start = len(os.listdir("/proc/self/fd"))
-        for i in range(100):
-            out = jitted_syevd_no_V(_A,  T_A)
-            out.block_until_ready()
-        fd_end = len(os.listdir("/proc/self/fd"))
-        assert fd_end - fd_start < 100

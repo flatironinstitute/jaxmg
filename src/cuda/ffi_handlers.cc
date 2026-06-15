@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Exported XLA FFI symbols for the XLA communicator cuSolverMg backend.
+// Exported XLA FFI symbols for the XLA communicator cuSOLVERMp backend.
 //
 // Keeping the bindings in one translation unit makes Python registration names
 // easy to audit and keeps solver implementation files focused on execution
@@ -35,8 +35,7 @@
 
 namespace xla::gpu {
 
-// Diagnostic communicator handlers. These are optional Python-facing probes and
-// do not call cuSolverMg.
+// Diagnostic communicator handlers. These are optional Python-facing probes.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCommCollectiveProbePrepareFFI, XlaCommCollectiveProbePrepare,
     ffi::Ffi::BindPrepare()
@@ -388,7 +387,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<int64_t>("n")
         .Attr<int64_t>("tile_size")
         .Attr<int64_t>("grid_mapping")
-        .Attr<int64_t>("compute_vectors")
         .Attr<int64_t>("use_private_stream")
         .Arg<ffi::AnyBuffer>()
         .Ret<ffi::BufferR1<S32>>()
@@ -407,6 +405,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::Stream>()
         .Ctx<ffi::CommunicationStream<1>>()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Ctx<ffi::ScratchAllocator>()
         .Attr<int64_t>("process_rows")
         .Attr<int64_t>("process_cols")
         .Attr<int64_t>("n")
@@ -434,151 +433,16 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::Stream>()
         .Ctx<ffi::CommunicationStream<1>>()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Ctx<ffi::ScratchAllocator>()
         .Attr<int64_t>("process_rows")
         .Attr<int64_t>("process_cols")
         .Attr<int64_t>("n")
         .Attr<int64_t>("tile_size")
         .Attr<int64_t>("grid_mapping")
-        .Attr<int64_t>("compute_vectors")
         .Attr<absl::Span<const int64_t>>("rank_map")
         .Arg<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
-        .Ret<ffi::AnyBuffer>()
-        .Ret<ffi::BufferR1<S32>>()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliques>());
-
-// Redistribution handlers. The step and batch versions are diagnostics; the
-// native-plan handler is also called by Python's cyclic_1d helper.
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCommMatrixColumnStepPrepareFFI, XlaCommMatrixColumnStepPrepare,
-    ffi::Ffi::BindPrepare()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliqueRequests>());
-
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCommMatrixColumnStepFFI, XlaCommMatrixColumnStepDispatch,
-    ffi::Ffi::Bind()
-        .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
-        .Attr<int64_t>("kind")
-        .Attr<int64_t>("source_rank")
-        .Attr<int64_t>("target_rank")
-        .Attr<int64_t>("source_col")
-        .Attr<int64_t>("target_col")
-        .Arg<ffi::AnyBuffer>()
-        .Arg<ffi::AnyBuffer>()
-        .Ret<ffi::AnyBuffer>()
-        .Ret<ffi::AnyBuffer>()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliques>());
-
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCommMatrixColumnBatchPrepareFFI, XlaCommMatrixColumnBatchPrepare,
-    ffi::Ffi::BindPrepare()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliqueRequests>());
-
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCommMatrixColumnBatchFFI, XlaCommMatrixColumnBatchDispatch,
-    ffi::Ffi::Bind()
-        .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
-        .Attr<absl::Span<const int64_t>>("kinds")
-        .Attr<absl::Span<const int64_t>>("source_ranks")
-        .Attr<absl::Span<const int64_t>>("target_ranks")
-        .Attr<absl::Span<const int64_t>>("source_cols")
-        .Attr<absl::Span<const int64_t>>("target_cols")
-        .Attr<absl::Span<const int64_t>>("scratch_slots")
-        .Arg<ffi::AnyBuffer>()
-        .Arg<ffi::AnyBuffer>()
-        .Ret<ffi::AnyBuffer>()
-        .Ret<ffi::AnyBuffer>()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliques>());
-
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCommMatrixColumnNativePlanPrepareFFI, XlaCommMatrixColumnBatchPrepare,
-    ffi::Ffi::BindPrepare()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliqueRequests>());
-
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCommMatrixColumnNativePlanFFI, XlaCommMatrixColumnNativePlanDispatch,
-    ffi::Ffi::Bind()
-        .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
-        .Attr<int64_t>("tile_size")
-        .Arg<ffi::AnyBuffer>()
-        .Arg<ffi::AnyBuffer>()
-        .Ret<ffi::AnyBuffer>()
-        .Ret<ffi::AnyBuffer>()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliques>());
-
-// Production cuSolverMg handlers registered under the historical Python names
-// potrs_mg, syevd_mg, and syevd_no_V_mg. The Python API can keep the
-// old names while the implementation switches from the legacy CUDA peer
-// shuffler to the XLA communicator backend.
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCommPotrsMgNativePlanPrepareFFI, XlaCommMatrixColumnBatchPrepare,
-    ffi::Ffi::BindPrepare()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliqueRequests>());
-
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCommPotrsMgNativePlanFFI, XlaCommPotrsMgNativePlanDispatch,
-    ffi::Ffi::Bind()
-        .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
-        .Ctx<ffi::PlatformStream<cudaStream_t>>()
-        .Ctx<ffi::ScratchAllocator>()
-        .Attr<int64_t>("T_A")
-        .Arg<ffi::AnyBuffer>()
-        .Arg<ffi::AnyBuffer>()
-        .Ret<ffi::AnyBuffer>()
-        .Ret<ffi::AnyBuffer>()
-        .Ret<ffi::BufferR1<S32>>()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliques>());
-
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCommSyevdMgNativePlanPrepareFFI, XlaCommMatrixColumnBatchPrepare,
-    ffi::Ffi::BindPrepare()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliqueRequests>());
-
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCommSyevdMgNativePlanFFI, XlaCommSyevdMgNativePlanDispatch,
-    ffi::Ffi::Bind()
-        .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
-        .Ctx<ffi::PlatformStream<cudaStream_t>>()
-        .Ctx<ffi::ScratchAllocator>()
-        .Attr<int64_t>("T_A")
-        .Arg<ffi::AnyBuffer>()
-        .Ret<ffi::AnyBuffer>()
-        .Ret<ffi::AnyBuffer>()
-        .Ret<ffi::BufferR1<S32>>()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliques>());
-
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCommSyevdNoVMgNativePlanPrepareFFI, XlaCommMatrixColumnBatchPrepare,
-    ffi::Ffi::BindPrepare()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliqueRequests>());
-
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCommSyevdNoVMgNativePlanFFI, XlaCommSyevdNoVMgNativePlanDispatch,
-    ffi::Ffi::Bind()
-        .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
-        .Ctx<ffi::PlatformStream<cudaStream_t>>()
-        .Ctx<ffi::ScratchAllocator>()
-        .Attr<int64_t>("T_A")
-        .Arg<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
         .Ret<ffi::BufferR1<S32>>()
         .Ctx<ffi::CollectiveParams>()

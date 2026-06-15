@@ -74,45 +74,6 @@ def _register_cuda_target_bundle(bin_dir, library_name, ffi_name, symbols):
     jax.ffi.register_ffi_target(ffi_name, bundle, platform="CUDA")
 
 
-def _register_xla_comm_cusolvermg_targets(bin_dir):
-    _register_cuda_target_bundle(
-        bin_dir,
-        _xla_comm_backend_library,
-        "xla_comm_matrix_column_native_plan",
-        {
-            "prepare": "XlaCommMatrixColumnNativePlanPrepareFFI",
-            "execute": "XlaCommMatrixColumnNativePlanFFI",
-        },
-    )
-    _register_cuda_target_bundle(
-        bin_dir,
-        _xla_comm_backend_library,
-        "potrs_mg",
-        {
-            "prepare": "XlaCommPotrsMgNativePlanPrepareFFI",
-            "execute": "XlaCommPotrsMgNativePlanFFI",
-        },
-    )
-    _register_cuda_target_bundle(
-        bin_dir,
-        _xla_comm_backend_library,
-        "syevd_mg",
-        {
-            "prepare": "XlaCommSyevdMgNativePlanPrepareFFI",
-            "execute": "XlaCommSyevdMgNativePlanFFI",
-        },
-    )
-    _register_cuda_target_bundle(
-        bin_dir,
-        _xla_comm_backend_library,
-        "syevd_no_V_mg",
-        {
-            "prepare": "XlaCommSyevdNoVMgNativePlanPrepareFFI",
-            "execute": "XlaCommSyevdNoVMgNativePlanFFI",
-        },
-    )
-
-
 def _detect_runtime_mode():
     """Return ``(mode, devices_per_node)`` for the current JAX runtime.
 
@@ -120,15 +81,14 @@ def _detect_runtime_mode():
 
     - SPMD: one Python process controls all local GPUs.
     - MPMD: one Python process participates per GPU/rank through
-      ``jax.distributed``. cuSolverMg is still single-node, so the number of
-      participating local ranks must be supplied by ``JAXMG_NUMBER_OF_DEVICES``
-      when it cannot be inferred from a non-distributed local device set.
+      ``jax.distributed``.  In this mode the number of participating local
+      ranks must be supplied by ``JAXMG_NUMBER_OF_DEVICES`` when it cannot be
+      inferred from the local device set.
 
-    The cuSOLVERMp multi-node target uses ordinary JAX distributed setup. The
-    SYEVD path follows cuSOLVERMp's rank-per-GPU process model, while POTRS has
-    also been useful in one-process-per-node diagnostics. This runtime-mode
-    detection remains for the legacy cuSolverMg compatibility layer and should
-    not be interpreted as owning JAX distributed initialization for cuSOLVERMp.
+    JAXMg does not initialize distributed JAX itself.  Users must call
+    ``jax.distributed.initialize(...)`` before device discovery in multi-node
+    programs; this function only records the resulting runtime shape for native
+    diagnostics and FFI handlers.
     """
     requested_mode = os.environ.get("JAXMG_EXECUTION_MODE", "").upper()
     if requested_mode:
@@ -173,10 +133,6 @@ def _initialize():
             raise OSError("Unable to parse CUDA version")
         bin_dir = f"cu{cuda_major}"
 
-        # Load Cusolver
-        _load("cusolver", ["libcusolverMg.so.11"])
-        _load("cu13", ["libcusolverMg.so.12"])
-
         jax.config.update("jax_enable_x64", True)
 
         mode, n_devices_per_node = _detect_runtime_mode()
@@ -184,9 +140,8 @@ def _initialize():
             warnings.warn(
                 "Running the XLA communicator backend in experimental MPMD "
                 f"mode with JAXMG_NUMBER_OF_DEVICES={n_devices_per_node}. "
-                "The XLA communicator probes are expected to work first; "
-                "fused cuSolverMg solvers still require the MPMD IPC pointer "
-                "sharing layer to be enabled.",
+                "Use rank-per-GPU launch tests before relying on this mode in "
+                "production.",
                 JaxMgWarning,
                 stacklevel=4,
             )
@@ -196,7 +151,6 @@ def _initialize():
         os.environ.setdefault("JAXMG_NUMBER_OF_DEVICES", str(n_devices_per_node))
         os.environ.setdefault("JAXMG_EXECUTION_MODE", mode)
 
-        _register_xla_comm_cusolvermg_targets(bin_dir)
         _register_optional_cuda_target_bundle(
             bin_dir,
             _xla_comm_backend_library,

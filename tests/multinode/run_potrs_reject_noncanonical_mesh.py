@@ -1,4 +1,4 @@
-"""Validate that ``potrs_mp`` rejects exotic JAX mesh order.
+"""Validate that ``potrs`` rejects exotic JAX mesh order.
 
 Users should build cuSOLVERMp inputs with ordinary JAX sharding APIs, for
 example ``jax.make_mesh`` or ``jax.sharding.Mesh``.  JAXMg intentionally keeps
@@ -150,7 +150,7 @@ def _run_case(case: NonCanonicalMeshCase, devices: Sequence[object]) -> None:
     mesh = Mesh(device_grid, ("rows", "cols"))
     sharding = NamedSharding(mesh, P("rows", "cols"))
 
-    # The test is about rejecting an exotic device order inside ``potrs_mp``.
+    # The test is about rejecting an exotic device order inside ``potrs``.
     # Keep the array shapes divisible by the mesh axes so JAX can place the
     # buffers and the failure is raised by JAXMg rather than by sharding setup.
     nrhs = max(2, case.process_cols)
@@ -164,13 +164,13 @@ def _run_case(case: NonCanonicalMeshCase, devices: Sequence[object]) -> None:
         canonical_order=_device_payload(_canonical_devices(selected)),
     )
     try:
-        jaxmg.potrs_mp(a, b, T_A=4)
+        jaxmg.potrs(a, b, T_A=4)
     except ValueError as exc:
         if "row-major or column-major" not in str(exc):
             raise
         _emit("case_success", name=case.name, error=str(exc))
         return
-    raise AssertionError(f"{case.name}: potrs_mp accepted a noncanonical mesh")
+    raise AssertionError(f"{case.name}: potrs accepted a noncanonical mesh")
 
 
 def main() -> None:

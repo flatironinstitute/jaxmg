@@ -1,6 +1,6 @@
 # cuSOLVERMp Multi-Node Validation Plan
 
-The current cuSOLVERMp backend provides `potrs_mp` and `syevd_mp`. It uses the
+The current cuSOLVERMp backend provides `potrs` and `syevd`. It uses the
 XLA-owned NCCL communicator for native 2D redistribution and passes the
 borrowed `ncclComm_t` to cuSOLVERMp. Small two-node validation is part of the
 development test suite; larger multi-node benchmarks are still a release
@@ -28,7 +28,7 @@ The supported cuSOLVERMp launch mode is one Slurm task per GPU:
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-task=1
 
-srun python run_potrs_mp_multinode.py
+srun python run_potrs_multinode.py
 ```
 
 User code should call `jax.distributed.initialize()` before any operation that
@@ -56,7 +56,7 @@ sharding = NamedSharding(mesh, P("pr", "pc"))
 
 On some Slurm installations `--gpus-per-task=1` makes each process see exactly
 one visible GPU, so `local_device_ids=[0]` is correct. If all local GPUs remain
-visible to every process, pass the Slurm local rank instead. `syevd_mp` rejects
+visible to every process, pass the Slurm local rank instead. `syevd` rejects
 one-process-many-GPU launches because cuSOLVERMp SYEVD has proven sensitive to
 the one-process-per-GPU assumption.
 
@@ -68,7 +68,7 @@ The first multi-node checkpoints should be diagnostic and small:
 2. Run the raw NCCL validation path across all global devices.
 3. Run one rectangle transfer that crosses hosts.
 4. Run forward plus reverse padded 2D redistribution across hosts.
-5. Run tiny `potrs_mp` and `syevd_mp` cases across hosts.
+5. Run tiny `potrs` and `syevd` cases across hosts.
 6. Repeat small solves/eigensolves to check communicator lifetime, workspace
    allocation, and memory leaks.
 
@@ -77,16 +77,14 @@ first true cuSOLVERMp multi-node solver check.
 
 ## Process Model Decision
 
-The rank-per-GPU path should not be copied directly from the cuSolverMg
-compatibility backend.
-The old MPMD cuSolverMg path needed CUDA IPC pointer exchange because cuSolverMg
-is a single-node library and one host process had to assemble pointer arrays for
-all local GPUs.
+The rank-per-GPU path should not be copied from the removed single-node
+compatibility backend. That backend needed CUDA IPC pointer exchange because one
+host process had to assemble pointer arrays for all local GPUs.
 
 cuSOLVERMp is different: it is designed around a distributed process grid and a
 communicator. When JAX is launched as one process per GPU, the design remains a
 global cuSOLVERMp grid using the XLA-owned NCCL communicator, not a node-local
-cuSolverMg-style pointer-table workaround.
+pointer-table workaround.
 
 The practical order is therefore:
 

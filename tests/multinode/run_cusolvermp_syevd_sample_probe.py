@@ -5,7 +5,7 @@ probe deliberately avoids JAXMg's 2D redistribution: each rank allocates fresh
 cuSOLVERMp local buffers, asks cuSOLVERMp to scatter a deterministic host
 matrix into its own block-cyclic format, and then calls ``cusolverMpSyevd``.
 
-That makes the diagnostic useful when the production ``syevd_mp`` wrapper
+That makes the diagnostic useful when the production ``syevd`` wrapper
 fails.  If this probe fails too, the failure is likely in the cuSOLVERMp SYEVD
 call, communicator ownership, stream/device context, or runtime setup.  If this
 probe passes while production fails, the likely target is JAXMg's redistributed
@@ -94,7 +94,7 @@ def _status_rows(status, *, num_processes: int) -> np.ndarray:
     return row
 
 
-def _run_probe(*, compute_vectors: bool, use_private_stream: bool) -> None:
+def _run_probe(*, use_private_stream: bool) -> None:
     import jax
     import jax.numpy as jnp
     from jax.sharding import NamedSharding, PartitionSpec as P
@@ -128,7 +128,6 @@ def _run_probe(*, compute_vectors: bool, use_private_stream: bool) -> None:
         n=n,
         tile=tile,
         dtype=dtype_name,
-        compute_vectors=compute_vectors,
         use_private_stream=use_private_stream,
     )
     status = cusolvermp_syevd_probe_shardmap(
@@ -141,7 +140,6 @@ def _run_probe(*, compute_vectors: bool, use_private_stream: bool) -> None:
         n=n,
         tile_size=tile,
         grid_mapping=1,
-        compute_vectors=compute_vectors,
         use_private_stream=use_private_stream,
     )
     row = _status_rows(status, num_processes=process_count)
@@ -181,19 +179,13 @@ def main() -> None:
                 f"expected 1 local GPU per process, got {jax.local_device_count()}"
             )
 
-        mode = os.environ.get("JAXMG_SYEVD_SAMPLE_MODE", "both").lower()
-        if mode not in {"values", "vectors", "both"}:
-            raise ValueError("JAXMG_SYEVD_SAMPLE_MODE must be values/vectors/both")
         private_stream = os.environ.get("JAXMG_SYEVD_PRIVATE_STREAM", "0") in {
             "1",
             "true",
             "yes",
         }
 
-        if mode in {"values", "both"}:
-            _run_probe(compute_vectors=False, use_private_stream=private_stream)
-        if mode in {"vectors", "both"}:
-            _run_probe(compute_vectors=True, use_private_stream=private_stream)
+        _run_probe(use_private_stream=private_stream)
 
         _emit("success")
     except Exception:

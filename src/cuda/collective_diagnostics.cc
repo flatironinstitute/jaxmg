@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Diagnostic XLA communicator FFI handlers for the cuSolverMg backend.
+// Diagnostic XLA communicator FFI handlers for the XLA communicator backend.
 //
 // These handlers are not on the production solver path. They verify that an
 // FFI invocation can request an XLA collective clique, look up the XLA-owned
@@ -28,8 +28,8 @@
 //   4. The probe performs a tiny collective and writes an inspectable result
 //      back to a JAX buffer.
 //
-// These probes isolate communicator setup from cuSolverMg pointer sharing and
-// solver calls. They are useful when a failure could be in FFI registration,
+// These probes isolate communicator setup from redistribution and solver calls.
+// They are useful when a failure could be in FFI registration,
 // clique construction, communicator lookup, stream ordering, or the collective
 // primitive itself.
 

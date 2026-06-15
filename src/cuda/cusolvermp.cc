@@ -28,9 +28,11 @@
 //   4. Create column-major local matrix descriptors over JAXMg device buffers.
 //   5. Run diagnostic probes that isolate initialization, scatter layout, and
 //      host-generated potrs inputs.
-//   6. Run the production `cusolvermp_potrs` and `cusolvermp_syevd` handlers on
-//      buffers that have already been redistributed by block_cyclic_2d.cc into
-//      2D block-cyclic cuSOLVERMp layout.
+//   6. Run the production fused `cusolvermp_potrs` and
+//      `cusolvermp_syevd` handlers. Those handlers own redistribution:
+//      they enter with padded JAX block-sharded buffers, move them into 2D
+//      block-cyclic cuSOLVERMp layout, call the solver, and reverse-redistribute
+//      outputs before returning to Python.
 //
 // The probe entry points intentionally return device status vectors instead of
 // failing hard.  That makes them useful in CI and on systems where the NVIDIA
@@ -1267,7 +1269,7 @@ absl::Status RunCusolverMpSyevdSampleProbe(
     CusolverMpOpaqueGrid grid_a, CusolverMpOpaqueGrid grid_q,
     cudaStream_t cuda_stream, int64_t n, int64_t tile_size,
     int32_t process_row, int32_t process_col,
-    std::array<int32_t, kSyevdProbeSize>* probe, bool compute_vectors) {
+    std::array<int32_t, kSyevdProbeSize>* probe) {
   using EigenvalueType = typename SolverTraits<DataType>::EigenvalueType;
 
   const int debug_rank = (*probe)[2];
@@ -1291,11 +1293,10 @@ absl::Status RunCusolverMpSyevdSampleProbe(
   CusolverMpDebug(
       debug_rank,
       "syevd sample enter n=%lld tile=%lld process_coord=(%d,%d) "
-      "local=%lldx%lld lld=%lld compute_vectors=%d dtype=%d",
+      "local=%lldx%lld lld=%lld dtype=%d",
       static_cast<long long>(n), static_cast<long long>(tile_size),
       process_row, process_col, static_cast<long long>(local_rows),
       static_cast<long long>(local_cols), static_cast<long long>(lld),
-      static_cast<int>(compute_vectors),
       static_cast<int>(SolverTraits<DataType>::cuda_data_type));
 
   CusolverMpOpaqueMatrixDesc desc_a = nullptr;
@@ -1369,14 +1370,11 @@ absl::Status RunCusolverMpSyevdSampleProbe(
 
   size_t workspace_device = 0;
   size_t workspace_host = 0;
-  char compz[] = {'N', '\0'};
-  if (compute_vectors) {
-    // cuSOLVERMp 0.7.x exposes this selector as `compz` and NVIDIA's
-    // distributed SYEVD sample uses 'Z' for the eigenvector-producing path.
-    // The newer documentation names the argument `jobz`, but the installed
-    // header and runtime follow the Stedc-style convention.
-    compz[0] = 'Z';
-  }
+  // cuSOLVERMp 0.7.x exposes this selector as `compz` and NVIDIA's
+  // distributed SYEVD sample uses 'Z' for the eigenvector-producing path.  The
+  // newer documentation names the argument `jobz`, but the installed header
+  // and runtime follow the Stedc-style convention.
+  char compz[] = {'Z', '\0'};
   CusolverMpDebug(debug_rank,
                   "syevd sample buffer_size begin compz=%c a=%p d=%p q=%p",
                   compz[0], d_a, d_eigenvalues, d_q);
@@ -1501,7 +1499,7 @@ absl::Status RunCusolverMpSyevd(
     ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> eigenvalues_out,
     ffi::Result<ffi::AnyBuffer> work_out,
     ffi::Result<ffi::AnyBuffer> vectors_out,
-    std::array<int32_t, kSyevdProbeSize>* probe, bool compute_vectors) {
+    std::array<int32_t, kSyevdProbeSize>* probe) {
   const int debug_rank = (*probe)[2];
   const int32_t process_rows = (*probe)[4];
   const int32_t process_cols = (*probe)[5];
@@ -1518,13 +1516,12 @@ absl::Status RunCusolverMpSyevd(
   CusolverMpDebug(
       debug_rank,
       "syevd enter n=%lld tile=%lld process_coord=(%d,%d) local=%lldx%lld "
-      "physical=%lldx%lld compute_vectors=%d dtype=%d",
+      "physical=%lldx%lld dtype=%d",
       static_cast<long long>(n), static_cast<long long>(tile_size),
       process_row, process_col, static_cast<long long>(local_rows),
       static_cast<long long>(local_cols),
       static_cast<long long>(local_physical_rows),
       static_cast<long long>(local_physical_cols),
-      static_cast<int>(compute_vectors),
       static_cast<int>(SolverTraits<DataType>::cuda_data_type));
 
   CusolverMpOpaqueMatrixDesc desc_a = nullptr;
@@ -1579,16 +1576,12 @@ absl::Status RunCusolverMpSyevd(
 
   size_t workspace_device = 0;
   size_t workspace_host = 0;
-  char compz[] = {'N', '\0'};
-  if (compute_vectors) {
-    // cuSOLVERMp 0.7.x exposes this selector as `compz` and NVIDIA's
-    // distributed SYEVD sample uses 'Z' for the eigenvector-producing path.
-    // Keep this aligned with the installed header/runtime rather than the
-    // newer `jobz='V'` wording in some versions of the public documentation.
-    compz[0] = 'Z';
-  }
-  void* z_data = compute_vectors ? vectors_out->untyped_data()
-                                 : work_out->untyped_data();
+  // cuSOLVERMp 0.7.x exposes this selector as `compz` and NVIDIA's
+  // distributed SYEVD sample uses 'Z' for the eigenvector-producing path. Keep
+  // this aligned with the installed header/runtime rather than the newer
+  // `jobz='V'` wording in some versions of the public documentation.
+  char compz[] = {'Z', '\0'};
+  void* z_data = vectors_out->untyped_data();
   CusolverMpDebug(
       debug_rank,
       "syevd_buffer_size begin compz=%c a=%p evals=%p z=%p desc_a=%p desc_q=%p",
@@ -2673,7 +2666,7 @@ absl::Status CusolverMpDistributedPotrsDispatchImpl(
 absl::Status CusolverMpSyevdDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n,
-    int64_t tile_size, int64_t grid_mapping, int64_t compute_vectors,
+    int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues_out,
     ffi::Result<ffi::AnyBuffer> work_out,
@@ -2741,7 +2734,7 @@ absl::Status CusolverMpSyevdDispatchImpl(
       -1,  // local NUMROC rows.
       -1,  // local NUMROC cols.
       static_cast<int32_t>(eigenvalues_out->size_bytes()),
-      static_cast<int32_t>(compute_vectors != 0),
+      1,   // vector-producing SYEVD path.
       -1,  // syevd device workspace, KiB.
       -1,  // syevd host workspace, KiB.
       0,   // cusolverMpSyevd called.
@@ -2776,12 +2769,11 @@ absl::Status CusolverMpSyevdDispatchImpl(
   }
   probe[1] = cuda_device;
   CusolverMpDebug(-1, "syevd dispatch device=%d n=%lld tile=%lld grid=%lldx%lld "
-                      "compute_vectors=%lld",
+                      "vectors=1",
                   cuda_device, static_cast<long long>(n),
                   static_cast<long long>(tile_size),
                   static_cast<long long>(process_rows),
-                  static_cast<long long>(process_cols),
-                  static_cast<long long>(compute_vectors));
+                  static_cast<long long>(process_cols));
 
   if (collective_params == nullptr || collective_cliques == nullptr) {
     probe[0] = kCollectiveContextMissing;
@@ -2909,28 +2901,28 @@ absl::Status CusolverMpSyevdDispatchImpl(
       syevd_status = RunCusolverMpSyevd<float>(
           api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
           a.dimensions()[1], process_row, process_col, a, eigenvalues_out,
-          work_out, vectors_out, &probe, compute_vectors != 0);
+          work_out, vectors_out, &probe);
       break;
     case F64:
       probe[25] = 2;
       syevd_status = RunCusolverMpSyevd<double>(
           api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
           a.dimensions()[1], process_row, process_col, a, eigenvalues_out,
-          work_out, vectors_out, &probe, compute_vectors != 0);
+          work_out, vectors_out, &probe);
       break;
     case C64:
       probe[25] = 3;
       syevd_status = RunCusolverMpSyevd<cuFloatComplex>(
           api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
           a.dimensions()[1], process_row, process_col, a, eigenvalues_out,
-          work_out, vectors_out, &probe, compute_vectors != 0);
+          work_out, vectors_out, &probe);
       break;
     case C128:
       probe[25] = 4;
       syevd_status = RunCusolverMpSyevd<cuDoubleComplex>(
           api, handle, grid, cuda_stream, n, tile_size, a.dimensions()[0],
           a.dimensions()[1], process_row, process_col, a, eigenvalues_out,
-          work_out, vectors_out, &probe, compute_vectors != 0);
+          work_out, vectors_out, &probe);
       break;
     default:
       probe[0] = kUnsupportedDtype;
@@ -2992,7 +2984,7 @@ absl::Status XlaCusolverMpSyevdProbePrepare(
 absl::Status XlaCusolverMpSyevdProbeDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
-    int64_t grid_mapping, int64_t compute_vectors, int64_t use_private_stream,
+    int64_t grid_mapping, int64_t use_private_stream,
     ffi::AnyBuffer token, ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
@@ -3032,7 +3024,7 @@ absl::Status XlaCusolverMpSyevdProbeDispatch(
       -1,  // local NUMROC rows.
       -1,  // local NUMROC cols.
       -1,  // eigenvalue allocation, KiB.
-      static_cast<int32_t>(compute_vectors != 0),
+      1,   // vector-producing SYEVD path.
       -1,  // syevd device workspace, KiB.
       -1,  // syevd host workspace, KiB.
       0,   // cusolverMpSyevd called.
@@ -3064,14 +3056,12 @@ absl::Status XlaCusolverMpSyevdProbeDispatch(
   probe[1] = cuda_device;
   CusolverMpDebug(-1,
                   "syevd probe dispatch device=%d n=%lld tile=%lld "
-                  "grid=%lldx%lld mapping=%lld compute_vectors=%lld "
-                  "use_private_stream=%lld",
+                  "grid=%lldx%lld mapping=%lld use_private_stream=%lld",
                   cuda_device, static_cast<long long>(n),
                   static_cast<long long>(tile_size),
                   static_cast<long long>(process_rows),
                   static_cast<long long>(process_cols),
                   static_cast<long long>(grid_mapping),
-                  static_cast<long long>(compute_vectors),
                   static_cast<long long>(use_private_stream));
 
   if (collective_params == nullptr || collective_cliques == nullptr) {
@@ -3235,25 +3225,25 @@ absl::Status XlaCusolverMpSyevdProbeDispatch(
       probe[25] = 1;
       syevd_status = RunCusolverMpSyevdSampleProbe<float>(
           api, handle, grid_a, grid_q, solver_stream, n, tile_size, process_row,
-          process_col, &probe, compute_vectors != 0);
+          process_col, &probe);
       break;
     case F64:
       probe[25] = 2;
       syevd_status = RunCusolverMpSyevdSampleProbe<double>(
           api, handle, grid_a, grid_q, solver_stream, n, tile_size, process_row,
-          process_col, &probe, compute_vectors != 0);
+          process_col, &probe);
       break;
     case C64:
       probe[25] = 3;
       syevd_status = RunCusolverMpSyevdSampleProbe<cuFloatComplex>(
           api, handle, grid_a, grid_q, solver_stream, n, tile_size, process_row,
-          process_col, &probe, compute_vectors != 0);
+          process_col, &probe);
       break;
     case C128:
       probe[25] = 4;
       syevd_status = RunCusolverMpSyevdSampleProbe<cuDoubleComplex>(
           api, handle, grid_a, grid_q, solver_stream, n, tile_size, process_row,
-          process_col, &probe, compute_vectors != 0);
+          process_col, &probe);
       break;
     default:
       probe[0] = kUnsupportedDtype;
@@ -3312,18 +3302,91 @@ absl::Status XlaCusolverMpPotrsPrepare(
 
 absl::Status XlaCusolverMpPotrsDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
-    int64_t tile_size, int64_t grid_mapping,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
-    ffi::Result<ffi::AnyBuffer> a_out,
-    ffi::Result<ffi::AnyBuffer> b_out,
-    ffi::Result<ffi::BufferR1<S32>> status_out,
+    se::ScratchAllocator& scratch, int64_t process_rows,
+    int64_t process_cols, int64_t n, int64_t nrhs, int64_t tile_size,
+    int64_t grid_mapping, absl::Span<const int64_t> rank_map,
+    ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
+    ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
-  return CusolverMpDistributedPotrsDispatchImpl(
+  if (a.dimensions().size() != 2 || b.dimensions().size() != 2 ||
+      a_work->dimensions().size() != 2 || b_out->dimensions().size() != 2) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_potrs expects rank-2 A/B buffers");
+  }
+  if (a.element_type() != b.element_type() ||
+      a.element_type() != a_work->element_type() ||
+      b.element_type() != b_out->element_type()) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_potrs requires matching A/B dtypes");
+  }
+  if (a.dimensions()[0] != a_work->dimensions()[0] ||
+      a.dimensions()[1] != a_work->dimensions()[1] ||
+      b.dimensions()[0] != b_out->dimensions()[0] ||
+      b.dimensions()[1] != b_out->dimensions()[1]) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_potrs input/output shapes must match");
+  }
+  if (a.dimensions()[0] != b.dimensions()[0]) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_potrs expects A and B to have matching local row "
+        "capacity after padding");
+  }
+
+  absl::StatusOr<int64_t> a_scratch_elements =
+      RequiredPadded2DNativePlanScratchElements(
+          process_rows, process_cols, tile_size, tile_size, n, n,
+          a.dimensions()[0], a.dimensions()[1], rank_map);
+  if (!a_scratch_elements.ok()) {
+    return a_scratch_elements.status();
+  }
+  absl::StatusOr<int64_t> b_scratch_elements =
+      RequiredPadded2DNativePlanScratchElements(
+          process_rows, process_cols, tile_size, tile_size, n, nrhs,
+          b.dimensions()[0], b.dimensions()[1], rank_map);
+  if (!b_scratch_elements.ok()) {
+    return b_scratch_elements.status();
+  }
+  const int64_t scratch_elements =
+      std::max(*a_scratch_elements, *b_scratch_elements);
+  const size_t element_bytes =
+      a.size_bytes() / static_cast<size_t>(a.element_count());
+  const size_t scratch_bytes =
+      std::max<size_t>(1, static_cast<size_t>(scratch_elements)) *
+      element_bytes;
+  absl::StatusOr<void*> redistribution_scratch =
+      AllocateFfiScratch(scratch, scratch_bytes,
+                         "cusolvermp_potrs_redistribution");
+  if (!redistribution_scratch.ok()) {
+    return redistribution_scratch.status();
+  }
+  se::DeviceAddressBase scratch_base(*redistribution_scratch, scratch_bytes);
+
+  JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
+      "cusolvermp_potrs/a_forward", stream, comm_stream, cuda_stream,
+      process_rows, process_cols, tile_size, tile_size, n, n, /*reverse=*/0,
+      rank_map, a, a_work->device_memory(), scratch_base, scratch_elements,
+      collective_params, collective_cliques));
+  JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
+      "cusolvermp_potrs/b_forward", stream, comm_stream, cuda_stream,
+      process_rows, process_cols, tile_size, tile_size, n, nrhs,
+      /*reverse=*/0, rank_map, b, b_out->device_memory(), scratch_base,
+      scratch_elements, collective_params, collective_cliques));
+
+  ffi::AnyBuffer a_cyclic = *a_work;
+  ffi::AnyBuffer b_cyclic = *b_out;
+  JAXMG_RETURN_IF_ERROR(CusolverMpDistributedPotrsDispatchImpl(
       stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
-      tile_size, grid_mapping, rank_map, a, b, a_out, b_out, status_out,
-      collective_params, collective_cliques, /*validate_solution=*/false);
+      tile_size, grid_mapping, rank_map, a_cyclic, b_cyclic, a_work, b_out,
+      status, collective_params, collective_cliques,
+      /*validate_solution=*/false));
+
+  ffi::AnyBuffer b_solved_cyclic = *b_out;
+  return ExecutePadded2DNativePlanRaw(
+      "cusolvermp_potrs/b_reverse", stream, comm_stream, cuda_stream,
+      process_rows, process_cols, tile_size, tile_size, n, nrhs,
+      /*reverse=*/1, rank_map, b_solved_cyclic, b_out->device_memory(),
+      scratch_base, scratch_elements, collective_params, collective_cliques);
 }
 
 absl::Status XlaCusolverMpSyevdPrepare(
@@ -3335,19 +3398,71 @@ absl::Status XlaCusolverMpSyevdPrepare(
 
 absl::Status XlaCusolverMpSyevdDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
-    int64_t grid_mapping, int64_t compute_vectors,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
-    ffi::Result<ffi::AnyBuffer> eigenvalues_out,
-    ffi::Result<ffi::AnyBuffer> work_out,
-    ffi::Result<ffi::AnyBuffer> vectors_out,
-    ffi::Result<ffi::BufferR1<S32>> status_out,
+    se::ScratchAllocator& scratch, int64_t process_rows,
+    int64_t process_cols, int64_t n, int64_t tile_size,
+    int64_t grid_mapping, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> eigenvalues,
+    ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> vectors,
+    ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
-  return CusolverMpSyevdDispatchImpl(
+  if (a.dimensions().size() != 2 || work->dimensions().size() != 2 ||
+      vectors->dimensions().size() != 2) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_syevd expects rank-2 matrix buffers");
+  }
+  if (a.element_type() != work->element_type() ||
+      a.element_type() != vectors->element_type()) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_syevd requires matching matrix dtypes");
+  }
+  if (a.dimensions()[0] != work->dimensions()[0] ||
+      a.dimensions()[1] != work->dimensions()[1] ||
+      a.dimensions()[0] != vectors->dimensions()[0] ||
+      a.dimensions()[1] != vectors->dimensions()[1]) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_syevd input/output matrix shapes must match");
+  }
+
+  absl::StatusOr<int64_t> scratch_elements_or =
+      RequiredPadded2DNativePlanScratchElements(
+          process_rows, process_cols, tile_size, tile_size, n, n,
+          a.dimensions()[0], a.dimensions()[1], rank_map);
+  if (!scratch_elements_or.ok()) {
+    return scratch_elements_or.status();
+  }
+  const int64_t scratch_elements = *scratch_elements_or;
+  const size_t element_bytes =
+      a.size_bytes() / static_cast<size_t>(a.element_count());
+  const size_t scratch_bytes =
+      std::max<size_t>(1, static_cast<size_t>(scratch_elements)) *
+      element_bytes;
+  absl::StatusOr<void*> redistribution_scratch =
+      AllocateFfiScratch(scratch, scratch_bytes,
+                         "cusolvermp_syevd_redistribution");
+  if (!redistribution_scratch.ok()) {
+    return redistribution_scratch.status();
+  }
+  se::DeviceAddressBase scratch_base(*redistribution_scratch, scratch_bytes);
+
+  JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
+      "cusolvermp_syevd/a_forward", stream, comm_stream, cuda_stream,
+      process_rows, process_cols, tile_size, tile_size, n, n, /*reverse=*/0,
+      rank_map, a, work->device_memory(), scratch_base, scratch_elements,
+      collective_params, collective_cliques));
+
+  ffi::AnyBuffer a_cyclic = *work;
+  JAXMG_RETURN_IF_ERROR(CusolverMpSyevdDispatchImpl(
       stream, comm_stream, cuda_stream, process_rows, process_cols, n,
-      tile_size, grid_mapping, compute_vectors, rank_map, a, eigenvalues_out,
-      work_out, vectors_out, status_out, collective_params, collective_cliques);
+      tile_size, grid_mapping, rank_map, a_cyclic, eigenvalues, work, vectors,
+      status, collective_params, collective_cliques));
+
+  ffi::AnyBuffer vectors_cyclic = *vectors;
+  return ExecutePadded2DNativePlanRaw(
+      "cusolvermp_syevd/vectors_reverse", stream, comm_stream,
+      cuda_stream, process_rows, process_cols, tile_size, tile_size, n, n,
+      /*reverse=*/1, rank_map, vectors_cyclic, vectors->device_memory(),
+      scratch_base, scratch_elements, collective_params, collective_cliques);
 }
 
 }  // namespace xla::gpu

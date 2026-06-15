@@ -1,7 +1,7 @@
 # Column major layout expectations
 
 This note explains the difference between row-major and column-major memory
-layouts, why cuSolverMg requires column-major data, how asking JAX to present
+layouts, why cuSOLVERMp requires column-major local data, how asking JAX to present
 column-major memory via `input_layouts=(1,0)` forces a copy (and therefore
 temporarily doubles memory), and how we can instead choose a sharding that
 avoids the extra copy by presenting per-device buffers already in the solver's
@@ -36,8 +36,8 @@ $$
 \operatorname{col\_major}(A) = [a_{11}, a_{21}, a_{31}, a_{41},\; a_{12}, a_{22},\dots,a_{44}]
 $$
 
-Why this matters for cuSolverMg
-- cuSolverMg (like many Fortran-style numerical libraries) expects matrix
+Why this matters for cuSOLVERMp
+- cuSOLVERMp (like many Fortran-style numerical libraries) expects matrix
 	buffers in column-major order. If the Python/JAX side stores matrices in
 	row-major order, the native call must be given a column-major view.
 
@@ -82,4 +82,3 @@ $$
 If device 0 stores $B$ and device 1 stores $C$ in their native local buffers
 then the solver can consume device-local memory directly in the expected
 column-major order without a global transpose or full-array copy.
-

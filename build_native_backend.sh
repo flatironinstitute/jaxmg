@@ -92,22 +92,15 @@ BACKEND_PKG="${XLA_SRC}/jaxmg_backend"
 mkdir -p "${BACKEND_PKG}/include" "${BACKEND_PKG}/utils"
 ln -sfn "${ROOT}/src/cuda/include/xla_comm_backend.h" \
   "${BACKEND_PKG}/include/xla_comm_backend.h"
-ln -sfn "${ROOT}/src/cuda/include/mpmd_ipc.h" \
-  "${BACKEND_PKG}/include/mpmd_ipc.h"
 ln -sfn "${ROOT}/src/cuda/utils/xla_comm_common.cc" \
   "${BACKEND_PKG}/utils/xla_comm_common.cc"
-ln -sfn "${ROOT}/src/cuda/utils/mpmd_ipc.cc" \
-  "${BACKEND_PKG}/utils/mpmd_ipc.cc"
 for src in \
   block_cyclic_2d.cc \
   collective_diagnostics.cc \
   cusolvermp.cc \
-  cyclic_1d.cc \
   edge_padding_2d.cc \
   ffi_handlers.cc \
-  potrs.cc \
-  rectangle_pack.cc \
-  syevd.cc; do
+  rectangle_pack.cc; do
   ln -sfn "${ROOT}/src/cuda/${src}" "${BACKEND_PKG}/${src}"
 done
 

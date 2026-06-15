@@ -1,4 +1,4 @@
-"""Two-node cuSOLVERMp validation driver for the public syevd_mp wrapper.
+"""Two-node cuSOLVERMp validation driver for the public syevd wrapper.
 
 This script is launched by a cluster runner with one Python process per GPU.
 It expects:
@@ -12,7 +12,6 @@ grids. Only the eigenvector-producing path is exercised. Current validated
 cuSOLVERMp runtimes reject the true no-vector SYEVD mode, so this driver keeps
 the signal focused on the path JAXMg intends to support:
 
-  * ``eigvecs=True`` validates cuSOLVERMp SYEVD, eigenvector output, and
     reverse redistribution back to the JAX-facing block-sharded layout.
 
 The Slurm/PBS wrapper that sets paths and library variables should live outside
@@ -248,15 +247,13 @@ def _run_case(case: Case) -> None:
         n=case.n,
         tile=case.tile,
         dtype=case.dtype,
-        eigvecs=True,
-        process_index=jax.process_index(),
+                process_index=jax.process_index(),
     )
 
-    eigenvalues, eigenvectors, status = jaxmg.syevd_mp(
+    eigenvalues, eigenvectors, status = jaxmg.syevd(
         a,
         T_A=case.tile,
-        eigvecs=True,
-        return_status=True,
+                return_status=True,
     )
     _validate_status(status, label=case.name, grid=grid)
     _validate_eigenvectors(
@@ -293,7 +290,7 @@ def _cases_for_device_count(device_count: int) -> list[Case]:
         ]
     else:
         raise AssertionError(
-            "rank-per-GPU syevd_mp matrix validation currently supports 2, 4, or 8 "
+            "rank-per-GPU syevd matrix validation currently supports 2, 4, or 8 "
             f"global devices, got {device_count}."
         )
 
