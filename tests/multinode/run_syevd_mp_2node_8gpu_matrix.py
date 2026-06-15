@@ -282,23 +282,45 @@ def _run_case(case: Case) -> None:
 
 def _cases_for_device_count(device_count: int) -> list[Case]:
     if device_count == 4:
-        return [
+        cases = [
             Case("grid_2x2_f64_vectors_colpad", 2, 2, 12, 4, "float64", True),
             Case("grid_2x2_c128_vectors_bothpad", 2, 2, 12, 4, "complex128", True),
             Case("grid_1x4_f32_values_colonly", 1, 4, 16, 4, "float32", False),
             Case("grid_4x1_c64_values_rowonly", 4, 1, 16, 4, "complex64", False),
         ]
-    if device_count == 8:
-        return [
+    elif device_count == 8:
+        cases = [
             Case("grid_2x4_f64_vectors_colpad", 2, 4, 24, 4, "float64", True),
             Case("grid_4x2_f32_values_rowpad", 4, 2, 24, 4, "float32", False),
             Case("grid_1x8_c64_vectors_colonly", 1, 8, 32, 8, "complex64", True),
             Case("grid_8x1_c128_values_rowonly", 8, 1, 32, 8, "complex128", False),
         ]
-    raise AssertionError(
-        "rank-per-GPU syevd_mp matrix validation currently supports 4 or 8 "
-        f"global devices, got {device_count}."
-    )
+    else:
+        raise AssertionError(
+            "rank-per-GPU syevd_mp matrix validation currently supports 4 or 8 "
+            f"global devices, got {device_count}."
+        )
+
+    # Debugging SYEVD failures often requires isolating the eigenvalue-only
+    # path from the eigenvector-producing path.  Keep this as an environment
+    # filter so cluster wrappers can narrow a run without changing the test.
+    eigvecs_filter = os.environ.get("JAXMG_SYEVD_EIGVECS")
+    if eigvecs_filter:
+        normalized = eigvecs_filter.strip().lower()
+        if normalized not in {"0", "1", "false", "true", "no", "yes"}:
+            raise ValueError(
+                "JAXMG_SYEVD_EIGVECS must be one of 0/1/false/true/no/yes"
+            )
+        want_vectors = normalized in {"1", "true", "yes"}
+        cases = [case for case in cases if case.eigvecs is want_vectors]
+
+    name_filter = os.environ.get("JAXMG_SYEVD_CASE")
+    if name_filter:
+        cases = [case for case in cases if case.name == name_filter]
+        if not cases:
+            raise ValueError(f"no SYEVD test case named {name_filter!r}")
+
+    return cases
 
 
 def main() -> None:
