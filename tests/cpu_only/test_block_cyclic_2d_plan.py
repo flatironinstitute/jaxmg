@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from jaxmg._block_cyclic_2d_plan import (
+from tests.reference_block_cyclic_2d_plan import (
     ProcessGrid,
     ProcessRankMap,
     TileShape,

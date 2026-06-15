@@ -22,7 +22,7 @@ import jax.numpy as jnp
 from jax import Array
 from jax.sharding import Mesh, PartitionSpec as P
 
-from ._block_cyclic_2d_plan import TileShape
+from ._layout_types import TileShape
 from ._cusolvermp_ffi import cusolvermp_syevd_shardmap
 from ._cusolvermp_layout import (
     infer_mesh_and_matrix_specs,

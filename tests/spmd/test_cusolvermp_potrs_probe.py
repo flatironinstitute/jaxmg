@@ -16,8 +16,8 @@ import jax.numpy as jnp
 import pytest
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
-from jaxmg._block_cyclic_2d_plan import ProcessGrid
-from jaxmg._xla_comm_probe import cusolvermp_potrs_probe_shardmap
+from tests.reference_block_cyclic_2d_plan import ProcessGrid
+from tests.diagnostics.xla_comm_probe import cusolvermp_potrs_probe_shardmap
 
 platforms = {d.platform for d in jax.devices()}
 if "gpu" not in platforms:

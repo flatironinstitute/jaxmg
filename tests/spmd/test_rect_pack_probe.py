@@ -12,7 +12,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from jaxmg._xla_comm_probe import xla_rect_pack_unpack_probe
+from tests.diagnostics.xla_comm_probe import xla_rect_pack_unpack_probe
 
 platforms = {d.platform for d in jax.devices()}
 if "gpu" not in platforms:

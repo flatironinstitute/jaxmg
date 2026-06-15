@@ -23,7 +23,7 @@ from tests.redistribution_helpers import (
     required_padded_block_cyclic_2d_scratch_size,
     required_rect_transfer_scratch_size,
 )
-from jaxmg._block_cyclic_2d_plan import (
+from tests.reference_block_cyclic_2d_plan import (
     ProcessGrid,
     TileShape,
     batch_edge_padding_compaction_moves,

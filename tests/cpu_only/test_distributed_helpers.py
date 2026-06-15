@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pytest
 
-import jaxmg._distributed as distributed
+import tests.distributed_helpers as distributed
 
 
 def test_infer_local_device_count_prefers_explicit_jaxmg_env():

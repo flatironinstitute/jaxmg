@@ -99,7 +99,7 @@ def _run_probe(*, use_private_stream: bool) -> None:
     import jax.numpy as jnp
     from jax.sharding import NamedSharding, PartitionSpec as P
 
-    from jaxmg._xla_comm_probe import cusolvermp_syevd_probe_shardmap
+    from tests.diagnostics.xla_comm_probe import cusolvermp_syevd_probe_shardmap
 
     process_count = jax.device_count()
     process_rows = _int_env("JAXMG_SYEVD_PROCESS_ROWS", default=2)

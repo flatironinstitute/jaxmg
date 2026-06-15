@@ -16,12 +16,12 @@ from tests.redistribution_helpers import (
     execute_padded_block_cyclic_2d_shardmap,
     required_padded_block_cyclic_2d_scratch_size,
 )
-from jaxmg._block_cyclic_2d_plan import (
+from tests.reference_block_cyclic_2d_plan import (
     ProcessGrid,
     TileShape,
     build_edge_padding_compaction_plan,
 )
-from jaxmg._xla_comm_probe import cusolvermp_scatter_layout_probe_shardmap
+from tests.diagnostics.xla_comm_probe import cusolvermp_scatter_layout_probe_shardmap
 
 platforms = {d.platform for d in jax.devices()}
 if "gpu" not in platforms:

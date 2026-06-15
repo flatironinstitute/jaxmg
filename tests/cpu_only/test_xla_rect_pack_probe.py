@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 import pytest
 
-from jaxmg._xla_comm_probe import (
+from tests.diagnostics.xla_comm_probe import (
     _validate_rect_pack_args,
     _validate_rect_transfer_args,
 )

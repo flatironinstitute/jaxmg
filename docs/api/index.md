@@ -36,10 +36,6 @@ device discovery, array creation, or JIT compilation. The `syevd` path follows
 cuSOLVERMp's rank-per-GPU model: one Python process per participating GPU. Build
 the 2D process mesh with normal JAX APIs such as `jax.make_mesh`.
 
-[Full distributed helper module →](distributed.md)
-
----
-
 ## syevd
 
 cuSOLVERMp eigensolver for symmetric (Hermitian) matrices on a 2D process grid.

@@ -21,7 +21,8 @@ can be reached by two 1D-style passes:
 2. Row-owner phase: within each process column, move tile rows until every tile
    has the correct `process_row`.
 
-The CPU-only planner in `jaxmg._block_cyclic_2d_plan` confirms that this
+The CPU-only reference planner in `tests.reference_block_cyclic_2d_plan`
+confirms that this
 factorization is correct at the ownership level. Applying the column-owner moves
 and then the row-owner moves reaches the same owner as the direct 2D
 block-cyclic rule above, including degenerate grids such as `1 x P` and

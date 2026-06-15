@@ -6,7 +6,7 @@ import numpy as np
 from jax import Array
 from jax.sharding import Mesh, PartitionSpec as P
 
-from ._setup import ensure_init_jaxmg_backend
+from jaxmg._setup import ensure_init_jaxmg_backend
 
 
 def xla_comm_collective_probe(token: Array) -> Array:
@@ -17,7 +17,7 @@ def xla_comm_collective_probe(token: Array) -> Array:
     A zero status with ``has_platform_handle == 1`` means the execute handler
     reached the XLA-owned GPU communicator for the requested clique.
     """
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     out_type = (jax.ShapeDtypeStruct((8,), jnp.int32),)
     ffi_fn = jax.ffi.ffi_call(
@@ -60,7 +60,7 @@ def xla_comm_allreduce_probe(token: Array) -> Array:
     for verifying that the communicator borrowed through XLA collective FFI
     contexts is usable, not just visible.
     """
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     if token.dtype != jnp.uint32:
         raise TypeError("xla_comm_allreduce_probe expects a uint32 token.")
@@ -109,7 +109,7 @@ def xla_comm_global_allreduce_probe(token: Array) -> Array:
     requests the all-assigned communicator needed by cuSOLVERMp redistribution
     and solver setup.
     """
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     if token.dtype != jnp.uint32:
         raise TypeError("xla_comm_global_allreduce_probe expects a uint32 token.")
@@ -158,7 +158,7 @@ def xla_comm_ring_permute_probe(token: Array) -> Array:
     Rank ``i`` sends to ``(i + 1) % n`` and receives from
     ``(i - 1) % n`` using XLA's collective-permute communicator path.
     """
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     if token.dtype != jnp.uint32:
         raise TypeError("xla_comm_ring_permute_probe expects a uint32 token.")
@@ -208,7 +208,7 @@ def xla_comm_global_ring_permute_probe(token: Array) -> Array:
     set. This validates the point-to-point communicator scope needed by the
     cuSOLVERMp 2D redistribution path.
     """
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     if token.dtype != jnp.uint32:
         raise TypeError("xla_comm_global_ring_permute_probe expects a uint32 token.")
@@ -258,7 +258,7 @@ def xla_comm_shift_permute_probe(token: Array, *, shift: int) -> Array:
     ``(i - shift) % n`` using XLA's collective-permute communicator path.
     ``shift`` is passed as a static FFI attribute.
     """
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     if token.dtype != jnp.uint32:
         raise TypeError("xla_comm_shift_permute_probe expects a uint32 token.")
@@ -312,7 +312,7 @@ def xla_comm_permute_probe(token: Array, *, targets) -> Array:
     investigation helper for moving from simple ring/shift probes toward the
     tile movement plans needed by the cuSOLVERMp redistribution.
     """
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     if token.dtype != jnp.uint32:
         raise TypeError("xla_comm_permute_probe expects a uint32 token.")
@@ -518,7 +518,7 @@ def cusolvermp_init_probe(
     not available on the host, which is expected on systems that only provide
     ordinary cuSOLVER.
     """
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     if token.ndim != 1:
         raise ValueError("cusolvermp_init_probe expects a rank-1 token.")
@@ -676,7 +676,7 @@ def cusolvermp_scatter_layout_probe(
         tile_rows=tile_rows,
         tile_cols=tile_cols,
     )
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     out_type = (
         jax.ShapeDtypeStruct(matrix.shape, matrix.dtype),
@@ -780,7 +780,7 @@ def cusolvermp_potrs_probe(
     if n <= 0 or tile_size <= 0:
         raise ValueError("n and tile_size must be positive.")
 
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     out_type = (
         jax.ShapeDtypeStruct(a.shape, a.dtype),
@@ -889,7 +889,7 @@ def cusolvermp_distributed_potrs_probe(
     if n <= 0 or nrhs <= 0 or tile_size <= 0:
         raise ValueError("n, nrhs, and tile_size must be positive.")
 
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     out_type = (
         jax.ShapeDtypeStruct(a.shape, a.dtype),
@@ -995,7 +995,7 @@ def cusolvermp_syevd_probe(
     if grid_mapping not in (0, 1):
         raise ValueError("grid_mapping must be 0 (column-major) or 1 (row-major).")
 
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     out_type = (
         jax.ShapeDtypeStruct((_CUSOLVERMP_SYEVD_PROBE_SIZE,), jnp.int32),
@@ -1068,7 +1068,7 @@ def xla_comm_chunk_permute_probe(
     initialized as a copy of ``token`` before planned chunks are applied, which
     makes this probe useful for validating partial overwrites.
     """
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     if token.dtype != jnp.uint32:
         raise TypeError("xla_comm_chunk_permute_probe expects a uint32 token.")
@@ -1162,7 +1162,7 @@ def xla_comm_matrix_column_step(
     This is a low-level investigation helper retained for communicator
     diagnostics. It is not part of the production solver API.
     """
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     if matrix.ndim != 2:
         raise ValueError("xla_comm_matrix_column_step expects a rank-2 matrix.")
@@ -1251,7 +1251,7 @@ def xla_comm_matrix_column_batch(
     ``matrix.shape[1]``. The native handler executes the supplied steps in
     order within one FFI call.
     """
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     if matrix.ndim != 2:
         raise ValueError("xla_comm_matrix_column_batch expects a rank-2 matrix.")
@@ -1354,7 +1354,7 @@ def xla_comm_matrix_column_native_plan(
     the tile size and buffers. This diagnostic is not part of the production
     solver API.
     """
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     if matrix.ndim != 2:
         raise ValueError("xla_comm_matrix_column_native_plan expects a rank-2 matrix.")
@@ -1722,7 +1722,7 @@ def xla_rect_pack_unpack_probe(
         target_row=target_row,
         target_col=target_col,
     )
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     out_type = (
         jax.ShapeDtypeStruct(matrix.shape, matrix.dtype),
@@ -1818,7 +1818,7 @@ def _xla_rect_transfer_probe_impl(
         row_count=row_count,
         col_count=col_count,
     )
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     out_type = (
         jax.ShapeDtypeStruct(matrix.shape, matrix.dtype),
@@ -1948,7 +1948,7 @@ def _xla_rect_2d_native_plan_impl(
         process_cols=process_cols,
         caller="xla_rect_2d_native_plan",
     )
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     out_type = (
         jax.ShapeDtypeStruct(matrix.shape, matrix.dtype),
@@ -2073,7 +2073,7 @@ def _xla_rect_padded_2d_native_plan_impl(
         process_cols=process_cols,
         caller="xla_rect_padded_2d_native_plan",
     )
-    ensure_init_jaxmg_backend()
+    ensure_init_jaxmg_backend(include_diagnostics=True)
 
     out_type = (
         jax.ShapeDtypeStruct(matrix.shape, matrix.dtype),

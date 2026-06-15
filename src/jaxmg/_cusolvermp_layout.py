@@ -29,7 +29,7 @@ import numpy as np
 from jax import Array
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
-from ._block_cyclic_2d_plan import (
+from ._layout_types import (
     ProcessGrid,
     ProcessRankMap,
     TileShape,

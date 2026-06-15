@@ -224,7 +224,7 @@ def _run_case(case: Case) -> None:
     from jax.sharding import NamedSharding, PartitionSpec as P
 
     import jaxmg
-    from jaxmg._block_cyclic_2d_plan import ProcessGrid
+    from tests.reference_block_cyclic_2d_plan import ProcessGrid
 
     grid = ProcessGrid(case.process_rows, case.process_cols)
     if jax.device_count() != grid.num_processes:

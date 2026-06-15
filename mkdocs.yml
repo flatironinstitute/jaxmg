@@ -98,7 +98,6 @@ nav:
         - "examples/potrs_example.ipynb"
     - API:
         - "api/index.md"
-        - "api/distributed.md"
         - "api/potrs.md"
         - "api/syevd.md"
     - Technical Details:

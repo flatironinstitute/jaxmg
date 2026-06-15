@@ -19,7 +19,7 @@ from collections import defaultdict
 from jax import Array
 from jax.sharding import Mesh, PartitionSpec as P
 
-from jaxmg._block_cyclic_2d_plan import (
+from tests.reference_block_cyclic_2d_plan import (
     EdgePaddingCompactionBatch,
     EdgePaddingCompactionMove,
     ExecutableFragmentTransfer,
@@ -30,7 +30,7 @@ from jaxmg._block_cyclic_2d_plan import (
     batch_edge_padding_compaction_moves,
     build_edge_padding_compaction_plan,
 )
-from jaxmg._xla_comm_probe import (
+from tests.diagnostics.xla_comm_probe import (
     xla_rect_2d_native_plan_shardmap,
     xla_rect_padded_2d_native_plan_shardmap,
     xla_rect_transfer_probe_shardmap,

@@ -13,8 +13,149 @@ from .utils import JaxMgWarning
 
 _lib_dir = os.path.dirname(__file__)
 _initialized = False
+_diagnostics_initialized = False
 _runtime_mode = None
+_cuda_bin_dir = None
 _xla_comm_backend_library = "libjaxmg_xla_comm_backend.so"
+
+_PRODUCTION_FFI_TARGETS = (
+    (
+        "cusolvermp_potrs",
+        {
+            "prepare": "XlaCusolverMpPotrsPrepareFFI",
+            "execute": "XlaCusolverMpPotrsFFI",
+        },
+    ),
+    (
+        "cusolvermp_syevd",
+        {
+            "prepare": "XlaCusolverMpSyevdPrepareFFI",
+            "execute": "XlaCusolverMpSyevdFFI",
+        },
+    ),
+)
+
+_DIAGNOSTIC_FFI_TARGETS = (
+    (
+        "xla_comm_collective_probe",
+        {
+            "prepare": "XlaCommCollectiveProbePrepareFFI",
+            "execute": "XlaCommCollectiveProbeFFI",
+        },
+    ),
+    (
+        "xla_comm_allreduce_probe",
+        {
+            "prepare": "XlaCommAllReduceProbePrepareFFI",
+            "execute": "XlaCommAllReduceProbeFFI",
+        },
+    ),
+    (
+        "xla_comm_global_allreduce_probe",
+        {
+            "prepare": "XlaCommGlobalAllReduceProbePrepareFFI",
+            "execute": "XlaCommGlobalAllReduceProbeFFI",
+        },
+    ),
+    (
+        "xla_comm_ring_permute_probe",
+        {
+            "prepare": "XlaCommRingPermuteProbePrepareFFI",
+            "execute": "XlaCommRingPermuteProbeFFI",
+        },
+    ),
+    (
+        "xla_comm_global_ring_permute_probe",
+        {
+            "prepare": "XlaCommGlobalRingPermuteProbePrepareFFI",
+            "execute": "XlaCommGlobalRingPermuteProbeFFI",
+        },
+    ),
+    (
+        "xla_comm_shift_permute_probe",
+        {
+            "prepare": "XlaCommShiftPermuteProbePrepareFFI",
+            "execute": "XlaCommShiftPermuteProbeFFI",
+        },
+    ),
+    (
+        "xla_comm_permute_probe",
+        {
+            "prepare": "XlaCommPermuteProbePrepareFFI",
+            "execute": "XlaCommPermuteProbeFFI",
+        },
+    ),
+    (
+        "xla_comm_chunk_permute_probe",
+        {
+            "prepare": "XlaCommChunkPermuteProbePrepareFFI",
+            "execute": "XlaCommChunkPermuteProbeFFI",
+        },
+    ),
+    (
+        "xla_rect_pack_unpack_probe",
+        {
+            "prepare": "XlaRectPackUnpackProbePrepareFFI",
+            "execute": "XlaRectPackUnpackProbeFFI",
+        },
+    ),
+    (
+        "xla_rect_transfer_probe",
+        {
+            "prepare": "XlaRectTransferProbePrepareFFI",
+            "execute": "XlaRectTransferProbeFFI",
+        },
+    ),
+    (
+        "xla_rect_2d_native_plan",
+        {
+            "prepare": "XlaRect2DNativePlanPrepareFFI",
+            "execute": "XlaRect2DNativePlanFFI",
+        },
+    ),
+    (
+        "xla_rect_padded_2d_native_plan",
+        {
+            "prepare": "XlaRectPadded2DNativePlanPrepareFFI",
+            "execute": "XlaRectPadded2DNativePlanFFI",
+        },
+    ),
+    (
+        "cusolvermp_init_probe",
+        {
+            "prepare": "XlaCusolverMpInitProbePrepareFFI",
+            "execute": "XlaCusolverMpInitProbeFFI",
+        },
+    ),
+    (
+        "cusolvermp_scatter_layout_probe",
+        {
+            "prepare": "XlaCusolverMpScatterLayoutProbePrepareFFI",
+            "execute": "XlaCusolverMpScatterLayoutProbeFFI",
+        },
+    ),
+    (
+        "cusolvermp_potrs_probe",
+        {
+            "prepare": "XlaCusolverMpPotrsProbePrepareFFI",
+            "execute": "XlaCusolverMpPotrsProbeFFI",
+        },
+    ),
+    (
+        "cusolvermp_distributed_potrs_probe",
+        {
+            "prepare": "XlaCusolverMpDistributedPotrsProbePrepareFFI",
+            "execute": "XlaCusolverMpDistributedPotrsProbeFFI",
+        },
+    ),
+    (
+        "cusolvermp_syevd_probe",
+        {
+            "prepare": "XlaCusolverMpSyevdProbePrepareFFI",
+            "execute": "XlaCusolverMpSyevdProbeFFI",
+        },
+    ),
+)
 
 if not sys.platform.startswith("linux"):
     warnings.warn(
@@ -121,8 +262,22 @@ def _detect_runtime_mode():
     return "MPMD", jax.device_count()
 
 
+def _register_diagnostic_targets():
+    global _diagnostics_initialized
+    if _diagnostics_initialized or _cuda_bin_dir is None:
+        return
+    for ffi_name, symbols in _DIAGNOSTIC_FFI_TARGETS:
+        _register_optional_cuda_target_bundle(
+            _cuda_bin_dir,
+            _xla_comm_backend_library,
+            ffi_name,
+            symbols,
+        )
+    _diagnostics_initialized = True
+
+
 def _initialize():
-    global _runtime_mode
+    global _runtime_mode, _cuda_bin_dir
     if any("gpu" == d.platform for d in jax.devices()):
         # Determine CUDA backend
         backend = jax.extend.backend.get_backend()
@@ -150,178 +305,15 @@ def _initialize():
         # set if not set already
         os.environ.setdefault("JAXMG_NUMBER_OF_DEVICES", str(n_devices_per_node))
         os.environ.setdefault("JAXMG_EXECUTION_MODE", mode)
+        _cuda_bin_dir = bin_dir
 
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "xla_comm_collective_probe",
-            {
-                "prepare": "XlaCommCollectiveProbePrepareFFI",
-                "execute": "XlaCommCollectiveProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "xla_comm_allreduce_probe",
-            {
-                "prepare": "XlaCommAllReduceProbePrepareFFI",
-                "execute": "XlaCommAllReduceProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "xla_comm_global_allreduce_probe",
-            {
-                "prepare": "XlaCommGlobalAllReduceProbePrepareFFI",
-                "execute": "XlaCommGlobalAllReduceProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "xla_comm_ring_permute_probe",
-            {
-                "prepare": "XlaCommRingPermuteProbePrepareFFI",
-                "execute": "XlaCommRingPermuteProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "xla_comm_global_ring_permute_probe",
-            {
-                "prepare": "XlaCommGlobalRingPermuteProbePrepareFFI",
-                "execute": "XlaCommGlobalRingPermuteProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "xla_comm_shift_permute_probe",
-            {
-                "prepare": "XlaCommShiftPermuteProbePrepareFFI",
-                "execute": "XlaCommShiftPermuteProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "xla_comm_permute_probe",
-            {
-                "prepare": "XlaCommPermuteProbePrepareFFI",
-                "execute": "XlaCommPermuteProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "xla_comm_chunk_permute_probe",
-            {
-                "prepare": "XlaCommChunkPermuteProbePrepareFFI",
-                "execute": "XlaCommChunkPermuteProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "xla_rect_pack_unpack_probe",
-            {
-                "prepare": "XlaRectPackUnpackProbePrepareFFI",
-                "execute": "XlaRectPackUnpackProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "xla_rect_transfer_probe",
-            {
-                "prepare": "XlaRectTransferProbePrepareFFI",
-                "execute": "XlaRectTransferProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "xla_rect_2d_native_plan",
-            {
-                "prepare": "XlaRect2DNativePlanPrepareFFI",
-                "execute": "XlaRect2DNativePlanFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "xla_rect_padded_2d_native_plan",
-            {
-                "prepare": "XlaRectPadded2DNativePlanPrepareFFI",
-                "execute": "XlaRectPadded2DNativePlanFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "cusolvermp_init_probe",
-            {
-                "prepare": "XlaCusolverMpInitProbePrepareFFI",
-                "execute": "XlaCusolverMpInitProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "cusolvermp_scatter_layout_probe",
-            {
-                "prepare": "XlaCusolverMpScatterLayoutProbePrepareFFI",
-                "execute": "XlaCusolverMpScatterLayoutProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "cusolvermp_potrs_probe",
-            {
-                "prepare": "XlaCusolverMpPotrsProbePrepareFFI",
-                "execute": "XlaCusolverMpPotrsProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "cusolvermp_distributed_potrs_probe",
-            {
-                "prepare": "XlaCusolverMpDistributedPotrsProbePrepareFFI",
-                "execute": "XlaCusolverMpDistributedPotrsProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "cusolvermp_syevd_probe",
-            {
-                "prepare": "XlaCusolverMpSyevdProbePrepareFFI",
-                "execute": "XlaCusolverMpSyevdProbeFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "cusolvermp_potrs",
-            {
-                "prepare": "XlaCusolverMpPotrsPrepareFFI",
-                "execute": "XlaCusolverMpPotrsFFI",
-            },
-        )
-        _register_optional_cuda_target_bundle(
-            bin_dir,
-            _xla_comm_backend_library,
-            "cusolvermp_syevd",
-            {
-                "prepare": "XlaCusolverMpSyevdPrepareFFI",
-                "execute": "XlaCusolverMpSyevdFFI",
-            },
-        )
+        for ffi_name, symbols in _PRODUCTION_FFI_TARGETS:
+            _register_cuda_target_bundle(
+                bin_dir,
+                _xla_comm_backend_library,
+                ffi_name,
+                symbols,
+            )
     else:
         warnings.warn(
             "No GPUs found, only use this mode for testing or generating documentation.",
@@ -331,9 +323,10 @@ def _initialize():
         os.environ["JAXMG_NUMBER_OF_DEVICES"] = str(jax.device_count())
 
 
-def ensure_init_jaxmg_backend():
+def ensure_init_jaxmg_backend(*, include_diagnostics: bool = False):
     global _initialized
-    if _initialized:
-        return
-    _initialized = True
-    _initialize()
+    if not _initialized:
+        _initialized = True
+        _initialize()
+    if include_diagnostics:
+        _register_diagnostic_targets()

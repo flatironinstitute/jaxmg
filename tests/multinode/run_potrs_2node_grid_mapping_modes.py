@@ -26,6 +26,7 @@ from jax import config
 config.update("jax_enable_x64", True)
 
 import jaxmg
+from tests.distributed_helpers import initialize_node_process
 
 
 GridMapping = Literal["row_major", "column_major"]
@@ -268,7 +269,7 @@ def _cases() -> list[MappingCase]:
 
 def main() -> None:
     try:
-        local_ids = jaxmg.initialize_node_process(initialization_timeout=120)
+        local_ids = initialize_node_process(initialization_timeout=120)
 
         import jax
 

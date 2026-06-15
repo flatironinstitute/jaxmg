@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import pytest
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
-from jaxmg._xla_comm_probe import cusolvermp_init_probe_shardmap
+from tests.diagnostics.xla_comm_probe import cusolvermp_init_probe_shardmap
 
 platforms = {d.platform for d in jax.devices()}
 if "gpu" not in platforms:
