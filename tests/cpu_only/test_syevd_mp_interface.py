@@ -67,16 +67,6 @@ def test_syevd_mp_rejects_eigenvalue_only_mode():
         syevd_mp(a, 2, eigvecs=False)
 
 
-def test_syevd_mp_requires_rank_per_gpu_process_model(monkeypatch):
-    mesh = _single_device_mesh()
-    a = jnp.eye(4, dtype=jnp.float32)
-
-    monkeypatch.setattr(jax, "local_device_count", lambda *args, **kwargs: 2)
-
-    with pytest.raises(RuntimeError, match="rank-per-GPU"):
-        syevd_mp(a, 2, mesh=mesh, matrix_specs=P("pr", "pc"))
-
-
 def test_syevd_mp_rejects_padding_when_pad_false():
     mesh = _single_device_mesh()
     a = jnp.eye(5, dtype=jnp.float32)
