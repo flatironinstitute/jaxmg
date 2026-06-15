@@ -27,11 +27,14 @@ sharding = NamedSharding(mesh, P("pr", "pc"))
 A = jax.device_put(jnp.asarray(A_host), sharding)
 
 w, V = jaxmg.syevd_mp(A, T_A=128, eigvecs=True)
-w_only = jaxmg.syevd_mp(A, T_A=128, eigvecs=False)
 ```
 
 ``syevd_mp`` returns replicated eigenvalues. When ``eigvecs=True``, the
 eigenvector matrix is reverse-redistributed to the same JAX-facing
 block-sharded layout as the input matrix.
+
+The cuSOLVERMp no-vector path is still under validation for the 0.7.2 runtime
+used in current CSD3 testing. Do not rely on ``eigvecs=False`` for this backend
+until that path is explicitly marked supported.
 
 ::: jaxmg.syevd_mp

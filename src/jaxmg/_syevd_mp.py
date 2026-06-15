@@ -11,7 +11,9 @@
    original JAX-facing block-sharded layout and remove local padding.
 
 Eigenvalues are returned replicated. Eigenvectors, when requested, use the same
-2D JAX sharding as the input matrix.
+2D JAX sharding as the input matrix. The cuSOLVERMp no-vector path is still
+under validation for the 0.7.2 runtime used in current CSD3 testing; keep
+``eigvecs=False`` experimental until that runtime behavior is resolved.
 """
 
 from __future__ import annotations
@@ -92,7 +94,8 @@ def syevd_mp(
         matrix_specs: Optional partition spec override. If omitted, inferred
             from ``a.sharding.spec``.
         eigvecs: If true, return eigenvectors as well as eigenvalues. If false,
-            return eigenvalues only.
+            request eigenvalues only. The cuSOLVERMp 0.7.2 no-vector path is
+            still under validation and may not be available on all runtimes.
         return_status: If true, append the per-rank native status array.
         pad: If true, add local row/column capacity so every local shard is
             tile-aligned. If false, incompatible local shard shapes raise.

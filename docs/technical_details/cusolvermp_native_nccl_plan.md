@@ -45,9 +45,10 @@ The branch has already proved these pieces independently:
 10. `jaxmg.potrs_mp` wires the Cholesky solve path: local shard padding,
     forward 2D redistribution, production `cusolvermp_potrs`, reverse 2D
     redistribution, and local unpadding of the solved right-hand side.
-11. `jaxmg.syevd_mp` wires the symmetric/Hermitian eigensolver path on the
-    same redistribution backend. It calls production `cusolvermp_syevd` and
-    reverse-redistributes eigenvectors when requested.
+11. `jaxmg.syevd_mp` has a native investigation path on the same redistribution
+    backend, but it is not yet in the same validation state as `potrs_mp`. The
+    current work is isolating cuSOLVERMp 0.7.2 `Syevd` behavior with the
+    installed `compz` API, the XLA-owned NCCL communicator, and the FFI stream.
 
 The current production redistribution path no longer loops over Python-planned
 rectangle batches. The native backend builds and executes the slab schedule in
@@ -208,19 +209,23 @@ The Cholesky cuSOLVERMp FFI target is registered as `cusolvermp_potrs`. The
 eigensolver target is registered as `cusolvermp_syevd`:
 
 ```text
-jaxmg.syevd_mp(eigvecs=True)
+jaxmg.syevd_mp(eigvecs=True) [under validation]
   -> pad local 2D shards
   -> native padded 2D redistribution
-  -> cusolverMpSyevd(jobz = "V")
+  -> cusolverMpSyevd(compz = "Z" on cuSOLVERMp 0.7.2)
   -> reverse native padded 2D redistribution of eigenvectors
   -> unpad local eigenvector shards
 
-jaxmg.syevd_mp(eigvecs=False)
+jaxmg.syevd_mp(eigvecs=False) [not supported on cuSOLVERMp 0.7.2 yet]
   -> pad local 2D shards
   -> native padded 2D redistribution
-  -> cusolverMpSyevd(jobz = "N")
+  -> cusolverMpSyevd(compz = "N")
   -> replicated eigenvalues only
 ```
+
+The installed cuSOLVERMp 0.7.2 runtime currently reports that eigenvalue-only
+SYEVD is not supported for `compz = "N"`, so the no-vector path should stay
+guarded or disabled unless a newer runtime proves otherwise.
 
 The older `cusolvermp_*_probe` functions remain internal diagnostics and are no
 longer top-level `jaxmg` exports. Explicit inverse support is intentionally not

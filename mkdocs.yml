@@ -112,3 +112,4 @@ nav:
         - "technical_details/cusolvermp_native_nccl_plan.md"
         - "technical_details/cusolvermp_multinode.md"
         - "technical_details/cusolvermp_routines.md"
+        - "technical_details/cusolvermp_syevd_status.md"
