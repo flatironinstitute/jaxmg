@@ -1371,7 +1371,11 @@ absl::Status RunCusolverMpSyevdSampleProbe(
   size_t workspace_host = 0;
   char compz[] = {'N', '\0'};
   if (compute_vectors) {
-    compz[0] = 'V';
+    // cuSOLVERMp 0.7.x exposes this selector as `compz` and NVIDIA's
+    // distributed SYEVD sample uses 'Z' for the eigenvector-producing path.
+    // The newer documentation names the argument `jobz`, but the installed
+    // header and runtime follow the Stedc-style convention.
+    compz[0] = 'Z';
   }
   CusolverMpDebug(debug_rank,
                   "syevd sample buffer_size begin compz=%c a=%p d=%p q=%p",
@@ -1577,10 +1581,11 @@ absl::Status RunCusolverMpSyevd(
   size_t workspace_host = 0;
   char compz[] = {'N', '\0'};
   if (compute_vectors) {
-    // cuSOLVERMp documents the eigenvector-producing path as jobz='V'. Keep
-    // this explicit because some older examples name the selector `compz`,
-    // which makes it easy to confuse this with other solver conventions.
-    compz[0] = 'V';
+    // cuSOLVERMp 0.7.x exposes this selector as `compz` and NVIDIA's
+    // distributed SYEVD sample uses 'Z' for the eigenvector-producing path.
+    // Keep this aligned with the installed header/runtime rather than the
+    // newer `jobz='V'` wording in some versions of the public documentation.
+    compz[0] = 'Z';
   }
   void* z_data = compute_vectors ? vectors_out->untyped_data()
                                  : work_out->untyped_data();
