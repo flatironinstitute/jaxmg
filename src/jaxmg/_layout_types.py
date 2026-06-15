@@ -186,7 +186,27 @@ def calculate_2d_padding(
     grid: ProcessGrid,
     tile_shape: TileShape,
 ) -> MatrixPadding2D:
-    """Return local padding for a block-sharded 2D JAX input layout."""
+    """Calculate the per-process padding required for a 2D block-sharded array.
+
+    To participate in cuSOLVERMp operations, each local shard in a 2D block
+    distribution must be tile-aligned. This function determines how many
+    padding rows and columns must be added to each local process's shard to
+    reach the next multiple of the tile size ``T_A``.
+
+    Args:
+        logical_rows: Total number of logical rows in the global matrix.
+        logical_cols: Total number of logical columns in the global matrix.
+        grid: The 2D process grid dimensions (rows x cols).
+        tile_shape: The square tile shape used by cuSOLVERMp.
+
+    Returns:
+        A ``MatrixPadding2D`` object containing the calculated local and
+        global physical (padded) dimensions.
+
+    Raises:
+        ValueError: If logical dimensions are not divisible by the process
+            grid dimensions.
+    """
     if logical_rows <= 0 or logical_cols <= 0:
         raise ValueError("logical dimensions must be positive.")
     if logical_rows % grid.process_rows != 0:

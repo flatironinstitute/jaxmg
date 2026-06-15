@@ -45,26 +45,57 @@ def syevd(
     return_status: bool = False,
     pad: bool = True,
 ) -> Tuple[Array, Array] | Tuple[Array, Array, Array]:
-    """Compute eigenvalues and eigenvectors on a 2D cuSOLVERMp process grid.
+    """Compute eigenvalues and eigenvectors using the multi-GPU cuSOLVERMp backend.
+
+    This function prepares the input and executes the native ``cusolvermp_syevd``
+    kernel via ``jax.ffi.ffi_call`` under ``jax.jit`` and ``jax.shard_map``.
+    It handles 2D process-grid validation and per-device padding driven by the
+    tile size ``T_A``.
+
+    Tip:
+        If the local shards of the matrix cannot be evenly divided by tiles of
+        size ``T_A``, JAXMg must add local padding to fit the last tile. This
+        creates padded JAX arrays, which should be avoided for large ``N`` when
+        possible. Choose ``T_A`` (typically 128 or larger) such that it evenly
+        divides each local shard. Performance usually increases with ``T_A``
+        but eventually saturates. Note that cuSOLVERMp may enforce
+        implementation-specific limits on ``T_A`` (e.g., ``T_A <= 1024``).
 
     Args:
-        a: Square symmetric/Hermitian matrix, normally sharded with
-            ``NamedSharding(mesh, P(row_axis, col_axis))``.
-        T_A: Square cuSOLVERMp tile size.  JAXMg currently uses
-            ``MB_A == NB_A == T_A``.
-        mesh: Optional JAX mesh override.  If omitted, inferred from
+        a: 2D square symmetric/Hermitian matrix. Expected to be sharded over
+            a 2D JAX ``Mesh`` using a ``NamedSharding`` or the provided
+            ``matrix_specs``.
+        T_A: Square cuSOLVERMp tile size. JAXMg uses ``MB_A == NB_A == T_A``.
+            Each local shard dimension (rows and columns) must be a multiple of
+            ``T_A``. If the provided ``T_A`` is incompatible and ``pad=True``,
+            the matrix is padded accordingly.
+        mesh: Optional JAX mesh override. If omitted, inferred from
             ``a.sharding.mesh``.
-        matrix_specs: Optional 2D ``PartitionSpec`` override.  If omitted,
-            inferred from ``a.sharding.spec``.
+        matrix_specs: Optional 2D ``PartitionSpec`` override describing the
+            input sharding. If omitted, inferred from ``a.sharding.spec``.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
-        return_status: If true, append the native per-rank status array.
-        pad: If true, locally pad shards so every local row/column capacity is
-            tile-aligned.  If false, incompatible shapes raise.
+        return_status: If True, return eigenvalues, eigenvectors, and a
+            per-rank native status array. Default is False.
+        pad: If True (default), apply per-device padding so each local shard
+            is tile-aligned. If False, the caller must ensure shapes already
+            match the kernel's requirements.
 
     Returns:
-        ``(w, v)`` where ``w`` contains replicated eigenvalues and ``v`` is
-        returned in the same JAX-facing block-sharded layout as ``a``.  If
-        ``return_status=True``, returns ``(w, v, status)``.
+        A tuple ``(w, v)`` where ``w`` contains replicated eigenvalues and
+        ``v`` contains eigenvectors in the same JAX-facing block-sharded layout
+        as ``a``. If ``return_status=True``, returns ``(w, v, status)`` where
+        ``status`` is a per-rank int32 native solver status.
+
+    Notes:
+        - Only the eigenvector-producing mode is currently exposed for the
+          cuSOLVERMp backend.
+        - The FFI call can donate the input buffer ``a`` for zero-copy
+          interaction with the native library.
+        - The native solver redistributes the JAX layout into cuSOLVERMp's 2D
+          block-cyclic layout, performs the eigensolve using an XLA-owned
+          NCCL communicator, and redistributes the results back.
+        - If the native solver fails, the outputs may contain NaNs and
+          ``status`` will be non-zero.
     """
     if a.ndim != 2:
         raise ValueError("syevd expects a rank-2 matrix A.")

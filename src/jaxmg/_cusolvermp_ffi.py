@@ -227,7 +227,33 @@ def cusolvermp_potrs_shardmap(
     nrhs: int,
     tile_size: int,
 ) -> tuple[Array, Array]:
-    """Wrap the fused ``potrs`` FFI target in a JAX mesh execution context."""
+    """Wrap the fused ``potrs`` FFI target in a JAX mesh execution context.
+
+    This function uses ``jax.shard_map`` to coordinate the native FFI calls
+    across all participating GPUs in the mesh. It ensures that every rank
+    receives the correct static metadata (process-grid dimensions, tile size,
+    and rank mapping) needed to enter the native cuSOLVERMp routine. The
+    native backend borrows XLA's communicator during the FFI call.
+
+    Args:
+        a: Local padded shard of the coefficient matrix.
+        b: Local padded shard of the right-hand side.
+        mesh: JAX ``Mesh`` describing the device grid.
+        matrix_specs: 2D ``PartitionSpec`` for the input and output matrices.
+        status_specs: ``PartitionSpec`` for the replicated status vector.
+        process_rows: Number of rows in the cuSOLVERMp process grid.
+        process_cols: Number of columns in the cuSOLVERMp process grid.
+        rank_map: Mapping from process-grid coordinates to communicator ranks.
+        grid_mapping: cuSOLVERMp grid-mapping enum (row-major or column-major).
+        n: Global dimension of the square matrix A.
+        nrhs: Number of right-hand sides in B.
+        tile_size: Square tile dimension (``T_A``).
+
+    Returns:
+        A tuple ``(b_solved, status)`` where ``b_solved`` is the solved RHS in
+        the padded JAX-facing layout and ``status`` is the native solver
+        status.
+    """
     if not isinstance(matrix_specs, P) or not isinstance(status_specs, P):
         raise TypeError("matrix_specs and status_specs must be PartitionSpec values.")
 
@@ -336,7 +362,31 @@ def cusolvermp_syevd_shardmap(
     n: int,
     tile_size: int,
 ) -> tuple[Array, Array, Array]:
-    """Wrap the fused vector ``syevd`` FFI target in a JAX mesh context."""
+    """Wrap the fused vector ``syevd`` FFI target in a JAX mesh context.
+
+    This function uses ``jax.shard_map`` to coordinate the native FFI calls
+    across all participating GPUs in the mesh. It ensures that every rank
+    receives the correct static metadata (process-grid dimensions, tile size,
+    and rank mapping) needed to enter the native cuSOLVERMp routine. The
+    native backend borrows XLA's communicator during the FFI call.
+
+    Args:
+        a: Local padded shard of the matrix to diagonalize.
+        mesh: JAX ``Mesh`` describing the device grid.
+        matrix_specs: 2D ``PartitionSpec`` for the matrix and eigenvectors.
+        status_specs: ``PartitionSpec`` for the replicated status vector.
+        process_rows: Number of rows in the cuSOLVERMp process grid.
+        process_cols: Number of columns in the cuSOLVERMp process grid.
+        rank_map: Mapping from process-grid coordinates to communicator ranks.
+        grid_mapping: cuSOLVERMp grid-mapping enum (row-major or column-major).
+        n: Global dimension of the square matrix A.
+        tile_size: Square tile dimension (``T_A``).
+
+    Returns:
+        A tuple ``(eigenvalues, eigenvectors, status)`` where eigenvalues are
+        replicated across the mesh, eigenvectors are in the padded JAX-facing
+        layout, and status is the native solver status.
+    """
     if not isinstance(matrix_specs, P) or not isinstance(status_specs, P):
         raise TypeError("matrix_specs and status_specs must be PartitionSpec values.")
 

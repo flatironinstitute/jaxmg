@@ -1,3 +1,14 @@
+"""Backend initialization and native FFI target registration for JAXMg.
+
+This module locates the packaged native backend for the active CUDA runtime,
+loads it with ``ctypes``, and registers the exported XLA FFI targets with JAX.
+The native backend is responsible for loading cuSOLVERMp/NCCL-compatible
+runtime libraries and for borrowing XLA's communicator during each FFI call.
+
+The setup path supports both single-process multi-GPU execution and JAX
+distributed runs with one Python process per local GPU.
+"""
+
 import importlib
 import pathlib
 import ctypes
@@ -324,6 +335,20 @@ def _initialize():
 
 
 def ensure_init_jaxmg_backend(*, include_diagnostics: bool = False):
+    """Ensure that the JAXMg native backend and FFI targets are initialized.
+
+    This function should be called by every public JAXMg entry point before
+    executing any native FFI calls. It performs one-time initialization:
+
+    1. identifies the CUDA version from the JAX backend;
+    2. detects the JAX runtime mode;
+    3. loads the packaged native backend library; and
+    4. registers production JAX FFI targets such as ``cusolvermp_potrs``.
+
+    Args:
+        include_diagnostics: If True, also register experimental diagnostic FFI
+            targets (e.g., communication probes). Default is False.
+    """
     global _initialized
     if not _initialized:
         _initialized = True

@@ -254,7 +254,32 @@ def pad_block_sharded_2d(
     tile_shape: TileShape,
     pad: bool,
 ) -> tuple[Array, tuple[int, int]]:
-    """Pad every local shard so native redistribution can move whole tiles."""
+    """Pad each local JAX shard so its capacity is tile-aligned for cuSOLVERMp.
+
+    cuSOLVERMp's native redistribution and solver routines require that every
+    participating process owns a local block whose dimensions are multiples of
+    the tile size ``T_A``. If the user's matrix dimensions or the JAX mesh
+    sharding result in shards that are not tile-aligned, JAXMg must add
+    local padding.
+
+    This function uses ``jax.shard_map`` to apply padding locally on each
+    device, ensuring that the padded matrix remains in the same JAX-facing
+    block-sharded layout.
+
+    Args:
+        matrix: 2D JAX array to pad.
+        mesh: JAX ``Mesh`` describing the device grid.
+        matrix_specs: 2D ``PartitionSpec`` for the matrix.
+        grid: ``ProcessGrid`` dimensions (rows x cols).
+        tile_shape: Square tile dimensions (``MB_A == NB_A == T_A``).
+        pad: If True, apply padding if needed. If False and padding is
+            required, raise a ``ValueError``.
+
+    Returns:
+        A tuple ``(padded_matrix, (local_logical_rows, local_logical_cols))``
+        where ``padded_matrix`` is the tile-aligned array and the second
+        element stores the original local dimensions (needed for unpadding).
+    """
     padding = calculate_2d_padding(
         logical_rows=matrix.shape[0],
         logical_cols=matrix.shape[1],
@@ -292,7 +317,21 @@ def unpad_block_sharded_2d(
     local_rows: int,
     local_cols: int,
 ) -> Array:
-    """Remove the local padding added by :func:`pad_block_sharded_2d`."""
+    """Remove local padding from a 2D block-sharded array.
+
+    This function reverses the effect of :func:`pad_block_sharded_2d` by
+    slicing each local shard back to its original logical dimensions.
+
+    Args:
+        matrix: The padded 2D JAX array.
+        mesh: JAX ``Mesh`` describing the device grid.
+        matrix_specs: 2D ``PartitionSpec`` for the matrix.
+        local_rows: Original number of logical rows per process.
+        local_cols: Original number of logical columns per process.
+
+    Returns:
+        The unpadded JAX array with its original logical shape.
+    """
     unpad_fn = jax.shard_map(
         partial(_unpad_local_2d, local_rows=local_rows, local_cols=local_cols),
         mesh=mesh,
