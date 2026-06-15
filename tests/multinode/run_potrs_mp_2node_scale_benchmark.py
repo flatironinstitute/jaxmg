@@ -220,14 +220,16 @@ def _assert_addressable_shards_close(
 def _run_case(case: ScaleCase, devices: Sequence[object]) -> None:
     import jax
     import jax.numpy as jnp
-    from jax.sharding import NamedSharding, PartitionSpec as P
+    from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
     device_count = case.process_rows * case.process_cols
     selected = _select_devices_spanning_processes(devices, device_count)
-    mesh = jaxmg.make_cusolvermp_mesh(
-        case.process_rows,
-        case.process_cols,
-        devices=selected,
+    mesh = Mesh(
+        np.asarray(selected, dtype=object).reshape(
+            case.process_rows,
+            case.process_cols,
+        ),
+        ("pr", "pc"),
     )
     sharding = NamedSharding(mesh, P("pr", "pc"))
 

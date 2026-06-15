@@ -1,16 +1,15 @@
-"""Distributed launch helpers for the cuSOLVERMp backend.
+"""Compatibility helpers for distributed cuSOLVERMp experiments.
 
-The cuSOLVERMp path has a stricter launch contract than ordinary local JAXMg
-usage. The native solver accepts only the two regular process-grid mappings
-that cuSOLVERMp can describe: row-major and column-major. This module provides
-the row-major convenience mesh used by most tests and examples.
+New cuSOLVERMp code should use ordinary JAX APIs: call
+``jax.distributed.initialize`` in the launcher and build meshes with
+``jax.make_mesh`` or ``jax.sharding.Mesh``. JAXMg then validates that the mesh
+device order matches one of the two process-grid mappings cuSOLVERMp can
+describe: row-major or column-major.
 
-The first multi-node target is one Python process per node, with that process
-controlling every GPU on the node. Some Slurm/Open MPI JAX launch modes default
-to one visible device per process unless ``local_device_ids`` is passed to
-``jax.distributed.initialize``. ``initialize_node_process`` therefore infers the
-local GPU ids from the scheduler environment and passes them explicitly before
-any JAX computation is allowed to initialize the backend.
+This module remains for older experiments and tests that used a
+one-Python-process-per-node setup. That mode needs explicit ``local_device_ids``
+because some Slurm/Open MPI launches expose only one GPU per process unless the
+ids are provided during JAX distributed initialization.
 """
 
 from __future__ import annotations
@@ -196,11 +195,10 @@ def make_cusolvermp_mesh(
     axis_names: tuple[str, str] = ("pr", "pc"),
     devices: Sequence[object] | None = None,
 ) -> Mesh:
-    """Create the row-major JAX mesh expected by ``jaxmg.potrs_mp``.
+    """Create a row-major JAX mesh for compatibility tests.
 
-    The returned mesh is shaped ``(process_rows, process_cols)`` and uses
-    row-major device order. This makes the JAX mesh rank order match the
-    cuSOLVERMp process-grid mapping used natively:
+    New user code should normally construct a JAX mesh directly. This helper is
+    retained for older tests that need to spell out the row-major device order:
 
         rank = process_row * process_cols + process_col
 
