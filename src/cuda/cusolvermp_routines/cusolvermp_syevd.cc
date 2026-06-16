@@ -44,7 +44,7 @@ absl::Status XlaCusolverMpSyevdPrepare(
 
 absl::Status XlaCusolverMpSyevdDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    se::ScratchAllocator& scratch, int64_t process_rows,
+    ffi::ScratchAllocator scratch, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t tile_size,
     int64_t grid_mapping, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues,
