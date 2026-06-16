@@ -1,50 +1,38 @@
-# Multi-Process Launches
+# Multiple Process Multiple Devices (MPMD)
 
-JAXMg no longer exposes separate `_mp` solver wrappers or a separate CUDA IPC
-pointer-sharing backend. Multi-process execution is handled through ordinary
-JAX distributed setup, and the public functions remain:
+In a multi-process context it is not as straightforward to setup memory sharing between processes, especially when it comes to passing around device pointers which are bound to a specific CUDA context. 
 
-```python
-jaxmg.potrs(...)
-jaxmg.syevd(...)
+The solution used here is to make use of the cudaIPC documentation, which allows one to export handles to device memory to
+different processes. In `potrs_mp.cu`, we achieve this again through shared memory, although now we share the cudaIPC memory
+handles:
+
+```cpp
+ipcGetHandleAndOffset(array_data_A, 
+                      shmAipc[currentDevice], 
+                      shmoffsetA[currentDevice]);
 ```
 
-The fused cuSOLVERMp FFI handlers use the same native path regardless of
-whether a job is single-node or multi-node:
+A significant complication is that JAX' memory allocation is managed by XLA, which means that device pointers are actually
+base pointers together with some offset. cudaIPC only exports the base-pointer, so we have to manually pass around the 
+offset and extract the true pointer:
 
-```text
-JAX block-sharded input
-  -> JAX-side local padding
-  -> fused native FFI call
-       -> native 2D redistribution
-       -> borrowed XLA-owned NCCL communicator
-       -> cuSOLVERMp routine
-       -> reverse native redistribution
-  -> JAX-side unpadding
+```cpp
+opened_ptrs_A = ipcGetDevicePointers<data_type>(currentDevice, 
+                                                nbGpus,
+                                                shmAipc, 
+                                                shmoffsetA);
 ```
 
-The supported multi-process contract is rank-per-GPU: one Python process owns
-one participating GPU. User code should call `jax.distributed.initialize()`
-before any operation that can initialize the JAX backend, then build a normal
-JAX mesh over the participating devices.
+We gather all the pointers in process 0 and set up the solver in the same way as before. After completion, it is essential
+to close the memory handles
 
-```python
-import jax
-from jax.sharding import NamedSharding, PartitionSpec as P
-
-import jaxmg
-
-jax.distributed.initialize(...)
-
-mesh = jax.make_mesh((2, 4), ("pr", "pc"))
-sharding = NamedSharding(mesh, P("pr", "pc"))
+```cpp
+ipcCloseDevicePointers(currentDevice, 
+                       opened_ptrs_A.bases, 
+                       nbGpus);
 ```
 
-JAXMg inspects the resulting mesh and accepts row-major or column-major process
-rank mappings that cuSOLVERMp can represent directly. Exotic mesh permutations
-are rejected early instead of being silently remapped inside native code.
+to avoid memory leaks.
 
-One-process-per-node launches may be useful for diagnostics, but they are not
-the primary cuSOLVERMp contract unless explicitly validated for the target
-routine and runtime. The package does not create or manage distributed JAX
-processes itself.
+> **Note:** If you've made it this far and have experience or thoughts on this, please reach out!
+

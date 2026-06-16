@@ -1,1 +1,15 @@
-"""Shared pytest configuration for the JAXMg test suite."""
+# Register the 'mpmd' marker for pytest
+def pytest_configure(config):
+    config.addinivalue_line("markers", "mpmd: mark test as mpmd-related")
+def pytest_collection_modifyitems(config, items):
+    selected = []
+    deselected = []
+    for item in items:
+        selected.append(item)
+        # if "mpmd/test_launch_2d_grid_reduce.py" in item.nodeid:
+        #     selected.append(item)
+        # else:
+        #     deselected.append(item)
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+    items[:] = selected
