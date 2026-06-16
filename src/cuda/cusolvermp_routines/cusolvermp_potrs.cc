@@ -129,6 +129,13 @@ absl::Status XlaCusolverMpPotrsDispatch(
       /*reverse=*/0, rank_map, b, b_out->device_memory(), scratch_base,
       scratch_elements, collective_params, collective_cliques));
 
+  // The previous production prototype ran redistribution and cuSOLVERMp as
+  // separate FFI calls, which gave XLA a hard sequencing boundary.  The fused
+  // handler must provide the same safety explicitly before the host-side
+  // cuSOLVERMp call reads the redistributed buffers.  This can be relaxed to an
+  // event dependency after the correctness matrix is stable.
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+
   ffi::AnyBuffer a_cyclic = *a_work;
   ffi::AnyBuffer b_cyclic = *b_out;
   JAXMG_RETURN_IF_ERROR(CusolverMpDistributedPotrsDispatchImpl(
@@ -136,6 +143,11 @@ absl::Status XlaCusolverMpPotrsDispatch(
       tile_size, grid_mapping, rank_map, a_cyclic, b_cyclic, a_work, b_out,
       status, collective_params, collective_cliques,
       /*validate_solution=*/false));
+
+  // cuSOLVERMp is issued on the same stream, but keep the fused reverse
+  // redistribution boundary explicit for the same reason as the forward solve
+  // boundary above.
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
   ffi::AnyBuffer b_solved_cyclic = *b_out;
   return ExecutePadded2DNativePlanRaw(

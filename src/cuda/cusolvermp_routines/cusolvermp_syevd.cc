@@ -97,11 +97,21 @@ absl::Status XlaCusolverMpSyevdDispatch(
       rank_map, a, work->device_memory(), scratch_base, scratch_elements,
       collective_params, collective_cliques));
 
+  // Preserve the old split-call sequencing semantics inside the fused handler:
+  // the host-side cuSOLVERMp call must not observe the work buffer until all
+  // pack/NCCL/unpack redistribution work is complete.
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+
   ffi::AnyBuffer a_cyclic = *work;
   JAXMG_RETURN_IF_ERROR(CusolverMpSyevdDispatchImpl(
       stream, comm_stream, cuda_stream, process_rows, process_cols, n,
       tile_size, grid_mapping, rank_map, a_cyclic, eigenvalues, work, vectors,
       status, collective_params, collective_cliques));
+
+  // SYEVD writes the eigenvectors in cuSOLVERMp layout.  Keep the reverse
+  // redistribution after a completed solver call, mirroring the old separate
+  // FFI-call pipeline.
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
   ffi::AnyBuffer vectors_cyclic = *vectors;
   return ExecutePadded2DNativePlanRaw(

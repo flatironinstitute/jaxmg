@@ -2209,8 +2209,17 @@ absl::Status XlaCusolverMpPotrsProbeDispatch(
       -1,  // cuSOLVERMp grid mapping: 0 column-major, 1 row-major.
   };
 
-  int cuda_device = -1;
-  cudaError_t cuda_status = cudaGetDevice(&cuda_device);
+  // cuSOLVERMp binds the handle to one CUDA device.  In a JAX multi-device FFI
+  // call the host thread's current device is not a reliable proxy for the
+  // donated buffer's owner, especially when the JAX mesh uses a column-major
+  // process-grid order.  Match the SYEVD path and anchor the handle to A.
+  absl::StatusOr<int> buffer_device = DeviceForCudaPointer(a.untyped_data());
+  if (!buffer_device.ok()) {
+    probe[0] = kCudaDeviceFailed;
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+  int cuda_device = *buffer_device;
+  cudaError_t cuda_status = cudaSetDevice(cuda_device);
   if (cuda_status != cudaSuccess) {
     probe[0] = kCudaDeviceFailed;
     return CopyPotrsProbeToDevice(stream, probe, status_out);
@@ -2472,8 +2481,17 @@ absl::Status CusolverMpDistributedPotrsDispatchImpl(
       -1,
   };
 
-  int cuda_device = -1;
-  cudaError_t cuda_status = cudaGetDevice(&cuda_device);
+  // Bind the cuSOLVERMp handle to the device that owns this rank's A shard.
+  // The host-thread current device can be stale inside XLA multi-device FFI
+  // callbacks, and column-major process grids make that bug much easier to
+  // trigger because logical rank order no longer matches local device order.
+  absl::StatusOr<int> buffer_device = DeviceForCudaPointer(a.untyped_data());
+  if (!buffer_device.ok()) {
+    probe[0] = kCudaDeviceFailed;
+    return CopyPotrsProbeToDevice(stream, probe, status_out);
+  }
+  int cuda_device = *buffer_device;
+  cudaError_t cuda_status = cudaSetDevice(cuda_device);
   if (cuda_status != cudaSuccess) {
     probe[0] = kCudaDeviceFailed;
     return CopyPotrsProbeToDevice(stream, probe, status_out);
