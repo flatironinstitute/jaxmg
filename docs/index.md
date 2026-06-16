@@ -5,10 +5,11 @@
   ![Title](_static/jaxmg_gpu_dark.png#only-dark){ width="600" } 
 </figure>
 
-JAXMg provides a C++ interface between [JAX](https://github.com/google/jax) and [cuSolverMg](https://docs.nvidia.com/cuda/cusolver/index.html#using-the-cuSolverMg-api), NVIDIA’s multi-GPU linear solver.  We provide a jittable API for the following routines.
+JAXMg provides a C++ interface between [JAX](https://github.com/google/jax) and [cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/), NVIDIA's distributed linear algebra runtime. We provide a jittable API for the following routines.
 
-- [cusolverMgPotrs](https://docs.nvidia.com/cuda/cusolver/index.html#cusolvermgpotrs-deprecated): Solves the system of linear equations: $Ax=b$ where $A$ is an $N\times N$ symmetric (Hermitian) positive-definite matrix via a Cholesky decomposition 
-- [cusolverMgPotrs](https://docs.nvidia.com/cuda/cusolver/index.html#cusolvermgpotri-deprecated): Computes the inverse of an $N\times N$ symmetric (Hermitian) positive-definite matrix via a Cholesky decomposition.
-- [cusolverMgPotrs](https://docs.nvidia.com/cuda/cusolver/index.html#cusolvermgsyevd-deprecated): Computes eigenvalues and eigenvectors of an $N\times N$ symmetric (Hermitian) matrix.
+- [cusolverMpPotrf/cusolverMpPotrs](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): Solves the system of linear equations $Ax=b$, where $A$ is an $N\times N$ symmetric (Hermitian) positive-definite matrix.
+- [cusolverMpSyevd](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): Computes eigenvalues and eigenvectors of an $N\times N$ symmetric (Hermitian) matrix.
+
+Both routines accept ordinary 2D JAX-sharded arrays. JAXMg pads local shards when needed, enters a fused native FFI call, redistributes to cuSOLVERMp's 2D block-cyclic layout, calls cuSOLVERMp, and redistributes results back to the JAX-facing layout.
 
 For more details, see the [API](api/potrs.md) and the accompanying [paper](https://arxiv.org/abs/2601.14466).

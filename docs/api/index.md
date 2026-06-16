@@ -1,16 +1,15 @@
 # API Reference
 
-This page highlights the three primary public functions from the `jaxmg` package. Supported datatypes
+This page highlights the two primary public functions from the `jaxmg` package. Supported datatypes
 are `jax.numpy.float32`, `jax.numpy.float64`, `jax.numpy.complex64` and `jax.numpy.complex128`.
 
-All multi-GPU solvers in called by JAXMg expect a 1D block-cyclic column layout at the device level
-— a tiled, round-robin distribution of columns across devices driven by the tile width `T_A` used by the native kernels. 
-The conversion between the natural row-sharded JAX input and the 1D block-cyclic layout is performed
-internally in the C++/CUDA layer. Users can pass normal row-sharded matrices to the
-high-level functions; the library handles the remapping and padding required by the native kernels so you don't have to manage the cyclic layout yourself.
+JAXMg accepts ordinary 2D JAX-sharded arrays and calls cuSOLVERMp through a fused
+native FFI backend. The native backend redistributes each padded input from the
+JAX-facing layout to cuSOLVERMp's 2D block-cyclic layout, calls the solver, and
+redistributes results back to the original JAX-facing layout.
 
 !!! Warning
-    The user must supply a tile width `T_A` to the solvers. Choose `T_A` carefully: very small values (e.g. < 128) can make the native kernels much slower. Furthermore, if the shard size of the matrix is not a multiple of `T_A` we must add per-device padding to fit the last tile — that padding requires copying data and increases memory use and runtime. In short: prefer a reasonably large `T_A` (>=128) and, where possible, pick `T_A` so that your shard size is an exact multiple to avoid copying and unnecessary slowdown.
+    The user must supply a tile size `T_A` to the solvers. Choose `T_A` carefully: very small values (e.g. < 128) can make the native kernels much slower. Furthermore, if a local shard dimension is not a multiple of `T_A`, JAXMg must add per-device padding to fit the last tile. That padding requires copying data and increases memory use and runtime. In short: prefer a reasonably large `T_A` (>=128) and, where possible, pick `T_A` so that the local shard dimensions are exact multiples.
 
 ## potrs
 
@@ -26,20 +25,6 @@ Solve for $x$ using the Cholesky factors.
 
 ---
 
-## potri
-
-Multi-GPU matrix inversion helper for symmetric (Hermitian) positive-definite matrices.
-
-$$
-A^{-1} = (L L^{\top})^{-1} = L^{-\top} L^{-1} \quad\text{(real)}\quad\text{or}\quad A^{-1} = L^{-\dagger} L^{-1} \;\text{(complex)}
-$$
-
-Compute the inverse (or the upper-triangular part) of using Cholesky the Cholesky factors.
-
-[Full potri module →](potri.md)
-
----
-
 ## syevd
 
 Multi-GPU eigensolver for symmetric (Hermitian) matrices.
@@ -48,6 +33,6 @@ $$
 A v = \lambda v \quad\Rightarrow\quad A = V \Lambda V^{\top} \;\text{(real)}\quad\text{or}\quad A = V \Lambda V^{\dagger} \;\text{(complex)}
 $$
 
-Compute eigenvalues $\Lambda$ and (optionally) eigenvectors $V$ of a symmetric (Hermitian) matrix.
+Compute eigenvalues $\Lambda$ and eigenvectors $V$ of a symmetric (Hermitian) matrix.
 
 [Full syevd module →](syevd.md)
