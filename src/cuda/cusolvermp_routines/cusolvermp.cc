@@ -51,6 +51,8 @@
 #include <utility>
 #include <vector>
 
+#include <cublas_v2.h>
+
 #include "../include/xla_comm_backend.h"
 #include "third_party/nccl/nccl.h"
 
