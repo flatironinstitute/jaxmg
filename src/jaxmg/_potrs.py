@@ -30,7 +30,9 @@ from ._cusolvermp_ffi import cusolvermp_potrs_shardmap
 from ._cusolvermp_layout import (
     infer_mesh_and_matrix_specs,
     pad_block_sharded_2d,
+    pad_rhs_distribution_columns,
     process_rank_map_from_mesh,
+    rhs_distribution_columns,
     status_specs,
     unpad_block_sharded_2d,
     validate_2d_matrix_specs,
@@ -68,8 +70,11 @@ def potrs(
         a: 2D square, Hermitian/symmetric positive-definite matrix. Expected
             to be sharded over a 2D JAX ``Mesh`` using a ``NamedSharding`` or
             the provided ``matrix_specs``.
-        b: 1D or 2D right-hand side. The current cuSOLVERMp path uses the same
-            2D mesh/spec contract as ``a`` for the RHS.
+        b: 1D or 2D right-hand side. A vector is treated as an ``N x 1`` RHS
+            matrix. If the RHS column count is smaller than, or otherwise not
+            divisible by, the process-grid column count, JAXMg adds temporary
+            routing columns before the native call and slices them away after
+            the solve.
         T_A: Square cuSOLVERMp tile size. JAXMg uses ``MB_A == NB_A == T_A``.
             Each local shard dimension (rows and columns) must be a multiple of
             ``T_A``. If the provided ``T_A`` is incompatible and ``pad=True``,
@@ -132,6 +137,12 @@ def potrs(
     )
     native_status_specs = status_specs(row_axis, col_axis, grid)
     tile_shape = TileShape(rows=int(T_A), cols=int(T_A))
+    nrhs = int(b.shape[1])
+    b_distribution_cols = rhs_distribution_columns(
+        nrhs,
+        process_cols=grid.process_cols,
+        pad=pad,
+    )
 
     ensure_init_jaxmg_backend()
 
@@ -146,8 +157,17 @@ def potrs(
         tile_shape=tile_shape,
         pad=pad,
     )
-    b_padded, (b_local_rows, b_local_cols) = pad_block_sharded_2d(
+    # B is mathematically N x NRHS, but the JAX-facing block sharding needs a
+    # global column count that can be split over the process-grid columns.  For
+    # skinny RHS matrices (including the common vector case), add routing
+    # columns before local tile padding.  Native code receives both values:
+    # `b_distribution_cols` for redistribution and `nrhs` for cuSOLVERMp.
+    b_distribution = pad_rhs_distribution_columns(
         b,
+        distribution_cols=b_distribution_cols,
+    )
+    b_padded, (b_local_rows, b_local_cols) = pad_block_sharded_2d(
+        b_distribution,
         mesh=mesh,
         matrix_specs=matrix_specs,
         grid=grid,
@@ -164,7 +184,8 @@ def potrs(
         process_rows=grid.process_rows,
         process_cols=grid.process_cols,
         n=a.shape[0],
-        nrhs=b.shape[1],
+        nrhs=nrhs,
+        b_distribution_cols=b_distribution_cols,
         tile_size=tile_shape.rows,
         rank_map=rank_map,
         grid_mapping=rank_map.cusolvermp_grid_mapping,
@@ -177,6 +198,7 @@ def potrs(
         local_rows=b_local_rows,
         local_cols=b_local_cols,
     )
+    out = out[:, :nrhs]
     if return_status:
         return out, native_status
     return out

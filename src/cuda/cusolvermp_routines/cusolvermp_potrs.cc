@@ -45,10 +45,11 @@ absl::Status XlaCusolverMpPotrsPrepare(
 absl::Status XlaCusolverMpPotrsDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     se::OwningScratchAllocator<> scratch, int64_t process_rows,
-    int64_t process_cols, int64_t n, int64_t nrhs, int64_t tile_size,
-    int64_t grid_mapping, absl::Span<const int64_t> rank_map,
-    ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
-    ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
+    int64_t process_cols, int64_t n, int64_t nrhs,
+    int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
+    ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
+    ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   if (a.dimensions().size() != 2 || b.dimensions().size() != 2 ||
@@ -74,10 +75,17 @@ absl::Status XlaCusolverMpPotrsDispatch(
         "cusolvermp_potrs expects A and B to have matching local row "
         "capacity after padding");
   }
+  if (b_distribution_cols < nrhs) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_potrs requires b_distribution_cols >= nrhs");
+  }
 
-  // A and B can have different logical column counts (`n` versus `nrhs`), so
-  // compute both scratch requirements and allocate one reusable buffer large
-  // enough for every redistribution stage in this FFI call.
+  // A and B can have different logical column counts.  For B there are two
+  // counts: `nrhs` is the real RHS width passed to cuSOLVERMp, while
+  // `b_distribution_cols` is the JAX-visible routing width used to make skinny
+  // RHS matrices shardable over process-grid columns.  Compute both scratch
+  // requirements and allocate one reusable buffer large enough for every
+  // redistribution stage in this FFI call.
   absl::StatusOr<int64_t> a_scratch_elements =
       RequiredPadded2DNativePlanScratchElements(
           process_rows, process_cols, tile_size, tile_size, n, n,
@@ -87,8 +95,8 @@ absl::Status XlaCusolverMpPotrsDispatch(
   }
   absl::StatusOr<int64_t> b_scratch_elements =
       RequiredPadded2DNativePlanScratchElements(
-          process_rows, process_cols, tile_size, tile_size, n, nrhs,
-          b.dimensions()[0], b.dimensions()[1], rank_map);
+          process_rows, process_cols, tile_size, tile_size, n,
+          b_distribution_cols, b.dimensions()[0], b.dimensions()[1], rank_map);
   if (!b_scratch_elements.ok()) {
     return b_scratch_elements.status();
   }
@@ -117,7 +125,7 @@ absl::Status XlaCusolverMpPotrsDispatch(
       collective_params, collective_cliques));
   JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
       "cusolvermp_potrs/b_forward", stream, comm_stream, cuda_stream,
-      process_rows, process_cols, tile_size, tile_size, n, nrhs,
+      process_rows, process_cols, tile_size, tile_size, n, b_distribution_cols,
       /*reverse=*/0, rank_map, b, b_out->device_memory(), scratch_base,
       scratch_elements, collective_params, collective_cliques));
 
@@ -132,7 +140,7 @@ absl::Status XlaCusolverMpPotrsDispatch(
   ffi::AnyBuffer b_solved_cyclic = *b_out;
   return ExecutePadded2DNativePlanRaw(
       "cusolvermp_potrs/b_reverse", stream, comm_stream, cuda_stream,
-      process_rows, process_cols, tile_size, tile_size, n, nrhs,
+      process_rows, process_cols, tile_size, tile_size, n, b_distribution_cols,
       /*reverse=*/1, rank_map, b_solved_cyclic, b_out->device_memory(),
       scratch_base, scratch_elements, collective_params, collective_cliques);
 }

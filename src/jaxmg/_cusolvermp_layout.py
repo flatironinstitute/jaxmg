@@ -245,6 +245,58 @@ def _unpad_local_2d(block: Array, *, local_rows: int, local_cols: int) -> Array:
     return block[:local_rows, :local_cols]
 
 
+def rhs_distribution_columns(nrhs: int, *, process_cols: int, pad: bool) -> int:
+    """Choose the JAX-visible RHS width used before local tile padding.
+
+    cuSOLVERMp accepts a skinny right-hand side matrix ``B`` with ``NRHS``
+    columns, even when ``NRHS`` is smaller than the process-grid column count.
+    In that ScaLAPACK-style layout, some process columns simply own zero real
+    RHS columns.  The JAX-facing block-sharded input cannot express that zero
+    ownership with the simple ``PartitionSpec(row_axis, col_axis)`` contract
+    used by this backend, because the global column dimension must first be
+    splittable over ``process_cols``.
+
+    To bridge the two models, JAXMg pads the *JAX-visible* RHS width to the
+    next multiple of the process-column count before applying the ordinary
+    local tile padding.  Native code still receives the original ``NRHS`` and
+    passes that logical value to cuSOLVERMp; the extra columns are only routing
+    capacity for redistribution and are sliced away after the solve.
+    """
+    nrhs = int(nrhs)
+    process_cols = int(process_cols)
+    if nrhs <= 0:
+        raise ValueError("nrhs must be positive.")
+    if process_cols <= 0:
+        raise ValueError("process_cols must be positive.")
+
+    remainder = nrhs % process_cols
+    if remainder == 0:
+        return nrhs
+    if not pad:
+        raise ValueError(
+            "potrs with pad=False requires the RHS column count to be "
+            "divisible by the process-grid column count. Set pad=True to add "
+            "routing columns for skinny RHS matrices."
+        )
+    return nrhs + (process_cols - remainder)
+
+
+def pad_rhs_distribution_columns(
+    rhs: Array,
+    *,
+    distribution_cols: int,
+) -> Array:
+    """Pad global RHS columns so JAX can shard them over process columns."""
+    if rhs.ndim != 2:
+        raise ValueError("RHS must be rank-2 before distribution-column padding.")
+    if distribution_cols < rhs.shape[1]:
+        raise ValueError("distribution_cols must be at least the RHS column count.")
+    col_padding = int(distribution_cols) - int(rhs.shape[1])
+    if col_padding == 0:
+        return rhs
+    return jnp.pad(rhs, ((0, 0), (0, col_padding)))
+
+
 def pad_block_sharded_2d(
     matrix: Array,
     *,

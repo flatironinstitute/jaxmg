@@ -147,6 +147,7 @@ def cusolvermp_potrs(
     grid_mapping=None,
     n: int,
     nrhs: int,
+    b_distribution_cols: int,
     tile_size: int,
 ) -> tuple[Array, Array]:
     """Call fused native redistribution + ``potrf/potrs`` on local buffers."""
@@ -166,11 +167,16 @@ def cusolvermp_potrs(
     process_cols = int(process_cols)
     n = int(n)
     nrhs = int(nrhs)
+    b_distribution_cols = int(b_distribution_cols)
     tile_size = int(tile_size)
     if process_rows <= 0 or process_cols <= 0:
         raise ValueError("process_rows and process_cols must be positive.")
-    if n <= 0 or nrhs <= 0 or tile_size <= 0:
-        raise ValueError("n, nrhs, and tile_size must be positive.")
+    if n <= 0 or nrhs <= 0 or b_distribution_cols <= 0 or tile_size <= 0:
+        raise ValueError(
+            "n, nrhs, b_distribution_cols, and tile_size must be positive."
+        )
+    if b_distribution_cols < nrhs:
+        raise ValueError("b_distribution_cols must be at least nrhs.")
     rank_array = _standard_grid_rank_map_attr(
         rank_map,
         process_rows=process_rows,
@@ -206,6 +212,7 @@ def cusolvermp_potrs(
         rank_map=rank_array,
         n=n,
         nrhs=nrhs,
+        b_distribution_cols=b_distribution_cols,
         tile_size=tile_size,
     )
     _, b_out, status = ffi_fn(a, b)
@@ -225,6 +232,7 @@ def cusolvermp_potrs_shardmap(
     grid_mapping=None,
     n: int,
     nrhs: int,
+    b_distribution_cols: int,
     tile_size: int,
 ) -> tuple[Array, Array]:
     """Wrap the fused ``potrs`` FFI target in a JAX mesh execution context.
@@ -247,6 +255,8 @@ def cusolvermp_potrs_shardmap(
         grid_mapping: cuSOLVERMp grid-mapping enum (row-major or column-major).
         n: Global dimension of the square matrix A.
         nrhs: Number of right-hand sides in B.
+        b_distribution_cols: JAX-visible padded RHS width used for native
+            redistribution. cuSOLVERMp still receives ``nrhs``.
         tile_size: Square tile dimension (``T_A``).
 
     Returns:
@@ -275,6 +285,7 @@ def cusolvermp_potrs_shardmap(
             grid_mapping=grid_mapping,
             n=n,
             nrhs=nrhs,
+            b_distribution_cols=b_distribution_cols,
             tile_size=tile_size,
         )
 
