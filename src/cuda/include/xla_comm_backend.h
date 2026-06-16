@@ -515,7 +515,7 @@ absl::Status XlaCusolverMpPotrsPrepare(
     CollectiveCliqueRequests* clique_requests);
 absl::Status XlaCusolverMpPotrsDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    se::ScratchAllocator& scratch, int64_t process_rows,
+    se::OwningScratchAllocator<> scratch, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t nrhs, int64_t tile_size,
     int64_t grid_mapping, absl::Span<const int64_t> rank_map,
     ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
@@ -527,7 +527,7 @@ absl::Status XlaCusolverMpSyevdPrepare(
     CollectiveCliqueRequests* clique_requests);
 absl::Status XlaCusolverMpSyevdDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    se::ScratchAllocator& scratch, int64_t process_rows,
+    se::OwningScratchAllocator<> scratch, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t tile_size,
     int64_t grid_mapping, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues,
