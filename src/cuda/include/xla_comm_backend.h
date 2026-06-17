@@ -274,6 +274,12 @@ absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream,
 absl::Status CopyScratchIfNeeded(cudaStream_t cuda_stream,
                                  ffi::AnyBuffer scratch,
                                  ffi::Result<ffi::AnyBuffer> scratch_out);
+absl::Status ConvertRowMajorToColumnMajorInPlace(
+    cudaStream_t cuda_stream, const char* caller, ffi::AnyBuffer matrix,
+    se::DeviceAddressBase scratch_base, int64_t scratch_elements);
+absl::Status ConvertColumnMajorToRowMajorInPlace(
+    cudaStream_t cuda_stream, const char* caller, ffi::AnyBuffer matrix,
+    se::DeviceAddressBase scratch_base, int64_t scratch_elements);
 int64_t MaxStepElementCount(const std::vector<Native2DStep>& steps);
 std::vector<Native2DStepBatch> BatchNative2DSteps(
     const std::vector<Native2DStep>& steps);

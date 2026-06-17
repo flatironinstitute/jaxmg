@@ -28,6 +28,9 @@
 //      NCCL communicator.
 //   5. Reverse-redistribute eigenvectors back to the original JAX-facing
 //      block-sharded layout. Eigenvalues are replicated by cuSOLVERMp.
+//   6. Restore eigenvectors from column-major local storage back to JAX's
+//      ordinary row-major local storage before returning through the FFI
+//      contract.
 
 #include <algorithm>
 
@@ -77,7 +80,9 @@ absl::Status XlaCusolverMpSyevdDispatch(
   if (!scratch_elements_or.ok()) {
     return scratch_elements_or.status();
   }
-  const int64_t scratch_elements = *scratch_elements_or;
+  int64_t scratch_elements = *scratch_elements_or;
+  scratch_elements =
+      std::max(scratch_elements, std::max(a.dimensions()[0], a.dimensions()[1]));
   const size_t element_bytes =
       a.size_bytes() / static_cast<size_t>(a.element_count());
   const size_t scratch_bytes =
@@ -91,11 +96,23 @@ absl::Status XlaCusolverMpSyevdDispatch(
   }
   se::DeviceAddressBase scratch_base(*redistribution_scratch, scratch_bytes);
 
+  ffi::AnyBuffer a_forward_input = a;
+  // Python supplies row-major JAX local shards. Convert the donated work alias
+  // in-place to cuSOLVERMp's column-major local storage before the tile
+  // redistribution. When XLA aliases input/output buffers this copy is a
+  // no-op; otherwise the work output remains the single full-size storage slot
+  // used by the fused call.
+  JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, a, work));
+  a_forward_input = *work;
+  JAXMG_RETURN_IF_ERROR(ConvertRowMajorToColumnMajorInPlace(
+      cuda_stream, "cusolvermp_syevd/a_layout_convert", a_forward_input,
+      scratch_base, scratch_elements));
+
   JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
       "cusolvermp_syevd/a_forward", stream, comm_stream, cuda_stream,
       process_rows, process_cols, tile_size, tile_size, n, n, /*reverse=*/0,
-      rank_map, a, work->device_memory(), scratch_base, scratch_elements,
-      collective_params, collective_cliques));
+      rank_map, a_forward_input, work->device_memory(), scratch_base,
+      scratch_elements, collective_params, collective_cliques));
 
   // Preserve the old split-call sequencing semantics inside the fused handler:
   // the host-side cuSOLVERMp call must not observe the work buffer until all
@@ -114,11 +131,16 @@ absl::Status XlaCusolverMpSyevdDispatch(
   JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
   ffi::AnyBuffer vectors_cyclic = *vectors;
-  return ExecutePadded2DNativePlanRaw(
+  JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
       "cusolvermp_syevd/vectors_reverse", stream, comm_stream,
       cuda_stream, process_rows, process_cols, tile_size, tile_size, n, n,
       /*reverse=*/1, rank_map, vectors_cyclic, vectors->device_memory(),
-      scratch_base, scratch_elements, collective_params, collective_cliques);
+      scratch_base, scratch_elements, collective_params, collective_cliques));
+
+  JAXMG_RETURN_IF_ERROR(ConvertColumnMajorToRowMajorInPlace(
+      cuda_stream, "cusolvermp_syevd/vectors_layout_restore", *vectors,
+      scratch_base, scratch_elements));
+  return absl::OkStatus();
 }
 
 }  // namespace xla::gpu

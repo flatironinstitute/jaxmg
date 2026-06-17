@@ -29,7 +29,7 @@ from jax.sharding import Mesh, PartitionSpec as P
 
 from ._setup import ensure_init_jaxmg_backend
 
-_RECT_JAX_LAYOUT = (1, 0)
+_ROW_MAJOR_JAX_LAYOUT = (0, 1)
 _CUSOLVERMP_POTRS_STATUS_SIZE = 40
 _CUSOLVERMP_SYEVD_STATUS_SIZE = 36
 
@@ -202,8 +202,8 @@ def cusolvermp_potrs(
         jax.ffi.ffi_call(
             "cusolvermp_potrs",
             out_type,
-            input_layouts=(_RECT_JAX_LAYOUT, _RECT_JAX_LAYOUT),
-            output_layouts=(_RECT_JAX_LAYOUT, _RECT_JAX_LAYOUT, (0,)),
+            input_layouts=(_ROW_MAJOR_JAX_LAYOUT, _ROW_MAJOR_JAX_LAYOUT),
+            output_layouts=(_ROW_MAJOR_JAX_LAYOUT, _ROW_MAJOR_JAX_LAYOUT, (0,)),
             input_output_aliases={0: 0, 1: 1},
         ),
         process_rows=process_rows,
@@ -345,8 +345,13 @@ def cusolvermp_syevd(
         jax.ffi.ffi_call(
             "cusolvermp_syevd",
             out_type,
-            input_layouts=(_RECT_JAX_LAYOUT,),
-            output_layouts=((0,), _RECT_JAX_LAYOUT, _RECT_JAX_LAYOUT, (0,)),
+            input_layouts=(_ROW_MAJOR_JAX_LAYOUT,),
+            output_layouts=(
+                (0,),
+                _ROW_MAJOR_JAX_LAYOUT,
+                _ROW_MAJOR_JAX_LAYOUT,
+                (0,),
+            ),
             input_output_aliases={0: 1},
         ),
         process_rows=process_rows,

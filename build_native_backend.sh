@@ -10,8 +10,10 @@ XLA_SRC="${XLA_SRC:-${XLA_SOURCE_ROOT}/xla-${XLA_SHORT_TAG}}"
 EXPECTED_JAX_VERSION="${JAXMG_EXPECTED_JAX_VERSION:-0.10.1}"
 PYTHON="${PYTHON:-python}"
 BAZEL="${BAZEL:-bazel}"
-BAZEL_CONFIGS="${JAXMG_XLA_BAZEL_CONFIGS:-bzlmod cuda}"
+BAZEL_CONFIGS="${JAXMG_XLA_BAZEL_CONFIGS:-bzlmod cuda_clang}"
 BAZEL_JOBS="${JAXMG_XLA_BAZEL_JOBS:-8}"
+CUDA_COMPUTE_CAPABILITIES="${JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES:-sm_80}"
+CUDA_KERNEL_ARCH="${JAXMG_XLA_CUDA_KERNEL_ARCH:-${CUDA_COMPUTE_CAPABILITIES%%,*}}"
 BAZEL_CACHE_ROOT="${JAXMG_XLA_BAZEL_CACHE_ROOT:-${TMPDIR:-/tmp}/jaxmg-bazel-${USER:-user}}"
 BAZEL_OUTPUT_USER_ROOT="${JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT:-${BAZEL_CACHE_ROOT}/output_user_root}"
 BAZEL_REPOSITORY_CACHE="${JAXMG_XLA_BAZEL_REPOSITORY_CACHE:-${BAZEL_CACHE_ROOT}/repository_cache}"
@@ -99,7 +101,7 @@ ln -sfn "${ROOT}/src/cuda/include/xla_comm_backend.h" \
   "${BACKEND_PKG}/include/xla_comm_backend.h"
 ln -sfn "${ROOT}/src/cuda/utils/xla_comm_common.cc" \
   "${BACKEND_PKG}/utils/xla_comm_common.cc"
-for src in block_cyclic_2d.cc edge_padding_2d.cc rectangle_pack.cc; do
+for src in block_cyclic_2d.cc edge_padding_2d.cc layout_convert.cu rectangle_pack.cc; do
   ln -sfn "${ROOT}/src/cuda/memory_redist/${src}" \
     "${BACKEND_PKG}/memory_redist/${src}"
 done
@@ -115,6 +117,8 @@ cp "${BACKEND_BUILD_TEMPLATE}" "${BACKEND_PKG}/BUILD.bazel"
 
 cd "${XLA_SRC}"
 mkdir -p "${BAZEL_OUTPUT_USER_ROOT}" "${BAZEL_REPOSITORY_CACHE}"
+export HERMETIC_CUDA_COMPUTE_CAPABILITIES="${CUDA_COMPUTE_CAPABILITIES}"
+export TF_CUDA_COMPUTE_CAPABILITIES="${CUDA_COMPUTE_CAPABILITIES}"
 BAZEL_CONFIG_ARGS=()
 for config in ${BAZEL_CONFIGS}; do
   BAZEL_CONFIG_ARGS+=(--config="${config}")
@@ -124,6 +128,7 @@ done
   build \
   "${BAZEL_CONFIG_ARGS[@]}" \
   --repository_cache="${BAZEL_REPOSITORY_CACHE}" \
+  --repo_env="HERMETIC_CUDA_COMPUTE_CAPABILITIES=${CUDA_COMPUTE_CAPABILITIES}" \
   --jobs="${BAZEL_JOBS}" \
   //jaxmg_backend:libjaxmg_xla_comm_backend.so
 
@@ -133,4 +138,36 @@ install -m 755 \
   "${XLA_SRC}/bazel-bin/jaxmg_backend/libjaxmg_xla_comm_backend.so" \
   "${INSTALL_DIR}/libjaxmg_xla_comm_backend.so"
 
+NVCC="${NVCC:-nvcc}"
+if ! command -v "${NVCC}" >/dev/null 2>&1; then
+  echo "Unable to find nvcc for native layout-conversion helper build: ${NVCC}" >&2
+  exit 1
+fi
+
+CUDA_HELPER_HOST_COMPILER="${JAXMG_CUDA_HELPER_HOST_COMPILER:-}"
+if [[ -z "${CUDA_HELPER_HOST_COMPILER}" && -x /usr/bin/g++ ]]; then
+  CUDA_HELPER_HOST_COMPILER=/usr/bin/g++
+fi
+CUDA_HELPER_OPT_LEVEL="${JAXMG_CUDA_HELPER_OPT_LEVEL:--O2}"
+CUDA_HELPER_HOST_ARGS=()
+if [[ -n "${CUDA_HELPER_HOST_COMPILER}" ]]; then
+  CUDA_HELPER_HOST_ARGS=(-ccbin "${CUDA_HELPER_HOST_COMPILER}")
+fi
+
+echo "Building native layout-conversion helper with ${NVCC}"
+if [[ -n "${CUDA_HELPER_HOST_COMPILER}" ]]; then
+  echo "Using CUDA helper host compiler: ${CUDA_HELPER_HOST_COMPILER}"
+fi
+"${NVCC}" \
+  -std=c++17 \
+  "${CUDA_HELPER_OPT_LEVEL}" \
+  -arch="${CUDA_KERNEL_ARCH}" \
+  "${CUDA_HELPER_HOST_ARGS[@]}" \
+  -Xcompiler=-fPIC \
+  -Xcompiler=-fno-builtin \
+  -shared \
+  "${ROOT}/src/cuda/memory_redist/layout_convert.cu" \
+  -o "${INSTALL_DIR}/libjaxmg_layout_convert.so"
+
 echo "Installed ${INSTALL_DIR}/libjaxmg_xla_comm_backend.so"
+echo "Installed ${INSTALL_DIR}/libjaxmg_layout_convert.so"

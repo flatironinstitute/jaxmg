@@ -11,10 +11,11 @@ does the parts JAX must see directly:
 5. remove local padding from the solved RHS after native code returns.
 
 The expensive work is a single fused C++/CUDA FFI call.  Native code allocates
-its own scratch, redistributes the padded JAX layout into cuSOLVERMp's 2D
-block-cyclic layout, calls ``cusolverMpPotrf``/``cusolverMpPotrs`` using the
-XLA-owned NCCL communicator, and redistributes the result back to the original
-JAX-facing layout.
+its own scratch, converts each donated local shard from JAX's row-major
+physical layout to cuSOLVERMp's column-major local layout, redistributes the
+padded JAX layout into cuSOLVERMp's 2D block-cyclic layout, calls
+``cusolverMpPotrf``/``cusolverMpPotrs`` using the XLA-owned NCCL communicator,
+and redistributes the result back to the original JAX-facing layout.
 """
 
 from __future__ import annotations
@@ -98,6 +99,10 @@ def potrs(
     Notes:
         - The FFI call may donate the ``a`` and ``b`` buffers for zero-copy
           interaction with the native library.
+        - JAXMg enters the FFI boundary with ordinary row-major JAX local
+          buffers. Native CUDA code performs the local row-major/column-major
+          conversion using bounded scratch before and after the cuSOLVERMp
+          redistribution.
         - The native solver redistributes the JAX layout into cuSOLVERMp's 2D
           block-cyclic layout, performs the solve using an XLA-owned NCCL
           communicator, and redistributes the result back.

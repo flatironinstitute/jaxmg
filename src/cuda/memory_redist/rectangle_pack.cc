@@ -21,6 +21,14 @@
 // those packed payloads through the borrowed XLA/NCCL communicator, and unpack
 // the payloads at their destination.
 //
+// The public cuSOLVERMp wrappers enter native code with ordinary row-major JAX
+// local shards. Before those shards reach the rectangle packer, the fused
+// solver handlers call the local layout-conversion helpers in this file. Those
+// helpers load libjaxmg_layout_convert.so and convert the donated matrix
+// buffers in-place using the same bounded scratch allocation used for
+// redistribution. After the solver and reverse redistribution, the returned
+// user-visible matrix buffers are converted back to row-major JAX storage.
+//
 // File workflow:
 //   1. Borrow the raw NCCL communicator from XLA's GpuCommunicator and validate
 //      that the NCCL rank/count match the XLA collective rank/count.
@@ -38,13 +46,100 @@
 // rectangle transfer debugging.
 
 #include <algorithm>
+#include <cstdint>
+#include <dlfcn.h>
 #include <limits>
+#include <string>
 #include <vector>
 
 #include "../include/xla_comm_backend.h"
 #include "third_party/nccl/nccl.h"
 
 namespace xla::gpu {
+namespace {
+
+using LayoutConvertFn = cudaError_t (*)(cudaStream_t, void*, void*,
+                                        std::int64_t, std::int64_t,
+                                        std::int64_t);
+
+struct LayoutConvertApi {
+  void* library = nullptr;
+  LayoutConvertFn launch = nullptr;
+  std::string error;
+};
+
+std::string BackendDirectory() {
+  Dl_info info;
+  if (dladdr(reinterpret_cast<void*>(&BackendDirectory), &info) == 0 ||
+      info.dli_fname == nullptr) {
+    return "";
+  }
+  std::string path(info.dli_fname);
+  const size_t slash = path.find_last_of('/');
+  if (slash == std::string::npos) {
+    return "";
+  }
+  return path.substr(0, slash);
+}
+
+LayoutConvertApi LoadLayoutConvertApiOnce() {
+  LayoutConvertApi api;
+  std::vector<std::string> candidates = {"libjaxmg_layout_convert.so"};
+  std::string backend_dir = BackendDirectory();
+  if (!backend_dir.empty()) {
+    candidates.push_back(backend_dir + "/libjaxmg_layout_convert.so");
+  }
+
+  std::string last_error;
+  for (const std::string& candidate : candidates) {
+    void* library = dlopen(candidate.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (library == nullptr) {
+      const char* error = dlerror();
+      if (error != nullptr) {
+        last_error = error;
+      }
+      continue;
+    }
+
+    dlerror();
+    void* symbol =
+        dlsym(library, "JaxmgLaunchRowMajorToColumnMajorDecomposition");
+    const char* symbol_error = dlerror();
+    if (symbol_error != nullptr || symbol == nullptr) {
+      last_error = symbol_error != nullptr
+                       ? symbol_error
+                       : "JaxmgLaunchRowMajorToColumnMajorDecomposition "
+                         "resolved to null";
+      dlclose(library);
+      continue;
+    }
+
+    api.library = library;
+    api.launch = reinterpret_cast<LayoutConvertFn>(symbol);
+    return api;
+  }
+
+  api.error =
+      "Unable to load libjaxmg_layout_convert.so for native local layout "
+      "conversion";
+  if (!last_error.empty()) {
+    api.error += ": ";
+    api.error += last_error;
+  }
+  return api;
+}
+
+absl::StatusOr<LayoutConvertFn> LoadLayoutConvertLauncher(
+    const char* caller) {
+  static const LayoutConvertApi api = LoadLayoutConvertApiOnce();
+  if (api.launch == nullptr) {
+    return absl::FailedPreconditionError(absl::StrFormat(
+        "%s requested native layout conversion, but %s", caller, api.error));
+  }
+  return api.launch;
+}
+
+}  // namespace
 
 
 absl::Status NcclToStatus(ncclResult_t result, const char* file, int line) {
@@ -242,6 +337,107 @@ absl::Status CopyScratchIfNeeded(cudaStream_t cuda_stream,
   JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
       scratch_out_base.opaque(), scratch_base.opaque(), scratch.size_bytes(),
       cudaMemcpyDeviceToDevice, cuda_stream));
+  return absl::OkStatus();
+}
+
+absl::Status ConvertRowMajorToColumnMajorInPlace(
+    cudaStream_t cuda_stream, const char* caller, ffi::AnyBuffer matrix,
+    se::DeviceAddressBase scratch_base, int64_t scratch_elements) {
+  if (cuda_stream == nullptr) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s requires a CUDA stream", caller));
+  }
+  if (matrix.dimensions().size() != 2) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s expects a rank-2 matrix buffer", caller));
+  }
+  if (matrix.element_count() == 0) {
+    return absl::OkStatus();
+  }
+
+  const int64_t rows = matrix.dimensions()[0];
+  const int64_t cols = matrix.dimensions()[1];
+  const int64_t required_scratch_elements = std::max(rows, cols);
+  if (scratch_elements < required_scratch_elements) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s scratch length %d is smaller than the row-major -> column-major "
+        "conversion requirement max(rows, cols) = %d",
+        caller, scratch_elements, required_scratch_elements));
+  }
+
+  const size_t element_bytes =
+      matrix.size_bytes() / static_cast<size_t>(matrix.element_count());
+  if (element_bytes != 4 && element_bytes != 8 && element_bytes != 16) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s supports only 4, 8, and 16 byte matrix elements for native layout "
+        "conversion; got %d bytes",
+        caller, element_bytes));
+  }
+
+  // JAX-facing FFI buffers arrive in row-major local storage, while
+  // cuSOLVERMp's local descriptors interpret the same logical matrix in
+  // column-major storage. The helper changes only the physical address order
+  // inside the donated local shard. It is byte-preserving: float64 and
+  // complex64 are both 8-byte payloads, and complex128 is a 16-byte payload.
+  // All dtype semantics remain with JAX/cuSOLVERMp.
+  absl::StatusOr<LayoutConvertFn> launcher =
+      LoadLayoutConvertLauncher(caller);
+  if (!launcher.ok()) {
+    return launcher.status();
+  }
+  JAXMG_RETURN_IF_CUDA_ERROR((*launcher)(
+      cuda_stream, matrix.untyped_data(), scratch_base.opaque(), rows, cols,
+      static_cast<int64_t>(element_bytes)));
+  return absl::OkStatus();
+}
+
+absl::Status ConvertColumnMajorToRowMajorInPlace(
+    cudaStream_t cuda_stream, const char* caller, ffi::AnyBuffer matrix,
+    se::DeviceAddressBase scratch_base, int64_t scratch_elements) {
+  if (cuda_stream == nullptr) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s requires a CUDA stream", caller));
+  }
+  if (matrix.dimensions().size() != 2) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s expects a rank-2 matrix buffer", caller));
+  }
+  if (matrix.element_count() == 0) {
+    return absl::OkStatus();
+  }
+
+  const int64_t rows = matrix.dimensions()[0];
+  const int64_t cols = matrix.dimensions()[1];
+  const int64_t required_scratch_elements = std::max(rows, cols);
+  if (scratch_elements < required_scratch_elements) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s scratch length %d is smaller than the column-major -> row-major "
+        "conversion requirement max(rows, cols) = %d",
+        caller, scratch_elements, required_scratch_elements));
+  }
+
+  const size_t element_bytes =
+      matrix.size_bytes() / static_cast<size_t>(matrix.element_count());
+  if (element_bytes != 4 && element_bytes != 8 && element_bytes != 16) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s supports only 4, 8, and 16 byte matrix elements for native layout "
+        "conversion; got %d bytes",
+        caller, element_bytes));
+  }
+
+  // Column-major storage for an (rows, cols) logical matrix is exactly
+  // row-major storage for the transposed (cols, rows) address grid. Applying
+  // the row-major -> column-major decomposition to that transposed address
+  // grid is therefore the inverse permutation and restores JAX's row-major
+  // physical order without changing the logical matrix.
+  absl::StatusOr<LayoutConvertFn> launcher =
+      LoadLayoutConvertLauncher(caller);
+  if (!launcher.ok()) {
+    return launcher.status();
+  }
+  JAXMG_RETURN_IF_CUDA_ERROR((*launcher)(
+      cuda_stream, matrix.untyped_data(), scratch_base.opaque(), cols, rows,
+      static_cast<int64_t>(element_bytes)));
   return absl::OkStatus();
 }
 

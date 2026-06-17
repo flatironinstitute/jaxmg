@@ -28,6 +28,8 @@
 //   5. Call the shared cuSOLVERMp `potrf`/`potrs` helper using the borrowed
 //      XLA-owned NCCL communicator.
 //   6. Reverse-redistribute the solved B buffer back to the JAX-facing layout.
+//   7. Restore solved B from column-major local storage back to JAX's ordinary
+//      row-major local storage before returning through the FFI alias contract.
 
 #include <algorithm>
 
@@ -100,8 +102,11 @@ absl::Status XlaCusolverMpPotrsDispatch(
   if (!b_scratch_elements.ok()) {
     return b_scratch_elements.status();
   }
-  const int64_t scratch_elements =
-      std::max(*a_scratch_elements, *b_scratch_elements);
+  int64_t scratch_elements = std::max(*a_scratch_elements, *b_scratch_elements);
+  scratch_elements = std::max(
+      scratch_elements,
+      std::max(std::max(a.dimensions()[0], a.dimensions()[1]),
+               std::max(b.dimensions()[0], b.dimensions()[1])));
   const size_t element_bytes =
       a.size_bytes() / static_cast<size_t>(a.element_count());
   const size_t scratch_bytes =
@@ -115,19 +120,38 @@ absl::Status XlaCusolverMpPotrsDispatch(
   }
   se::DeviceAddressBase scratch_base(*redistribution_scratch, scratch_bytes);
 
+  ffi::AnyBuffer a_forward_input = a;
+  ffi::AnyBuffer b_forward_input = b;
+  // Python now enters the FFI boundary with ordinary row-major JAX local
+  // buffers. Convert the donated work aliases in-place to cuSOLVERMp's
+  // column-major local storage before any tile redistribution. When XLA aliases
+  // input/output buffers this copy is a no-op; if it cannot alias, this still
+  // preserves correctness without requiring an additional full-size native
+  // allocation.
+  JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, a, a_work));
+  JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, b, b_out));
+  a_forward_input = *a_work;
+  b_forward_input = *b_out;
+  JAXMG_RETURN_IF_ERROR(ConvertRowMajorToColumnMajorInPlace(
+      cuda_stream, "cusolvermp_potrs/a_layout_convert", a_forward_input,
+      scratch_base, scratch_elements));
+  JAXMG_RETURN_IF_ERROR(ConvertRowMajorToColumnMajorInPlace(
+      cuda_stream, "cusolvermp_potrs/b_layout_convert", b_forward_input,
+      scratch_base, scratch_elements));
+
   // Move the padded JAX buffers into the local 2D block-cyclic layout expected
   // by cuSOLVERMp. The input/output aliases mean a_work and b_out are the
   // donated storage slots that survive across the solve call.
   JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
       "cusolvermp_potrs/a_forward", stream, comm_stream, cuda_stream,
       process_rows, process_cols, tile_size, tile_size, n, n, /*reverse=*/0,
-      rank_map, a, a_work->device_memory(), scratch_base, scratch_elements,
-      collective_params, collective_cliques));
+      rank_map, a_forward_input, a_work->device_memory(), scratch_base,
+      scratch_elements, collective_params, collective_cliques));
   JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
       "cusolvermp_potrs/b_forward", stream, comm_stream, cuda_stream,
       process_rows, process_cols, tile_size, tile_size, n, b_distribution_cols,
-      /*reverse=*/0, rank_map, b, b_out->device_memory(), scratch_base,
-      scratch_elements, collective_params, collective_cliques));
+      /*reverse=*/0, rank_map, b_forward_input, b_out->device_memory(),
+      scratch_base, scratch_elements, collective_params, collective_cliques));
 
   // The previous production prototype ran redistribution and cuSOLVERMp as
   // separate FFI calls, which gave XLA a hard sequencing boundary.  The fused
@@ -150,11 +174,16 @@ absl::Status XlaCusolverMpPotrsDispatch(
   JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
   ffi::AnyBuffer b_solved_cyclic = *b_out;
-  return ExecutePadded2DNativePlanRaw(
+  JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
       "cusolvermp_potrs/b_reverse", stream, comm_stream, cuda_stream,
       process_rows, process_cols, tile_size, tile_size, n, b_distribution_cols,
       /*reverse=*/1, rank_map, b_solved_cyclic, b_out->device_memory(),
-      scratch_base, scratch_elements, collective_params, collective_cliques);
+      scratch_base, scratch_elements, collective_params, collective_cliques));
+
+  JAXMG_RETURN_IF_ERROR(ConvertColumnMajorToRowMajorInPlace(
+      cuda_stream, "cusolvermp_potrs/b_layout_restore", *b_out, scratch_base,
+      scratch_elements));
+  return absl::OkStatus();
 }
 
 }  // namespace xla::gpu

@@ -5,9 +5,12 @@
 1. validate the input matrix and its 2D JAX sharding;
 2. pad local shards so both matrix axes are tile-aligned;
 3. enter one native C++/CUDA FFI call;
-4. let native code redistribute into cuSOLVERMp's 2D block-cyclic layout and
-   call vector-producing ``cusolverMpSyevd``; and
-5. reverse-redistribute eigenvectors and remove the local padding.
+4. let native code convert row-major JAX local storage to cuSOLVERMp's
+   column-major local storage;
+5. redistribute into cuSOLVERMp's 2D block-cyclic layout and call
+   vector-producing ``cusolverMpSyevd``; and
+6. reverse-redistribute eigenvectors, restore JAX row-major local storage, and
+   remove the local padding.
 
 Only the eigenvector-producing mode is exposed.  Current validated cuSOLVERMp
 runtimes reject the no-vector mode, and computing eigenvectors only to discard
@@ -91,6 +94,10 @@ def syevd(
           cuSOLVERMp backend.
         - The FFI call can donate the input buffer ``a`` for zero-copy
           interaction with the native library.
+        - JAXMg enters the FFI boundary with ordinary row-major JAX local
+          buffers. Native CUDA code performs the local row-major/column-major
+          conversion using bounded scratch before and after the cuSOLVERMp
+          redistribution.
         - The native solver redistributes the JAX layout into cuSOLVERMp's 2D
           block-cyclic layout, performs the eigensolve using an XLA-owned
           NCCL communicator, and redistributes the results back.
