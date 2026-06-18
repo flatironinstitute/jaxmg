@@ -41,6 +41,7 @@
 #include "../include/xla_comm_backend.h"
 
 namespace xla::gpu {
+
 namespace {
 
 absl::Status ValidateStandardGridRankMap(const char* caller,
@@ -543,6 +544,17 @@ std::vector<Native2DStepBatch> BatchNative2DSteps(
   return batches;
 }
 
+absl::StatusOr<int64_t> RequiredCyclicSlotElements(
+    int64_t tile_rows, int64_t tile_cols, int64_t local_rows,
+    int64_t local_cols) {
+  if (tile_rows <= 0 || tile_cols <= 0 || local_rows <= 0 ||
+      local_cols <= 0) {
+    return absl::InvalidArgumentError(
+        "cyclic redistribution scratch requires positive dimensions");
+  }
+  return std::max(tile_cols * local_rows, tile_rows * local_cols);
+}
+
 
 absl::Status XlaRect2DNativePlanPrepare(
     const CollectiveParams* collective_params,
@@ -698,26 +710,36 @@ absl::StatusOr<int64_t> RequiredPadded2DNativePlanScratchElements(
       "required_padded_2d_native_plan_scratch", rank_map, process_rows,
       process_cols));
 
-  absl::StatusOr<std::vector<Native2DStep>> edge_steps =
-      BuildEdgePaddingNative2DSteps(
-          process_rows, process_cols, tile_rows, tile_cols, logical_rows,
-          logical_cols, local_rows, local_cols, rank_map);
-  if (!edge_steps.ok()) {
-    return edge_steps.status();
-  }
   absl::StatusOr<std::vector<Native2DStep>> slab_steps =
       BuildSlabNative2DSteps(process_rows, process_cols, tile_rows, tile_cols,
                              local_rows, local_cols, rank_map);
   if (!slab_steps.ok()) {
     return slab_steps.status();
   }
-  const int64_t max_step_elements =
-      std::max(MaxStepElementCount(*edge_steps),
-               MaxStepElementCount(*slab_steps));
-  return 3 * max_step_elements;
+  absl::StatusOr<int64_t> cyclic_slot_elements =
+      RequiredCyclicSlotElements(tile_rows, tile_cols, local_rows, local_cols);
+  if (!cyclic_slot_elements.ok()) {
+    return cyclic_slot_elements.status();
+  }
+  const int64_t scratch_elements = 3 * *cyclic_slot_elements;
+
+  // Validate the padding geometry against the same fixed scratch allocation.
+  // Padding moves are chunked to this budget; they are not allowed to enlarge
+  // the total scratch requirement.
+  absl::StatusOr<std::vector<Native2DStep>> edge_steps =
+      BuildEdgePaddingNative2DSteps(
+          process_rows, process_cols, tile_rows, tile_cols, logical_rows,
+          logical_cols, local_rows, local_cols, scratch_elements, rank_map);
+  if (!edge_steps.ok()) {
+    return edge_steps.status();
+  }
+
+  return scratch_elements;
 }
 
-absl::Status ExecutePadded2DNativePlanRaw(
+namespace {
+
+absl::Status ExecutePadded2DNativePlanRawImpl(
     const char* caller, se::Stream* stream, se::Stream* comm_stream,
     cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,
     int64_t tile_rows, int64_t tile_cols, int64_t logical_rows,
@@ -770,10 +792,23 @@ absl::Status ExecutePadded2DNativePlanRaw(
 
   const int64_t local_rows = matrix.dimensions()[0];
   const int64_t local_cols = matrix.dimensions()[1];
+  absl::StatusOr<int64_t> cyclic_slot_elements =
+      RequiredCyclicSlotElements(tile_rows, tile_cols, local_rows, local_cols);
+  if (!cyclic_slot_elements.ok()) {
+    return cyclic_slot_elements.status();
+  }
+  if (scratch_elements < 3 * *cyclic_slot_elements) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s scratch length %d is smaller than the fixed cyclic "
+        "redistribution requirement 3 * %d = %d",
+        caller, scratch_elements, *cyclic_slot_elements,
+        3 * *cyclic_slot_elements));
+  }
+
   absl::StatusOr<std::vector<Native2DStep>> edge_steps =
       BuildEdgePaddingNative2DSteps(
           process_rows, process_cols, tile_rows, tile_cols, logical_rows,
-          logical_cols, local_rows, local_cols, rank_map);
+          logical_cols, local_rows, local_cols, scratch_elements, rank_map);
   if (!edge_steps.ok()) {
     return edge_steps.status();
   }
@@ -793,15 +828,6 @@ absl::Status ExecutePadded2DNativePlanRaw(
       BatchNative2DSteps(reverse != 0 ? reverse_edge_steps : *edge_steps);
   std::vector<Native2DStepBatch> slab_batches =
       BatchNative2DSteps(*slab_steps);
-  const int64_t max_step_elements =
-      std::max(MaxStepElementCount(*edge_steps),
-               MaxStepElementCount(*slab_steps));
-  if (max_step_elements > 0 && scratch_elements < 3 * max_step_elements) {
-    return absl::InvalidArgumentError(absl::StrFormat(
-        "%s scratch length %d is smaller than 3 * max(native step elements) "
-        "= %d",
-        caller, scratch_elements, 3 * max_step_elements));
-  }
 
   const size_t element_bytes =
       matrix.size_bytes() / static_cast<size_t>(matrix.element_count());
@@ -810,29 +836,48 @@ absl::Status ExecutePadded2DNativePlanRaw(
         matrix_out_base.opaque(), matrix.untyped_data(), matrix.size_bytes(),
         cudaMemcpyDeviceToDevice, cuda_stream));
   }
-  if (max_step_elements == 0) {
+  if (edge_batches.empty() && slab_batches.empty()) {
     return absl::OkStatus();
   }
 
   if (reverse != 0) {
     JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
         stream, comm_stream, cuda_stream, slab_batches, local_rows, local_cols,
-        rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+        rank_value, num_ranks, element_bytes, *cyclic_slot_elements, matrix,
         matrix_out_base, scratch_base, *comm));
-    return ExecuteNative2DStepBatches(
+    return ExecuteEdgePaddingBatches(
         stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
-        rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+        rank_value, num_ranks, element_bytes, scratch_elements, matrix,
         matrix_out_base, scratch_base, *comm);
   }
 
-  JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
+  JAXMG_RETURN_IF_ERROR(ExecuteEdgePaddingBatches(
       stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
-      rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+      rank_value, num_ranks, element_bytes, scratch_elements, matrix,
       matrix_out_base, scratch_base, *comm));
   return ExecuteNative2DStepBatches(
       stream, comm_stream, cuda_stream, slab_batches, local_rows, local_cols,
-      rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+      rank_value, num_ranks, element_bytes, *cyclic_slot_elements, matrix,
       matrix_out_base, scratch_base, *comm);
+}
+
+}  // namespace
+
+absl::Status ExecutePadded2DNativePlanRaw(
+    const char* caller, se::Stream* stream, se::Stream* comm_stream,
+    cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,
+    int64_t tile_rows, int64_t tile_cols, int64_t logical_rows,
+    int64_t logical_cols, int64_t reverse,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer matrix,
+    se::DeviceAddressBase matrix_out_base,
+    se::DeviceAddressBase scratch_base, int64_t scratch_elements,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return ExecutePadded2DNativePlanRawImpl(
+      caller, stream, comm_stream, cuda_stream, process_rows, process_cols,
+      tile_rows, tile_cols, logical_rows, logical_cols, reverse, rank_map,
+      matrix, matrix_out_base, scratch_base, scratch_elements,
+      collective_params, collective_cliques);
 }
 
 absl::Status RectPadded2DNativePlanDispatchImpl(
@@ -908,10 +953,24 @@ absl::Status RectPadded2DNativePlanDispatchImpl(
 
   const int64_t local_rows = matrix.dimensions()[0];
   const int64_t local_cols = matrix.dimensions()[1];
+  absl::StatusOr<int64_t> cyclic_slot_elements =
+      RequiredCyclicSlotElements(tile_rows, tile_cols, local_rows, local_cols);
+  if (!cyclic_slot_elements.ok()) {
+    return cyclic_slot_elements.status();
+  }
+  if (scratch.dimensions()[0] < 3 * *cyclic_slot_elements) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "xla_rect_padded_2d_native_plan scratch length %d is smaller than "
+        "the fixed cyclic redistribution requirement 3 * %d = %d",
+        scratch.dimensions()[0], *cyclic_slot_elements,
+        3 * *cyclic_slot_elements));
+  }
+
   absl::StatusOr<std::vector<Native2DStep>> edge_steps =
       BuildEdgePaddingNative2DSteps(
           process_rows, process_cols, tile_rows, tile_cols, logical_rows,
-          logical_cols, local_rows, local_cols, rank_map);
+          logical_cols, local_rows, local_cols, scratch.dimensions()[0],
+          rank_map);
   if (!edge_steps.ok()) {
     return edge_steps.status();
   }
@@ -931,15 +990,6 @@ absl::Status RectPadded2DNativePlanDispatchImpl(
       BatchNative2DSteps(reverse != 0 ? reverse_edge_steps : *edge_steps);
   std::vector<Native2DStepBatch> slab_batches =
       BatchNative2DSteps(*slab_steps);
-  const int64_t max_step_elements =
-      std::max(MaxStepElementCount(*edge_steps),
-               MaxStepElementCount(*slab_steps));
-  if (max_step_elements > 0 && scratch.dimensions()[0] < 3 * max_step_elements) {
-    return absl::InvalidArgumentError(absl::StrFormat(
-        "xla_rect_padded_2d_native_plan scratch length %d is smaller than "
-        "3 * max(native step elements) = %d",
-        scratch.dimensions()[0], 3 * max_step_elements));
-  }
 
   const size_t element_bytes =
       matrix.size_bytes() / static_cast<size_t>(matrix.element_count());
@@ -948,28 +998,28 @@ absl::Status RectPadded2DNativePlanDispatchImpl(
 
   JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, matrix, matrix_out));
   JAXMG_RETURN_IF_ERROR(CopyScratchIfNeeded(cuda_stream, scratch, scratch_out));
-  if (max_step_elements == 0) {
+  if (edge_batches.empty() && slab_batches.empty()) {
     return absl::OkStatus();
   }
 
   if (reverse != 0) {
     JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
         stream, comm_stream, cuda_stream, slab_batches, local_rows, local_cols,
-        rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+        rank_value, num_ranks, element_bytes, *cyclic_slot_elements, matrix,
         matrix_out_base, scratch_out_base, *comm));
-    return ExecuteNative2DStepBatches(
+    return ExecuteEdgePaddingBatches(
         stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
-        rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+        rank_value, num_ranks, element_bytes, scratch.dimensions()[0], matrix,
         matrix_out_base, scratch_out_base, *comm);
   }
 
-  JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
+  JAXMG_RETURN_IF_ERROR(ExecuteEdgePaddingBatches(
       stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
-      rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+      rank_value, num_ranks, element_bytes, scratch.dimensions()[0], matrix,
       matrix_out_base, scratch_out_base, *comm));
   return ExecuteNative2DStepBatches(
       stream, comm_stream, cuda_stream, slab_batches, local_rows, local_cols,
-      rank_value, num_ranks, element_bytes, max_step_elements, matrix,
+      rank_value, num_ranks, element_bytes, *cyclic_slot_elements, matrix,
       matrix_out_base, scratch_out_base, *comm);
 }
 

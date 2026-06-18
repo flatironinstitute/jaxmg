@@ -99,16 +99,20 @@ mkdir -p \
   "${BACKEND_PKG}/diagnostics"
 ln -sfn "${ROOT}/src/cuda/include/xla_comm_backend.h" \
   "${BACKEND_PKG}/include/xla_comm_backend.h"
+ln -sfn "${ROOT}/src/cuda/include/xla_comm_common.h" \
+  "${BACKEND_PKG}/include/xla_comm_common.h"
 ln -sfn "${ROOT}/src/cuda/utils/xla_comm_common.cc" \
   "${BACKEND_PKG}/utils/xla_comm_common.cc"
-for src in block_cyclic_2d.cc edge_padding_2d.cc layout_convert.cu rectangle_pack.cc; do
+for src in block_cyclic_2d.cc edge_padding_2d.cc layout_convert.cu memory_redist.h rectangle_pack.cc rectangle_diagnostics.cc scratch.cc; do
   ln -sfn "${ROOT}/src/cuda/memory_redist/${src}" \
     "${BACKEND_PKG}/memory_redist/${src}"
 done
-for src in cusolvermp.cc cusolvermp_potrs.cc cusolvermp_syevd.cc; do
+for src in cusolvermp.cc cusolvermp_potrs.cc cusolvermp_routines.h cusolvermp_syevd.cc; do
   ln -sfn "${ROOT}/src/cuda/cusolvermp_routines/${src}" \
     "${BACKEND_PKG}/cusolvermp_routines/${src}"
 done
+ln -sfn "${ROOT}/src/cuda/diagnostics/diagnostics.h" \
+  "${BACKEND_PKG}/diagnostics/diagnostics.h"
 ln -sfn "${ROOT}/src/cuda/diagnostics/collective_diagnostics.cc" \
   "${BACKEND_PKG}/diagnostics/collective_diagnostics.cc"
 ln -sfn "${ROOT}/src/cuda/ffi_handlers.cc" "${BACKEND_PKG}/ffi_handlers.cc"

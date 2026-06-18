@@ -26,13 +26,18 @@
 //
 // The logical matrix is not transposed. Only the local buffer's physical
 // storage order changes. The implementation follows the
-// Catanzaro/Keller/Garland decomposition shape used by the standalone
-// experiments in experiments/inplace_layout_convert.
+// Catanzaro/Keller/Garland in-place transpose decomposition adapted for the
+// bounded scratch allocation used by this backend.
 //
 // Integration constraints:
 //   * The input and output pointer are the same donated local shard.
-//   * Scratch is O(max(rows, cols)) elements and is supplied by the fused FFI
-//     handler, sharing the same XLA scratch allocation as redistribution.
+//   * Scratch is supplied by the fused FFI handler, sharing the same XLA
+//     scratch allocation as redistribution.  The minimum requirement is
+//     O(max(rows, cols)) elements, but production solver calls usually have a
+//     much larger redistribution scratch buffer available.  The kernels below
+//     use the full scratch span to process many independent rows/columns per
+//     launch, which preserves the low-memory decomposition while avoiding one
+//     kernel launch per row or column.
 //   * The same exported launcher is used for the inverse conversion. A
 //     column-major (rows, cols) address grid is a row-major (cols, rows)
 //     address grid, so calling this decomposition with swapped dimensions
@@ -43,6 +48,7 @@
 #include <cuda_runtime.h>
 
 #include <cstdint>
+#include <limits>
 
 namespace {
 
@@ -65,6 +71,9 @@ struct GcdResult {
 };
 
 GcdResult ExtendedGcd(std::uint64_t a, std::uint64_t b) {
+  // The FFI entry point accepts signed int64 dimensions and rejects negative
+  // values before reaching this helper. That keeps quotients inside int64_t,
+  // which is required by the classic extended-GCD recurrence below.
   std::int64_t x = 0;
   std::int64_t last_x = 1;
   std::int64_t y = 1;
@@ -112,61 +121,100 @@ __device__ __forceinline__ std::uint64_t ShuffleColumn(
 }
 
 template <typename T>
-__global__ void ColumnPreShuffleKernel(T* data, T* scratch, std::uint64_t rows,
-                                       std::uint64_t cols, std::uint64_t col,
-                                       std::uint64_t b) {
+__global__ void ColumnPreShuffleBatchKernel(
+    T* data, T* scratch, std::uint64_t rows, std::uint64_t cols,
+    std::uint64_t first_col, std::uint64_t col_count, std::uint64_t b) {
+  const std::uint64_t local_col = blockIdx.x;
+  if (local_col >= col_count) {
+    return;
+  }
+  const std::uint64_t col = first_col + local_col;
+  T* column_scratch = scratch + local_col * rows;
   for (std::uint64_t row = threadIdx.x; row < rows; row += blockDim.x) {
     const std::uint64_t src_row = (row + (col / b)) % rows;
-    scratch[row] = data[src_row * cols + col];
+    column_scratch[row] = data[src_row * cols + col];
   }
   __syncthreads();
   for (std::uint64_t row = threadIdx.x; row < rows; row += blockDim.x) {
-    data[row * cols + col] = scratch[row];
+    data[row * cols + col] = column_scratch[row];
   }
 }
 
 template <typename T>
-__global__ void RowShuffleKernel(T* data, T* scratch, std::uint64_t rows,
-                                 std::uint64_t cols, std::uint64_t row,
-                                 std::uint64_t gcd,
-                                 std::uint64_t inverse) {
+__global__ void RowShuffleBatchKernel(
+    T* data, T* scratch, std::uint64_t rows, std::uint64_t cols,
+    std::uint64_t first_row, std::uint64_t row_count, std::uint64_t gcd,
+    std::uint64_t inverse) {
+  const std::uint64_t local_row = blockIdx.x;
+  if (local_row >= row_count) {
+    return;
+  }
+  const std::uint64_t row = first_row + local_row;
+  T* row_scratch = scratch + local_row * cols;
   for (std::uint64_t col = threadIdx.x; col < cols; col += blockDim.x) {
     const std::uint64_t src_col =
         ShuffleColumn(row, col, rows, cols, gcd, inverse);
-    scratch[col] = data[row * cols + src_col];
+    row_scratch[col] = data[row * cols + src_col];
   }
   __syncthreads();
   for (std::uint64_t col = threadIdx.x; col < cols; col += blockDim.x) {
-    data[row * cols + col] = scratch[col];
+    data[row * cols + col] = row_scratch[col];
   }
 }
 
 template <typename T>
-__global__ void ColumnPostShuffleKernel(T* data, T* scratch, std::uint64_t rows,
-                                        std::uint64_t cols, std::uint64_t col,
-                                        std::uint64_t a) {
+__global__ void ColumnPostShuffleBatchKernel(
+    T* data, T* scratch, std::uint64_t rows, std::uint64_t cols,
+    std::uint64_t first_col, std::uint64_t col_count, std::uint64_t a) {
+  const std::uint64_t local_col = blockIdx.x;
+  if (local_col >= col_count) {
+    return;
+  }
+  const std::uint64_t col = first_col + local_col;
+  T* column_scratch = scratch + local_col * rows;
   for (std::uint64_t row = threadIdx.x; row < rows; row += blockDim.x) {
     const std::uint64_t src_row = (row * cols + col - (row / a)) % rows;
-    scratch[row] = data[src_row * cols + col];
+    column_scratch[row] = data[src_row * cols + col];
   }
   __syncthreads();
   for (std::uint64_t row = threadIdx.x; row < rows; row += blockDim.x) {
-    data[row * cols + col] = scratch[row];
+    data[row * cols + col] = column_scratch[row];
   }
 }
 
+std::uint64_t MinU64(std::uint64_t a, std::uint64_t b) {
+  return a < b ? a : b;
+}
+
+std::uint64_t MaxU64(std::uint64_t a, std::uint64_t b) {
+  return a > b ? a : b;
+}
+
+constexpr std::uint64_t kMaxGridX = 2147483647ULL;
+
 template <typename T>
 cudaError_t LaunchTyped(cudaStream_t stream, void* data, void* scratch,
-                        std::int64_t rows, std::int64_t cols) {
-  if (rows < 0 || cols < 0 || data == nullptr || scratch == nullptr) {
+                        std::int64_t rows, std::int64_t cols,
+                        std::int64_t scratch_elements) {
+  if (rows < 0 || cols < 0 || scratch_elements < 0 || data == nullptr ||
+      scratch == nullptr) {
     return cudaErrorInvalidValue;
   }
   const std::uint64_t urows = static_cast<std::uint64_t>(rows);
   const std::uint64_t ucols = static_cast<std::uint64_t>(cols);
+  const std::uint64_t uscratch_elements =
+      static_cast<std::uint64_t>(scratch_elements);
+  if (ucols != 0 &&
+      urows > std::numeric_limits<std::uint64_t>::max() / ucols) {
+    return cudaErrorInvalidValue;
+  }
   const std::uint64_t elements = urows * ucols;
   if (urows == 0 || ucols == 0 || elements <= 1 || urows == 1 ||
       ucols == 1) {
     return cudaSuccess;
+  }
+  if (uscratch_elements < MaxU64(urows, ucols)) {
+    return cudaErrorInvalidValue;
   }
 
   GcdResult gcd_result = ExtendedGcd(urows, ucols);
@@ -179,24 +227,41 @@ cudaError_t LaunchTyped(cudaStream_t stream, void* data, void* scratch,
   constexpr int kBlockSize = 256;
   T* typed_data = static_cast<T*>(data);
   T* typed_scratch = static_cast<T*>(scratch);
+  const std::uint64_t row_batch =
+      MaxU64(1, MinU64(urows, uscratch_elements / ucols));
+  const std::uint64_t col_batch =
+      MaxU64(1, MinU64(ucols, uscratch_elements / urows));
 
   if (gcd > 1) {
     const std::uint64_t b = ucols / gcd;
-    for (std::uint64_t col = 0; col < ucols; ++col) {
-      ColumnPreShuffleKernel<T><<<1, kBlockSize, 0, stream>>>(
-          typed_data, typed_scratch, urows, ucols, col, b);
+    for (std::uint64_t col = 0; col < ucols;) {
+      const std::uint64_t batch =
+          MinU64(kMaxGridX, MinU64(col_batch, ucols - col));
+      ColumnPreShuffleBatchKernel<T>
+          <<<static_cast<unsigned int>(batch), kBlockSize, 0, stream>>>(
+              typed_data, typed_scratch, urows, ucols, col, batch, b);
+      col += batch;
     }
   }
 
-  for (std::uint64_t row = 0; row < urows; ++row) {
-    RowShuffleKernel<T><<<1, kBlockSize, 0, stream>>>(
-        typed_data, typed_scratch, urows, ucols, row, gcd, inverse);
+  for (std::uint64_t row = 0; row < urows;) {
+    const std::uint64_t batch =
+        MinU64(kMaxGridX, MinU64(row_batch, urows - row));
+    RowShuffleBatchKernel<T>
+        <<<static_cast<unsigned int>(batch), kBlockSize, 0, stream>>>(
+            typed_data, typed_scratch, urows, ucols, row, batch, gcd,
+            inverse);
+    row += batch;
   }
 
   const std::uint64_t a = urows / gcd;
-  for (std::uint64_t col = 0; col < ucols; ++col) {
-    ColumnPostShuffleKernel<T><<<1, kBlockSize, 0, stream>>>(
-        typed_data, typed_scratch, urows, ucols, col, a);
+  for (std::uint64_t col = 0; col < ucols;) {
+    const std::uint64_t batch =
+        MinU64(kMaxGridX, MinU64(col_batch, ucols - col));
+    ColumnPostShuffleBatchKernel<T>
+        <<<static_cast<unsigned int>(batch), kBlockSize, 0, stream>>>(
+            typed_data, typed_scratch, urows, ucols, col, batch, a);
+    col += batch;
   }
 
   return cudaGetLastError();
@@ -206,14 +271,18 @@ cudaError_t LaunchTyped(cudaStream_t stream, void* data, void* scratch,
 
 extern "C" cudaError_t JaxmgLaunchRowMajorToColumnMajorDecomposition(
     cudaStream_t stream, void* data, void* scratch, std::int64_t rows,
-    std::int64_t cols, std::int64_t element_bytes) {
+    std::int64_t cols, std::int64_t scratch_elements,
+    std::int64_t element_bytes) {
   switch (element_bytes) {
     case 4:
-      return LaunchTyped<Bytes4>(stream, data, scratch, rows, cols);
+      return LaunchTyped<Bytes4>(stream, data, scratch, rows, cols,
+                                 scratch_elements);
     case 8:
-      return LaunchTyped<Bytes8>(stream, data, scratch, rows, cols);
+      return LaunchTyped<Bytes8>(stream, data, scratch, rows, cols,
+                                 scratch_elements);
     case 16:
-      return LaunchTyped<Bytes16>(stream, data, scratch, rows, cols);
+      return LaunchTyped<Bytes16>(stream, data, scratch, rows, cols,
+                                  scratch_elements);
     default:
       return cudaErrorInvalidValue;
   }

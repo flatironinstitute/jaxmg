@@ -30,8 +30,92 @@ from jax.sharding import Mesh, PartitionSpec as P
 from ._setup import ensure_init_jaxmg_backend
 
 _ROW_MAJOR_JAX_LAYOUT = (0, 1)
-_CUSOLVERMP_POTRS_STATUS_SIZE = 40
-_CUSOLVERMP_SYEVD_STATUS_SIZE = 36
+
+# These schemas must match the C++ status vector arrays in
+# src/cuda/cusolvermp_routines/cusolvermp.cc.  They are intentionally private:
+# status vectors are diagnostics and should not become part of the public API.
+_CUSOLVERMP_POTRS_STATUS_FIELDS = (
+    "status_code",
+    "cuda_device",
+    "nccl_rank",
+    "nccl_rank_count",
+    "process_rows",
+    "process_cols",
+    "cusolvermp_version",
+    "cusolvermp_loaded",
+    "handle_created",
+    "grid_created",
+    "a_descriptor_created",
+    "raw_cusolver_status",
+    "a_size_bytes",
+    "n",
+    "tile_size",
+    "a_local_rows",
+    "a_local_cols",
+    "b_local_rows",
+    "a_numroc_rows",
+    "a_numroc_cols",
+    "b_numroc_rows",
+    "b_numroc_cols",
+    "potrf_device_workspace_kib",
+    "potrf_host_workspace_kib",
+    "potrs_device_workspace_kib",
+    "potrs_host_workspace_kib",
+    "potrf_called",
+    "potrf_info",
+    "potrs_called",
+    "potrs_info",
+    "a_scatter_or_redist_called",
+    "b_scatter_or_redist_called",
+    "b_gather_or_reverse_redist_called",
+    "residual_scaled_1e6",
+    "dtype_code",
+    "b_local_cols",
+    "nrhs",
+    "a_native_redist",
+    "b_native_redist",
+    "reserved",
+)
+_CUSOLVERMP_SYEVD_STATUS_FIELDS = (
+    "status_code",
+    "cuda_device",
+    "nccl_rank",
+    "nccl_rank_count",
+    "process_rows",
+    "process_cols",
+    "cusolvermp_version",
+    "cusolvermp_loaded",
+    "handle_created",
+    "grid_created",
+    "a_descriptor_created",
+    "raw_cusolver_status",
+    "a_size_bytes",
+    "n",
+    "tile_size",
+    "a_local_rows",
+    "a_local_cols",
+    "a_numroc_rows",
+    "a_numroc_cols",
+    "eigenvalues_size_bytes",
+    "compute_eigenvectors",
+    "syevd_device_workspace_kib",
+    "syevd_host_workspace_kib",
+    "syevd_called",
+    "syevd_info",
+    "dtype_code",
+    "grid_mapping",
+    "q_descriptor_created",
+    "a_native_redist",
+    "reserved_0",
+    "reserved_1",
+    "reserved_2",
+    "reserved_3",
+    "reserved_4",
+    "reserved_5",
+    "reserved_6",
+)
+_CUSOLVERMP_POTRS_STATUS_SIZE = len(_CUSOLVERMP_POTRS_STATUS_FIELDS)
+_CUSOLVERMP_SYEVD_STATUS_SIZE = len(_CUSOLVERMP_SYEVD_STATUS_FIELDS)
 
 
 def _standard_grid_rank_map_attr(

@@ -295,4 +295,21 @@ absl::StatusOr<GpuCliqueKey> NodeScopedP2PCliqueKey(
       CommunicationId(1));
 }
 
+absl::Status RequestAllAssignedP2PCommunicator(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests, const char* caller) {
+  if (collective_params == nullptr || clique_requests == nullptr) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s requires XLA collective prepare contexts", caller));
+  }
+
+  absl::StatusOr<GpuCliqueKey> clique_key =
+      AllAssignedDevicesP2PCliqueKey(*collective_params);
+  if (!clique_key.ok()) {
+    return clique_key.status();
+  }
+  return clique_requests->RequestClique(
+      *clique_key, {AllAssignedGlobalDeviceGroup(*collective_params)});
+}
+
 }  // namespace xla::gpu

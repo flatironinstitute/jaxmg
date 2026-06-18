@@ -1,0 +1,108 @@
+// Copyright 2026 JAXMg contributors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Native scratch sizing for the cuSOLVERMp redistribution path.
+//
+// The fused solver handlers use one XLA-owned scratch allocation for every
+// temporary movement inside a call:
+//
+//   1. local row-major <-> column-major layout conversion;
+//   2. top-left edge-padding compaction and its inverse;
+//   3. 2D block-cyclic tile-slab redistribution and its inverse.
+//
+// The 2D cyclic stage defines the fixed bound:
+//
+//   3 * max(tile_cols * local_rows, tile_rows * local_cols)
+//
+// The factor of three is the same saved/send/receive slot policy used by the
+// original JAXMg in-place cyclic reshuffler. Edge-padding is an open-chain move
+// and can use the whole allocation as a single payload; layout conversion only
+// requires a one-row or one-column minimum, which is already covered whenever
+// tile sizes and local dimensions are positive. Keeping this calculation in
+// memory_redist makes the solver files independent of redistribution internals.
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+
+#include "../include/xla_comm_backend.h"
+
+namespace xla::gpu {
+
+absl::StatusOr<int64_t> RequiredPadded2DRedistScratchElements(
+    const Padded2DRedistScratchRequest& request) {
+  absl::StatusOr<int64_t> elements =
+      RequiredPadded2DNativePlanScratchElements(
+          request.process_rows, request.process_cols, request.tile_rows,
+          request.tile_cols, request.logical_rows, request.logical_cols,
+          request.local_rows, request.local_cols, request.rank_map);
+  if (!elements.ok()) {
+    return elements.status();
+  }
+
+  // RequiredPadded2DNativePlanScratchElements already validates the padding
+  // geometry and returns the 3-slot cyclic redistribution bound. This defensive
+  // check documents the invariant that lets layout conversion reuse the same
+  // scratch without requesting an extra max(local_rows, local_cols) term.
+  const int64_t layout_minimum =
+      std::max(request.local_rows, request.local_cols);
+  if (*elements < layout_minimum) {
+    return absl::InternalError(absl::StrFormat(
+        "padded 2D redistribution scratch invariant failed: computed %d "
+        "elements, but layout conversion requires at least %d",
+        *elements, layout_minimum));
+  }
+  return *elements;
+}
+
+absl::StatusOr<Padded2DRedistScratch> AllocatePadded2DRedistScratch(
+    se::ScratchAllocator& scratch, size_t element_bytes,
+    absl::Span<const Padded2DRedistScratchRequest> requests,
+    const char* caller) {
+  if (element_bytes == 0) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s requires a positive element size for redistribution scratch",
+        caller));
+  }
+  if (requests.empty()) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s requires at least one redistribution scratch request", caller));
+  }
+
+  int64_t max_elements = 0;
+  for (const Padded2DRedistScratchRequest& request : requests) {
+    absl::StatusOr<int64_t> elements =
+        RequiredPadded2DRedistScratchElements(request);
+    if (!elements.ok()) {
+      return elements.status();
+    }
+    max_elements = std::max(max_elements, *elements);
+  }
+
+  const size_t bytes =
+      std::max<size_t>(1, static_cast<size_t>(max_elements)) * element_bytes;
+  absl::StatusOr<void*> scratch_pointer =
+      AllocateFfiScratch(scratch, bytes, caller);
+  if (!scratch_pointer.ok()) {
+    return scratch_pointer.status();
+  }
+
+  return Padded2DRedistScratch{
+      /*base=*/se::DeviceAddressBase(*scratch_pointer, bytes),
+      /*elements=*/max_elements,
+      /*bytes=*/bytes,
+  };
+}
+
+}  // namespace xla::gpu

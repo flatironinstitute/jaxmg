@@ -32,7 +32,7 @@
 //      ordinary row-major local storage before returning through the FFI
 //      contract.
 
-#include <algorithm>
+#include <array>
 
 #include "../include/xla_comm_backend.h"
 
@@ -41,8 +41,8 @@ namespace xla::gpu {
 absl::Status XlaCusolverMpSyevdPrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
-  return XlaCusolverMpDistributedPotrsProbePrepare(collective_params,
-                                                  clique_requests);
+  return RequestAllAssignedP2PCommunicator(
+      collective_params, clique_requests, "cusolvermp_syevd");
 }
 
 absl::Status XlaCusolverMpSyevdDispatch(
@@ -73,28 +73,30 @@ absl::Status XlaCusolverMpSyevdDispatch(
         "cusolvermp_syevd input/output matrix shapes must match");
   }
 
-  absl::StatusOr<int64_t> scratch_elements_or =
-      RequiredPadded2DNativePlanScratchElements(
-          process_rows, process_cols, tile_size, tile_size, n, n,
-          a.dimensions()[0], a.dimensions()[1], rank_map);
-  if (!scratch_elements_or.ok()) {
-    return scratch_elements_or.status();
-  }
-  int64_t scratch_elements = *scratch_elements_or;
-  scratch_elements =
-      std::max(scratch_elements, std::max(a.dimensions()[0], a.dimensions()[1]));
   const size_t element_bytes =
       a.size_bytes() / static_cast<size_t>(a.element_count());
-  const size_t scratch_bytes =
-      std::max<size_t>(1, static_cast<size_t>(scratch_elements)) *
-      element_bytes;
-  absl::StatusOr<void*> redistribution_scratch =
-      AllocateFfiScratch(scratch, scratch_bytes,
-                         "cusolvermp_syevd_redistribution");
+  const std::array<Padded2DRedistScratchRequest, 1> scratch_requests = {{
+      Padded2DRedistScratchRequest{
+          /*process_rows=*/process_rows,
+          /*process_cols=*/process_cols,
+          /*tile_rows=*/tile_size,
+          /*tile_cols=*/tile_size,
+          /*logical_rows=*/n,
+          /*logical_cols=*/n,
+          /*local_rows=*/a.dimensions()[0],
+          /*local_cols=*/a.dimensions()[1],
+          /*rank_map=*/rank_map,
+      },
+  }};
+  absl::StatusOr<Padded2DRedistScratch> redistribution_scratch =
+      AllocatePadded2DRedistScratch(
+          scratch, element_bytes, absl::MakeConstSpan(scratch_requests),
+          "cusolvermp_syevd_redistribution");
   if (!redistribution_scratch.ok()) {
     return redistribution_scratch.status();
   }
-  se::DeviceAddressBase scratch_base(*redistribution_scratch, scratch_bytes);
+  se::DeviceAddressBase scratch_base = redistribution_scratch->base;
+  const int64_t scratch_elements = redistribution_scratch->elements;
 
   ffi::AnyBuffer a_forward_input = a;
   // Python supplies row-major JAX local shards. Convert the donated work alias

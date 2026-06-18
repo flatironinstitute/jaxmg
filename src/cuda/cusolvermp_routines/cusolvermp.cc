@@ -178,6 +178,22 @@ enum ProbeStatus : int32_t {
   kSyevdInfoNonzero = 35,
 };
 
+// Device status vector schemas returned by the diagnostic and production FFI
+// calls. Python allocates these output buffers with matching constants in
+// `_cusolvermp_ffi.py`; update both sides together when adding fields.
+//
+// Shared prefix:
+//   [0] status code from ProbeStatus
+//   [1] selected CUDA device
+//   [2] NCCL rank
+//   [3] NCCL rank count
+//   [4] process rows
+//   [5] process columns
+//   [6] cuSOLVERMp version
+//   [7] cuSOLVERMp library present
+//
+// The remaining slots are probe-specific and store cuSOLVERMp status codes,
+// local matrix sizes, workspace sizes in KiB, info values, and validation flags.
 constexpr int kProbeSize = 16;
 constexpr int kScatterProbeSize = 24;
 constexpr int kPotrsProbeSize = 40;
@@ -1681,18 +1697,8 @@ absl::Status RunCusolverMpSyevd(
 absl::Status XlaCusolverMpInitProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
-  if (collective_params == nullptr || clique_requests == nullptr) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_init_probe requires XLA collective prepare contexts");
-  }
-
-  absl::StatusOr<GpuCliqueKey> clique_key =
-      AllAssignedDevicesP2PCliqueKey(*collective_params);
-  if (!clique_key.ok()) {
-    return clique_key.status();
-  }
-  return clique_requests->RequestClique(
-      *clique_key, {AllAssignedGlobalDeviceGroup(*collective_params)});
+  return RequestAllAssignedP2PCommunicator(
+      collective_params, clique_requests, "cusolvermp_init_probe");
 }
 
 absl::Status XlaCusolverMpScatterLayoutProbePrepare(

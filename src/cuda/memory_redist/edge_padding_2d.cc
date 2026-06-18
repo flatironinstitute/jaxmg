@@ -22,13 +22,15 @@
 // and builds the inverse schedule used after the solve.
 //
 // File workflow:
-//   1. Along the process-column axis, pull later real column slabs into earlier
-//      padding holes so horizontal padding is consolidated at the global right
-//      edge.
-//   2. Along the process-row axis, pull later real row slabs upward so vertical
-//      padding is consolidated at the global bottom edge.
-//   3. Express each pull as Native2DStep moves that can be executed by the shared
-//      rectangle transport layer.
+//   1. Along the process-column axis, map each real local column interval to its
+//      final compacted global coordinate.  This pushes all column padding to the
+//      global right edge.
+//   2. Along the process-row axis, perform the same direct mapping for real row
+//      intervals, pushing all row padding to the global bottom edge.
+//   3. Split each direct move at process-boundaries and at the caller-provided
+//      padding scratch budget.  Padding is an open-chain shift, so it can use
+//      the whole scratch allocation as one temporary buffer instead of the
+//      three-slot cycle layout used by the block-cyclic permutation.
 //   4. Build the reverse schedule by swapping source/target rectangles and
 //      reversing wave order; padding bytes themselves are never semantically
 //      restored.
@@ -55,86 +57,62 @@ int64_t AxisPadding(int64_t logical_per_block, int64_t tile_size) {
 
 absl::StatusOr<std::vector<AxisEdgeMove>> BuildAxisEdgePaddingMoves(
     int64_t block_count, int64_t logical_per_block,
-    int64_t physical_per_block) {
+    int64_t physical_per_block, int64_t max_extent) {
   if (block_count <= 0 || logical_per_block <= 0 ||
       physical_per_block <= 0) {
     return absl::InvalidArgumentError(
         "edge-padding compaction requires positive axis extents");
+  }
+  if (max_extent <= 0) {
+    return absl::InvalidArgumentError(
+        "edge-padding compaction requires a positive maximum move extent");
   }
   if (logical_per_block > physical_per_block) {
     return absl::InvalidArgumentError(
         "edge-padding compaction logical extent exceeds physical extent");
   }
 
-  const int64_t total = block_count * physical_per_block;
-  const int64_t logical_total = block_count * logical_per_block;
-  std::vector<uint8_t> is_real(total, 0);
-  for (int64_t block = 0; block < block_count; ++block) {
-    const int64_t start = block * physical_per_block;
-    for (int64_t offset = 0; offset < logical_per_block; ++offset) {
-      is_real[start + offset] = 1;
-    }
+  if (logical_per_block == physical_per_block) {
+    return std::vector<AxisEdgeMove>();
   }
 
+  // Each block's real interval [block * physical, block * physical + logical)
+  // must end up at [block * logical, (block + 1) * logical) in the compacted
+  // global address line.  Processing source blocks from low to high is safe for
+  // left/up compaction: earlier target positions are either already finalized or
+  // padding holes produced by previous moves.  Local same-rank overlap is safe
+  // because the rectangle executor packs the full source chunk into scratch
+  // before unpacking it to the destination.
   std::vector<AxisEdgeMove> moves;
   int64_t wave = 0;
-  while (true) {
-    int64_t target_start = -1;
-    for (int64_t index = 0; index < logical_total; ++index) {
-      if (!is_real[index]) {
-        target_start = index;
-        break;
-      }
-    }
-    if (target_start < 0) {
-      break;
-    }
+  for (int64_t source_block = 0; source_block < block_count; ++source_block) {
+    int64_t consumed = 0;
+    while (consumed < logical_per_block) {
+      const int64_t source_start =
+          source_block * physical_per_block + consumed;
+      const int64_t target_start =
+          source_block * logical_per_block + consumed;
 
-    int64_t target_stop = target_start;
-    while (target_stop < total && !is_real[target_stop]) {
-      ++target_stop;
-    }
-
-    int64_t source_start = -1;
-    for (int64_t index = target_stop; index < total; ++index) {
-      if (is_real[index]) {
-        source_start = index;
-        break;
-      }
-    }
-    if (source_start < 0) {
-      break;
-    }
-
-    int64_t source_stop = source_start;
-    while (source_stop < total && is_real[source_stop]) {
-      ++source_stop;
-    }
-
-    const int64_t target_block_stop =
-        (target_start / physical_per_block + 1) * physical_per_block;
-    const int64_t source_block_stop =
-        (source_start / physical_per_block + 1) * physical_per_block;
-    const int64_t extent =
-        std::min({target_stop - target_start, source_stop - source_start,
-                  target_block_stop - target_start,
-                  source_block_stop - source_start});
-    if (extent <= 0) {
-      return absl::InternalError(
-          "edge-padding compaction generated an empty move");
-    }
-
-    moves.push_back(AxisEdgeMove{wave, source_start, target_start, extent});
-    for (int64_t offset = 0; offset < extent; ++offset) {
-      if (is_real[target_start + offset] ||
-          !is_real[source_start + offset]) {
+      const int64_t remaining = logical_per_block - consumed;
+      const int64_t source_block_stop =
+          (source_start / physical_per_block + 1) * physical_per_block;
+      const int64_t target_block_stop =
+          (target_start / physical_per_block + 1) * physical_per_block;
+      const int64_t extent =
+          std::min({remaining, source_block_stop - source_start,
+                    target_block_stop - target_start, max_extent});
+      if (extent <= 0) {
         return absl::InternalError(
-            "edge-padding compaction occupancy invariant failed");
+            "edge-padding compaction generated an empty direct move");
       }
-      is_real[target_start + offset] = 1;
-      is_real[source_start + offset] = 0;
+
+      if (source_start != target_start) {
+        moves.push_back(AxisEdgeMove{wave, source_start, target_start,
+                                     extent});
+        ++wave;
+      }
+      consumed += extent;
     }
-    ++wave;
   }
 
   return moves;
@@ -147,11 +125,15 @@ absl::StatusOr<std::vector<Native2DStep>> BuildEdgePaddingNative2DSteps(
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
     int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
     int64_t local_rows, int64_t local_cols,
-    absl::Span<const int64_t> rank_map) {
+    int64_t padding_slot_elements, absl::Span<const int64_t> rank_map) {
   if (process_rows <= 0 || process_cols <= 0 || tile_rows <= 0 ||
       tile_cols <= 0 || logical_rows <= 0 || logical_cols <= 0) {
     return absl::InvalidArgumentError(
         "padded native 2D redistribution requires positive dimensions");
+  }
+  if (padding_slot_elements <= 0) {
+    return absl::InvalidArgumentError(
+        "padded native 2D redistribution requires positive padding scratch");
   }
   if (logical_rows % process_rows != 0 ||
       logical_cols % process_cols != 0) {
@@ -173,8 +155,19 @@ absl::StatusOr<std::vector<Native2DStep>> BuildEdgePaddingNative2DSteps(
   }
 
   std::vector<Native2DStep> steps;
+  if (padding_slot_elements < local_rows ||
+      padding_slot_elements < local_cols) {
+    return absl::InvalidArgumentError(
+        "edge-padding compaction scratch must be large enough for at least one "
+        "full-height column or one full-width row");
+  }
+  const int64_t max_horizontal_extent =
+      std::max<int64_t>(1, padding_slot_elements / local_rows);
+  const int64_t max_vertical_extent =
+      std::max<int64_t>(1, padding_slot_elements / local_cols);
   absl::StatusOr<std::vector<AxisEdgeMove>> horizontal_moves =
-      BuildAxisEdgePaddingMoves(process_cols, local_logical_cols, local_cols);
+      BuildAxisEdgePaddingMoves(process_cols, local_logical_cols, local_cols,
+                                max_horizontal_extent);
   if (!horizontal_moves.ok()) {
     return horizontal_moves.status();
   }
@@ -206,7 +199,8 @@ absl::StatusOr<std::vector<Native2DStep>> BuildEdgePaddingNative2DSteps(
   }
 
   absl::StatusOr<std::vector<AxisEdgeMove>> vertical_moves =
-      BuildAxisEdgePaddingMoves(process_rows, local_logical_rows, local_rows);
+      BuildAxisEdgePaddingMoves(process_rows, local_logical_rows, local_rows,
+                                max_vertical_extent);
   if (!vertical_moves.ok()) {
     return vertical_moves.status();
   }
