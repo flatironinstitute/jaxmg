@@ -70,8 +70,8 @@ struct Native2DStepBatch {
   std::vector<Native2DStep> steps;
 };
 
-// Lightweight copy helpers used by diagnostics and production wrappers when
-// XLA could not alias an input buffer with the requested output/work buffer.
+// Lightweight copy helpers used by production wrappers when XLA could not
+// alias an input buffer with the requested output/work buffer.
 absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream,
                                 ffi::AnyBuffer matrix,
                                 ffi::Result<ffi::AnyBuffer> matrix_out);
@@ -86,8 +86,8 @@ absl::Status ConvertColumnMajorToRowMajorInPlace(
     se::DeviceAddressBase scratch_base, int64_t scratch_elements);
 
 // Low-level rectangle transport helpers. These remain exposed only inside the
-// native backend so diagnostics can use the exact production pack/unpack/NCCL
-// path without duplicating transport logic.
+// native backend so tests can use the exact production pack/unpack/NCCL path
+// without duplicating transport logic.
 absl::Status ValidateRect(const char* caller, int64_t row_start,
                           int64_t col_start, int64_t row_count,
                           int64_t col_count, int64_t local_rows,

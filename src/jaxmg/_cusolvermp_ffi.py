@@ -31,9 +31,11 @@ from ._setup import ensure_init_jaxmg_backend
 
 _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
-# These schemas must match the C++ status vector arrays in
-# src/cuda/cusolvermp_routines/cusolvermp.cc.  They are intentionally private:
-# status vectors are diagnostics and should not become part of the public API.
+# These schemas must match the private C++ status vector arrays in
+# src/cuda/cusolvermp_routines/cusolvermp_potrs.cc and
+# src/cuda/cusolvermp_routines/cusolvermp_syevd.cc. They are intentionally
+# private: status vectors are low-level backend error detail and should not
+# become part of the public API.
 _CUSOLVERMP_POTRS_STATUS_FIELDS = (
     "status_code",
     "cuda_device",
@@ -42,7 +44,7 @@ _CUSOLVERMP_POTRS_STATUS_FIELDS = (
     "process_rows",
     "process_cols",
     "cusolvermp_version",
-    "cusolvermp_loaded",
+    "cusolvermp_runtime_available",
     "handle_created",
     "grid_created",
     "a_descriptor_created",
@@ -65,9 +67,9 @@ _CUSOLVERMP_POTRS_STATUS_FIELDS = (
     "potrf_info",
     "potrs_called",
     "potrs_info",
-    "a_scatter_or_redist_called",
-    "b_scatter_or_redist_called",
-    "b_gather_or_reverse_redist_called",
+    "a_native_redist",
+    "b_native_redist",
+    "b_reverse_redist",
     "residual_scaled_1e6",
     "dtype_code",
     "b_local_cols",
@@ -84,7 +86,7 @@ _CUSOLVERMP_SYEVD_STATUS_FIELDS = (
     "process_rows",
     "process_cols",
     "cusolvermp_version",
-    "cusolvermp_loaded",
+    "cusolvermp_runtime_available",
     "handle_created",
     "grid_created",
     "a_descriptor_created",

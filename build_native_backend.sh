@@ -86,8 +86,75 @@ if [[ -z "${CUDA_MAJOR}" ]]; then
   exit 1
 fi
 
+CUSOLVERMP_INCLUDE_DIR="${JAXMG_CUSOLVERMP_INCLUDE_DIR:-}"
+CUSOLVERMP_LIBRARY_DIR="${JAXMG_CUSOLVERMP_LIBRARY_DIR:-}"
+CUSOLVERMP_LIBRARY_NAME="${JAXMG_CUSOLVERMP_LIBRARY_NAME:-libcusolverMp.so.0}"
+
+if [[ -z "${CUSOLVERMP_INCLUDE_DIR}" || -z "${CUSOLVERMP_LIBRARY_DIR}" ]]; then
+  if ! command -v "${PYTHON}" >/dev/null 2>&1; then
+    echo "Python executable not found for cuSOLVERMp wheel discovery: ${PYTHON}" >&2
+    exit 1
+  fi
+  CUSOLVERMP_PATHS="$("${PYTHON}" - "${CUDA_MAJOR}" "${CUSOLVERMP_LIBRARY_NAME}" <<'PY'
+import pathlib
+import site
+import sys
+
+cuda_major = sys.argv[1]
+library_name = sys.argv[2]
+
+roots = [pathlib.Path(path) for path in sys.path if path]
+for getter in (getattr(site, "getsitepackages", None), getattr(site, "getusersitepackages", None)):
+    if getter is None:
+        continue
+    value = getter()
+    if isinstance(value, str):
+        roots.append(pathlib.Path(value))
+    else:
+        roots.extend(pathlib.Path(path) for path in value)
+
+seen = set()
+for root in roots:
+    try:
+        resolved = root.resolve()
+    except OSError:
+        resolved = root
+    if resolved in seen:
+        continue
+    seen.add(resolved)
+    cuda_root = root / "nvidia" / f"cu{cuda_major}"
+    include_dir = cuda_root / "include"
+    library_dir = cuda_root / "lib"
+    if (include_dir / "cusolverMp.h").is_file() and (library_dir / library_name).is_file():
+        print(include_dir)
+        print(library_dir)
+        sys.exit(0)
+
+sys.exit(1)
+PY
+)" || {
+    echo "Unable to find cuSOLVERMp headers/library in the Python environment." >&2
+    echo "Install the matching NVIDIA wheel, e.g. ${PYTHON} -m pip install nvidia-cusolvermp-cu${CUDA_MAJOR}." >&2
+    echo "Alternatively set JAXMG_CUSOLVERMP_INCLUDE_DIR and JAXMG_CUSOLVERMP_LIBRARY_DIR." >&2
+    exit 1
+  }
+  CUSOLVERMP_INCLUDE_DIR="$(printf '%s\n' "${CUSOLVERMP_PATHS}" | sed -n '1p')"
+  CUSOLVERMP_LIBRARY_DIR="$(printf '%s\n' "${CUSOLVERMP_PATHS}" | sed -n '2p')"
+fi
+
+if [[ ! -f "${CUSOLVERMP_INCLUDE_DIR}/cusolverMp.h" ]]; then
+  echo "cuSOLVERMp header not found: ${CUSOLVERMP_INCLUDE_DIR}/cusolverMp.h" >&2
+  exit 1
+fi
+if [[ ! -f "${CUSOLVERMP_LIBRARY_DIR}/${CUSOLVERMP_LIBRARY_NAME}" ]]; then
+  echo "cuSOLVERMp library not found: ${CUSOLVERMP_LIBRARY_DIR}/${CUSOLVERMP_LIBRARY_NAME}" >&2
+  exit 1
+fi
+
 echo "Using OpenXLA checkout: ${XLA_SRC}"
 echo "Using OpenXLA revision: $(git -C "${XLA_SRC}" rev-parse --short HEAD)"
+echo "Using cuSOLVERMp include directory: ${CUSOLVERMP_INCLUDE_DIR}"
+echo "Using cuSOLVERMp library directory: ${CUSOLVERMP_LIBRARY_DIR}"
 
 BACKEND_PKG="${XLA_SRC}/jaxmg_backend"
 mkdir -p \
@@ -101,17 +168,20 @@ ln -sfn "${ROOT}/src/cuda/include/xla_comm_common.h" \
   "${BACKEND_PKG}/include/xla_comm_common.h"
 ln -sfn "${ROOT}/src/cuda/utils/xla_comm_common.cc" \
   "${BACKEND_PKG}/utils/xla_comm_common.cc"
+ln -sfn "${CUSOLVERMP_INCLUDE_DIR}" "${BACKEND_PKG}/cusolvermp_include"
+ln -sfn "${CUSOLVERMP_LIBRARY_DIR}" "${BACKEND_PKG}/cusolvermp_lib"
 for src in block_cyclic_2d.cc edge_padding_2d.cc layout_convert.cu.cc layout_convert.h memory_redist.h rectangle_pack.cc scratch.cc; do
   ln -sfn "${ROOT}/src/cuda/memory_redist/${src}" \
     "${BACKEND_PKG}/memory_redist/${src}"
 done
-for src in cusolvermp.cc cusolvermp_potrs.cc cusolvermp_routines.h cusolvermp_syevd.cc; do
+for src in cusolvermp_common.cc cusolvermp_common.h cusolvermp_potrs.cc cusolvermp_routines.h cusolvermp_syevd.cc; do
   ln -sfn "${ROOT}/src/cuda/cusolvermp_routines/${src}" \
     "${BACKEND_PKG}/cusolvermp_routines/${src}"
 done
 ln -sfn "${ROOT}/src/cuda/ffi_handlers.cc" "${BACKEND_PKG}/ffi_handlers.cc"
 
-cp "${BACKEND_BUILD_TEMPLATE}" "${BACKEND_PKG}/BUILD.bazel"
+sed "s/@JAXMG_CUDA_MAJOR@/${CUDA_MAJOR}/g" \
+  "${BACKEND_BUILD_TEMPLATE}" > "${BACKEND_PKG}/BUILD.bazel"
 
 cd "${XLA_SRC}"
 mkdir -p "${BAZEL_OUTPUT_USER_ROOT}" "${BAZEL_REPOSITORY_CACHE}"

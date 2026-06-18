@@ -44,7 +44,7 @@
 // The public cuSOLVERMp path calls this file through the higher-level phase
 // files rather than constructing rectangle moves directly. Keeping that
 // boundary explicit makes the transport code reusable without exposing
-// standalone diagnostic FFI targets in the production backend.
+// standalone validation FFI targets in the production backend.
 
 #include <algorithm>
 #include <cstdint>
@@ -116,7 +116,7 @@ absl::StatusOr<NcclStreamChoice> ChooseNcclStream(const char* caller,
                                                   cudaStream_t cuda_stream) {
   // Prefer XLA's communication stream when it is materialized, because that is
   // the stream XLA expects collective work to use. Some contexts expose only
-  // the platform CUDA stream; the fallback keeps diagnostics usable there.
+  // the platform CUDA stream; the fallback keeps validation paths usable there.
   if (comm_stream != nullptr) {
     void* handle = comm_stream->platform_specific_handle().stream;
     if (handle != nullptr) {

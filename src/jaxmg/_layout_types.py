@@ -113,7 +113,7 @@ class ProcessRankMap:
 
         NVIDIA's headers define ``CUSOLVERMP_GRID_MAPPING_COL_MAJOR = 0`` and
         ``CUSOLVERMP_GRID_MAPPING_ROW_MAJOR = 1``.  The integer is passed as an
-        FFI attribute because the native backend dynamically loads cuSOLVERMp.
+        FFI attribute because the native backend can select the same cuSOLVERMp grid mapping as the JAX mesh.
         """
         mapping = self.grid_mapping
         if mapping == "column_major":

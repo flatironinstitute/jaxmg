@@ -19,7 +19,8 @@ cuda_library(
 cc_binary(
     name = "libjaxmg_xla_comm_backend.so",
     srcs = [
-        "cusolvermp_routines/cusolvermp.cc",
+        "cusolvermp_routines/cusolvermp_common.cc",
+        "cusolvermp_routines/cusolvermp_common.h",
         "cusolvermp_routines/cusolvermp_potrs.cc",
         "cusolvermp_routines/cusolvermp_routines.h",
         "cusolvermp_routines/cusolvermp_syevd.cc",
@@ -41,10 +42,13 @@ cc_binary(
         "-Iexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_nvcc/include",
         "-Iexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_cublas/include",
         "-Iexternal/_main~cccl_extension~cuda_cccl/libcudacxx/include",
+        "-Ijaxmg_backend/cusolvermp_include",
     ],
     linkopts = [
         "-Lexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_cusolver/lib",
-        "-ldl",
+        "-Ljaxmg_backend/cusolvermp_lib",
+        "-l:libcusolverMp.so.0",
+        "-Wl,-rpath,$ORIGIN/../../nvidia/cu@JAXMG_CUDA_MAJOR@/lib",
     ],
     deps = [
         ":layout_convert_cuda",

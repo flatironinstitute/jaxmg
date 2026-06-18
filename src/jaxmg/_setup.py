@@ -1,17 +1,17 @@
 """Backend initialization and native FFI target registration for JAXMg.
 
 This module locates the packaged native backend for the active CUDA runtime,
-loads it with ``ctypes``, and registers the exported XLA FFI targets with JAX.
-The native backend is responsible for loading cuSOLVERMp/NCCL-compatible
-runtime libraries and for borrowing XLA's communicator during each FFI call.
+preloads the required NVIDIA wheel libraries, loads the backend with
+``ctypes``, and registers the exported XLA FFI targets with JAX. The native
+backend borrows XLA's communicator during each FFI call.
 
 The setup path supports both single-process multi-GPU execution and JAX
 distributed runs with one Python process per local GPU.
 """
 
-import importlib
 import pathlib
 import ctypes
+import site
 import warnings
 import sys
 import os
@@ -24,10 +24,9 @@ from .utils import JaxMgWarning
 
 _lib_dir = os.path.dirname(__file__)
 _initialized = False
-_diagnostics_initialized = False
 _runtime_mode = None
-_cuda_bin_dir = None
 _xla_comm_backend_library = "libjaxmg_xla_comm_backend.so"
+_preloaded_cuda_libraries = {}
 
 _PRODUCTION_FFI_TARGETS = (
     (
@@ -46,44 +45,6 @@ _PRODUCTION_FFI_TARGETS = (
     ),
 )
 
-_DIAGNOSTIC_FFI_TARGETS = (
-    (
-        "cusolvermp_init_probe",
-        {
-            "prepare": "XlaCusolverMpInitProbePrepareFFI",
-            "execute": "XlaCusolverMpInitProbeFFI",
-        },
-    ),
-    (
-        "cusolvermp_scatter_layout_probe",
-        {
-            "prepare": "XlaCusolverMpScatterLayoutProbePrepareFFI",
-            "execute": "XlaCusolverMpScatterLayoutProbeFFI",
-        },
-    ),
-    (
-        "cusolvermp_potrs_probe",
-        {
-            "prepare": "XlaCusolverMpPotrsProbePrepareFFI",
-            "execute": "XlaCusolverMpPotrsProbeFFI",
-        },
-    ),
-    (
-        "cusolvermp_distributed_potrs_probe",
-        {
-            "prepare": "XlaCusolverMpDistributedPotrsProbePrepareFFI",
-            "execute": "XlaCusolverMpDistributedPotrsProbeFFI",
-        },
-    ),
-    (
-        "cusolvermp_syevd_probe",
-        {
-            "prepare": "XlaCusolverMpSyevdProbePrepareFFI",
-            "execute": "XlaCusolverMpSyevdProbeFFI",
-        },
-    ),
-)
-
 if not sys.platform.startswith("linux"):
     warnings.warn(
         f"Unsupported platform {sys.platform}, only Linux is supported. Non-Linux only works for docs.",
@@ -92,39 +53,60 @@ if not sys.platform.startswith("linux"):
     )
 
 
-def _load(module, libraries):
+def _candidate_python_roots():
+    roots = [pathlib.Path(path) for path in sys.path if path]
     try:
-        m = importlib.import_module(f"nvidia.{module}")
-    except ImportError:
-        m = None
-
-    for lib in libraries:
-        if m is not None:
-            path = pathlib.Path(m.__path__[0]) / "lib" / lib
-            try:
-                ctypes.cdll.LoadLibrary(path)
-                continue
-            except OSError as e:
-                raise OSError(
-                    f"Unable to load CUDA library {lib}, make sure you have a version of JAX that is "
-                    "GPU compatible: jax[cuda12], jax[cuda12-local] (>=0.6.2) or jax[cuda13], jax[cuda13-local] (>=0.7.2)."
-                    "This is guaranteed if you install JAXMg as: jaxmg[cuda12], jaxmg[cuda12-local], jaxmg[cuda13] or jaxmg[cuda13-local]"
-                ) from e
-
-
-def _register_optional_cuda_target_bundle(bin_dir, library_name, ffi_name, symbols):
-    path = os.path.join(_lib_dir, f"{bin_dir}/{library_name}")
-    if not os.path.exists(path):
-        return
-    library = ctypes.cdll.LoadLibrary(path)
-    try:
-        bundle = {
-            stage: jax.ffi.pycapsule(getattr(library, symbol_name))
-            for stage, symbol_name in symbols.items()
-        }
+        roots.extend(pathlib.Path(path) for path in site.getsitepackages())
     except AttributeError:
+        pass
+    try:
+        roots.append(pathlib.Path(site.getusersitepackages()))
+    except AttributeError:
+        pass
+    seen = set()
+    for root in roots:
+        try:
+            resolved = root.resolve()
+        except OSError:
+            resolved = root
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        yield root
+
+
+def _find_nvidia_cuda_library(cuda_major, library_name):
+    """Find a CUDA-library wheel payload such as nvidia/cu12/lib/*.so."""
+    relative_path = pathlib.Path("nvidia") / f"cu{cuda_major}" / "lib" / library_name
+    for root in _candidate_python_roots():
+        path = root / relative_path
+        if path.exists():
+            return path
+    return None
+
+
+def _preload_cusolvermp_runtime(cuda_major):
+    """Load libcusolverMp from the nvidia-cusolvermp-cuXX dependency wheel."""
+    library_name = "libcusolverMp.so.0"
+    cache_key = (cuda_major, library_name)
+    if cache_key in _preloaded_cuda_libraries:
         return
-    jax.ffi.register_ffi_target(ffi_name, bundle, platform="CUDA")
+
+    path = _find_nvidia_cuda_library(cuda_major, library_name)
+    if path is None:
+        raise OSError(
+            f"Unable to find {library_name} from nvidia-cusolvermp-cu{cuda_major}. "
+            f"Install JAXMg with the matching CUDA extra, e.g. jaxmg[cuda{cuda_major}]."
+        )
+    try:
+        _preloaded_cuda_libraries[cache_key] = ctypes.CDLL(
+            str(path), mode=ctypes.RTLD_GLOBAL
+        )
+    except OSError as e:
+        raise OSError(
+            f"Unable to load cuSOLVERMp runtime library at {path}. "
+            "Make sure the matching NVIDIA CUDA runtime dependency wheels are installed."
+        ) from e
 
 
 def _register_cuda_target_bundle(bin_dir, library_name, ffi_name, symbols):
@@ -134,6 +116,8 @@ def _register_cuda_target_bundle(bin_dir, library_name, ffi_name, symbols):
             f"Required JAXMg CUDA library is missing: {path}. "
             "Build the XLA communicator backend before using the CUDA package."
         )
+    cuda_major = bin_dir.removeprefix("cu")
+    _preload_cusolvermp_runtime(cuda_major)
     library = ctypes.cdll.LoadLibrary(path)
     bundle = {
         stage: jax.ffi.pycapsule(getattr(library, symbol_name))
@@ -156,7 +140,7 @@ def _detect_runtime_mode():
     JAXMg does not initialize distributed JAX itself.  Users must call
     ``jax.distributed.initialize(...)`` before device discovery in multi-node
     programs; this function only records the resulting runtime shape for native
-    diagnostics and FFI handlers.
+    FFI handlers.
     """
     requested_mode = os.environ.get("JAXMG_EXECUTION_MODE", "").upper()
     if requested_mode:
@@ -189,22 +173,8 @@ def _detect_runtime_mode():
     return "MPMD", jax.device_count()
 
 
-def _register_diagnostic_targets():
-    global _diagnostics_initialized
-    if _diagnostics_initialized or _cuda_bin_dir is None:
-        return
-    for ffi_name, symbols in _DIAGNOSTIC_FFI_TARGETS:
-        _register_optional_cuda_target_bundle(
-            _cuda_bin_dir,
-            _xla_comm_backend_library,
-            ffi_name,
-            symbols,
-        )
-    _diagnostics_initialized = True
-
-
 def _initialize():
-    global _runtime_mode, _cuda_bin_dir
+    global _runtime_mode
     if any("gpu" == d.platform for d in jax.devices()):
         # Determine CUDA backend
         backend = jax.extend.backend.get_backend()
@@ -232,7 +202,6 @@ def _initialize():
         # set if not set already
         os.environ.setdefault("JAXMG_NUMBER_OF_DEVICES", str(n_devices_per_node))
         os.environ.setdefault("JAXMG_EXECUTION_MODE", mode)
-        _cuda_bin_dir = bin_dir
 
         for ffi_name, symbols in _PRODUCTION_FFI_TARGETS:
             _register_cuda_target_bundle(
@@ -250,7 +219,7 @@ def _initialize():
         os.environ["JAXMG_NUMBER_OF_DEVICES"] = str(jax.device_count())
 
 
-def ensure_init_jaxmg_backend(*, include_diagnostics: bool = False):
+def ensure_init_jaxmg_backend():
     """Ensure that the JAXMg native backend and FFI targets are initialized.
 
     This function should be called by every public JAXMg entry point before
@@ -260,14 +229,8 @@ def ensure_init_jaxmg_backend(*, include_diagnostics: bool = False):
     2. detects the JAX runtime mode;
     3. loads the packaged native backend library; and
     4. registers production JAX FFI targets such as ``cusolvermp_potrs``.
-
-    Args:
-        include_diagnostics: If True, also register cuSOLVERMp diagnostic FFI
-            targets. Default is False.
     """
     global _initialized
     if not _initialized:
         _initialized = True
         _initialize()
-    if include_diagnostics:
-        _register_diagnostic_targets()

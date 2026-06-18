@@ -50,6 +50,7 @@ docs = [
 dev = [
     "matplotlib>=3.10.3",
     "jax[cuda12]==0.10.1",
+    "nvidia-cusolvermp-cu12==0.8.0.3126",
     "pytest==8.2.1",
     "mkdocs==1.6.1",
     "mkdocs-material==9.6.23",
@@ -60,7 +61,8 @@ dev = [
 ]
 
 cuda12 = [
-    "jax[cuda12]==0.10.1"
+    "jax[cuda12]==0.10.1",
+    "nvidia-cusolvermp-cu12==0.8.0.3126",
 ]
 
 cuda13 = [
@@ -68,7 +70,8 @@ cuda13 = [
 ]
 
 cuda12-local = [
-    "jax[cuda12-local]==0.10.1"
+    "jax[cuda12-local]==0.10.1",
+    "nvidia-cusolvermp-cu12==0.8.0.3126",
 ]
 
 cuda13-local = [
