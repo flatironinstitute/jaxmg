@@ -18,7 +18,7 @@ cuda_library(
 
 cc_binary(
     name = "libjaxmg_xla_comm_backend.so",
-    srcs = [
+    srcs = glob(["cusolvermp_include/**/*.h"]) + [
         "cusolvermp_routines/cusolvermp_common.cc",
         "cusolvermp_routines/cusolvermp_common.h",
         "cusolvermp_routines/cusolvermp_potrs.cc",
