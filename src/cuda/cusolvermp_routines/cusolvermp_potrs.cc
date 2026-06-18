@@ -38,10 +38,14 @@
 namespace xla::gpu {
 namespace {
 
-// Execute POTRF/POTRS once memory_redist has converted JAX buffers into
-// cuSOLVERMp local 2D block-cyclic storage.  This helper intentionally does
-// no host gather or residual check; correctness validation belongs in tests,
-// while production should return as soon as cuSOLVERMp has solved B.
+// Executes the cuSOLVERMp Cholesky factorization and triangular solve.
+//
+// Inputs have already been converted into cuSOLVERMp local 2D block-cyclic
+// storage by memory_redist. This helper owns the solver descriptors,
+// workspaces, info buffers, and POTRF/POTRS calls. It intentionally does not
+// gather a residual on the host; production correctness is reported through the
+// cuSOLVERMp info/status vector, while numerical checks belong in validation
+// jobs.
 template <typename DataType>
 absl::Status RunCusolverMpDistributedPotrs(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
@@ -261,6 +265,8 @@ absl::Status RunCusolverMpDistributedPotrs(
 }
 
 
+// Creates the borrowed-XLA-communicator cuSOLVERMp handle/grid and dispatches
+// the dtype-specific POTRF/POTRS helper on redistributed A and B buffers.
 absl::Status RunCusolverMpPotrsSolver(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
@@ -552,6 +558,13 @@ absl::Status XlaCusolverMpPotrsPrepare(
       collective_params, clique_requests, "cusolvermp_potrs");
 }
 
+// Fused POTRS FFI entry point.
+//
+// This is the production native workflow called from Python: allocate one XLA
+// scratch window, convert local JAX layout to cuSOLVERMp layout, run forward
+// edge-padding/block-cyclic redistribution for A and B, call cuSOLVERMp, move
+// the solved B back to the JAX distribution, and restore B's local row-major
+// layout for the user-visible output.
 absl::Status XlaCusolverMpPotrsDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     se::OwningScratchAllocator<> scratch, int64_t process_rows,

@@ -26,6 +26,9 @@
 
 #include <cuda_runtime_api.h>
 
+// Launches the dtype-agnostic in-place physical layout conversion. The same
+// function is used for the inverse conversion by swapping rows and columns at
+// the C++ call site.
 extern "C" cudaError_t JaxmgLaunchRowMajorToColumnMajorDecomposition(
     cudaStream_t stream, void* data, void* scratch, std::int64_t rows,
     std::int64_t cols, std::int64_t scratch_elements,

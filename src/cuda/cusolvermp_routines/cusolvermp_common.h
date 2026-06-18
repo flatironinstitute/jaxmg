@@ -35,6 +35,11 @@
 
 namespace xla::gpu {
 
+// Direct cuSOLVERMp API table used by the solver wrappers.
+//
+// Keeping these symbols grouped makes the POTRS/SYEVD call sites easy to audit
+// and gives tests one place to inspect which cuSOLVERMp entry points the native
+// backend depends on.
 struct CusolverMpApi {
   decltype(&cusolverMpCreate) create = &cusolverMpCreate;
   decltype(&cusolverMpDestroy) destroy = &cusolverMpDestroy;
@@ -57,6 +62,11 @@ struct CusolverMpApi {
   decltype(&cusolverMpSyevd) syevd = &cusolverMpSyevd;
 };
 
+// Native status codes returned through the small device status vectors.
+//
+// Python reads these integer codes after an FFI call to distinguish ordinary
+// solver failures from communicator, grid, allocation, or descriptor setup
+// failures without parsing stderr from a distributed Slurm run.
 enum CusolverMpStatusCode : int32_t {
   kStatusOk = 0,
   kLibraryMissing = 1,
@@ -103,17 +113,29 @@ inline constexpr cusolverMpGridMapping_t kCusolverMpGridMappingRowMajor =
 inline constexpr cusolverMpGridMapping_t kCusolverMpGridMappingColMajor =
     CUSOLVERMP_GRID_MAPPING_COL_MAJOR;
 
+// Converts the Python-provided grid mapping attribute into cuSOLVERMp's enum.
 cusolverMpGridMapping_t ToCusolverMpGridMapping(int64_t grid_mapping);
+
+// Checks that the requested grid mapping is one of cuSOLVERMp's supported
+// dense row-major or column-major process-grid mappings.
 absl::Status ValidateCusolverMpGridMapping(const char* caller,
                                            int64_t grid_mapping);
+
+// Validates that a JAX mesh rank map can be represented directly by the chosen
+// cuSOLVERMp grid mapping, rejecting exotic device orders for now.
 absl::Status ValidateStandardRankMapForGridMapping(
     const char* caller, absl::Span<const int64_t> rank_map,
     int64_t process_rows, int64_t process_cols, int64_t grid_mapping);
+
+// Converts an NCCL communicator rank into the process-row/process-column
+// coordinate used by cuSOLVERMp descriptors.
 std::pair<int32_t, int32_t> ProcessCoordFromRank(int nccl_rank,
                                                  int64_t process_rows,
                                                  int64_t process_cols,
                                                  int64_t grid_mapping);
 
+// Returns a linked cuSOLVERMp API table and marks the status vector to show
+// that the direct cuSOLVERMp runtime dependency was available.
 template <size_t StatusSize>
 CusolverMpApi LinkedCusolverMpApi(std::array<int32_t, StatusSize>* status) {
   static_assert(StatusSize > 7, "cuSOLVERMp status vector is too small");
@@ -121,20 +143,41 @@ CusolverMpApi LinkedCusolverMpApi(std::array<int32_t, StatusSize>* status) {
   return CusolverMpApi{};
 }
 
+// Computes the ScaLAPACK/NUMROC local length owned by one process coordinate
+// for a block-cyclic axis.
 int64_t LocalNumroc(int64_t n, int64_t block, int32_t process,
                     int32_t process_count);
+
+// Copies a POTRS status vector from host memory into the JAX-visible device
+// status output.
 absl::Status CopyPotrsStatusToDevice(
     se::Stream* stream, const std::array<int32_t, kPotrsStatusSize>& status,
     ffi::Result<ffi::BufferR1<S32>> out);
+
+// Copies an SYEVD status vector from host memory into the JAX-visible device
+// status output.
 absl::Status CopySyevdStatusToDevice(
     se::Stream* stream, const std::array<int32_t, kSyevdStatusSize>& status,
     ffi::Result<ffi::BufferR1<S32>> out);
+
+// Encodes workspace byte sizes compactly in status vectors as KiB.
 int32_t SizeToKiBForStatus(size_t bytes);
+
+// Copies an input buffer into an output/work buffer only when XLA did not alias
+// the two buffers for the current FFI call.
 absl::Status CopyAnyBufferToOutputIfNeeded(cudaStream_t cuda_stream,
                                            ffi::AnyBuffer input,
                                            ffi::Result<ffi::AnyBuffer> output);
+
+// Returns whether verbose cuSOLVERMp debug logging is enabled for native runs.
 bool CusolverMpDebugEnabled();
+
+// Emits rank-tagged debug logging for hard-to-debug distributed cuSOLVERMp
+// failures when JAXMG_CUSOLVERMP_DEBUG is set.
 void CusolverMpDebug(int rank, const char* format, ...);
+
+// Resolves the CUDA device that owns a donated JAX buffer pointer so each FFI
+// rank binds cuSOLVERMp to the correct local GPU.
 absl::StatusOr<int> DeviceForCudaPointer(const void* ptr);
 
 }  // namespace xla::gpu

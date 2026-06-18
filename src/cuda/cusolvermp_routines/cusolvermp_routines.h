@@ -26,9 +26,15 @@
 
 namespace xla::gpu {
 
+// Prepare hook for POTRS. Requests the all-assigned XLA P2P communicator before
+// runtime dispatch so the fused handler can borrow its NCCL handle.
 absl::Status XlaCusolverMpPotrsPrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);
+
+// Runtime POTRS hook. Performs native layout conversion, redistribution,
+// cuSOLVERMp POTRF/POTRS, reverse redistribution, and output layout restore in
+// one FFI dispatch.
 absl::Status XlaCusolverMpPotrsDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     se::OwningScratchAllocator<> scratch, int64_t process_rows,
@@ -40,9 +46,15 @@ absl::Status XlaCusolverMpPotrsDispatch(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 
+// Prepare hook for SYEVD. Requests the same all-assigned communicator used by
+// both native redistribution and the cuSOLVERMp device grid.
 absl::Status XlaCusolverMpSyevdPrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);
+
+// Runtime SYEVD hook. Performs native layout conversion, redistribution,
+// vector-producing cuSOLVERMp SYEVD, reverse eigenvector redistribution, and
+// output layout restore in one FFI dispatch.
 absl::Status XlaCusolverMpSyevdDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     se::OwningScratchAllocator<> scratch, int64_t process_rows,

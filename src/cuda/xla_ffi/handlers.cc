@@ -44,12 +44,16 @@ namespace xla::gpu {
 // layout conversion, edge-padding compaction, 2D block-cyclic redistribution,
 // cuSOLVERMp execution, reverse redistribution, and local layout restore inside
 // one FFI dispatch.
+// Registers the POTRS prepare target that asks XLA to construct the P2P
+// communicator clique before runtime.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpPotrsPrepareFFI, XlaCusolverMpPotrsPrepare,
     ffi::Ffi::BindPrepare()
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliqueRequests>());
 
+// Registers the runtime POTRS target that receives padded JAX shards and
+// returns the solved right-hand side plus a status vector.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpPotrsFFI, XlaCusolverMpPotrsDispatch,
     ffi::Ffi::Bind()
@@ -73,12 +77,16 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
 
+// Registers the SYEVD prepare target that requests the same all-assigned P2P
+// communicator clique used by native redistribution and cuSOLVERMp.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpSyevdPrepareFFI, XlaCusolverMpSyevdPrepare,
     ffi::Ffi::BindPrepare()
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliqueRequests>());
 
+// Registers the runtime SYEVD target that returns eigenvalues, eigenvectors,
+// solver work storage, and a status vector.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpSyevdFFI, XlaCusolverMpSyevdDispatch,
     ffi::Ffi::Bind()

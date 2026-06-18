@@ -28,11 +28,14 @@
 namespace xla::gpu {
 namespace {
 
+// One flattened replica/global-device pair from XLA's collective assignment.
 struct AssignedDeviceEntry {
   int replica_id;
   GlobalDeviceId global_device_id;
 };
 
+// Extracts the full device group for this FFI program from the richest XLA
+// collective metadata available in the current runtime context.
 std::vector<AssignedDeviceEntry> AssignedDevices(
     const CollectiveParams& params) {
   // Prefer XLA's explicit device assignment when present. Some FFI contexts
@@ -76,6 +79,7 @@ std::vector<AssignedDeviceEntry> AssignedDevices(
 
 }  // namespace
 
+// Converts CUDA runtime failures into FFI-friendly absl::Status values.
 absl::Status CudaToStatus(cudaError_t err, const char* file, int line) {
   // Keep CUDA failures precise at the FFI boundary.  Returning the source file
   // and line has been much more useful than generic failed-precondition errors
@@ -88,6 +92,7 @@ absl::Status CudaToStatus(cudaError_t err, const char* file, int line) {
       cudaGetErrorString(err), file, line));
 }
 
+// Converts cuSOLVER status failures into FFI-friendly absl::Status values.
 absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
                               int line) {
   // cuSOLVER/cuSOLVERMp status codes are numeric in several headers.  Preserve
@@ -101,6 +106,7 @@ absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
                                              line));
 }
 
+// Allocates one XLA-owned scratch buffer for the current FFI invocation.
 absl::StatusOr<void*> AllocateFfiScratch(se::ScratchAllocator& scratch,
                                          size_t bytes, const char* name) {
   // XLA owns the lifetime of scratch allocations for the FFI call. Returning
@@ -116,6 +122,8 @@ absl::StatusOr<void*> AllocateFfiScratch(se::ScratchAllocator& scratch,
   return allocation->opaque();
 }
 
+// Builds the XLA replica group containing every device assigned to this
+// compiled FFI program.
 ReplicaGroup AllAssignedDevicesReplicaGroup(const CollectiveParams& params) {
   // Keep every assigned replica in one group so the borrowed NCCL communicator
   // can represent the full cuSOLVERMp process grid when JAX is launched across
@@ -133,6 +141,8 @@ ReplicaGroup AllAssignedDevicesReplicaGroup(const CollectiveParams& params) {
   return group;
 }
 
+// Builds the sorted global-device group used when requesting XLA communicator
+// cliques.
 std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
     const CollectiveParams& params) {
   // Use sorted global device ids to build a stable group independent of the
@@ -152,6 +162,7 @@ std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
   return device_group;
 }
 
+// Constructs an all-assigned collective clique key for ordinary collectives.
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesCliqueKey(
     const CollectiveParams& params) {
   // All-reduce style clique over every assigned rank.
@@ -162,6 +173,8 @@ absl::StatusOr<GpuCliqueKey> AllAssignedDevicesCliqueKey(
       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID, false);
 }
 
+// Constructs the all-assigned point-to-point clique key used by raw NCCL
+// redistribution and cuSOLVERMp.
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
     const CollectiveParams& params) {
   // Point-to-point clique over every assigned rank.  CommunicationId(1)
@@ -175,6 +188,8 @@ absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
       CommunicationId(1));
 }
 
+// Prepare-time helper that asks XLA to create the P2P communicator clique
+// before the runtime dispatch tries to borrow it.
 absl::Status RequestAllAssignedP2PCommunicator(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests, const char* caller) {

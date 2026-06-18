@@ -37,10 +37,13 @@
 namespace xla::gpu {
 namespace {
 
-// Run vector-producing SYEVD once memory_redist has converted JAX buffers
-// into cuSOLVERMp local 2D block-cyclic storage.  The input matrix is
-// copied/aliased into work_out because cuSOLVERMp overwrites d_A, while
-// vectors_out is the separate d_Z eigenvector output.
+// Executes vector-producing cuSOLVERMp SYEVD on redistributed matrix storage.
+//
+// memory_redist has already converted A into local column-major 2D
+// block-cyclic storage. The input is copied/aliased into work_out because
+// cuSOLVERMp overwrites d_A, while vectors_out is passed as the separate d_Z
+// eigenvector output. This helper owns descriptors, workspace allocation, the
+// installed-runtime compz selector, and info/status reporting.
 template <typename DataType>
 absl::Status RunCusolverMpSyevd(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
@@ -227,6 +230,8 @@ absl::Status RunCusolverMpSyevd(
 }
 
 
+// Creates the borrowed-XLA-communicator cuSOLVERMp handle/grid and dispatches
+// the dtype-specific vector-producing SYEVD helper.
 absl::Status RunCusolverMpSyevdSolver(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n,
@@ -535,6 +540,13 @@ absl::Status XlaCusolverMpSyevdPrepare(
       collective_params, clique_requests, "cusolvermp_syevd");
 }
 
+// Fused SYEVD FFI entry point.
+//
+// This is the production native workflow called from Python: allocate one XLA
+// scratch window, convert the local JAX shard to cuSOLVERMp column-major
+// storage, run forward edge-padding/block-cyclic redistribution, call
+// vector-producing cuSOLVERMp SYEVD, reverse-redistribute eigenvectors, and
+// restore row-major local storage for the user-visible eigenvector output.
 absl::Status XlaCusolverMpSyevdDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     se::OwningScratchAllocator<> scratch, int64_t process_rows,

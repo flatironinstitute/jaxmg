@@ -97,46 +97,59 @@ absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
 template <typename T>
 struct SolverTraits;
 
+// Solver metadata for float32 real matrices.
 template <>
 struct SolverTraits<float> {
   using HostNanType = float;
   using EigenvalueType = float;
   static constexpr cudaDataType cuda_data_type = CUDA_R_32F;
   static constexpr cudaDataType eigenvalue_cuda_data_type = CUDA_R_32F;
+  // Returns a matrix fill value used only for failure/debug fallback paths.
   static float Nan() { return NAN; }
+  // Returns the eigenvalue fill value for float32 real matrices.
   static EigenvalueType EigenvalueNan() { return NAN; }
 };
 
+// Solver metadata for float64 real matrices.
 template <>
 struct SolverTraits<double> {
   using HostNanType = double;
   using EigenvalueType = double;
   static constexpr cudaDataType cuda_data_type = CUDA_R_64F;
   static constexpr cudaDataType eigenvalue_cuda_data_type = CUDA_R_64F;
+  // Returns a matrix fill value used only for failure/debug fallback paths.
   static double Nan() { return NAN; }
+  // Returns the eigenvalue fill value for float64 real matrices.
   static EigenvalueType EigenvalueNan() { return NAN; }
 };
 
+// Solver metadata for complex64 Hermitian matrices and float32 eigenvalues.
 template <>
 struct SolverTraits<cuFloatComplex> {
   using HostNanType = cuFloatComplex;
   using EigenvalueType = float;
   static constexpr cudaDataType cuda_data_type = CUDA_C_32F;
   static constexpr cudaDataType eigenvalue_cuda_data_type = CUDA_R_32F;
+  // Returns a complex matrix fill value used only for failure/debug fallback paths.
   static cuFloatComplex Nan() { return make_cuFloatComplex(NAN, NAN); }
+  // Returns the real eigenvalue fill value for complex64 Hermitian matrices.
   static EigenvalueType EigenvalueNan() { return NAN; }
 };
 
+// Solver metadata for complex128 Hermitian matrices and float64 eigenvalues.
 template <>
 struct SolverTraits<cuDoubleComplex> {
   using HostNanType = cuDoubleComplex;
   using EigenvalueType = double;
   static constexpr cudaDataType cuda_data_type = CUDA_C_64F;
   static constexpr cudaDataType eigenvalue_cuda_data_type = CUDA_R_64F;
+  // Returns a complex matrix fill value used only for failure/debug fallback paths.
   static cuDoubleComplex Nan() { return make_cuDoubleComplex(NAN, NAN); }
+  // Returns the real eigenvalue fill value for complex128 Hermitian matrices.
   static EigenvalueType EigenvalueNan() { return NAN; }
 };
 
+// Allocates a device scratch pointer from XLA's per-call scratch allocator.
 absl::StatusOr<void*> AllocateFfiScratch(se::ScratchAllocator& scratch,
                                          size_t bytes, const char* name);
 

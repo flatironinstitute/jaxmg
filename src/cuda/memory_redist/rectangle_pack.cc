@@ -57,6 +57,7 @@
 
 namespace xla::gpu {
 
+// Converts raw NCCL return codes into absl::Status with a source location.
 absl::Status NcclToStatus(ncclResult_t result, const char* file, int line) {
   if (result == ncclSuccess) {
     return absl::OkStatus();
@@ -73,6 +74,8 @@ absl::Status NcclToStatus(ncclResult_t result, const char* file, int line) {
     if (!_jaxmg_nccl_status.ok()) return _jaxmg_nccl_status;     \
   } while (0)
 
+// Borrows the NCCL communicator handle from XLA's GpuCommunicator for the
+// current FFI invocation.
 absl::StatusOr<ncclComm_t> BorrowNcclComm(const char* caller,
                                           GpuCommunicator* comm) {
   // XLA owns communicator creation and lifetime.  This backend only borrows the
@@ -90,6 +93,8 @@ absl::StatusOr<ncclComm_t> BorrowNcclComm(const char* caller,
   return reinterpret_cast<ncclComm_t>(handle);
 }
 
+// Checks that the borrowed NCCL communicator rank/count agrees with XLA's
+// collective clique rank/count before raw send/recv calls are issued.
 absl::Status ValidateBorrowedNcclComm(const char* caller, ncclComm_t comm,
                                       int64_t expected_rank,
                                       int64_t expected_count) {
@@ -106,11 +111,15 @@ absl::Status ValidateBorrowedNcclComm(const char* caller, ncclComm_t comm,
   return absl::OkStatus();
 }
 
+// Captures the CUDA stream chosen for NCCL work and records whether it came
+// from XLA's communication stream or the ordinary platform stream fallback.
 struct NcclStreamChoice {
   cudaStream_t stream;
   bool uses_comm_stream;
 };
 
+// Chooses the CUDA stream for raw NCCL movement and establishes the policy used
+// by all rectangle transport calls.
 absl::StatusOr<NcclStreamChoice> ChooseNcclStream(const char* caller,
                                                   se::Stream* comm_stream,
                                                   cudaStream_t cuda_stream) {
@@ -132,6 +141,8 @@ absl::StatusOr<NcclStreamChoice> ChooseNcclStream(const char* caller,
                           /*uses_comm_stream=*/false};
 }
 
+// Runs one grouped NCCL send/receive round for a conflict-free batch. Each rank
+// participates in at most one send and one receive in the batch.
 absl::Status RunRawNcclSendRecv(
     const char* caller, se::Stream* stream, se::Stream* comm_stream,
     cudaStream_t cuda_stream, GpuCommunicator* comm, int64_t rank_value,
@@ -196,6 +207,8 @@ absl::Status RunRawNcclSendRecv(
   return absl::OkStatus();
 }
 
+// Precomputed cudaMemcpy2DAsync geometry for packing or unpacking one
+// column-major local rectangle.
 struct RectCopySpec {
   // cudaMemcpy2DAsync arguments for a column-major rectangle.  `matrix_pitch`
   // is the byte stride between adjacent local columns in the full matrix;
@@ -207,6 +220,8 @@ struct RectCopySpec {
   uint64_t matrix_offset;
 };
 
+// Validates local rectangle bounds before a pack or unpack operation uses the
+// coordinates to form device pointers.
 absl::Status ValidateRect(const char* caller, int64_t row_start,
                           int64_t col_start, int64_t row_count,
                           int64_t col_count, int64_t local_rows,
@@ -226,6 +241,8 @@ absl::Status ValidateRect(const char* caller, int64_t row_start,
   return absl::OkStatus();
 }
 
+// Converts a logical column-major rectangle into cudaMemcpy2DAsync pitch,
+// width, height, and byte-offset parameters.
 RectCopySpec BuildRectCopySpec(int64_t local_rows, int64_t row_start,
                                int64_t col_start,
                                int64_t row_count, int64_t col_count,
@@ -243,6 +260,8 @@ RectCopySpec BuildRectCopySpec(int64_t local_rows, int64_t row_start,
   };
 }
 
+// Copies an input matrix to an output/work matrix only when XLA did not alias
+// the buffers for the fused call.
 absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream, ffi::AnyBuffer matrix,
                                 ffi::Result<ffi::AnyBuffer> matrix_out) {
   // Production solvers ask XLA to alias work/output buffers where possible.
@@ -259,6 +278,8 @@ absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream, ffi::AnyBuffer matrix,
   return absl::OkStatus();
 }
 
+// Copies scratch to a distinct scratch output only for diagnostic/test paths
+// that request one; production fused solvers use XLA scratch directly.
 absl::Status CopyScratchIfNeeded(cudaStream_t cuda_stream,
                                  ffi::AnyBuffer scratch,
                                  ffi::Result<ffi::AnyBuffer> scratch_out) {
@@ -273,6 +294,8 @@ absl::Status CopyScratchIfNeeded(cudaStream_t cuda_stream,
   return absl::OkStatus();
 }
 
+// Converts a rank-local row-major JAX shard into column-major cuSOLVERMp local
+// storage using the in-place CUDA decomposition launcher.
 absl::Status ConvertRowMajorToColumnMajorInPlace(
     cudaStream_t cuda_stream, const char* caller, ffi::AnyBuffer matrix,
     se::DeviceAddressBase scratch_base, int64_t scratch_elements) {
@@ -319,6 +342,8 @@ absl::Status ConvertRowMajorToColumnMajorInPlace(
   return absl::OkStatus();
 }
 
+// Applies the inverse local layout conversion to restore JAX row-major physical
+// storage after reverse redistribution.
 absl::Status ConvertColumnMajorToRowMajorInPlace(
     cudaStream_t cuda_stream, const char* caller, ffi::AnyBuffer matrix,
     se::DeviceAddressBase scratch_base, int64_t scratch_elements) {
@@ -364,6 +389,8 @@ absl::Status ConvertColumnMajorToRowMajorInPlace(
   return absl::OkStatus();
 }
 
+// Packs a strided column-major rectangle into contiguous scratch for local
+// movement or NCCL transport.
 absl::Status PackRect(cudaStream_t cuda_stream, int64_t local_rows,
                       int64_t row_start, int64_t col_start,
                       int64_t row_count, int64_t col_count,
@@ -383,6 +410,8 @@ absl::Status PackRect(cudaStream_t cuda_stream, int64_t local_rows,
   return absl::OkStatus();
 }
 
+// Unpacks a contiguous scratch payload into a strided column-major destination
+// rectangle.
 absl::Status UnpackRect(cudaStream_t cuda_stream, int64_t local_rows,
                         int64_t row_start, int64_t col_start,
                         int64_t row_count, int64_t col_count,
@@ -402,6 +431,7 @@ absl::Status UnpackRect(cudaStream_t cuda_stream, int64_t local_rows,
   return absl::OkStatus();
 }
 
+// Returns the number of matrix elements moved by one planned Native2DStep.
 int64_t StepElementCount(const Native2DStep& step) {
   if (step.kind == Native2DStepKind::kRestoreScratch) {
     return step.target.row_count * step.target.col_count;
@@ -409,6 +439,7 @@ int64_t StepElementCount(const Native2DStep& step) {
   return step.source.row_count * step.source.col_count;
 }
 
+// Scans a full movement program and returns the largest single-step payload.
 int64_t MaxStepElementCount(const std::vector<Native2DStep>& steps) {
   int64_t max_elements = 0;
   for (const Native2DStep& step : steps) {
@@ -417,6 +448,8 @@ int64_t MaxStepElementCount(const std::vector<Native2DStep>& steps) {
   return max_elements;
 }
 
+// Executes the closed-cycle 2D block-cyclic schedule using saved/send/receive
+// scratch slots and raw NCCL for remote moves.
 absl::Status ExecuteNative2DStepBatches(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     const std::vector<Native2DStepBatch>& batches, int64_t local_rows,
@@ -538,6 +571,8 @@ absl::Status ExecuteNative2DStepBatches(
   return absl::OkStatus();
 }
 
+// Executes the open-chain edge-padding schedule using the full scratch
+// allocation as one temporary payload per move.
 absl::Status ExecuteEdgePaddingBatches(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     const std::vector<Native2DStepBatch>& batches, int64_t local_rows,

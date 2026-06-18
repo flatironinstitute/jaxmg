@@ -54,24 +54,30 @@
 
 namespace {
 
+// Trivially copyable 4-byte payload used for dtype-agnostic byte movement.
 struct Bytes4 {
   std::uint32_t x;
 };
 
+// Trivially copyable 8-byte payload used for float64 and complex64 storage.
 struct Bytes8 {
   std::uint64_t x;
 };
 
+// Trivially copyable 16-byte payload used for complex128 storage.
 struct Bytes16 {
   std::uint64_t lo;
   std::uint64_t hi;
 };
 
+// Result of the extended-GCD calculation used by the Catanzaro decomposition.
 struct GcdResult {
   std::uint64_t gcd;
   std::uint64_t inverse;
 };
 
+// Computes gcd(a, b) and the modular inverse needed by the row-shuffle phase
+// when the relevant reduced dimensions are coprime.
 GcdResult ExtendedGcd(std::uint64_t a, std::uint64_t b) {
   // The FFI entry point accepts signed int64 dimensions and rejects negative
   // values before reaching this helper. That keeps quotients inside int64_t,
@@ -107,6 +113,8 @@ GcdResult ExtendedGcd(std::uint64_t a, std::uint64_t b) {
   return {a, inverse};
 }
 
+// Maps one logical row/column coordinate to the source column needed by the
+// Catanzaro row-shuffle phase.
 __device__ __forceinline__ std::uint64_t ShuffleColumn(
     std::uint64_t row, std::uint64_t col, std::uint64_t rows,
     std::uint64_t cols, std::uint64_t gcd, std::uint64_t inverse) {
@@ -126,6 +134,7 @@ __device__ __forceinline__ std::uint64_t ShuffleColumn(
   return ((inverse * (div % b)) % b) + mod * b;
 }
 
+// Applies the optional non-coprime pre-shuffle to a batch of columns.
 template <typename T>
 __global__ void ColumnPreShuffleBatchKernel(
     T* data, T* scratch, std::uint64_t rows, std::uint64_t cols,
@@ -149,6 +158,8 @@ __global__ void ColumnPreShuffleBatchKernel(
   }
 }
 
+// Applies the main row-wise permutation to a batch of rows using one scratch
+// slice per row.
 template <typename T>
 __global__ void RowShuffleBatchKernel(
     T* data, T* scratch, std::uint64_t rows, std::uint64_t cols,
@@ -174,6 +185,8 @@ __global__ void RowShuffleBatchKernel(
   }
 }
 
+// Applies the final non-coprime/coprime column correction to a batch of
+// columns.
 template <typename T>
 __global__ void ColumnPostShuffleBatchKernel(
     T* data, T* scratch, std::uint64_t rows, std::uint64_t cols,
@@ -196,16 +209,20 @@ __global__ void ColumnPostShuffleBatchKernel(
   }
 }
 
+// Small constexpr-friendly minimum helper for unsigned 64-bit launch geometry.
 std::uint64_t MinU64(std::uint64_t a, std::uint64_t b) {
   return a < b ? a : b;
 }
 
+// Small constexpr-friendly maximum helper for unsigned 64-bit launch geometry.
 std::uint64_t MaxU64(std::uint64_t a, std::uint64_t b) {
   return a > b ? a : b;
 }
 
 constexpr std::uint64_t kMaxGridX = 2147483647ULL;
 
+// Dispatches the in-place decomposition for one concrete byte payload type,
+// batching as many rows/columns per kernel launch as the scratch window allows.
 template <typename T>
 cudaError_t LaunchTyped(cudaStream_t stream, void* data, void* scratch,
                         std::int64_t rows, std::int64_t cols,
@@ -290,6 +307,8 @@ cudaError_t LaunchTyped(cudaStream_t stream, void* data, void* scratch,
 
 }  // namespace
 
+// C ABI launcher called by the ordinary C++ FFI backend. It chooses the typed
+// byte payload by element size and leaves dtype semantics to JAX/cuSOLVERMp.
 extern "C" cudaError_t JaxmgLaunchRowMajorToColumnMajorDecomposition(
     cudaStream_t stream, void* data, void* scratch, std::int64_t rows,
     std::int64_t cols, std::int64_t scratch_elements,

@@ -40,6 +40,8 @@
 
 namespace xla::gpu {
 
+// Computes the scratch requirement for a single matrix moving through local
+// layout conversion, edge-padding compaction, and 2D block-cyclic redistribution.
 absl::StatusOr<int64_t> RequiredPadded2DRedistScratchElements(
     const Padded2DRedistScratchRequest& request) {
   // Delegate geometry validation to the same planner used by execution.  That
@@ -69,6 +71,8 @@ absl::StatusOr<int64_t> RequiredPadded2DRedistScratchElements(
   return *elements;
 }
 
+// Allocates one XLA scratch buffer sized to the maximum requirement across all
+// matrices participating in a fused solver call.
 absl::StatusOr<Padded2DRedistScratch> AllocatePadded2DRedistScratch(
     se::ScratchAllocator& scratch, size_t element_bytes,
     absl::Span<const Padded2DRedistScratchRequest> requests,

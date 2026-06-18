@@ -44,6 +44,8 @@ namespace xla::gpu {
 
 namespace {
 
+// Verifies that the Python-provided rank map is dense and matches one of the
+// two cuSOLVERMp process-grid orders supported by the production backend.
 absl::Status ValidateStandardGridRankMap(const char* caller,
                                          absl::Span<const int64_t> rank_map,
                                          int64_t process_rows,
@@ -99,6 +101,7 @@ absl::Status ValidateStandardGridRankMap(const char* caller,
 // same-sequence moves are batched into one raw-NCCL send/recv round when their
 // ranks do not conflict.
 
+// Describes one full-height tile-column slab in rank-local coordinates.
 NativeLocalRect ColumnSlabRect(int64_t local_rows, int64_t tile_cols,
                                int64_t local_col_block) {
   return NativeLocalRect{/*row_start=*/0,
@@ -107,6 +110,7 @@ NativeLocalRect ColumnSlabRect(int64_t local_rows, int64_t tile_cols,
                          /*col_count=*/tile_cols};
 }
 
+// Describes one full-width tile-row slab in rank-local coordinates.
 NativeLocalRect RowSlabRect(int64_t tile_rows, int64_t local_cols,
                             int64_t local_row_block) {
   return NativeLocalRect{/*row_start=*/local_row_block * tile_rows,
@@ -115,11 +119,15 @@ NativeLocalRect RowSlabRect(int64_t tile_rows, int64_t local_cols,
                          /*col_count=*/local_cols};
 }
 
+// Couples a communicator rank with the local rectangle occupying one abstract
+// source/target slot in the redistribution permutation.
 struct Native2DSlot {
   int64_t rank;
   NativeLocalRect rect;
 };
 
+// Decodes an abstract column-phase slot into the rank and local column-slab
+// rectangle that owns that slot.
 Native2DSlot ColumnPhaseSlotToRankLocal(int64_t slot, int64_t process_cols,
                                         int64_t col_blocks_per_rank,
                                         int64_t local_rows,
@@ -140,6 +148,8 @@ Native2DSlot ColumnPhaseSlotToRankLocal(int64_t slot, int64_t process_cols,
   };
 }
 
+// Decodes an abstract row-phase slot into the rank and local row-slab rectangle
+// that owns that slot.
 Native2DSlot RowPhaseSlotToRankLocal(int64_t slot, int64_t process_rows,
                                      int64_t process_cols,
                                      int64_t row_blocks_per_rank,
@@ -161,6 +171,7 @@ Native2DSlot RowPhaseSlotToRankLocal(int64_t slot, int64_t process_rows,
   };
 }
 
+// Builds the source-slot to target-slot permutation for the column-owner phase.
 absl::StatusOr<std::vector<int64_t>> BuildColumnSlabSlotMap(
     int64_t process_rows, int64_t process_cols, int64_t col_blocks_per_rank) {
   // Build source_slot -> target_slot for the column-owner phase.  Initially
@@ -195,6 +206,7 @@ absl::StatusOr<std::vector<int64_t>> BuildColumnSlabSlotMap(
   return target_for_source;
 }
 
+// Builds the source-slot to target-slot permutation for the row-owner phase.
 absl::StatusOr<std::vector<int64_t>> BuildRowSlabSlotMap(
     int64_t process_rows, int64_t process_cols, int64_t row_blocks_per_rank) {
   // Build source_slot -> target_slot for the row-owner phase.  After column
@@ -229,6 +241,8 @@ absl::StatusOr<std::vector<int64_t>> BuildRowSlabSlotMap(
   return target_for_source;
 }
 
+// Inverts a bijective slot permutation so the reverse redistribution can undo
+// a forward column-owner or row-owner phase.
 absl::StatusOr<std::vector<int64_t>> InvertSlotMap(
     absl::Span<const int64_t> target_for_source) {
   std::vector<int64_t> inverse(target_for_source.size(), -1);
@@ -260,6 +274,8 @@ absl::StatusOr<std::vector<int64_t>> InvertSlotMap(
   return inverse;
 }
 
+// Decomposes a source-slot to target-slot permutation into closed movement
+// cycles, skipping fixed points that require no data movement.
 absl::StatusOr<std::map<int64_t, std::vector<int64_t>>> BuildNative2DCycles(
     absl::Span<const int64_t> target_for_source) {
   // Convert the slot permutation into closed cycles. Fixed points are skipped.
@@ -329,6 +345,8 @@ absl::StatusOr<std::map<int64_t, std::vector<int64_t>>> BuildNative2DCycles(
 
 using SlotDecoder = std::function<Native2DSlot(int64_t)>;
 
+// Emits save/move/restore Native2DStep records for one closed cycle using the
+// same one-slab scratch policy as the original 1D JAXMg reshuffler.
 absl::StatusOr<int64_t> AppendCycleSteps(int64_t phase,
                                          const SlotDecoder& decode_slot,
                                          const std::vector<int64_t>& slots,
@@ -377,6 +395,8 @@ absl::StatusOr<int64_t> AppendCycleSteps(int64_t phase,
 
 using SlotGroup = std::function<int64_t(int64_t)>;
 
+// Appends cycles serially inside each process-row/process-column group while
+// allowing different independent groups to share the same sequence numbers.
 absl::Status AppendAxisGroupSerialCycles(
     int64_t phase, const SlotDecoder& decode_slot, const SlotGroup& slot_group,
     const std::map<int64_t, std::vector<int64_t>>& cycles,
@@ -419,6 +439,7 @@ absl::Status AppendAxisGroupSerialCycles(
 
 }  // namespace
 
+// Builds the forward or reverse tile-slab 2D block-cyclic movement program.
 absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
     int64_t tile_cols, int64_t local_rows, int64_t local_cols,
@@ -525,6 +546,8 @@ absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
 }
 
 
+// Groups planned movement steps into conservative conflict-free transport
+// rounds that can be passed to the rectangle/NCCL executor.
 std::vector<Native2DStepBatch> BatchNative2DSteps(
     const std::vector<Native2DStep>& steps) {
   // Group by phase, dependency sequence, and operation kind. This deliberately
@@ -573,6 +596,8 @@ std::vector<Native2DStepBatch> BatchNative2DSteps(
   return batches;
 }
 
+// Returns the largest payload a cyclic slab step can require, before the
+// executor multiplies by three for saved/send/receive scratch slots.
 absl::StatusOr<int64_t> RequiredCyclicSlotElements(
     int64_t tile_rows, int64_t tile_cols, int64_t local_rows,
     int64_t local_cols) {
@@ -584,6 +609,8 @@ absl::StatusOr<int64_t> RequiredCyclicSlotElements(
   return std::max(tile_cols * local_rows, tile_rows * local_cols);
 }
 
+// Computes the full fixed scratch bound for the padded native 2D plan while
+// validating that edge-padding and slab-redistribution schedules are buildable.
 absl::StatusOr<int64_t> RequiredPadded2DNativePlanScratchElements(
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
     int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
@@ -624,6 +651,10 @@ absl::StatusOr<int64_t> RequiredPadded2DNativePlanScratchElements(
 
 namespace {
 
+// Implementation for the production raw executor. It resolves the XLA
+// communicator, builds forward/reverse schedules, copies into the work buffer
+// when needed, and then runs edge-padding plus slab redistribution in the right
+// order for input or output movement.
 absl::Status ExecutePadded2DNativePlanRawImpl(
     const char* caller, se::Stream* stream, se::Stream* comm_stream,
     cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,
@@ -758,6 +789,7 @@ absl::Status ExecutePadded2DNativePlanRawImpl(
 
 }  // namespace
 
+// Public memory_redist executor used by the fused solver files.
 absl::Status ExecutePadded2DNativePlanRaw(
     const char* caller, se::Stream* stream, se::Stream* comm_stream,
     cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,

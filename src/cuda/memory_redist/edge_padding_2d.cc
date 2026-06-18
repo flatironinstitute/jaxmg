@@ -43,6 +43,8 @@
 namespace xla::gpu {
 namespace {
 
+// One chunk of a 1D edge-padding shift. The 2D planner lifts this movement
+// across the orthogonal process-grid axis to create rectangle moves.
 struct AxisEdgeMove {
   // One 1D open-chain move along a global process-grid axis. `wave` is a
   // dependency sequence number: moves in the same wave represent the same
@@ -53,11 +55,15 @@ struct AxisEdgeMove {
   int64_t extent;
 };
 
+// Returns how many physical storage entries must be appended to one logical
+// local block so it is divisible by the requested tile size.
 int64_t AxisPadding(int64_t logical_per_block, int64_t tile_size) {
   const int64_t remainder = logical_per_block % tile_size;
   return remainder == 0 ? 0 : tile_size - remainder;
 }
 
+// Builds the open-chain direct moves that compact one global axis from
+// per-shard padded storage into global edge-padded storage.
 absl::StatusOr<std::vector<AxisEdgeMove>> BuildAxisEdgePaddingMoves(
     int64_t block_count, int64_t logical_per_block,
     int64_t physical_per_block, int64_t max_extent) {
@@ -124,6 +130,8 @@ absl::StatusOr<std::vector<AxisEdgeMove>> BuildAxisEdgePaddingMoves(
 
 }  // namespace
 
+// Builds the 2D edge-padding compaction schedule: horizontal column compaction
+// followed by vertical row compaction, each split to fit the scratch budget.
 absl::StatusOr<std::vector<Native2DStep>> BuildEdgePaddingNative2DSteps(
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
     int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
@@ -245,6 +253,8 @@ absl::StatusOr<std::vector<Native2DStep>> BuildEdgePaddingNative2DSteps(
   return steps;
 }
 
+// Builds the inverse of BuildEdgePaddingNative2DSteps for solver outputs,
+// moving only real matrix entries back to the original per-shard padded layout.
 std::vector<Native2DStep> ReverseEdgePaddingSteps(
     const std::vector<Native2DStep>& forward_steps) {
   // Edge-padding compaction is an open-chain movement: real slabs are pulled
