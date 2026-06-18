@@ -1,7 +1,20 @@
 # Copied by build_native_backend.sh into the pinned OpenXLA checkout.
 # Keep these internal XLA dependencies in sync with XLA_GIT_TAG.
 
+load("@local_config_cuda//cuda:build_defs.bzl", "cuda_library")
+
 package(default_visibility = ["//visibility:public"])
+
+cuda_library(
+    name = "layout_convert_cuda",
+    srcs = ["memory_redist/layout_convert.cu.cc"],
+    hdrs = ["memory_redist/layout_convert.h"],
+    alwayslink = True,
+    tags = ["cuda-only"],
+    deps = [
+        "@local_config_cuda//cuda:cuda_headers",
+    ],
+)
 
 cc_binary(
     name = "libjaxmg_xla_comm_backend.so",
@@ -37,6 +50,7 @@ cc_binary(
         "-ldl",
     ],
     deps = [
+        ":layout_convert_cuda",
         "@local_config_cuda//cuda:cuda_headers",
         "@cuda_cudart//:cudart",
         "@cuda_cusolver//:cusolver",

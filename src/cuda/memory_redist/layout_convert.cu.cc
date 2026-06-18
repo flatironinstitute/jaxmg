@@ -45,6 +45,8 @@
 //   * The operation is byte-preserving. Dtype semantics stay with JAX and
 //     cuSOLVERMp; this file only moves 4-, 8-, or 16-byte payloads.
 
+#include "layout_convert.h"
+
 #include <cuda_runtime.h>
 
 #include <cstdint>

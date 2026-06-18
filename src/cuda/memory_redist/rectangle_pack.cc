@@ -24,10 +24,11 @@
 // The public cuSOLVERMp wrappers enter native code with ordinary row-major JAX
 // local shards. Before those shards reach the rectangle packer, the fused
 // solver handlers call the local layout-conversion helpers in this file. Those
-// helpers load libjaxmg_layout_convert.so and convert the donated matrix
-// buffers in-place using the same bounded scratch allocation used for
-// redistribution. After the solver and reverse redistribution, the returned
-// user-visible matrix buffers are converted back to row-major JAX storage.
+// helpers call the CUDA layout-conversion launcher linked into the same backend
+// shared library and convert the donated matrix buffers in-place using the same
+// bounded scratch allocation used for redistribution. After the solver and
+// reverse redistribution, the returned user-visible matrix buffers are
+// converted back to row-major JAX storage.
 //
 // File workflow:
 //   1. Borrow the raw NCCL communicator from XLA's GpuCommunicator and validate
@@ -47,109 +48,14 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <dlfcn.h>
 #include <limits>
-#include <string>
 #include <vector>
 
 #include "../include/xla_comm_backend.h"
+#include "layout_convert.h"
 #include "third_party/nccl/nccl.h"
 
 namespace xla::gpu {
-namespace {
-
-using LayoutConvertFn = cudaError_t (*)(cudaStream_t, void*, void*,
-                                        std::int64_t, std::int64_t,
-                                        std::int64_t, std::int64_t);
-
-struct LayoutConvertApi {
-  // Dynamically loaded companion CUDA library.  Keeping the decomposition
-  // kernel in its own .so avoids pulling NVCC-built device code into every
-  // C++ backend object while still letting the fused handler use it at runtime.
-  void* library = nullptr;
-  LayoutConvertFn launch = nullptr;
-  std::string error;
-};
-
-std::string BackendDirectory() {
-  // Resolve the directory containing libjaxmg_xla_comm_backend.so so installed
-  // wheels can place libjaxmg_layout_convert.so beside it without relying on
-  // LD_LIBRARY_PATH.
-  Dl_info info;
-  if (dladdr(reinterpret_cast<void*>(&BackendDirectory), &info) == 0 ||
-      info.dli_fname == nullptr) {
-    return "";
-  }
-  std::string path(info.dli_fname);
-  const size_t slash = path.find_last_of('/');
-  if (slash == std::string::npos) {
-    return "";
-  }
-  return path.substr(0, slash);
-}
-
-LayoutConvertApi LoadLayoutConvertApiOnce() {
-  // Prefer the dynamic loader path first, then the backend library directory.
-  // The result is cached process-wide; later FFI calls either reuse the symbol
-  // or return the cached load error.
-  LayoutConvertApi api;
-  std::vector<std::string> candidates = {"libjaxmg_layout_convert.so"};
-  std::string backend_dir = BackendDirectory();
-  if (!backend_dir.empty()) {
-    candidates.push_back(backend_dir + "/libjaxmg_layout_convert.so");
-  }
-
-  std::string last_error;
-  for (const std::string& candidate : candidates) {
-    void* library = dlopen(candidate.c_str(), RTLD_NOW | RTLD_LOCAL);
-    if (library == nullptr) {
-      const char* error = dlerror();
-      if (error != nullptr) {
-        last_error = error;
-      }
-      continue;
-    }
-
-    dlerror();
-    void* symbol =
-        dlsym(library, "JaxmgLaunchRowMajorToColumnMajorDecomposition");
-    const char* symbol_error = dlerror();
-    if (symbol_error != nullptr || symbol == nullptr) {
-      last_error = symbol_error != nullptr
-                       ? symbol_error
-                       : "JaxmgLaunchRowMajorToColumnMajorDecomposition "
-                         "resolved to null";
-      dlclose(library);
-      continue;
-    }
-
-    api.library = library;
-    api.launch = reinterpret_cast<LayoutConvertFn>(symbol);
-    return api;
-  }
-
-  api.error =
-      "Unable to load libjaxmg_layout_convert.so for native local layout "
-      "conversion";
-  if (!last_error.empty()) {
-    api.error += ": ";
-    api.error += last_error;
-  }
-  return api;
-}
-
-absl::StatusOr<LayoutConvertFn> LoadLayoutConvertLauncher(
-    const char* caller) {
-  static const LayoutConvertApi api = LoadLayoutConvertApiOnce();
-  if (api.launch == nullptr) {
-    return absl::FailedPreconditionError(absl::StrFormat(
-        "%s requested native layout conversion, but %s", caller, api.error));
-  }
-  return api.launch;
-}
-
-}  // namespace
-
 
 absl::Status NcclToStatus(ncclResult_t result, const char* file, int line) {
   if (result == ncclSuccess) {
@@ -407,12 +313,7 @@ absl::Status ConvertRowMajorToColumnMajorInPlace(
   // inside the donated local shard. It is byte-preserving: float64 and
   // complex64 are both 8-byte payloads, and complex128 is a 16-byte payload.
   // All dtype semantics remain with JAX/cuSOLVERMp.
-  absl::StatusOr<LayoutConvertFn> launcher =
-      LoadLayoutConvertLauncher(caller);
-  if (!launcher.ok()) {
-    return launcher.status();
-  }
-  JAXMG_RETURN_IF_CUDA_ERROR((*launcher)(
+  JAXMG_RETURN_IF_CUDA_ERROR(::JaxmgLaunchRowMajorToColumnMajorDecomposition(
       cuda_stream, matrix.untyped_data(), scratch_base.opaque(), rows, cols,
       scratch_elements, static_cast<int64_t>(element_bytes)));
   return absl::OkStatus();
@@ -457,12 +358,7 @@ absl::Status ConvertColumnMajorToRowMajorInPlace(
   // the row-major -> column-major decomposition to that transposed address
   // grid is therefore the inverse permutation and restores JAX's row-major
   // physical order without changing the logical matrix.
-  absl::StatusOr<LayoutConvertFn> launcher =
-      LoadLayoutConvertLauncher(caller);
-  if (!launcher.ok()) {
-    return launcher.status();
-  }
-  JAXMG_RETURN_IF_CUDA_ERROR((*launcher)(
+  JAXMG_RETURN_IF_CUDA_ERROR(::JaxmgLaunchRowMajorToColumnMajorDecomposition(
       cuda_stream, matrix.untyped_data(), scratch_base.opaque(), cols, rows,
       scratch_elements, static_cast<int64_t>(element_bytes)));
   return absl::OkStatus();
