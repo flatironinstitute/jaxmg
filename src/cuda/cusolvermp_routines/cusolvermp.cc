@@ -59,6 +59,16 @@
 namespace xla::gpu {
 namespace {
 
+// ---------------------------------------------------------------------------
+// Dynamic cuSOLVERMp ABI boundary
+// ---------------------------------------------------------------------------
+//
+// cuSOLVERMp is currently loaded dynamically so that the rest of the XLA
+// communicator backend can still build on machines that have CUDA/JAX but not
+// the NVIDIA HPC SDK.  These typedefs mirror only the cuSOLVERMp calls that
+// JAXMg needs.  The rest of the file talks through CusolverMpApi instead of
+// including cusolverMp.h directly.
+
 using CusolverMpOpaqueHandle = void*;
 using CusolverMpOpaqueGrid = void*;
 using CusolverMpOpaqueMatrixDesc = void*;
@@ -139,6 +149,17 @@ struct CusolverMpApi {
   CusolverMpSyevdFn syevd = nullptr;
 };
 
+// ---------------------------------------------------------------------------
+// Status vectors and process-grid validation
+// ---------------------------------------------------------------------------
+//
+// The diagnostic and production FFI handlers return compact int32 status
+// vectors.  They are not a public API; they are a debugging contract between
+// the native backend and the private Python FFI adapter.  Production callers
+// still get useful failure information without crashing the whole JAX program
+// when a cluster node is missing cuSOLVERMp or a cuSOLVERMp call returns a
+// status code.
+
 enum ProbeStatus : int32_t {
   kProbeOk = 0,
   kLibraryMissing = 1,
@@ -212,6 +233,10 @@ constexpr int kResidualScale = 1000000;
 constexpr int kCusolverMpGridMappingRowMajor = 1;
 constexpr int kCusolverMpGridMappingColMajor = 0;
 
+// cuSOLVERMp supports only row-major and column-major mappings from
+// communicator ranks onto the process grid.  JAXMg deliberately rejects exotic
+// mesh permutations here rather than carrying a separate remapping layer
+// through the solver path.
 absl::Status ValidateCusolverMpGridMapping(const char* caller,
                                            int64_t grid_mapping) {
   if (grid_mapping != kCusolverMpGridMappingColMajor &&
@@ -278,6 +303,10 @@ std::pair<int32_t, int32_t> ProcessCoordFromRank(int nccl_rank,
       nccl_rank / static_cast<int32_t>(process_rows),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Dynamic symbol loading and low-level size helpers
+// ---------------------------------------------------------------------------
 
 template <typename Fn>
 Fn LoadRequiredSymbol(void* library, const char* name) {
@@ -350,6 +379,9 @@ CusolverMpApi LoadCusolverMpApi(std::array<int32_t, ProbeSize>* probe) {
   return api;
 }
 
+// LocalNumroc mirrors ScaLAPACK/BLACS NUMROC for the simple 2D block-cyclic
+// ownership pattern used by cuSOLVERMp: count how many global rows or columns
+// this process coordinate owns for a given tile size.
 int64_t LocalNumroc(int64_t n, int64_t block, int32_t process,
                     int32_t process_count) {
   int64_t owned = 0;
@@ -363,6 +395,14 @@ int64_t LocalNumroc(int64_t n, int64_t block, int32_t process,
   }
   return owned;
 }
+
+// ---------------------------------------------------------------------------
+// Status-vector copy helpers and cuSOLVERMp capability checks
+// ---------------------------------------------------------------------------
+//
+// Probe status arrays are built on the host and copied to a JAX result buffer
+// at the end of each FFI call.  The Has* functions make it explicit which
+// symbol groups are required for each diagnostic or production path.
 
 absl::Status CopyProbeToDevice(se::Stream* stream,
                                const std::array<int32_t, kProbeSize>& probe,
@@ -430,6 +470,15 @@ int32_t SizeToKiBForProbe(size_t bytes) {
   }
   return static_cast<int32_t>(kib);
 }
+
+// ---------------------------------------------------------------------------
+// Host-side diagnostic matrix generators
+// ---------------------------------------------------------------------------
+//
+// These helpers are used only by the probe handlers.  They build tiny,
+// deterministic host matrices that cuSOLVERMp scatters internally, allowing us
+// to separate "cuSOLVERMp itself works on this machine" from "JAXMg's native
+// redistribution produced the expected local buffers".
 
 template <typename DataType>
 DataType ScatterHostValue(int64_t row, int64_t col, int64_t cols);
@@ -634,6 +683,16 @@ double MaxPotrsSolutionError(const std::vector<DataType>& solution, int64_t n,
   return max_error;
 }
 
+// ---------------------------------------------------------------------------
+// Runtime utility helpers
+// ---------------------------------------------------------------------------
+//
+// The production fused handlers usually alias input and output buffers through
+// JAX FFI donation.  The copy helper is used by diagnostic paths and shared
+// solver helpers where an output buffer may or may not already alias the input.
+// DeviceForCudaPointer is important for multi-device JAX callbacks: the host
+// thread's current CUDA device is not always the owner of the donated buffer.
+
 absl::Status CopyAnyBufferToOutputIfNeeded(cudaStream_t cuda_stream,
                                            ffi::AnyBuffer input,
                                            ffi::Result<ffi::AnyBuffer> output) {
@@ -681,6 +740,19 @@ absl::StatusOr<int> DeviceForCudaPointer(const void* ptr) {
   return attrs.device;
 }
 
+// ---------------------------------------------------------------------------
+// Diagnostic probe runners
+// ---------------------------------------------------------------------------
+//
+// The next group of templated helpers runs isolated cuSOLVERMp operations on
+// generated inputs.  They do not exercise JAXMg's native 2D redistribution; the
+// goal is to prove the borrowed XLA/NCCL communicator can be consumed by
+// cuSOLVERMp and that a given CSD3/NVIDIA runtime supports the requested
+// solver routine and dtype.
+
+// Scatter-layout probe: have cuSOLVERMp scatter a host column-major matrix
+// into local device memory.  This verifies descriptor leading dimensions and
+// process-grid mapping independently of JAXMg's own redistribution kernels.
 template <typename DataType>
 absl::Status RunCusolverMpScatterLayoutProbe(
     const CusolverMpApi& api, CusolverMpOpaqueHandle handle,
@@ -748,6 +820,9 @@ absl::Status RunCusolverMpScatterLayoutProbe(
   return absl::OkStatus();
 }
 
+// POTRS sample probe: generate a diagonal SPD matrix and RHS on rank 0, use
+// cuSOLVERMp scatter, run potrf/potrs, gather the result, and check the residual
+// on rank 0.  This is a cuSOLVERMp-only smoke test.
 template <typename DataType>
 absl::Status RunCusolverMpPotrsProbe(
     const CusolverMpApi& api, CusolverMpOpaqueHandle handle,
@@ -1027,6 +1102,10 @@ absl::Status RunCusolverMpPotrsProbe(
   return absl::OkStatus();
 }
 
+// Shared POTRS runner for buffers that have already been redistributed by
+// JAXMg.  Production potrs calls this with validate_solution=false so it does
+// not gather a full solution back to host.  Diagnostic distributed-input probes
+// can enable validation to compare against the known generated RHS.
 template <typename DataType>
 absl::Status RunCusolverMpDistributedPotrsProbe(
     const CusolverMpApi& api, CusolverMpOpaqueHandle handle,
@@ -1280,6 +1359,9 @@ absl::Status RunCusolverMpDistributedPotrsProbe(
   return absl::OkStatus();
 }
 
+// SYEVD sample probe: like the POTRS sample probe, but for eigensolves.  It
+// uses cuSOLVERMp's scatter path for both A and Q so failures here usually mean
+// a cuSOLVERMp/runtime issue rather than a JAXMg redistribution issue.
 template <typename DataType>
 absl::Status RunCusolverMpSyevdSampleProbe(
     const CusolverMpApi& api, CusolverMpOpaqueHandle handle,
@@ -1507,6 +1589,10 @@ absl::Status RunCusolverMpSyevdSampleProbe(
   return absl::OkStatus();
 }
 
+// Shared production SYEVD runner for pre-redistributed JAXMg buffers.  The
+// input matrix is copied/aliased into work_out as cuSOLVERMp's d_A because
+// SYEVD overwrites A.  vectors_out is the separate d_Z buffer where cuSOLVERMp
+// writes eigenvectors.
 template <typename DataType>
 absl::Status RunCusolverMpSyevd(
     const CusolverMpApi& api, CusolverMpOpaqueHandle handle,
@@ -1694,6 +1780,16 @@ absl::Status RunCusolverMpSyevd(
 
 }  // namespace
 
+// ---------------------------------------------------------------------------
+// FFI prepare hooks
+// ---------------------------------------------------------------------------
+//
+// XLA calls prepare functions while building the compiled executable.  These
+// hooks request the all-assigned P2P communicator clique that dispatch will
+// later look up through CollectiveCliques.  The same prepare path is used for
+// probes and production solvers because all of them need the XLA-owned NCCL
+// communicator spanning the cuSOLVERMp process grid.
+
 absl::Status XlaCusolverMpInitProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
@@ -1718,6 +1814,17 @@ absl::Status XlaCusolverMpDistributedPotrsProbePrepare(
     CollectiveCliqueRequests* clique_requests) {
   return XlaCusolverMpInitProbePrepare(collective_params, clique_requests);
 }
+
+// ---------------------------------------------------------------------------
+// Diagnostic FFI dispatchers
+// ---------------------------------------------------------------------------
+//
+// The init/scatter/potrs/syevd probe dispatchers below are intentionally
+// verbose.  Each one builds a status vector, checks the XLA communicator,
+// dynamically loads cuSOLVERMp, constructs the minimal handle/grid/descriptor
+// state for the probe, runs the requested cuSOLVERMp operation, and returns the
+// status vector to Python.  They are kept in this file because they share the
+// same dynamic ABI boundary and cuSOLVERMp lifecycle helpers as production.
 
 absl::Status XlaCusolverMpInitProbeDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
@@ -2401,6 +2508,18 @@ absl::Status XlaCusolverMpPotrsProbeDispatch(
   return CopyPotrsProbeToDevice(stream, probe, status_out);
 }
 
+// ---------------------------------------------------------------------------
+// Shared production solver dispatchers
+// ---------------------------------------------------------------------------
+//
+// The compact production entry-point files call these helpers after
+// memory_redist has converted local JAX row-major buffers to column-major,
+// compacted edge padding, and redistributed the buffers into cuSOLVERMp's 2D
+// block-cyclic layout.  These helpers therefore start at the cuSOLVERMp layer:
+// validate the FFI buffer contract, borrow the raw NCCL handle from XLA, build
+// the cuSOLVERMp grid/descriptors, run the solver, and return a diagnostic
+// status vector alongside the numerical output.
+
 absl::Status CusolverMpDistributedPotrsDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
@@ -2410,6 +2529,11 @@ absl::Status CusolverMpDistributedPotrsDispatchImpl(
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques, bool validate_solution) {
+  // Stage 1: validate the static FFI contract.  By this point Python/JAX has
+  // already padded the user arrays and memory_redist has produced local
+  // column-major 2D block-cyclic buffers.  The checks here are deliberately
+  // about local capacities and dtype consistency, not global mathematical
+  // correctness.
   if (stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         "cusolvermp_distributed_potrs_probe requires XLA and CUDA streams");
@@ -2487,10 +2611,9 @@ absl::Status CusolverMpDistributedPotrsDispatchImpl(
       -1,
   };
 
-  // Bind the cuSOLVERMp handle to the device that owns this rank's A shard.
-  // The host-thread current device can be stale inside XLA multi-device FFI
-  // callbacks, and column-major process grids make that bug much easier to
-  // trigger because logical rank order no longer matches local device order.
+  // Stage 2: bind CUDA work to the device that owns this rank's local A shard.
+  // This avoids relying on ambient host-thread CUDA state, which is not stable
+  // across JAX's multi-device FFI callbacks.
   absl::StatusOr<int> buffer_device = DeviceForCudaPointer(a.untyped_data());
   if (!buffer_device.ok()) {
     probe[0] = kCudaDeviceFailed;
@@ -2504,6 +2627,9 @@ absl::Status CusolverMpDistributedPotrsDispatchImpl(
   }
   probe[1] = cuda_device;
 
+  // Stage 3: retrieve the communicator that XLA already created for the
+  // compiled program.  cuSOLVERMp receives the raw NCCL handle from that
+  // communicator; JAXMg does not create a separate NCCL communicator here.
   if (collective_params == nullptr || collective_cliques == nullptr) {
     probe[0] = kCollectiveContextMissing;
     return CopyPotrsProbeToDevice(stream, probe, status_out);
@@ -2541,6 +2667,9 @@ absl::Status CusolverMpDistributedPotrsDispatchImpl(
   probe[2] = nccl_rank;
   probe[3] = nccl_count;
 
+  // Stage 4: validate that the requested cuSOLVERMp process grid matches the
+  // communicator size and that any explicit Python rank map is one of the two
+  // dense mappings cuSOLVERMp can describe directly.
   if (process_rows <= 0 || process_cols <= 0 ||
       process_rows * process_cols != nccl_count || n <= 0 || nrhs <= 0 ||
       tile_size <= 0) {
@@ -2562,6 +2691,9 @@ absl::Status CusolverMpDistributedPotrsDispatchImpl(
     }
   }
 
+  // Stage 5: load cuSOLVERMp and create the handle/grid for this rank.  The
+  // grid mapping value is passed through to cuSOLVERMp so row-major and
+  // column-major JAX mesh orders remain supported without an extra remap layer.
   CusolverMpApi api = LoadCusolverMpApi(&probe);
   if (probe[0] != kProbeOk || !HasRequiredSymbols(api)) {
     if (api.library != nullptr) {
@@ -2619,6 +2751,9 @@ absl::Status CusolverMpDistributedPotrsDispatchImpl(
   const auto [process_row, process_col] = ProcessCoordFromRank(
       nccl_rank, process_rows, process_cols, grid_mapping);
 
+  // Stage 6: dispatch on the XLA primitive dtype and run the shared POTRS
+  // helper.  Production calls skip the optional host gather/residual check;
+  // diagnostic calls can enable it through validate_solution.
   absl::Status potrs_status;
   switch (a.element_type()) {
     case F32:
@@ -2664,6 +2799,8 @@ absl::Status CusolverMpDistributedPotrsDispatchImpl(
     return potrs_status;
   }
 
+  // Stage 7: tear down cuSOLVERMp resources in reverse construction order and
+  // return the per-rank status vector to Python.
   if (probe[0] == kProbeOk) {
     cusolver_status = api.destroy_grid(grid);
     if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
@@ -2699,6 +2836,9 @@ absl::Status CusolverMpSyevdDispatchImpl(
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
+  // Stage 1: validate the local FFI buffers.  SYEVD has three matrix buffers:
+  // the redistributed input A, work_out used as cuSOLVERMp's overwritten d_A,
+  // and vectors_out used as cuSOLVERMp's d_Z eigenvector output.
   if (stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         "cusolvermp_syevd requires XLA and CUDA streams");
@@ -2777,10 +2917,9 @@ absl::Status CusolverMpSyevdDispatchImpl(
       0,   // reserved.
   };
 
-  // cuSOLVERMp binds its handle to a concrete CUDA device and stream.  The
-  // current host-thread device is not a reliable source of truth inside a JAX
-  // multi-device FFI callback, so anchor the handle to the device that owns the
-  // donated JAX matrix buffer.
+  // Stage 2: bind cuSOLVERMp to the CUDA device that owns this rank's local
+  // matrix shard.  This mirrors POTRS and avoids stale current-device state in
+  // multi-device JAX callbacks.
   absl::StatusOr<int> buffer_device = DeviceForCudaPointer(a.untyped_data());
   if (!buffer_device.ok()) {
     probe[0] = kCudaDeviceFailed;
@@ -2800,6 +2939,9 @@ absl::Status CusolverMpSyevdDispatchImpl(
                   static_cast<long long>(process_rows),
                   static_cast<long long>(process_cols));
 
+  // Stage 3: borrow the XLA-created NCCL communicator for this rank.  The
+  // communicator rank is then converted to a cuSOLVERMp process-grid
+  // coordinate using the requested row-major or column-major mapping.
   if (collective_params == nullptr || collective_cliques == nullptr) {
     probe[0] = kCollectiveContextMissing;
     return CopySyevdProbeToDevice(stream, probe, status_out);
@@ -2839,6 +2981,9 @@ absl::Status CusolverMpSyevdDispatchImpl(
   CusolverMpDebug(nccl_rank, "nccl communicator rank=%d count=%d",
                   nccl_rank, nccl_count);
 
+  // Stage 4: validate the grid metadata and load the cuSOLVERMp symbols needed
+  // by SYEVD.  If the runtime lacks cuSOLVERMp, the status vector reports that
+  // cleanly instead of throwing an unresolved-symbol error.
   if (process_rows <= 0 || process_cols <= 0 ||
       process_rows * process_cols != nccl_count || n <= 0 ||
       tile_size <= 0) {
@@ -2866,6 +3011,9 @@ absl::Status CusolverMpSyevdDispatchImpl(
     return CopySyevdProbeToDevice(stream, probe, status_out);
   }
 
+  // Stage 5: create the cuSOLVERMp handle and grid against the borrowed NCCL
+  // communicator.  The heavy local-buffer redistribution has already happened
+  // in memory_redist; this stage only defines cuSOLVERMp's view of the grid.
   CusolverMpOpaqueHandle handle = nullptr;
   CusolverMpDebug(nccl_rank, "cusolverMpCreate begin device=%d stream=%p",
                   cuda_device, reinterpret_cast<void*>(cuda_stream));
@@ -2919,6 +3067,8 @@ absl::Status CusolverMpSyevdDispatchImpl(
   CusolverMpDebug(nccl_rank, "dispatch process_coord=(%d,%d) element_type=%d",
                   process_row, process_col, static_cast<int>(a.element_type()));
 
+  // Stage 6: dispatch on dtype and run the shared SYEVD helper.  The helper
+  // keeps d_A and d_Z separate because vector-producing SYEVD overwrites A.
   absl::Status syevd_status;
   switch (a.element_type()) {
     case F32:
@@ -2960,6 +3110,7 @@ absl::Status CusolverMpSyevdDispatchImpl(
     return syevd_status;
   }
 
+  // Stage 7: release cuSOLVERMp objects and return status to Python.
   if (probe[0] == kProbeOk) {
     cusolver_status = api.destroy_grid(grid);
     if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {

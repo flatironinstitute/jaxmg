@@ -26,6 +26,9 @@
 
 namespace xla::gpu {
 
+// Basic cuSOLVERMp load/grid probe.  This verifies that the runtime can load
+// libcusolverMp, borrow the XLA communicator, create a handle, and create a
+// process grid without running a solver.
 absl::Status XlaCusolverMpInitProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);
@@ -36,6 +39,10 @@ absl::Status XlaCusolverMpInitProbeDispatch(
     ffi::AnyBuffer token, ffi::Result<ffi::BufferR1<S32>> out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
+
+// cuSOLVERMp scatter-layout probe.  This uses NVIDIA's host-to-device scatter
+// path to confirm JAXMg's rank mapping and local leading dimensions agree with
+// cuSOLVERMp before testing the custom redistribution path.
 absl::Status XlaCusolverMpScatterLayoutProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);
@@ -47,6 +54,10 @@ absl::Status XlaCusolverMpScatterLayoutProbeDispatch(
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
+
+// Small self-contained solver probes.  These generate or scatter inputs inside
+// native code and are useful for separating cuSOLVERMp/runtime issues from
+// JAXMg redistribution issues.
 absl::Status XlaCusolverMpPotrsProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);
@@ -105,6 +116,9 @@ absl::Status CusolverMpSyevdDispatchImpl(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 
+// Production fused solver entry points.  The wrappers own local layout
+// conversion and redistribution orchestration; the shared helpers above own the
+// cuSOLVERMp call once buffers are in 2D block-cyclic local storage.
 absl::Status XlaCusolverMpPotrsPrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);

@@ -26,6 +26,10 @@
 
 namespace xla::gpu {
 
+// A rectangular view into one local GPU shard. All coordinates are logical
+// local row/column indices, independent of the physical byte address ordering.
+// The rectangle executors interpret these coordinates in column-major local
+// storage after the fused solver handlers have performed layout conversion.
 struct NativeLocalRect {
   int64_t row_start;
   int64_t col_start;
@@ -33,12 +37,20 @@ struct NativeLocalRect {
   int64_t col_count;
 };
 
+// Scheduler operation types used by the low-memory cyclic redistribution.
+// kMove copies one source rectangle into one target rectangle.  kSaveScratch
+// and kRestoreScratch are the two endpoints of a closed cycle: save one live
+// rectangle, rotate the rest of the cycle, then restore the saved rectangle.
 enum class Native2DStepKind : int64_t {
   kMove = 0,
   kSaveScratch = 1,
   kRestoreScratch = 2,
 };
 
+// One scheduled rectangle movement.  `phase` distinguishes horizontal/vertical
+// redistribution phases, and `sequence` is the dependency wave within that
+// phase. Steps with the same phase/sequence/kind may be batched only if their
+// source and target ranks do not conflict.
 struct Native2DStep {
   int64_t phase;
   int64_t sequence;
@@ -49,12 +61,17 @@ struct Native2DStep {
   NativeLocalRect target;
 };
 
+// Conflict-free execution batch.  Batches are the unit passed to the rectangle
+// transport layer: every rank can inspect a batch and decide whether it is a
+// sender, receiver, both for a local move, or idle.
 struct Native2DStepBatch {
   int64_t phase;
   Native2DStepKind kind;
   std::vector<Native2DStep> steps;
 };
 
+// Lightweight copy helpers used by diagnostics and production wrappers when
+// XLA could not alias an input buffer with the requested output/work buffer.
 absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream,
                                 ffi::AnyBuffer matrix,
                                 ffi::Result<ffi::AnyBuffer> matrix_out);
@@ -93,6 +110,9 @@ absl::Status RunRawNcclSendRecv(
     se::DeviceAddressBase recv_buffer, uint64_t byte_count,
     std::optional<RankId> source_rank, absl::Span<const RankId> target_ranks);
 
+// Planning and execution entry points for the tile-aligned slab reshuffler.
+// Build* functions produce an abstract schedule; Batch* groups independent
+// steps; Execute* performs the pack/NCCL/unpack work against real buffers.
 int64_t MaxStepElementCount(const std::vector<Native2DStep>& steps);
 std::vector<Native2DStepBatch> BatchNative2DSteps(
     const std::vector<Native2DStep>& steps);
@@ -110,6 +130,10 @@ absl::Status ExecuteEdgePaddingBatches(
     size_t element_bytes, int64_t scratch_elements, ffi::AnyBuffer matrix,
     se::DeviceAddressBase matrix_out_base,
     se::DeviceAddressBase scratch_base, GpuCommunicator* comm);
+
+// Edge-padding compaction planners.  The forward planner moves real data to
+// the global top-left edge-padded layout.  ReverseEdgePaddingSteps builds the
+// inverse schedule for solver outputs.
 absl::StatusOr<std::vector<Native2DStep>> BuildEdgePaddingNative2DSteps(
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
     int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
@@ -117,6 +141,10 @@ absl::StatusOr<std::vector<Native2DStep>> BuildEdgePaddingNative2DSteps(
     int64_t padding_slot_elements, absl::Span<const int64_t> rank_map);
 std::vector<Native2DStep> ReverseEdgePaddingSteps(
     const std::vector<Native2DStep>& forward_steps);
+
+// Tile-slab 2D block-cyclic planners.  The schedule is separable: a column
+// owner phase followed by a row owner phase for forward redistribution, with
+// the order inverted for reverse redistribution.
 absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
     int64_t tile_cols, int64_t local_rows, int64_t local_cols,
@@ -158,6 +186,10 @@ absl::StatusOr<Padded2DRedistScratch> AllocatePadded2DRedistScratch(
     se::ScratchAllocator& scratch, size_t element_bytes,
     absl::Span<const Padded2DRedistScratchRequest> requests,
     const char* caller);
+
+// Production raw executor used inside fused solver handlers.  It assumes the
+// caller already copied/aliased into the work buffer and supplied one scratch
+// allocation sized by AllocatePadded2DRedistScratch.
 absl::Status ExecutePadded2DNativePlanRaw(
     const char* caller, se::Stream* stream, se::Stream* comm_stream,
     cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,

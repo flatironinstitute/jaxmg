@@ -38,6 +38,9 @@
 
 namespace xla::gpu {
 
+// Prepare only requests the communicator clique.  The dispatch path later
+// reuses that XLA-owned communicator for redistribution and passes its raw NCCL
+// handle into cuSOLVERMp.
 absl::Status XlaCusolverMpSyevdPrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
@@ -55,6 +58,9 @@ absl::Status XlaCusolverMpSyevdDispatch(
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
+  // Stage 1: validate the local FFI buffers.  The public Python wrapper has
+  // already padded A to tile-aligned capacity and allocated work/vectors with
+  // the same local matrix capacity.
   if (a.dimensions().size() != 2 || work->dimensions().size() != 2 ||
       vectors->dimensions().size() != 2) {
     return absl::InvalidArgumentError(
@@ -73,6 +79,9 @@ absl::Status XlaCusolverMpSyevdDispatch(
         "cusolvermp_syevd input/output matrix shapes must match");
   }
 
+  // Stage 2: allocate the one scratch window used for local layout conversion,
+  // edge-padding compaction, and 2D block-cyclic redistribution in both
+  // directions.
   const size_t element_bytes =
       a.size_bytes() / static_cast<size_t>(a.element_count());
   const std::array<Padded2DRedistScratchRequest, 1> scratch_requests = {{
@@ -99,17 +108,18 @@ absl::Status XlaCusolverMpSyevdDispatch(
   const int64_t scratch_elements = redistribution_scratch->elements;
 
   ffi::AnyBuffer a_forward_input = a;
-  // Python supplies row-major JAX local shards. Convert the donated work alias
-  // in-place to cuSOLVERMp's column-major local storage before the tile
-  // redistribution. When XLA aliases input/output buffers this copy is a
-  // no-op; otherwise the work output remains the single full-size storage slot
-  // used by the fused call.
+  // Stage 3: copy/alias the input into work and convert the local storage from
+  // JAX row-major to cuSOLVERMp column-major in place.  SYEVD overwrites d_A, so
+  // the public input and the solver work buffer must stay conceptually
+  // separate even when XLA can alias storage. If XLA cannot alias, `work`
+  // remains the single full-size storage slot used by the fused call.
   JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, a, work));
   a_forward_input = *work;
   JAXMG_RETURN_IF_ERROR(ConvertRowMajorToColumnMajorInPlace(
       cuda_stream, "cusolvermp_syevd/a_layout_convert", a_forward_input,
       scratch_base, scratch_elements));
 
+  // Stage 4: redistribute A into cuSOLVERMp's 2D block-cyclic layout.
   JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
       "cusolvermp_syevd/a_forward", stream, comm_stream, cuda_stream,
       process_rows, process_cols, tile_size, tile_size, n, n, /*reverse=*/0,
@@ -122,6 +132,8 @@ absl::Status XlaCusolverMpSyevdDispatch(
   JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
   ffi::AnyBuffer a_cyclic = *work;
+  // Stage 5: run vector-producing SYEVD.  The helper creates cuSOLVERMp
+  // descriptors for A and Q and writes eigenvectors into `vectors`.
   JAXMG_RETURN_IF_ERROR(CusolverMpSyevdDispatchImpl(
       stream, comm_stream, cuda_stream, process_rows, process_cols, n,
       tile_size, grid_mapping, rank_map, a_cyclic, eigenvalues, work, vectors,
@@ -133,12 +145,17 @@ absl::Status XlaCusolverMpSyevdDispatch(
   JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
   ffi::AnyBuffer vectors_cyclic = *vectors;
+  // Stage 6: reverse-redistribute eigenvectors to the original JAX-facing shard
+  // placement.  Eigenvalues are already a replicated rank-1 output from
+  // cuSOLVERMp and do not need matrix redistribution.
   JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
       "cusolvermp_syevd/vectors_reverse", stream, comm_stream,
       cuda_stream, process_rows, process_cols, tile_size, tile_size, n, n,
       /*reverse=*/1, rank_map, vectors_cyclic, vectors->device_memory(),
       scratch_base, scratch_elements, collective_params, collective_cliques));
 
+  // Stage 7: restore JAX's row-major local storage for the user-visible
+  // eigenvector shard.
   JAXMG_RETURN_IF_ERROR(ConvertColumnMajorToRowMajorInPlace(
       cuda_stream, "cusolvermp_syevd/vectors_layout_restore", *vectors,
       scratch_base, scratch_elements));

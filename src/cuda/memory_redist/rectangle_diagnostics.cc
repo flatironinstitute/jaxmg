@@ -68,6 +68,9 @@ absl::Status RectTransferProbeDispatchImpl(
         "xla_rect_transfer_probe requires a non-empty matrix");
   }
 
+  // This probe is intentionally node-scoped: it is for validating rectangle
+  // addressing and raw NCCL send/recv on a small local group before invoking
+  // the full multi-node redistribution scheduler.
   absl::StatusOr<GpuCliqueKey> clique_key =
       NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
@@ -106,6 +109,9 @@ absl::Status RectTransferProbeDispatchImpl(
         scratch.dimensions()[0], 2 * rect_elements));
   }
 
+  // Python supplies one target per source rank.  Validate the map before any
+  // rank starts packing so every participant either fails before NCCL or enters
+  // the same collective schedule.
   std::vector<bool> seen(num_ranks, false);
   for (int64_t source = 0; source < num_ranks; ++source) {
     const int64_t target = targets[source];
@@ -160,6 +166,9 @@ absl::Status RectTransferProbeDispatchImpl(
   JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, matrix, matrix_out));
   JAXMG_RETURN_IF_ERROR(CopyScratchIfNeeded(cuda_stream, scratch, scratch_out));
 
+  // Each rank packs its requested source rectangle if it has an outgoing edge,
+  // then receives from the unique source targeting this rank and unpacks into
+  // the corresponding destination rectangle.
   const int64_t target_rank_value = targets[rank_value];
   if (target_rank_value >= 0) {
     JAXMG_RETURN_IF_ERROR(PackRect(
@@ -265,6 +274,9 @@ absl::Status XlaRectPackUnpackProbeDispatch(
         scratch.dimensions()[0], row_count * col_count));
   }
 
+  // Local-only probe: copy the input matrix to the result, pack one rectangle
+  // into scratch, then unpack it at another location. This isolates
+  // column-major rectangle addressing from all communicator behavior.
   const size_t element_bytes =
       matrix.size_bytes() / static_cast<size_t>(matrix.element_count());
 
@@ -292,6 +304,8 @@ absl::Status XlaRectTransferProbePrepare(
         "xla_rect_transfer_probe requires XLA collective prepare contexts");
   }
 
+  // Request the node-scoped P2P clique that RectTransferProbeDispatchImpl later
+  // resolves into a borrowed NCCL communicator.
   absl::StatusOr<GpuCliqueKey> clique_key =
       NodeScopedP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {

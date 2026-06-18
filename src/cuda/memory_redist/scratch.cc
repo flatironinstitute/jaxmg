@@ -42,6 +42,9 @@ namespace xla::gpu {
 
 absl::StatusOr<int64_t> RequiredPadded2DRedistScratchElements(
     const Padded2DRedistScratchRequest& request) {
+  // Delegate geometry validation to the same planner used by execution.  That
+  // keeps the scratch calculator honest: if a shape cannot be redistributed,
+  // scratch sizing fails before any solver code allocates memory.
   absl::StatusOr<int64_t> elements =
       RequiredPadded2DNativePlanScratchElements(
           request.process_rows, request.process_cols, request.tile_rows,
@@ -82,6 +85,9 @@ absl::StatusOr<Padded2DRedistScratch> AllocatePadded2DRedistScratch(
 
   int64_t max_elements = 0;
   for (const Padded2DRedistScratchRequest& request : requests) {
+    // POTRS passes both A and B requests because their logical column counts
+    // can differ.  SYEVD passes only A.  One allocation is sized to the maximum
+    // across all requested fused-call buffers.
     absl::StatusOr<int64_t> elements =
         RequiredPadded2DRedistScratchElements(request);
     if (!elements.ok()) {

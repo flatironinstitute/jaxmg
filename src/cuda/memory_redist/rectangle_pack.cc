@@ -63,12 +63,18 @@ using LayoutConvertFn = cudaError_t (*)(cudaStream_t, void*, void*,
                                         std::int64_t, std::int64_t);
 
 struct LayoutConvertApi {
+  // Dynamically loaded companion CUDA library.  Keeping the decomposition
+  // kernel in its own .so avoids pulling NVCC-built device code into every
+  // C++ backend object while still letting the fused handler use it at runtime.
   void* library = nullptr;
   LayoutConvertFn launch = nullptr;
   std::string error;
 };
 
 std::string BackendDirectory() {
+  // Resolve the directory containing libjaxmg_xla_comm_backend.so so installed
+  // wheels can place libjaxmg_layout_convert.so beside it without relying on
+  // LD_LIBRARY_PATH.
   Dl_info info;
   if (dladdr(reinterpret_cast<void*>(&BackendDirectory), &info) == 0 ||
       info.dli_fname == nullptr) {
@@ -83,6 +89,9 @@ std::string BackendDirectory() {
 }
 
 LayoutConvertApi LoadLayoutConvertApiOnce() {
+  // Prefer the dynamic loader path first, then the backend library directory.
+  // The result is cached process-wide; later FFI calls either reuse the symbol
+  // or return the cached load error.
   LayoutConvertApi api;
   std::vector<std::string> candidates = {"libjaxmg_layout_convert.so"};
   std::string backend_dir = BackendDirectory();
@@ -160,6 +169,9 @@ absl::Status NcclToStatus(ncclResult_t result, const char* file, int line) {
 
 absl::StatusOr<ncclComm_t> BorrowNcclComm(const char* caller,
                                           GpuCommunicator* comm) {
+  // XLA owns communicator creation and lifetime.  This backend only borrows the
+  // CUDA platform handle for the duration of the FFI call and validates it with
+  // NCCL metadata before issuing raw sends/receives.
   if (comm == nullptr) {
     return absl::InvalidArgumentError(
         absl::StrFormat("%s requires an XLA GPU communicator", caller));
@@ -196,6 +208,9 @@ struct NcclStreamChoice {
 absl::StatusOr<NcclStreamChoice> ChooseNcclStream(const char* caller,
                                                   se::Stream* comm_stream,
                                                   cudaStream_t cuda_stream) {
+  // Prefer XLA's communication stream when it is materialized, because that is
+  // the stream XLA expects collective work to use. Some contexts expose only
+  // the platform CUDA stream; the fallback keeps diagnostics usable there.
   if (comm_stream != nullptr) {
     void* handle = comm_stream->platform_specific_handle().stream;
     if (handle != nullptr) {
@@ -244,6 +259,8 @@ absl::Status RunRawNcclSendRecv(
   }
 
   if (nccl_stream->uses_comm_stream) {
+    // Preserve stream order without a host-wide device synchronization:
+    // producer work on the main stream completes before NCCL starts.
     absl::Status status = comm_stream->WaitFor(stream);
     if (!status.ok()) {
       return status;
@@ -264,6 +281,7 @@ absl::Status RunRawNcclSendRecv(
   JAXMG_RETURN_IF_NCCL_ERROR(ncclGroupEnd());
 
   if (nccl_stream->uses_comm_stream) {
+    // Make later main-stream CUDA work wait for the NCCL send/recv completion.
     absl::Status status = stream->WaitFor(comm_stream);
     if (!status.ok()) {
       return status;
@@ -273,6 +291,9 @@ absl::Status RunRawNcclSendRecv(
 }
 
 struct RectCopySpec {
+  // cudaMemcpy2DAsync arguments for a column-major rectangle.  `matrix_pitch`
+  // is the byte stride between adjacent local columns in the full matrix;
+  // `packed_pitch` is the byte width of the compact scratch rectangle.
   size_t matrix_pitch;
   size_t packed_pitch;
   size_t copy_bytes;
@@ -303,6 +324,9 @@ RectCopySpec BuildRectCopySpec(int64_t local_rows, int64_t row_start,
                                int64_t col_start,
                                int64_t row_count, int64_t col_count,
                                size_t element_bytes) {
+  // Local matrices are column-major at this point.  A logical rectangle
+  // therefore starts at col_start * local_rows + row_start and can be packed as
+  // `col_count` 2D rows, each containing `row_count` contiguous elements.
   return RectCopySpec{
       static_cast<size_t>(local_rows) * element_bytes,
       static_cast<size_t>(row_count) * element_bytes,
@@ -315,6 +339,9 @@ RectCopySpec BuildRectCopySpec(int64_t local_rows, int64_t row_start,
 
 absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream, ffi::AnyBuffer matrix,
                                 ffi::Result<ffi::AnyBuffer> matrix_out) {
+  // Production solvers ask XLA to alias work/output buffers where possible.
+  // This helper makes the fallback explicit: if XLA had to allocate a distinct
+  // output, copy the input once before the in-place native pipeline begins.
   se::DeviceAddressBase matrix_base = matrix.device_memory();
   se::DeviceAddressBase matrix_out_base = matrix_out->device_memory();
   if (matrix_base.opaque() == matrix_out_base.opaque()) {
@@ -446,6 +473,9 @@ absl::Status PackRect(cudaStream_t cuda_stream, int64_t local_rows,
                       int64_t row_count, int64_t col_count,
                       size_t element_bytes, se::DeviceAddressBase matrix_base,
                       se::DeviceAddressBase packed_base) {
+  // Pack a logical column-major rectangle into contiguous scratch so NCCL sees
+  // one linear payload even when the source rectangle is strided in the local
+  // matrix.
   RectCopySpec spec = BuildRectCopySpec(
       local_rows, row_start, col_start, row_count, col_count, element_bytes);
   const void* source =
@@ -463,6 +493,8 @@ absl::Status UnpackRect(cudaStream_t cuda_stream, int64_t local_rows,
                         size_t element_bytes,
                         se::DeviceAddressBase packed_base,
                         se::DeviceAddressBase matrix_base) {
+  // Inverse of PackRect: write a contiguous scratch payload into a strided
+  // column-major destination rectangle.
   RectCopySpec spec = BuildRectCopySpec(
       local_rows, row_start, col_start, row_count, col_count, element_bytes);
   const void* packed = packed_base.opaque();
@@ -496,6 +528,10 @@ absl::Status ExecuteNative2DStepBatches(
     size_t element_bytes, int64_t slot_elements, ffi::AnyBuffer matrix,
     se::DeviceAddressBase matrix_out_base,
     se::DeviceAddressBase scratch_out_base, GpuCommunicator* comm) {
+  // The cyclic scheduler reserves three equal-size slots:
+  //   saved_slot: protects one live slab while rotating a closed cycle;
+  //   send_slot:  packed outgoing payload for this rank;
+  //   recv_slot:  incoming payload for this rank.
   const uint64_t slot_bytes =
       static_cast<uint64_t>(slot_elements) * element_bytes;
   se::DeviceAddressBase saved_slot =
@@ -537,6 +573,8 @@ absl::Status ExecuteNative2DStepBatches(
     }
 
     if (batch.kind == Native2DStepKind::kMove && send_step != nullptr) {
+      // Always pack before moving, even for local moves.  That keeps the local
+      // and remote code paths identical and avoids in-place overlap hazards.
       JAXMG_RETURN_IF_ERROR(PackRect(
           cuda_stream, local_rows, send_step->source.row_start,
           send_step->source.col_start,
@@ -544,6 +582,9 @@ absl::Status ExecuteNative2DStepBatches(
           element_bytes, matrix_out_base, send_slot));
     }
 
+    // A batch is conflict-free, so each rank participates in at most one send
+    // and one receive.  Raw NCCL send/recv covers remote traffic; the special
+    // same-rank case above handles local copies without entering NCCL.
     std::optional<RankId> source_rank;
     if (recv_step != nullptr) {
       source_rank = RankId(recv_step->source_rank);
@@ -646,6 +687,9 @@ absl::Status ExecuteEdgePaddingBatches(
     }
 
     if (send_step != nullptr) {
+      // Edge-padding uses the entire scratch allocation as one payload, so a
+      // large open-chain shift can be chunked by the planner without the
+      // saved/send/recv subdivision needed by cyclic movement.
       JAXMG_RETURN_IF_ERROR(PackRect(
           cuda_stream, local_rows, send_step->source.row_start,
           send_step->source.col_start, send_step->source.row_count,

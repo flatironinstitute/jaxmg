@@ -125,6 +125,9 @@ Native2DSlot ColumnPhaseSlotToRankLocal(int64_t slot, int64_t process_cols,
                                         int64_t local_rows,
                                         int64_t tile_cols,
                                         absl::Span<const int64_t> rank_map) {
+  // Decode a global "column-slab slot" into the rank-local rectangle that
+  // currently owns it.  Slots are grouped first by process row, then by
+  // process column, then by local tile-column index.
   const int64_t slots_per_process_row = process_cols * col_blocks_per_rank;
   const int64_t process_row = slot / slots_per_process_row;
   const int64_t row_slot = slot % slots_per_process_row;
@@ -143,6 +146,9 @@ Native2DSlot RowPhaseSlotToRankLocal(int64_t slot, int64_t process_rows,
                                      int64_t tile_rows,
                                      int64_t local_cols,
                                      absl::Span<const int64_t> rank_map) {
+  // Decode a global "row-slab slot" into the rank-local rectangle that
+  // currently owns it.  Slots are grouped first by process column, then by
+  // process row, then by local tile-row index.
   const int64_t slots_per_process_col = process_rows * row_blocks_per_rank;
   const int64_t process_col = slot / slots_per_process_col;
   const int64_t col_slot = slot % slots_per_process_col;
@@ -157,6 +163,9 @@ Native2DSlot RowPhaseSlotToRankLocal(int64_t slot, int64_t process_rows,
 
 absl::StatusOr<std::vector<int64_t>> BuildColumnSlabSlotMap(
     int64_t process_rows, int64_t process_cols, int64_t col_blocks_per_rank) {
+  // Build source_slot -> target_slot for the column-owner phase.  Initially
+  // each process column owns contiguous global tile columns; cuSOLVERMp wants
+  // tile column k on process column k % process_cols.
   const int64_t slots_per_process_row = process_cols * col_blocks_per_rank;
   std::vector<int64_t> target_for_source(process_rows * slots_per_process_row,
                                          -1);
@@ -188,6 +197,9 @@ absl::StatusOr<std::vector<int64_t>> BuildColumnSlabSlotMap(
 
 absl::StatusOr<std::vector<int64_t>> BuildRowSlabSlotMap(
     int64_t process_rows, int64_t process_cols, int64_t row_blocks_per_rank) {
+  // Build source_slot -> target_slot for the row-owner phase.  After column
+  // ownership is correct, this performs the analogous tile-row modulo
+  // ownership within each process column.
   const int64_t slots_per_process_col = process_rows * row_blocks_per_rank;
   std::vector<int64_t> target_for_source(process_cols * slots_per_process_col,
                                          -1);
@@ -250,6 +262,10 @@ absl::StatusOr<std::vector<int64_t>> InvertSlotMap(
 
 absl::StatusOr<std::map<int64_t, std::vector<int64_t>>> BuildNative2DCycles(
     absl::Span<const int64_t> target_for_source) {
+  // Convert the slot permutation into closed cycles. Fixed points are skipped.
+  // Non-trivial cycles are stored as slot sequences ending at the starting
+  // slot, which lets AppendCycleSteps generate save/move/restore operations
+  // with one bounded slab in scratch.
   std::vector<uint8_t> visited(target_for_source.size(), 0);
   std::map<int64_t, std::vector<int64_t>> cycles;
 
@@ -318,6 +334,9 @@ absl::StatusOr<int64_t> AppendCycleSteps(int64_t phase,
                                          const std::vector<int64_t>& slots,
                                          int64_t sequence_offset,
                                          std::vector<Native2DStep>* steps) {
+  // Emit the low-memory movement program for one cycle. A closed cycle uses
+  // scratch to protect the last source slot, rotates the remaining slots
+  // backward, then restores the saved payload into the first target.
   const bool is_closed = slots.size() > 1 && slots.front() == slots.back();
   if (is_closed) {
     const Native2DSlot saved = decode_slot(slots[slots.size() - 2]);
@@ -362,6 +381,10 @@ absl::Status AppendAxisGroupSerialCycles(
     int64_t phase, const SlotDecoder& decode_slot, const SlotGroup& slot_group,
     const std::map<int64_t, std::vector<int64_t>>& cycles,
     std::vector<Native2DStep>* steps) {
+  // Cycles inside one process row/column group can touch the same ranks and
+  // scratch slots, so they are appended serially by increasing sequence number.
+  // Cycles in different groups can share sequence numbers and may later be
+  // batched if their ranks are conflict-free.
   std::map<int64_t, std::vector<std::vector<int64_t>>> cycles_by_axis_group;
   for (const auto& [_, cycle] : cycles) {
     if (cycle.empty()) {
@@ -417,6 +440,9 @@ absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
 
   auto append_column_phase = [&](int64_t phase,
                                  bool invert) -> absl::Status {
+    // Column-owner phase: move full-height tile-column slabs horizontally
+    // inside each process row.  `invert` switches the map to the reverse
+    // redistribution used after a solve.
     absl::StatusOr<std::vector<int64_t>> slot_map =
         BuildColumnSlabSlotMap(process_rows, process_cols,
                                col_blocks_per_rank);
@@ -451,6 +477,9 @@ absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
 
   auto append_row_phase = [&](int64_t phase,
                               bool invert) -> absl::Status {
+    // Row-owner phase: move full-width tile-row slabs vertically inside each
+    // process column.  This is the separable second half of the 2D
+    // block-cyclic permutation.
     absl::StatusOr<std::vector<int64_t>> slot_map =
         BuildRowSlabSlotMap(process_rows, process_cols, row_blocks_per_rank);
     if (!slot_map.ok()) {
@@ -619,6 +648,9 @@ absl::Status Rect2DNativePlanDispatchImpl(
         "xla_rect_2d_native_plan requires matrix and scratch dtypes to match");
   }
 
+  // Resolve the all-assigned communicator.  The diagnostic 2D executor uses
+  // the same communicator scope as production because a valid cuSOLVERMp grid
+  // can span every rank in a distributed JAX launch.
   absl::StatusOr<GpuCliqueKey> clique_key =
       AllAssignedDevicesP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
@@ -649,6 +681,9 @@ absl::Status Rect2DNativePlanDispatchImpl(
 
   const int64_t local_rows = matrix.dimensions()[0];
   const int64_t local_cols = matrix.dimensions()[1];
+  // Build, batch, and execute the tile-aligned slab permutation.  This
+  // diagnostic entry point intentionally omits edge-padding compaction so tests
+  // can isolate the block-cyclic scheduler.
   absl::StatusOr<std::vector<Native2DStep>> steps =
       BuildSlabNative2DSteps(process_rows, process_cols, tile_rows, tile_cols,
                              local_rows, local_cols, rank_map);
@@ -710,6 +745,9 @@ absl::StatusOr<int64_t> RequiredPadded2DNativePlanScratchElements(
       "required_padded_2d_native_plan_scratch", rank_map, process_rows,
       process_cols));
 
+  // Validate the slab schedule and then use the closed-form cyclic bound.  The
+  // schedule validation catches incompatible local shapes; the scratch formula
+  // remains deterministic and independent of how many cycles are generated.
   absl::StatusOr<std::vector<Native2DStep>> slab_steps =
       BuildSlabNative2DSteps(process_rows, process_cols, tile_rows, tile_cols,
                              local_rows, local_cols, rank_map);
@@ -723,9 +761,8 @@ absl::StatusOr<int64_t> RequiredPadded2DNativePlanScratchElements(
   }
   const int64_t scratch_elements = 3 * *cyclic_slot_elements;
 
-  // Validate the padding geometry against the same fixed scratch allocation.
-  // Padding moves are chunked to this budget; they are not allowed to enlarge
-  // the total scratch requirement.
+  // Validate edge-padding with the same fixed scratch budget.  The planner
+  // chunks open-chain moves rather than increasing the allocation.
   absl::StatusOr<std::vector<Native2DStep>> edge_steps =
       BuildEdgePaddingNative2DSteps(
           process_rows, process_cols, tile_rows, tile_cols, logical_rows,
@@ -762,6 +799,9 @@ absl::Status ExecutePadded2DNativePlanRawImpl(
         absl::StrFormat("%s expects a rank-2 matrix buffer", caller));
   }
 
+  // Production fused solvers enter through this raw executor after local
+  // layout conversion. Resolve the all-assigned communicator once and use it
+  // for both edge-padding and 2D block-cyclic movement.
   absl::StatusOr<GpuCliqueKey> clique_key =
       AllAssignedDevicesP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
@@ -805,6 +845,9 @@ absl::Status ExecutePadded2DNativePlanRawImpl(
         3 * *cyclic_slot_elements));
   }
 
+  // Build both movement programs before touching buffers.  Reverse execution
+  // inverts the order: undo the cyclic block redistribution first, then undo
+  // edge-padding compaction.
   absl::StatusOr<std::vector<Native2DStep>> edge_steps =
       BuildEdgePaddingNative2DSteps(
           process_rows, process_cols, tile_rows, tile_cols, logical_rows,
@@ -841,6 +884,8 @@ absl::Status ExecutePadded2DNativePlanRawImpl(
   }
 
   if (reverse != 0) {
+    // Output path: cuSOLVERMp layout -> edge-padded JAX-local layout ->
+    // per-shard padded JAX layout.
     JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
         stream, comm_stream, cuda_stream, slab_batches, local_rows, local_cols,
         rank_value, num_ranks, element_bytes, *cyclic_slot_elements, matrix,
@@ -851,6 +896,8 @@ absl::Status ExecutePadded2DNativePlanRawImpl(
         matrix_out_base, scratch_base, *comm);
   }
 
+  // Input path: per-shard padded JAX layout -> edge-padded global layout ->
+  // cuSOLVERMp 2D block-cyclic layout.
   JAXMG_RETURN_IF_ERROR(ExecuteEdgePaddingBatches(
       stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
       rank_value, num_ranks, element_bytes, scratch_elements, matrix,
@@ -921,6 +968,9 @@ absl::Status RectPadded2DNativePlanDispatchImpl(
         "match");
   }
 
+  // Diagnostic padded executor.  This mirrors ExecutePadded2DNativePlanRaw but
+  // uses explicit scratch input/output buffers so tests can inspect scratch
+  // aliasing and verify the padding/cyclic stages independently of solvers.
   absl::StatusOr<GpuCliqueKey> clique_key =
       AllAssignedDevicesP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
@@ -966,6 +1016,9 @@ absl::Status RectPadded2DNativePlanDispatchImpl(
         3 * *cyclic_slot_elements));
   }
 
+  // Build the exact same forward/reverse schedules used by production.  The
+  // diagnostic path copies matrix/scratch into result buffers first, then runs
+  // the executor so Python tests can compare returned arrays directly.
   absl::StatusOr<std::vector<Native2DStep>> edge_steps =
       BuildEdgePaddingNative2DSteps(
           process_rows, process_cols, tile_rows, tile_cols, logical_rows,

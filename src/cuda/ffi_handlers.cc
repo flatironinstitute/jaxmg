@@ -35,7 +35,13 @@
 
 namespace xla::gpu {
 
-// Diagnostic communicator handlers. These are optional Python-facing probes.
+// ---------------------------------------------------------------------------
+// XLA communicator diagnostics.
+// ---------------------------------------------------------------------------
+//
+// These handlers validate the pieces below the redistribution layer: collective
+// prepare/dispatch plumbing, communicator lookup, all-reduce, and simple
+// point-to-point CollectivePermute behavior.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCommCollectiveProbePrepareFFI, XlaCommCollectiveProbePrepare,
     ffi::Ffi::BindPrepare()
@@ -171,6 +177,13 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
 
+// ---------------------------------------------------------------------------
+// Rectangle and redistribution diagnostics.
+// ---------------------------------------------------------------------------
+//
+// These handlers exercise local rectangle pack/unpack, one-hop raw NCCL
+// rectangle movement, and the native 2D redistribution planners without calling
+// cuSOLVERMp.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaRectPackUnpackProbePrepareFFI, XlaRectPackUnpackProbePrepare,
     ffi::Ffi::BindPrepare());
@@ -267,6 +280,13 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
 
+// ---------------------------------------------------------------------------
+// cuSOLVERMp diagnostics.
+// ---------------------------------------------------------------------------
+//
+// These probes verify dynamic cuSOLVERMp loading, descriptor construction,
+// scatter-layout agreement, and small direct solver calls. They remain separate
+// from production wrappers so failures can be localized.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpInitProbePrepareFFI, XlaCusolverMpInitProbePrepare,
     ffi::Ffi::BindPrepare()
@@ -393,6 +413,14 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
 
+// ---------------------------------------------------------------------------
+// Production fused solver handlers.
+// ---------------------------------------------------------------------------
+//
+// Python-facing `potrs` and `syevd` register here. Each call performs local
+// layout conversion, edge-padding compaction, 2D block-cyclic redistribution,
+// cuSOLVERMp execution, reverse redistribution, and local layout restore inside
+// one FFI dispatch.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpPotrsPrepareFFI, XlaCusolverMpPotrsPrepare,
     ffi::Ffi::BindPrepare()

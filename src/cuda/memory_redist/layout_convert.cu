@@ -108,6 +108,10 @@ GcdResult ExtendedGcd(std::uint64_t a, std::uint64_t b) {
 __device__ __forceinline__ std::uint64_t ShuffleColumn(
     std::uint64_t row, std::uint64_t col, std::uint64_t rows,
     std::uint64_t cols, std::uint64_t gcd, std::uint64_t inverse) {
+  // Catanzaro/Keller/Garland column permutation.  For a logical element
+  // (row, col), this returns the source column that should be read so the row
+  // shuffle phase realizes the row-major -> column-major address permutation
+  // without an out-of-place matrix-sized buffer.
   const std::uint64_t b = cols / gcd;
   std::uint64_t r = col + row * (cols - 1);
   const std::int64_t condition =
@@ -124,6 +128,9 @@ template <typename T>
 __global__ void ColumnPreShuffleBatchKernel(
     T* data, T* scratch, std::uint64_t rows, std::uint64_t cols,
     std::uint64_t first_col, std::uint64_t col_count, std::uint64_t b) {
+  // Optional pre-shuffle for non-coprime rectangular shapes. Each block owns
+  // one column and uses one column-length scratch slice, so multiple columns
+  // can run in one launch when the caller provides a larger scratch window.
   const std::uint64_t local_col = blockIdx.x;
   if (local_col >= col_count) {
     return;
@@ -145,6 +152,9 @@ __global__ void RowShuffleBatchKernel(
     T* data, T* scratch, std::uint64_t rows, std::uint64_t cols,
     std::uint64_t first_row, std::uint64_t row_count, std::uint64_t gcd,
     std::uint64_t inverse) {
+  // Main permutation phase. Each block owns one row and gathers the permuted
+  // source columns into row scratch before writing the row back.  This keeps
+  // global writes coalesced and bounds scratch to row_count * cols elements.
   const std::uint64_t local_row = blockIdx.x;
   if (local_row >= row_count) {
     return;
@@ -166,6 +176,8 @@ template <typename T>
 __global__ void ColumnPostShuffleBatchKernel(
     T* data, T* scratch, std::uint64_t rows, std::uint64_t cols,
     std::uint64_t first_col, std::uint64_t col_count, std::uint64_t a) {
+  // Final column correction. Like the pre-shuffle, it is batched over as many
+  // columns as fit in the scratch allocation.
   const std::uint64_t local_col = blockIdx.x;
   if (local_col >= col_count) {
     return;
@@ -221,6 +233,8 @@ cudaError_t LaunchTyped(cudaStream_t stream, void* data, void* scratch,
   std::uint64_t gcd = gcd_result.gcd;
   std::uint64_t inverse = gcd_result.inverse;
   if (gcd > 1) {
+    // Non-coprime shapes use the reduced dimensions for the modular inverse
+    // in the row permutation. Coprime shapes keep the direct inverse.
     inverse = ExtendedGcd(urows / gcd, ucols / gcd).inverse;
   }
 
@@ -233,6 +247,9 @@ cudaError_t LaunchTyped(cudaStream_t stream, void* data, void* scratch,
       MaxU64(1, MinU64(ucols, uscratch_elements / urows));
 
   if (gcd > 1) {
+    // The decomposition has three phases for non-coprime rectangles.  Each
+    // loop launches the largest batch that fits the caller's scratch window
+    // and CUDA's grid-x limit.
     const std::uint64_t b = ucols / gcd;
     for (std::uint64_t col = 0; col < ucols;) {
       const std::uint64_t batch =
@@ -245,6 +262,8 @@ cudaError_t LaunchTyped(cudaStream_t stream, void* data, void* scratch,
   }
 
   for (std::uint64_t row = 0; row < urows;) {
+    // Coprime rectangles skip the pre-shuffle but still use the batched row
+    // shuffle and post-shuffle.
     const std::uint64_t batch =
         MinU64(kMaxGridX, MinU64(row_batch, urows - row));
     RowShuffleBatchKernel<T>
@@ -273,6 +292,9 @@ extern "C" cudaError_t JaxmgLaunchRowMajorToColumnMajorDecomposition(
     cudaStream_t stream, void* data, void* scratch, std::int64_t rows,
     std::int64_t cols, std::int64_t scratch_elements,
     std::int64_t element_bytes) {
+  // The C++ FFI backend dispatches by element byte width rather than by dtype.
+  // The permutation is byte-preserving, so 8-byte float64 and complex64 payloads
+  // use the same movement kernel.
   switch (element_bytes) {
     case 4:
       return LaunchTyped<Bytes4>(stream, data, scratch, rows, cols,

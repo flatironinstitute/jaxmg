@@ -44,6 +44,9 @@ namespace xla::gpu {
 namespace {
 
 struct AxisEdgeMove {
+  // One 1D open-chain move along a global process-grid axis. `wave` is a
+  // dependency sequence number: moves in the same wave represent the same
+  // logical shift applied independently across the orthogonal process axis.
   int64_t wave;
   int64_t source_start;
   int64_t target_start;
@@ -165,6 +168,11 @@ absl::StatusOr<std::vector<Native2DStep>> BuildEdgePaddingNative2DSteps(
       std::max<int64_t>(1, padding_slot_elements / local_rows);
   const int64_t max_vertical_extent =
       std::max<int64_t>(1, padding_slot_elements / local_cols);
+
+  // Horizontal compaction pushes column padding to the global right edge.  Each
+  // 1D axis move is lifted into one rectangle move for every process row, so
+  // the same shift can run independently across rows when ranks do not
+  // conflict.
   absl::StatusOr<std::vector<AxisEdgeMove>> horizontal_moves =
       BuildAxisEdgePaddingMoves(process_cols, local_logical_cols, local_cols,
                                 max_horizontal_extent);
@@ -198,6 +206,9 @@ absl::StatusOr<std::vector<Native2DStep>> BuildEdgePaddingNative2DSteps(
     }
   }
 
+  // Vertical compaction is the row analogue: after columns are edge-compacted,
+  // push row padding to the global bottom edge.  Each 1D move is lifted across
+  // every process column.
   absl::StatusOr<std::vector<AxisEdgeMove>> vertical_moves =
       BuildAxisEdgePaddingMoves(process_rows, local_logical_rows, local_rows,
                                 max_vertical_extent);

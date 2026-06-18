@@ -122,6 +122,9 @@ absl::StatusOr<std::pair<int, int>> NodeScopedIndexRange(
 }  // namespace
 
 absl::Status CudaToStatus(cudaError_t err, const char* file, int line) {
+  // Keep CUDA failures precise at the FFI boundary.  Returning the source file
+  // and line has been much more useful than generic failed-precondition errors
+  // when debugging remote Slurm runs.
   if (err == cudaSuccess) {
     return absl::OkStatus();
   }
@@ -132,6 +135,9 @@ absl::Status CudaToStatus(cudaError_t err, const char* file, int line) {
 
 absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
                               int line) {
+  // cuSOLVER/cuSOLVERMp status codes are numeric in several headers.  Preserve
+  // the raw code and call site so Python tests can report the exact failing
+  // native API call.
   if (err == CUSOLVER_STATUS_SUCCESS) {
     return absl::OkStatus();
   }
@@ -174,6 +180,9 @@ ReplicaGroup AllAssignedDevicesReplicaGroup(const CollectiveParams& params) {
 
 std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
     const CollectiveParams& params) {
+  // Use sorted global device ids to build a stable group independent of the
+  // order XLA exposes maps internally. This must match the rank order assumed
+  // by the row-major/column-major cuSOLVERMp rank_map validation.
   std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
   std::sort(devices.begin(), devices.end(),
             [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
@@ -190,6 +199,8 @@ std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
 
 absl::StatusOr<std::vector<GlobalDeviceId>> NodeScopedGlobalDeviceGroup(
     const CollectiveParams& params) {
+  // Diagnostic-only grouping. Production solvers use all assigned devices so
+  // the communicator spans the complete cuSOLVERMp process grid.
   std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
   std::sort(devices.begin(), devices.end(),
             [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
@@ -236,6 +247,8 @@ absl::StatusOr<ReplicaGroup> NodeScopedReplicaGroup(
 }
 
 absl::StatusOr<int> NodeScopedGroupOrdinal(const CollectiveParams& params) {
+  // Return the host-group index for diagnostics that need a deterministic
+  // per-node label in multi-node launches.
   std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
   std::sort(devices.begin(), devices.end(),
             [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
@@ -253,6 +266,7 @@ absl::StatusOr<int> NodeScopedGroupOrdinal(const CollectiveParams& params) {
 
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesCliqueKey(
     const CollectiveParams& params) {
+  // All-reduce style clique over every assigned rank.
   std::vector<ReplicaGroup> replica_groups = {
       AllAssignedDevicesReplicaGroup(params)};
   return GetGpuCliqueKey(
@@ -262,6 +276,9 @@ absl::StatusOr<GpuCliqueKey> AllAssignedDevicesCliqueKey(
 
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
     const CollectiveParams& params) {
+  // Point-to-point clique over every assigned rank.  CommunicationId(1)
+  // separates this P2P clique from the ordinary collective clique for the same
+  // replica group.
   std::vector<ReplicaGroup> replica_groups = {
       AllAssignedDevicesReplicaGroup(params)};
   return GetGpuCliqueKey(
@@ -272,6 +289,7 @@ absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
 
 absl::StatusOr<GpuCliqueKey> NodeScopedCliqueKey(
     const CollectiveParams& params) {
+  // Node-scoped all-reduce style clique for local communicator diagnostics.
   absl::StatusOr<ReplicaGroup> replica_group = NodeScopedReplicaGroup(params);
   if (!replica_group.ok()) {
     return replica_group.status();
@@ -284,6 +302,7 @@ absl::StatusOr<GpuCliqueKey> NodeScopedCliqueKey(
 
 absl::StatusOr<GpuCliqueKey> NodeScopedP2PCliqueKey(
     const CollectiveParams& params) {
+  // Node-scoped P2P clique for local permute/rectangle diagnostics.
   absl::StatusOr<ReplicaGroup> replica_group = NodeScopedReplicaGroup(params);
   if (!replica_group.ok()) {
     return replica_group.status();
@@ -303,6 +322,8 @@ absl::Status RequestAllAssignedP2PCommunicator(
         "%s requires XLA collective prepare contexts", caller));
   }
 
+  // Production prepare path: ask XLA to build the communicator before runtime
+  // dispatch. Dispatch cannot create this communicator lazily.
   absl::StatusOr<GpuCliqueKey> clique_key =
       AllAssignedDevicesP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {

@@ -26,6 +26,8 @@
 
 namespace xla::gpu {
 
+// Metadata probe: returns local/global device ids and whether the resolved
+// XLA communicator exposes a platform handle.
 absl::Status XlaCommCollectiveProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);
@@ -34,6 +36,9 @@ absl::Status XlaCommCollectiveProbeDispatch(
     ffi::Result<ffi::BufferR1<S32>> out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
+
+// All-reduce probes.  The node-scoped version verifies local clique setup; the
+// global version verifies the all-assigned communicator needed by production.
 absl::Status XlaCommAllReduceProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);
@@ -50,6 +55,8 @@ absl::Status XlaCommGlobalAllReduceProbeDispatch(
     ffi::Result<ffi::BufferR1<U32>> dst,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
+
+// Ring/shift/permutation probes for point-to-point collective behavior.
 absl::Status XlaCommRingPermuteProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);
@@ -83,6 +90,9 @@ absl::Status XlaCommPermuteProbeDispatch(
     ffi::Result<ffi::BufferR1<U32>> dst,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
+
+// Chunked permutation probe.  This validates the offset/count addressing used
+// by lower-level movement tests without invoking the full matrix scheduler.
 absl::Status XlaCommChunkPermuteProbePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests);

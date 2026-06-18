@@ -37,6 +37,9 @@
 
 namespace xla::gpu {
 
+// Prepare is intentionally limited to communicator setup.  XLA constructs the
+// all-assigned P2P clique during compilation; dispatch later retrieves the
+// communicator and uses it for both redistribution and cuSOLVERMp.
 absl::Status XlaCusolverMpPotrsPrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
@@ -54,6 +57,9 @@ absl::Status XlaCusolverMpPotrsDispatch(
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
+  // Stage 1: validate the local FFI buffers.  Python has already padded A/B to
+  // the user-visible storage capacity needed by the requested process grid and
+  // tile size; native code only checks the local contracts it will dereference.
   if (a.dimensions().size() != 2 || b.dimensions().size() != 2 ||
       a_work->dimensions().size() != 2 || b_out->dimensions().size() != 2) {
     return absl::InvalidArgumentError(
@@ -82,6 +88,9 @@ absl::Status XlaCusolverMpPotrsDispatch(
         "cusolvermp_potrs requires b_distribution_cols >= nrhs");
   }
 
+  // Stage 2: size one reusable scratch allocation for the whole fused call.
+  // The memory_redist layer owns the formula so the solver wrapper does not
+  // duplicate layout-conversion, edge-padding, or 2D cyclic scratch rules.
   // A and B can have different logical column counts. For B there are two
   // counts: `nrhs` is the real RHS width passed to cuSOLVERMp, while
   // `b_distribution_cols` is the JAX-visible routing width used to make skinny
@@ -127,12 +136,12 @@ absl::Status XlaCusolverMpPotrsDispatch(
 
   ffi::AnyBuffer a_forward_input = a;
   ffi::AnyBuffer b_forward_input = b;
-  // Python now enters the FFI boundary with ordinary row-major JAX local
-  // buffers. Convert the donated work aliases in-place to cuSOLVERMp's
-  // column-major local storage before any tile redistribution. When XLA aliases
-  // input/output buffers this copy is a no-op; if it cannot alias, this still
-  // preserves correctness without requiring an additional full-size native
-  // allocation.
+  // Stage 3: make the local buffer storage convention match cuSOLVERMp.  JAX
+  // enters with row-major local shards; cuSOLVERMp descriptors interpret local
+  // memory as column-major.  This in-place conversion avoids XLA's full-size
+  // layout-copy allocation. When XLA aliases input/output buffers the copy is a
+  // no-op; otherwise the explicit copy preserves correctness without a second
+  // native matrix allocation.
   JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, a, a_work));
   JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, b, b_out));
   a_forward_input = *a_work;
@@ -144,9 +153,9 @@ absl::Status XlaCusolverMpPotrsDispatch(
       cuda_stream, "cusolvermp_potrs/b_layout_convert", b_forward_input,
       scratch_base, scratch_elements));
 
-  // Move the padded JAX buffers into the local 2D block-cyclic layout expected
-  // by cuSOLVERMp. The input/output aliases mean a_work and b_out are the
-  // donated storage slots that survive across the solve call.
+  // Stage 4: move local shards into cuSOLVERMp's 2D block-cyclic distribution.
+  // A is routed over the full n x n logical matrix; B is routed over the padded
+  // distribution width but only the first nrhs columns are solved.
   JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
       "cusolvermp_potrs/a_forward", stream, comm_stream, cuda_stream,
       process_rows, process_cols, tile_size, tile_size, n, n, /*reverse=*/0,
@@ -167,6 +176,8 @@ absl::Status XlaCusolverMpPotrsDispatch(
 
   ffi::AnyBuffer a_cyclic = *a_work;
   ffi::AnyBuffer b_cyclic = *b_out;
+  // Stage 5: run potrf/potrs on the redistributed buffers.  The shared helper
+  // handles the cuSOLVERMp ABI boundary and borrowed NCCL communicator.
   JAXMG_RETURN_IF_ERROR(CusolverMpDistributedPotrsDispatchImpl(
       stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
       tile_size, grid_mapping, rank_map, a_cyclic, b_cyclic, a_work, b_out,
@@ -179,12 +190,15 @@ absl::Status XlaCusolverMpPotrsDispatch(
   JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
   ffi::AnyBuffer b_solved_cyclic = *b_out;
+  // Stage 6: return only B to the JAX-facing distribution.  A is a factorized
+  // work buffer after potrf and is not part of the public result.
   JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
       "cusolvermp_potrs/b_reverse", stream, comm_stream, cuda_stream,
       process_rows, process_cols, tile_size, tile_size, n, b_distribution_cols,
       /*reverse=*/1, rank_map, b_solved_cyclic, b_out->device_memory(),
       scratch_base, scratch_elements, collective_params, collective_cliques));
 
+  // Stage 7: restore the local storage convention for the user-visible output.
   JAXMG_RETURN_IF_ERROR(ConvertColumnMajorToRowMajorInPlace(
       cuda_stream, "cusolvermp_potrs/b_layout_restore", *b_out, scratch_base,
       scratch_elements));

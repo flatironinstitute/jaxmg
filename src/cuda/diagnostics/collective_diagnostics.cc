@@ -39,6 +39,9 @@ namespace xla::gpu {
 namespace {
 
 enum class ProbeCliqueScope {
+  // kNodeScoped is for local bring-up; kAllAssigned is for production-scope
+  // multi-node validation.  Keeping this explicit prevents accidental use of a
+  // node-local communicator in a production-style probe.
   kNodeScoped,
   kAllAssigned,
 };
@@ -46,6 +49,8 @@ enum class ProbeCliqueScope {
 absl::StatusOr<GpuCliqueKey> ProbeCliqueKey(
     const CollectiveParams& collective_params, bool p2p,
     ProbeCliqueScope scope) {
+  // One helper chooses both communication style and scope, so prepare and
+  // dispatch paths cannot accidentally ask for different clique keys.
   if (scope == ProbeCliqueScope::kAllAssigned) {
     return p2p ? AllAssignedDevicesP2PCliqueKey(collective_params)
                : AllAssignedDevicesCliqueKey(collective_params);
@@ -71,6 +76,8 @@ absl::Status RequestProbeClique(
         "%s requires XLA collective prepare contexts", caller));
   }
 
+  // Prepare stage: request exactly the clique the matching dispatch helper will
+  // resolve. XLA constructs communicators from these requests before runtime.
   absl::StatusOr<GpuCliqueKey> clique_key =
       ProbeCliqueKey(*collective_params, p2p, scope);
   if (!clique_key.ok()) {
@@ -104,6 +111,8 @@ absl::Status AllReduceProbeDispatchImpl(
         absl::StrFormat("%s expects matching rank-1 input/output", caller));
   }
 
+  // Dispatch stage: resolve the communicator XLA created during prepare, then
+  // issue the all-reduce on the communication stream.
   absl::StatusOr<GpuCliqueKey> clique_key =
       ProbeCliqueKey(*collective_params, /*p2p=*/false, scope);
   if (!clique_key.ok()) {
@@ -154,6 +163,8 @@ absl::Status RingPermuteProbeDispatchImpl(
         absl::StrFormat("%s expects matching rank-1 input/output", caller));
   }
 
+  // Resolve the P2P clique and compute this rank's predecessor/successor in
+  // the ring.  The data movement itself is XLA CollectivePermute, not raw NCCL.
   absl::StatusOr<GpuCliqueKey> clique_key =
       ProbeCliqueKey(*collective_params, /*p2p=*/true, scope);
   if (!clique_key.ok()) {
