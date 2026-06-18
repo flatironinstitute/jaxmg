@@ -5,8 +5,9 @@ preloads the required NVIDIA wheel libraries, loads the backend with
 ``ctypes``, and registers the exported XLA FFI targets with JAX. The native
 backend borrows XLA's communicator during each FFI call.
 
-The setup path supports both single-process multi-GPU execution and JAX
-distributed runs with one Python process per local GPU.
+The cuSOLVERMp backend requires rank-per-GPU execution: each Python process
+must own exactly one local GPU.  Multi-GPU runs should therefore be launched
+with ``jax.distributed.initialize(...)`` and one process per GPU.
 """
 
 import pathlib
@@ -24,7 +25,6 @@ from .utils import JaxMgWarning
 
 _lib_dir = os.path.dirname(__file__)
 _initialized = False
-_runtime_mode = None
 _xla_comm_backend_library = "libjaxmg_xla_comm_backend.so"
 _preloaded_cuda_libraries = {}
 
@@ -128,56 +128,28 @@ def _register_cuda_target_bundle(bin_dir, library_name, ffi_name, symbols):
     jax.ffi.register_ffi_target(ffi_name, bundle, platform="CUDA")
 
 
-def _detect_runtime_mode():
-    """Return ``(mode, devices_per_node)`` for the current JAX runtime.
+def _validate_rank_per_gpu_runtime():
+    """Validate that the current JAX process owns exactly one local GPU.
 
-    JAXMg has two native orchestration modes:
-
-    - SPMD: one Python process controls all local GPUs.
-    - MPMD: one Python process participates per GPU/rank through
-      ``jax.distributed``.  In this mode the number of participating local
-      ranks must be supplied by ``JAXMG_NUMBER_OF_DEVICES`` when it cannot be
-      inferred from the local device set.
-
-    JAXMg does not initialize distributed JAX itself.  Users must call
-    ``jax.distributed.initialize(...)`` before device discovery in multi-node
-    programs; this function only records the resulting runtime shape for native
-    FFI handlers.
+    cuSOLVERMp is a distributed runtime: every participating GPU is represented
+    by one process/rank.  JAXMg therefore rejects the old single-process,
+    multi-device regime before native FFI targets are registered.  Users remain
+    responsible for calling ``jax.distributed.initialize(...)`` before device
+    discovery in multi-node programs.
     """
-    requested_mode = os.environ.get("JAXMG_EXECUTION_MODE", "").upper()
-    if requested_mode:
-        if requested_mode not in {"SPMD", "MPMD"}:
-            raise ValueError("JAXMG_EXECUTION_MODE must be either SPMD or MPMD.")
-        if "JAXMG_NUMBER_OF_DEVICES" in os.environ:
-            devices_per_node = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
-        else:
-            devices_per_node = jax.local_device_count()
-        if devices_per_node <= 0:
-            raise ValueError("JAXMG_NUMBER_OF_DEVICES must be positive.")
-        return requested_mode, devices_per_node
-
-    if not jax.distributed.is_initialized():
-        return "SPMD", jax.local_device_count()
-
     local_device_count = jax.local_device_count()
-    if local_device_count > 1:
-        return "SPMD", local_device_count
-
-    if "JAXMG_NUMBER_OF_DEVICES" in os.environ:
-        devices_per_node = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
-        if devices_per_node <= 0:
-            raise ValueError("JAXMG_NUMBER_OF_DEVICES must be positive.")
-        return "MPMD", devices_per_node
-
-    # In a multi-process JAX runtime, local_device_count is commonly one. Keep
-    # the old package's conservative default but warn loudly because a wrong
-    # value can make collective clique construction hang.
-    return "MPMD", jax.device_count()
+    if local_device_count != 1:
+        raise RuntimeError(
+            "JAXMg's cuSOLVERMp backend supports only rank-per-GPU execution: "
+            "each Python process must see exactly one local GPU. This process "
+            f"sees {local_device_count} local GPUs. Launch one process per GPU "
+            "with jax.distributed.initialize(..., local_device_ids=[...]) or "
+            "restrict CUDA_VISIBLE_DEVICES to a single GPU per process."
+        )
 
 
 def _initialize():
     """Initialize native CUDA FFI targets for the active JAX runtime."""
-    global _runtime_mode
     if any("gpu" == d.platform for d in jax.devices()):
         # Determine CUDA backend
         backend = jax.extend.backend.get_backend()
@@ -190,21 +162,7 @@ def _initialize():
 
         jax.config.update("jax_enable_x64", True)
 
-        mode, n_devices_per_node = _detect_runtime_mode()
-        if mode == "MPMD":
-            warnings.warn(
-                "Running the XLA communicator backend in experimental MPMD "
-                f"mode with JAXMG_NUMBER_OF_DEVICES={n_devices_per_node}. "
-                "Use rank-per-GPU launch tests before relying on this mode in "
-                "production.",
-                JaxMgWarning,
-                stacklevel=4,
-            )
-        _runtime_mode = mode
-                
-        # set if not set already
-        os.environ.setdefault("JAXMG_NUMBER_OF_DEVICES", str(n_devices_per_node))
-        os.environ.setdefault("JAXMG_EXECUTION_MODE", mode)
+        _validate_rank_per_gpu_runtime()
 
         for ffi_name, symbols in _PRODUCTION_FFI_TARGETS:
             _register_cuda_target_bundle(
@@ -219,7 +177,6 @@ def _initialize():
             JaxMgWarning,
             stacklevel=4,  # _initialize -> ensure_init_jaxmg_backend -> public fn -> user code
         )
-        os.environ["JAXMG_NUMBER_OF_DEVICES"] = str(jax.device_count())
 
 
 def ensure_init_jaxmg_backend():
@@ -229,7 +186,7 @@ def ensure_init_jaxmg_backend():
     executing any native FFI calls. It performs one-time initialization:
 
     1. identifies the CUDA version from the JAX backend;
-    2. detects the JAX runtime mode;
+    2. verifies that the process owns exactly one local GPU;
     3. loads the packaged native backend library; and
     4. registers production JAX FFI targets such as ``cusolvermp_potrs``.
     """

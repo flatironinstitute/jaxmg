@@ -102,5 +102,4 @@ nav:
         - "api/syevd.md"
     - Technical Details:
         - "technical_details/col_maj.md"
-        - "technical_details/spmd.md"
-        - "technical_details/mpmd.md"
+        - "technical_details/rank_per_gpu.md"
