@@ -1,14 +1,10 @@
 """Public cuSOLVERMp Cholesky solve wrapper.
 
-This module keeps the user-facing ``potrs`` routine in the same place a reader
-expects from the original JAXMg package: the public function appears first, and
-the private helpers that build the JAX/FFI execution path follow below it.
-
-Only lightweight Python orchestration lives here.  JAX handles sharding,
-padding, and compilation boundaries; the fused native C++/CUDA handler performs
-the row-major to column-major local layout conversion, 2D redistribution,
-``cusolverMpPotrf``/``cusolverMpPotrs`` calls, reverse redistribution, and final
-layout restoration.
+The Python layer validates JAX array metadata, applies per-shard tile padding,
+and constructs the compiled FFI call.  The fused native C++/CUDA handler then
+performs the row-major to column-major local layout conversion, 2D
+redistribution, ``cusolverMpPotrf``/``cusolverMpPotrs`` calls, reverse
+redistribution, and final layout restoration.
 """
 
 from __future__ import annotations

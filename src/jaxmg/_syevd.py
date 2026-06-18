@@ -1,14 +1,10 @@
 """Public cuSOLVERMp symmetric/Hermitian eigensolver wrapper.
 
-The public ``syevd`` function is intentionally the first function in this file
-so the routine reads like the original JAXMg wrappers: user-facing API first,
-then private validation, layout, and FFI-construction helpers.
-
-Only eigenvector-producing SYEVD is exposed.  The native backend receives a
-padded block-sharded JAX array, converts local storage to cuSOLVERMp's
-column-major layout, redistributes into 2D block-cyclic form, calls
-``cusolverMpSyevd``, and returns eigenvalues plus eigenvectors in the original
-JAX-facing layout.
+Only eigenvector-producing SYEVD is exposed.  The Python layer validates JAX
+array metadata, applies per-shard tile padding, and constructs the compiled FFI
+call.  The native backend converts local storage to cuSOLVERMp's column-major
+layout, redistributes into 2D block-cyclic form, calls ``cusolverMpSyevd``, and
+returns eigenvalues plus eigenvectors in the original JAX-facing layout.
 """
 
 from __future__ import annotations
