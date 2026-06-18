@@ -51,8 +51,8 @@
 #include <limits>
 #include <vector>
 
-#include "../include/xla_comm_backend.h"
 #include "layout_convert.h"
+#include "memory_redist.h"
 #include "third_party/nccl/nccl.h"
 
 namespace xla::gpu {

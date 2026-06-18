@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Shared helper definitions for the XLA communicator cuSOLVERMp backend.
+// Shared XLA FFI runtime helpers for the cuSOLVERMp backend.
 //
 // This file owns process-local synchronization state, common CUDA/cuSolver
 // status conversion, scratch allocation, all-assigned clique construction, and
@@ -23,7 +23,7 @@
 //   2. Allocate XLA-owned scratch buffers for fused native handlers.
 //   3. Build all-assigned XLA collective clique keys from CollectiveParams.
 
-#include "../include/xla_comm_backend.h"
+#include "runtime.h"
 
 namespace xla::gpu {
 namespace {

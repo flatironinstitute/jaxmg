@@ -32,7 +32,7 @@
 #include <cstdlib>
 
 #include "cusolvermp_common.h"
-#include "../include/xla_comm_backend.h"
+#include "cusolvermp_routines.h"
 
 namespace xla::gpu {
 namespace {

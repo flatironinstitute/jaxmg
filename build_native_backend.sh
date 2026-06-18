@@ -158,16 +158,13 @@ echo "Using cuSOLVERMp library directory: ${CUSOLVERMP_LIBRARY_DIR}"
 
 BACKEND_PKG="${XLA_SRC}/jaxmg_backend"
 mkdir -p \
-  "${BACKEND_PKG}/include" \
-  "${BACKEND_PKG}/utils" \
+  "${BACKEND_PKG}/xla_ffi" \
   "${BACKEND_PKG}/memory_redist" \
   "${BACKEND_PKG}/cusolvermp_routines"
-ln -sfn "${ROOT}/src/cuda/include/xla_comm_backend.h" \
-  "${BACKEND_PKG}/include/xla_comm_backend.h"
-ln -sfn "${ROOT}/src/cuda/include/xla_comm_common.h" \
-  "${BACKEND_PKG}/include/xla_comm_common.h"
-ln -sfn "${ROOT}/src/cuda/utils/xla_comm_common.cc" \
-  "${BACKEND_PKG}/utils/xla_comm_common.cc"
+for src in handlers.cc runtime.cc runtime.h; do
+  ln -sfn "${ROOT}/src/cuda/xla_ffi/${src}" \
+    "${BACKEND_PKG}/xla_ffi/${src}"
+done
 ln -sfn "${CUSOLVERMP_INCLUDE_DIR}" "${BACKEND_PKG}/cusolvermp_include"
 ln -sfn "${CUSOLVERMP_LIBRARY_DIR}" "${BACKEND_PKG}/cusolvermp_lib"
 for src in block_cyclic_2d.cc edge_padding_2d.cc layout_convert.cu.cc layout_convert.h memory_redist.h rectangle_pack.cc scratch.cc; do
@@ -178,7 +175,6 @@ for src in cusolvermp_common.cc cusolvermp_common.h cusolvermp_potrs.cc cusolver
   ln -sfn "${ROOT}/src/cuda/cusolvermp_routines/${src}" \
     "${BACKEND_PKG}/cusolvermp_routines/${src}"
 done
-ln -sfn "${ROOT}/src/cuda/ffi_handlers.cc" "${BACKEND_PKG}/ffi_handlers.cc"
 
 sed "s/@JAXMG_CUDA_MAJOR@/${CUDA_MAJOR}/g" \
   "${BACKEND_BUILD_TEMPLATE}" > "${BACKEND_PKG}/BUILD.bazel"

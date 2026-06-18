@@ -14,7 +14,7 @@
 //
 // Production cuSOLVERMp FFI declarations.
 //
-// This header is the exported native ABI used by ffi_handlers.cc.  It
+// This header is the exported native ABI used by xla_ffi/handlers.cc.  It
 // deliberately exposes only the user-facing fused solver entry points; shared
 // cuSOLVERMp implementation details live in cusolvermp_common.h, and the full
 // solver workflows live in cusolvermp_potrs.cc and cusolvermp_syevd.cc.

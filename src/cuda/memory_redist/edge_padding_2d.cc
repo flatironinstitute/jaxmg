@@ -38,7 +38,7 @@
 #include <algorithm>
 #include <vector>
 
-#include "../include/xla_comm_backend.h"
+#include "memory_redist.h"
 
 namespace xla::gpu {
 namespace {

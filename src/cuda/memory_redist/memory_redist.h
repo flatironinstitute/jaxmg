@@ -22,7 +22,7 @@
 #ifndef JAXMG_MEMORY_REDIST_H_
 #define JAXMG_MEMORY_REDIST_H_
 
-#include "../include/xla_comm_common.h"
+#include "../xla_ffi/runtime.h"
 
 namespace xla::gpu {
 

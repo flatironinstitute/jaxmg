@@ -30,7 +30,7 @@
 
 #include <cusolverMp.h>
 
-#include "../include/xla_comm_common.h"
+#include "../xla_ffi/runtime.h"
 #include "third_party/nccl/nccl.h"
 
 namespace xla::gpu {

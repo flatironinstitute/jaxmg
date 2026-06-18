@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Exported XLA FFI symbols for the XLA communicator cuSOLVERMp backend.
+// Exported XLA FFI symbols for the cuSOLVERMp backend.
 //
 // Keeping the bindings in one translation unit makes Python registration names
 // easy to audit and keeps solver implementation files focused on execution
@@ -31,7 +31,8 @@
 // the native implementation. Renaming one requires the matching _setup.py entry
 // to change as well.
 
-#include "include/xla_comm_backend.h"
+#include "runtime.h"
+#include "../cusolvermp_routines/cusolvermp_routines.h"
 
 namespace xla::gpu {
 

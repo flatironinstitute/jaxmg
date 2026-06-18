@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Common declarations for the XLA communicator native backend.
+// Common declarations for the XLA FFI native backend.
 //
 // This header contains only cross-cutting utilities that are shared by memory
 // redistribution and cuSOLVERMp routines: error/status conversion, dtype
