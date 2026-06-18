@@ -21,9 +21,6 @@ C++/CUDA.  The helpers here only describe shapes and sharding to JAX.
 
 from __future__ import annotations
 
-from functools import partial
-
-import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
@@ -32,8 +29,6 @@ from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 from ._layout_types import (
     ProcessGrid,
     ProcessRankMap,
-    TileShape,
-    calculate_2d_padding,
 )
 
 
@@ -100,6 +95,7 @@ def validate_2d_matrix_specs(
 
 
 def _device_process_index(device) -> int:
+    """Return the host-process index that owns a JAX device."""
     value = getattr(device, "process_index", None)
     if callable(value):
         return int(value())
@@ -109,6 +105,7 @@ def _device_process_index(device) -> int:
 
 
 def _device_id(device) -> int:
+    """Return JAX's stable integer device id for communicator ordering."""
     value = getattr(device, "id", None)
     if value is None:
         raise AttributeError(f"device {device!r} has no id")
@@ -116,6 +113,7 @@ def _device_id(device) -> int:
 
 
 def _device_local_hardware_id(device) -> int:
+    """Return the local GPU hardware id when JAX exposes one."""
     value = getattr(device, "local_hardware_id", None)
     if value is None:
         return _device_id(device)
@@ -199,6 +197,98 @@ def process_rank_map_from_mesh(
     return rank_map
 
 
+def standard_grid_rank_map_attr(
+    rank_map,
+    *,
+    process_rows: int,
+    process_cols: int,
+    caller: str,
+) -> np.ndarray:
+    """Return a dense cuSOLVERMp-compatible process-slot -> rank map."""
+    process_rows = int(process_rows)
+    process_cols = int(process_cols)
+    num_ranks = process_rows * process_cols
+    if rank_map is None:
+        rank_array = np.arange(num_ranks, dtype=np.int64)
+    elif hasattr(rank_map, "ranks"):
+        rank_array = np.asarray(rank_map.ranks, dtype=np.int64)
+    else:
+        rank_array = np.asarray(rank_map, dtype=np.int64)
+    if rank_array.shape != (num_ranks,):
+        raise ValueError(
+            f"{caller} rank_map must have shape ({num_ranks},), got "
+            f"{rank_array.shape}."
+        )
+    if sorted(rank_array.tolist()) != list(range(num_ranks)):
+        raise ValueError(
+            f"{caller} rank_map must be a permutation of [0, {num_ranks})."
+        )
+
+    row_major = np.arange(num_ranks, dtype=np.int64)
+    column_major = np.asarray(
+        [
+            process_col * process_rows + process_row
+            for process_row in range(process_rows)
+            for process_col in range(process_cols)
+        ],
+        dtype=np.int64,
+    )
+    if not np.array_equal(rank_array, row_major) and not np.array_equal(
+        rank_array, column_major
+    ):
+        raise NotImplementedError(
+            f"{caller} supports only row-major or column-major cuSOLVERMp "
+            f"rank maps. Got {rank_array.tolist()}."
+        )
+    return np.ascontiguousarray(rank_array)
+
+
+def cusolvermp_grid_mapping_attr(
+    rank_map,
+    grid_mapping,
+    *,
+    process_rows: int,
+    process_cols: int,
+    caller: str,
+) -> int:
+    """Return cuSOLVERMp's grid-mapping enum for the validated rank map."""
+    rank_array = standard_grid_rank_map_attr(
+        rank_map,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        caller=caller,
+    )
+    if grid_mapping is None and hasattr(rank_map, "cusolvermp_grid_mapping"):
+        grid_mapping = rank_map.cusolvermp_grid_mapping
+    if grid_mapping is None:
+        row_major = np.arange(int(process_rows) * int(process_cols), dtype=np.int64)
+        grid_mapping = 1 if np.array_equal(rank_array, row_major) else 0
+    grid_mapping = int(grid_mapping)
+    if grid_mapping not in (0, 1):
+        raise ValueError(
+            f"{caller} grid_mapping must be 0 (column-major) or 1 (row-major), "
+            f"got {grid_mapping}."
+        )
+
+    expected = (
+        np.arange(int(process_rows) * int(process_cols), dtype=np.int64)
+        if grid_mapping == 1
+        else np.asarray(
+            [
+                process_col * int(process_rows) + process_row
+                for process_row in range(int(process_rows))
+                for process_col in range(int(process_cols))
+            ],
+            dtype=np.int64,
+        )
+    )
+    if not np.array_equal(rank_array, expected):
+        raise ValueError(
+            f"{caller} rank_map does not match grid_mapping={grid_mapping}."
+        )
+    return grid_mapping
+
+
 def infer_mesh_and_matrix_specs(
     a: Array,
     *,
@@ -236,12 +326,14 @@ def status_specs(row_axis: str, col_axis: str, grid: ProcessGrid) -> P:
 
 
 def _pad_local_2d(block: Array, *, row_padding: int, col_padding: int) -> Array:
+    """Pad a single local shard on its bottom and right edges."""
     if row_padding == 0 and col_padding == 0:
         return block
     return jnp.pad(block, ((0, row_padding), (0, col_padding)))
 
 
 def _unpad_local_2d(block: Array, *, local_rows: int, local_cols: int) -> Array:
+    """Slice a local shard back to its unpadded logical shape."""
     return block[:local_rows, :local_cols]
 
 
@@ -279,116 +371,3 @@ def rhs_distribution_columns(nrhs: int, *, process_cols: int, pad: bool) -> int:
             "routing columns for skinny RHS matrices."
         )
     return nrhs + (process_cols - remainder)
-
-
-def pad_rhs_distribution_columns(
-    rhs: Array,
-    *,
-    distribution_cols: int,
-) -> Array:
-    """Pad global RHS columns so JAX can shard them over process columns."""
-    if rhs.ndim != 2:
-        raise ValueError("RHS must be rank-2 before distribution-column padding.")
-    if distribution_cols < rhs.shape[1]:
-        raise ValueError("distribution_cols must be at least the RHS column count.")
-    col_padding = int(distribution_cols) - int(rhs.shape[1])
-    if col_padding == 0:
-        return rhs
-    return jnp.pad(rhs, ((0, 0), (0, col_padding)))
-
-
-def pad_block_sharded_2d(
-    matrix: Array,
-    *,
-    mesh: Mesh,
-    matrix_specs: P,
-    grid: ProcessGrid,
-    tile_shape: TileShape,
-    pad: bool,
-) -> tuple[Array, tuple[int, int]]:
-    """Pad each local JAX shard so its capacity is tile-aligned for cuSOLVERMp.
-
-    cuSOLVERMp's native redistribution and solver routines require that every
-    participating process owns a local block whose dimensions are multiples of
-    the tile size ``T_A``. If the user's matrix dimensions or the JAX mesh
-    sharding result in shards that are not tile-aligned, JAXMg must add
-    local padding.
-
-    This function uses ``jax.shard_map`` to apply padding locally on each
-    device, ensuring that the padded matrix remains in the same JAX-facing
-    block-sharded layout.
-
-    Args:
-        matrix: 2D JAX array to pad.
-        mesh: JAX ``Mesh`` describing the device grid.
-        matrix_specs: 2D ``PartitionSpec`` for the matrix.
-        grid: ``ProcessGrid`` dimensions (rows x cols).
-        tile_shape: Square tile dimensions (``MB_A == NB_A == T_A``).
-        pad: If True, apply padding if needed. If False and padding is
-            required, raise a ``ValueError``.
-
-    Returns:
-        A tuple ``(padded_matrix, (local_logical_rows, local_logical_cols))``
-        where ``padded_matrix`` is the tile-aligned array and the second
-        element stores the original local dimensions (needed for unpadding).
-    """
-    padding = calculate_2d_padding(
-        logical_rows=matrix.shape[0],
-        logical_cols=matrix.shape[1],
-        grid=grid,
-        tile_shape=tile_shape,
-    )
-    if not pad and padding.needs_padding:
-        raise ValueError(
-            "cuSOLVERMp routines require tile-aligned local shards when pad=False. "
-            "Use a tile size that divides each local shard or set pad=True."
-        )
-    if not padding.needs_padding:
-        return matrix, (padding.local_logical_rows, padding.local_logical_cols)
-
-    pad_fn = jax.shard_map(
-        partial(
-            _pad_local_2d,
-            row_padding=padding.row_padding_per_process,
-            col_padding=padding.col_padding_per_process,
-        ),
-        mesh=mesh,
-        in_specs=matrix_specs,
-        out_specs=matrix_specs,
-        check_vma=True,
-    )
-    padded = pad_fn(matrix)
-    return padded, (padding.local_logical_rows, padding.local_logical_cols)
-
-
-def unpad_block_sharded_2d(
-    matrix: Array,
-    *,
-    mesh: Mesh,
-    matrix_specs: P,
-    local_rows: int,
-    local_cols: int,
-) -> Array:
-    """Remove local padding from a 2D block-sharded array.
-
-    This function reverses the effect of :func:`pad_block_sharded_2d` by
-    slicing each local shard back to its original logical dimensions.
-
-    Args:
-        matrix: The padded 2D JAX array.
-        mesh: JAX ``Mesh`` describing the device grid.
-        matrix_specs: 2D ``PartitionSpec`` for the matrix.
-        local_rows: Original number of logical rows per process.
-        local_cols: Original number of logical columns per process.
-
-    Returns:
-        The unpadded JAX array with its original logical shape.
-    """
-    unpad_fn = jax.shard_map(
-        partial(_unpad_local_2d, local_rows=local_rows, local_cols=local_cols),
-        mesh=mesh,
-        in_specs=matrix_specs,
-        out_specs=matrix_specs,
-        check_vma=True,
-    )
-    return unpad_fn(matrix)

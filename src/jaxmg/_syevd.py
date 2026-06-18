@@ -1,40 +1,39 @@
 """Public cuSOLVERMp symmetric/Hermitian eigensolver wrapper.
 
-``syevd`` uses the same fused layout pipeline as :func:`jaxmg.potrs`:
+The public ``syevd`` function is intentionally the first function in this file
+so the routine reads like the original JAXMg wrappers: user-facing API first,
+then private validation, layout, and FFI-construction helpers.
 
-1. validate the input matrix and its 2D JAX sharding;
-2. pad local shards so both matrix axes are tile-aligned;
-3. enter one native C++/CUDA FFI call;
-4. let native code convert row-major JAX local storage to cuSOLVERMp's
-   column-major local storage;
-5. redistribute into cuSOLVERMp's 2D block-cyclic layout and call
-   vector-producing ``cusolverMpSyevd``; and
-6. reverse-redistribute eigenvectors, restore JAX row-major local storage, and
-   remove the local padding.
-
-Only the eigenvector-producing mode is exposed.  Current validated cuSOLVERMp
-runtimes reject the no-vector mode, and computing eigenvectors only to discard
-them would hide a very different cost model from users.
+Only eigenvector-producing SYEVD is exposed.  The native backend receives a
+padded block-sharded JAX array, converts local storage to cuSOLVERMp's
+column-major layout, redistributes into 2D block-cyclic form, calls
+``cusolverMpSyevd``, and returns eigenvalues plus eigenvectors in the original
+JAX-facing layout.
 """
 
 from __future__ import annotations
 
-from typing import Tuple
+from functools import lru_cache, partial
+from typing import List, Tuple
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 from jax.sharding import Mesh, PartitionSpec as P
 
-from ._layout_types import TileShape
-from ._cusolvermp_ffi import cusolvermp_syevd_shardmap
 from ._cusolvermp_layout import (
+    _pad_local_2d,
+    _unpad_local_2d,
+    cusolvermp_grid_mapping_attr,
     infer_mesh_and_matrix_specs,
-    pad_block_sharded_2d,
     process_rank_map_from_mesh,
+    standard_grid_rank_map_attr,
     status_specs,
-    unpad_block_sharded_2d,
     validate_2d_matrix_specs,
 )
+from ._cusolvermp_status import _CUSOLVERMP_SYEVD_STATUS_SIZE
+from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap, TileShape
+from ._layout_types import calculate_2d_padding
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -42,72 +41,67 @@ def syevd(
     a: Array,
     T_A: int,
     mesh: Mesh | None = None,
-    matrix_specs: P | tuple[P, ...] | list[P] | None = None,
+    matrix_specs: P | Tuple[P] | List[P] | None = None,
     *,
-    in_specs: P | tuple[P, ...] | list[P] | None = None,
+    in_specs: P | Tuple[P] | List[P] | None = None,
     return_status: bool = False,
     pad: bool = True,
 ) -> Tuple[Array, Array] | Tuple[Array, Array, Array]:
-    """Compute eigenvalues and eigenvectors using the multi-GPU cuSOLVERMp backend.
+    """Compute eigenvalues and eigenvectors using the multi-GPU syevd kernel.
 
-    This function prepares the input and executes the native ``cusolvermp_syevd``
-    kernel via ``jax.ffi.ffi_call`` under ``jax.jit`` and ``jax.shard_map``.
-    It handles 2D process-grid validation and per-device padding driven by the
-    tile size ``T_A``.
+    This is the high-level JAXMg symmetric/Hermitian eigensolver entry point.
+    It accepts a block-sharded JAX matrix, prepares the tile-aligned local
+    capacity required by cuSOLVERMp, calls the fused native backend, and returns
+    eigenvalues together with eigenvectors in the same JAX-facing matrix layout
+    as the input.
 
     Tip:
-        If the local shards of the matrix cannot be evenly divided by tiles of
-        size ``T_A``, JAXMg must add local padding to fit the last tile. This
-        creates padded JAX arrays, which should be avoided for large ``N`` when
-        possible. Choose ``T_A`` (typically 128 or larger) such that it evenly
-        divides each local shard. Performance usually increases with ``T_A``
-        but eventually saturates. Note that cuSOLVERMp may enforce
-        implementation-specific limits on ``T_A`` (e.g., ``T_A <= 1024``).
+        If the shards of the matrix cannot be padded with tiles of size `T_A`
+        we have to add padding to fit the last tile. This requires copying the
+        matrix, which we want to avoid at all costs for large ``N``. Make sure
+        you pick ``T_A`` large enough (>=128) and such that it can evenly cover
+        the shards. In principle, increasing ``T_A`` will increase performance
+        at the cost of memory, but depending on ``N``, the performance will
+        saturate.
 
     Args:
-        a: 2D square symmetric/Hermitian matrix. Expected to be sharded over
-            a 2D JAX ``Mesh`` using a ``NamedSharding`` or the provided
-            ``matrix_specs``.
-        T_A: Square cuSOLVERMp tile size. JAXMg uses ``MB_A == NB_A == T_A``.
-            Each local shard dimension (rows and columns) must be a multiple of
-            ``T_A``. If the provided ``T_A`` is incompatible and ``pad=True``,
-            the matrix is padded accordingly.
-        mesh: Optional JAX mesh override. If omitted, inferred from
-            ``a.sharding.mesh``.
-        matrix_specs: Optional 2D ``PartitionSpec`` override describing the
-            input sharding. If omitted, inferred from ``a.sharding.spec``.
+        a (Array): A 2D symmetric/Hermitian matrix. Expected to be sharded
+            across a 2D mesh with a matrix ``PartitionSpec`` such as
+            ``P(<row_axis>, <col_axis>)``.
+        T_A (int): Square tile width used by cuSOLVERMp. Each local shard
+            dimension must be a multiple of ``T_A`` after padding.
+        mesh (Mesh, optional): JAX mesh used for ``jax.shard_map``. If omitted,
+            inferred from ``a.sharding.mesh``.
+        matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
+            PartitionSpec describing the matrix sharding. If omitted, inferred
+            from ``a.sharding.spec``.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
-        return_status: If True, return eigenvalues, eigenvectors, and a
-            per-rank native status array. Default is False.
-        pad: If True (default), apply per-device padding so each local shard
-            is tile-aligned. If False, the caller must ensure shapes already
-            match the kernel's requirements.
+        return_status (bool, optional): If True append a native per-rank
+            diagnostic status vector to the return values. Default is False.
+        pad (bool, optional): If True (default) apply per-device padding to
+            meet ``T_A`` requirements; if False the caller must supply already
+            correct shapes.
 
     Returns:
-        A tuple ``(w, v)`` where ``w`` contains replicated eigenvalues and
-        ``v`` contains eigenvectors in the same JAX-facing block-sharded layout
-        as ``a``. If ``return_status=True``, returns ``(w, v, status)`` where
-        ``status`` is a per-rank int32 native solver status.
+        (eigenvalues, eigenvectors) or (eigenvalues, eigenvectors, status).
+
+    Raises:
+        TypeError: If dtypes or ``PartitionSpec`` inputs are unsupported.
+        ValueError: If shapes, tile sizes, or mesh layouts are incompatible.
 
     Notes:
-        - Only the eigenvector-producing mode is currently exposed for the
-          cuSOLVERMp backend.
-        - The FFI call can donate the input buffer ``a`` for zero-copy
+        - Only the eigenvector-producing mode is currently exposed.
+        - The FFI call can donate the input buffer to enable zero-copy
           interaction with the native library.
-        - JAXMg enters the FFI boundary with ordinary row-major JAX local
-          buffers. Native CUDA code performs the local row-major/column-major
-          conversion using bounded scratch before and after the cuSOLVERMp
-          redistribution.
-        - The native solver redistributes the JAX layout into cuSOLVERMp's 2D
-          block-cyclic layout, performs the eigensolve using an XLA-owned
-          NCCL communicator, and redistributes the results back.
-        - If the native solver fails, the outputs may contain NaNs and
-          ``status`` will be non-zero.
+        - Native code converts row-major JAX local storage to cuSOLVERMp's
+          column-major local layout, redistributes to 2D block-cyclic layout,
+          calls ``cusolverMpSyevd``, and redistributes the eigenvectors back.
+        - If the native solver fails the outputs may contain NaNs and the
+          status, when requested, will be non-zero.
     """
     if a.ndim != 2:
         raise ValueError("syevd expects a rank-2 matrix A.")
-    if a.dtype not in (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128):
-        raise TypeError("syevd supports float32, float64, complex64, and complex128.")
+    _check_supported_syevd_dtype(a.dtype)
     if a.shape[0] != a.shape[1]:
         raise ValueError("syevd expects A to be square.")
     if int(T_A) <= 0:
@@ -129,38 +123,231 @@ def syevd(
     )
     native_status_specs = status_specs(row_axis, col_axis, grid)
     tile_shape = TileShape(rows=int(T_A), cols=int(T_A))
+    a_padding = calculate_2d_padding(
+        logical_rows=a.shape[0],
+        logical_cols=a.shape[1],
+        grid=grid,
+        tile_shape=tile_shape,
+    )
+    _check_padding_allowed(a_padding, pad=pad, caller="syevd")
 
     ensure_init_jaxmg_backend()
 
-    a_padded, (a_local_rows, a_local_cols) = pad_block_sharded_2d(
-        a,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
-        grid=grid,
-        tile_shape=tile_shape,
-        pad=pad,
-    )
-
-    eigenvalues, vectors_padded, native_status = cusolvermp_syevd_shardmap(
-        a_padded,
+    impl = _syevd_compiled(
         mesh,
         matrix_specs,
         native_status_specs,
-        process_rows=grid.process_rows,
-        process_cols=grid.process_cols,
+        grid,
+        rank_map,
+        rank_map.cusolvermp_grid_mapping,
+        a_padding,
         n=a.shape[0],
         tile_size=tile_shape.rows,
-        rank_map=rank_map,
-        grid_mapping=rank_map.cusolvermp_grid_mapping,
+        dtype=a.dtype,
     )
-
-    vectors = unpad_block_sharded_2d(
-        vectors_padded,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
-        local_rows=a_local_rows,
-        local_cols=a_local_cols,
-    )
+    eigenvalues, vectors, native_status = impl(a)
     if return_status:
         return eigenvalues, vectors, native_status
     return eigenvalues, vectors
+
+
+_ROW_MAJOR_JAX_LAYOUT = (0, 1)
+
+
+def _check_supported_syevd_dtype(dtype) -> None:
+    """Validate that ``dtype`` maps to a cuSOLVERMp SYEVD entry point.
+
+    cuSOLVERMp provides real and complex Hermitian/symmetric eigensolver entry
+    points for single and double precision.  JAXMg rejects unsupported dtypes
+    before tracing so the user sees a direct Python error instead of a native
+    FFI failure.
+    """
+    if dtype not in (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128):
+        raise TypeError("syevd supports float32, float64, complex64, and complex128.")
+
+
+def _real_dtype_for_eigenvalues(dtype):
+    """Return the real dtype used by cuSOLVERMp for eigenvalue outputs.
+
+    Complex Hermitian eigensolvers still produce real eigenvalues.  This helper
+    keeps the output ``ShapeDtypeStruct`` construction consistent with the
+    native dispatch table.
+    """
+    if dtype == jnp.float32 or dtype == jnp.complex64:
+        return jnp.float32
+    if dtype == jnp.float64 or dtype == jnp.complex128:
+        return jnp.float64
+    raise TypeError(
+        "cuSOLVERMp eigensolvers support float32, float64, complex64, "
+        "and complex128."
+    )
+
+
+def _check_padding_allowed(
+    padding: MatrixPadding2D,
+    *,
+    pad: bool,
+    caller: str,
+) -> None:
+    """Enforce the public ``pad`` policy for a padded matrix argument.
+
+    SYEVD uses a square matrix, so there is only one padding record to check.
+    When ``pad=False`` the user is promising that the local shards are already
+    tile-aligned; if that is not true, the native backend would receive invalid
+    local capacity and the wrapper raises before tracing.
+    """
+    if not pad and padding.needs_padding:
+        raise ValueError(
+            f"{caller} requires tile-aligned local shards when pad=False. "
+            "Use a tile size that divides each local shard or set pad=True."
+        )
+
+
+def _make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
+    """Build the shard-local bottom/right padding transform.
+
+    The returned callable has the same sharding contract as the input matrix.
+    If padding is unnecessary it is an identity function; otherwise it applies
+    the local padding through ``jax.shard_map`` so the visible global mesh layout
+    remains unchanged.
+    """
+    if not padding.needs_padding:
+        return lambda block: block
+    return jax.shard_map(
+        partial(
+            _pad_local_2d,
+            row_padding=padding.row_padding_per_process,
+            col_padding=padding.col_padding_per_process,
+        ),
+        mesh=mesh,
+        in_specs=matrix_specs,
+        out_specs=matrix_specs,
+        check_vma=True,
+    )
+
+
+def _make_local_unpad_fn(
+    mesh: Mesh,
+    matrix_specs: P,
+    *,
+    local_rows: int,
+    local_cols: int,
+):
+    """Build the shard-local slice transform for eigenvector output.
+
+    cuSOLVERMp operates on padded local capacity, while users expect
+    eigenvectors shaped like the original matrix.  This helper creates the
+    reverse local slice used after native code has moved the eigenvectors back
+    into the JAX-facing layout.
+    """
+    return jax.shard_map(
+        partial(_unpad_local_2d, local_rows=local_rows, local_cols=local_cols),
+        mesh=mesh,
+        in_specs=matrix_specs,
+        out_specs=matrix_specs,
+        check_vma=True,
+    )
+
+
+@lru_cache(maxsize=None)
+def _syevd_compiled(
+    mesh: Mesh,
+    matrix_specs: P,
+    native_status_specs: P,
+    grid: ProcessGrid,
+    rank_map: ProcessRankMap,
+    grid_mapping: int,
+    a_padding: MatrixPadding2D,
+    *,
+    n: int,
+    tile_size: int,
+    dtype,
+):
+    """Build and cache the full JAX-visible SYEVD execution pipeline.
+
+    The cache key is the static solver configuration: mesh, sharding spec,
+    process-grid shape, rank mapping, padded local shape, matrix size, tile
+    size, and dtype.  Reusing this factory avoids rebuilding the same
+    ``jax.shard_map`` and ``jax.jit`` wrapper for repeated eigensolves with the
+    same layout metadata.
+    """
+    process_rows = grid.process_rows
+    process_cols = grid.process_cols
+    rank_array = standard_grid_rank_map_attr(
+        rank_map,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        caller="cusolvermp_syevd",
+    )
+    grid_mapping = cusolvermp_grid_mapping_attr(
+        rank_map,
+        grid_mapping,
+        process_rows=process_rows,
+        process_cols=process_cols,
+        caller="cusolvermp_syevd",
+    )
+    pad_a = _make_local_pad_fn(mesh, matrix_specs, a_padding)
+    unpad_vectors = _make_local_unpad_fn(
+        mesh,
+        matrix_specs,
+        local_rows=a_padding.local_logical_rows,
+        local_cols=a_padding.local_logical_cols,
+    )
+
+    def syevd_ffi(_a: Array) -> tuple[Array, Array, Array]:
+        """Call fused native redistribution and vector-producing ``syevd``.
+
+        This function is mapped over local shards.  It declares the native FFI
+        symbol, buffer layouts, result shapes, and static process-grid metadata;
+        all heavy work is then performed by the C++/CUDA handler.
+        """
+        if _a.ndim != 2:
+            raise ValueError("cusolvermp_syevd expects a rank-2 matrix buffer.")
+        _check_supported_syevd_dtype(_a.dtype)
+
+        out_type = (
+            jax.ShapeDtypeStruct((int(n),), _real_dtype_for_eigenvalues(dtype)),
+            jax.ShapeDtypeStruct(_a.shape, _a.dtype),
+            jax.ShapeDtypeStruct(_a.shape, _a.dtype),
+            jax.ShapeDtypeStruct((_CUSOLVERMP_SYEVD_STATUS_SIZE,), jnp.int32),
+        )
+        ffi_fn = partial(
+            jax.ffi.ffi_call(
+                "cusolvermp_syevd",
+                out_type,
+                input_layouts=(_ROW_MAJOR_JAX_LAYOUT,),
+                output_layouts=(
+                    (0,),
+                    _ROW_MAJOR_JAX_LAYOUT,
+                    _ROW_MAJOR_JAX_LAYOUT,
+                    (0,),
+                ),
+                input_output_aliases={0: 1},
+            ),
+            process_rows=process_rows,
+            process_cols=process_cols,
+            grid_mapping=grid_mapping,
+            rank_map=rank_array,
+            n=int(n),
+            tile_size=int(tile_size),
+        )
+        eigenvalues, _, eigenvectors, status = ffi_fn(_a)
+        return eigenvalues, eigenvectors, status
+
+    syevd_shardmap = jax.shard_map(
+        syevd_ffi,
+        mesh=mesh,
+        in_specs=matrix_specs,
+        out_specs=(P(None), matrix_specs, native_status_specs),
+        check_vma=False,
+    )
+
+    @partial(jax.jit, donate_argnums=(0,))
+    def impl(_a: Array) -> tuple[Array, Array, Array]:
+        """Run padding, fused native SYEVD, and unpadding as one compiled path."""
+        a_padded = pad_a(_a)
+        eigenvalues, vectors_padded, native_status = syevd_shardmap(a_padded)
+        vectors = unpad_vectors(vectors_padded)
+        return eigenvalues, vectors, native_status
+
+    return impl

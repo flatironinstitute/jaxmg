@@ -54,6 +54,7 @@ if not sys.platform.startswith("linux"):
 
 
 def _candidate_python_roots():
+    """Yield Python installation roots that may contain NVIDIA wheel payloads."""
     roots = [pathlib.Path(path) for path in sys.path if path]
     try:
         roots.extend(pathlib.Path(path) for path in site.getsitepackages())
@@ -110,6 +111,7 @@ def _preload_cusolvermp_runtime(cuda_major):
 
 
 def _register_cuda_target_bundle(bin_dir, library_name, ffi_name, symbols):
+    """Load one packaged CUDA backend and register its staged FFI target."""
     path = os.path.join(_lib_dir, f"{bin_dir}/{library_name}")
     if not os.path.exists(path):
         raise OSError(
@@ -174,6 +176,7 @@ def _detect_runtime_mode():
 
 
 def _initialize():
+    """Initialize native CUDA FFI targets for the active JAX runtime."""
     global _runtime_mode
     if any("gpu" == d.platform for d in jax.devices()):
         # Determine CUDA backend

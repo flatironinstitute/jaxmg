@@ -19,6 +19,7 @@ def random_psd(n, dtype, seed):
 
 
 def get_mesh_and_spec_from_array(a: Array):
+    """Extract ``(mesh, spec)`` from a JAX array with ``NamedSharding``."""
     sharding = a.sharding
     if isinstance(sharding, NamedSharding):
         return sharding.mesh, sharding.spec
@@ -29,6 +30,7 @@ def get_mesh_and_spec_from_array(a: Array):
 
 
 def maybe_real_dtype_from_complex(dtype):
+    """Map complex dtypes to their real component dtype."""
     return (
         jnp.float32
         if dtype == jnp.complex64
@@ -39,7 +41,8 @@ class JaxMgWarning(UserWarning):
     """Warnings emitted by JaxMg."""
 
 def numeric_machine_key():
-    # 128-bit hash of hostname
+    """Return a stable uint64 pair identifying the current host."""
+    # 128-bit hash of hostname.
     h = hashlib.blake2b(socket.gethostname().encode(), digest_size=16).digest()
     hi = int.from_bytes(h[:8], "big")
     lo = int.from_bytes(h[8:], "big")

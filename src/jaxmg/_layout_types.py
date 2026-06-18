@@ -24,6 +24,7 @@ class ProcessGrid:
     process_cols: int
 
     def __post_init__(self) -> None:
+        """Validate that both process-grid dimensions are non-empty."""
         if self.process_rows <= 0:
             raise ValueError("process_rows must be positive.")
         if self.process_cols <= 0:
@@ -31,9 +32,11 @@ class ProcessGrid:
 
     @property
     def num_processes(self) -> int:
+        """Return the total number of participating process-grid slots."""
         return self.process_rows * self.process_cols
 
     def rank(self, process_row: int, process_col: int) -> int:
+        """Return the row-major process-grid slot for one grid coordinate."""
         if not 0 <= process_row < self.process_rows:
             raise ValueError("process_row out of range.")
         if not 0 <= process_col < self.process_cols:
@@ -58,6 +61,7 @@ class ProcessRankMap:
     ranks: tuple[int, ...]
 
     def __post_init__(self) -> None:
+        """Validate and normalize a process-grid rank permutation."""
         ranks = tuple(int(rank) for rank in self.ranks)
         object.__setattr__(self, "ranks", ranks)
         if len(ranks) != self.grid.num_processes:
@@ -75,10 +79,12 @@ class ProcessRankMap:
 
     @classmethod
     def row_major(cls, grid: ProcessGrid) -> "ProcessRankMap":
+        """Construct cuSOLVERMp's row-major rank mapping for a grid."""
         return cls(grid=grid, ranks=tuple(range(grid.num_processes)))
 
     @classmethod
     def column_major(cls, grid: ProcessGrid) -> "ProcessRankMap":
+        """Construct cuSOLVERMp's column-major rank mapping for a grid."""
         return cls(
             grid=grid,
             ranks=tuple(
@@ -89,18 +95,22 @@ class ProcessRankMap:
         )
 
     def rank(self, process_row: int, process_col: int) -> int:
+        """Return the communicator rank at one process-grid coordinate."""
         return self.ranks[self.grid.rank(process_row, process_col)]
 
     @property
     def is_row_major_identity(self) -> bool:
+        """Return True when the rank map matches row-major grid order."""
         return self.ranks == tuple(range(self.grid.num_processes))
 
     @property
     def is_column_major_identity(self) -> bool:
+        """Return True when the rank map matches column-major grid order."""
         return self.ranks == ProcessRankMap.column_major(self.grid).ranks
 
     @property
     def grid_mapping(self) -> ProcessGridMapping | None:
+        """Return the cuSOLVERMp mapping name, or None for unsupported maps."""
         if self.is_row_major_identity:
             return "row_major"
         if self.is_column_major_identity:
@@ -113,7 +123,8 @@ class ProcessRankMap:
 
         NVIDIA's headers define ``CUSOLVERMP_GRID_MAPPING_COL_MAJOR = 0`` and
         ``CUSOLVERMP_GRID_MAPPING_ROW_MAJOR = 1``.  The integer is passed as an
-        FFI attribute because the native backend can select the same cuSOLVERMp grid mapping as the JAX mesh.
+        FFI attribute so native code can select the same cuSOLVERMp grid
+        mapping as the JAX mesh.
         """
         mapping = self.grid_mapping
         if mapping == "column_major":
@@ -123,6 +134,7 @@ class ProcessRankMap:
         raise ValueError("rank map is not a cuSOLVERMp-supported grid mapping.")
 
     def require_cusolvermp_grid_mapping(self, caller: str) -> None:
+        """Raise if the rank map cannot be represented by cuSOLVERMp."""
         if self.grid_mapping is None:
             raise ValueError(
                 f"{caller} requires the JAX mesh device order to match either "
@@ -141,6 +153,7 @@ class TileShape:
     cols: int
 
     def __post_init__(self) -> None:
+        """Validate positive row and column tile dimensions."""
         if self.rows <= 0:
             raise ValueError("tile row size must be positive.")
         if self.cols <= 0:
@@ -164,10 +177,12 @@ class MatrixPadding2D:
 
     @property
     def needs_padding(self) -> bool:
+        """Return True when at least one local axis needs padding."""
         return self.row_padding_per_process != 0 or self.col_padding_per_process != 0
 
     @property
     def source_blocks_are_tile_aligned(self) -> bool:
+        """Return True when all source local blocks are already tile-aligned."""
         return self.row_padding_per_process == 0 and self.col_padding_per_process == 0
 
 
