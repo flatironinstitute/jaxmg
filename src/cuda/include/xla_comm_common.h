@@ -14,11 +14,11 @@
 //
 // Common declarations for the XLA communicator native backend.
 //
-// This header contains only cross-cutting utilities that are shared by
-// diagnostics, memory redistribution, and cuSOLVERMp routines: error/status
-// conversion, dtype traits, XLA scratch allocation, and communicator clique
-// construction. Solver-specific and redistribution-specific declarations live
-// in their own headers.
+// This header contains only cross-cutting utilities that are shared by memory
+// redistribution and cuSOLVERMp routines: error/status conversion, dtype
+// traits, XLA scratch allocation, and communicator clique construction.
+// Solver-specific and redistribution-specific declarations live in their own
+// headers.
 
 #ifndef JAXMG_XLA_COMM_COMMON_H_
 #define JAXMG_XLA_COMM_COMMON_H_
@@ -142,29 +142,17 @@ absl::StatusOr<void*> AllocateFfiScratch(se::ScratchAllocator& scratch,
 
 // Build the XLA collective groups used by this backend. Production cuSOLVERMp
 // solvers use the all-assigned helpers so the borrowed NCCL communicator spans
-// every rank in the process grid. Node-scoped helpers remain for focused
-// diagnostics that intentionally restrict communication to one host group.
+// every rank in the process grid.
 ReplicaGroup AllAssignedDevicesReplicaGroup(const CollectiveParams& params);
 std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
     const CollectiveParams& params);
-absl::StatusOr<std::vector<GlobalDeviceId>> NodeScopedGlobalDeviceGroup(
-    const CollectiveParams& params);
-absl::StatusOr<ReplicaGroup> NodeScopedReplicaGroup(
-    const CollectiveParams& params);
-absl::StatusOr<int> NodeScopedGroupOrdinal(const CollectiveParams& params);
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesCliqueKey(
     const CollectiveParams& params);
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
     const CollectiveParams& params);
-absl::StatusOr<GpuCliqueKey> NodeScopedCliqueKey(
-    const CollectiveParams& params);
-absl::StatusOr<GpuCliqueKey> NodeScopedP2PCliqueKey(
-    const CollectiveParams& params);
 
-// Shared production/probe prepare helper.  It requests the all-assigned P2P
-// communicator that backs both cuSOLVERMp calls and their diagnostics. Keeping
-// this name neutral avoids production code depending on a probe-named entry
-// point.
+// Shared prepare helper. It requests the all-assigned P2P communicator that
+// backs cuSOLVERMp calls and native redistribution.
 absl::Status RequestAllAssignedP2PCommunicator(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests, const char* caller);

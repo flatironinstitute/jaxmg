@@ -201,56 +201,6 @@ absl::Status ExecutePadded2DNativePlanRaw(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 
-// Diagnostic redistribution FFI targets.
-absl::Status XlaRectPackUnpackProbePrepare();
-absl::Status XlaRectPackUnpackProbeDispatch(
-    cudaStream_t cuda_stream, int64_t row_start, int64_t col_start,
-    int64_t row_count, int64_t col_count,
-    int64_t target_row, int64_t target_col, ffi::AnyBuffer matrix,
-    ffi::AnyBuffer scratch,
-    ffi::Result<ffi::AnyBuffer> matrix_out,
-    ffi::Result<ffi::AnyBuffer> scratch_out);
-absl::Status XlaRectTransferProbePrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests);
-absl::Status XlaRectTransferProbeDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    absl::Span<const int64_t> targets,
-    absl::Span<const int64_t> src_row_starts,
-    absl::Span<const int64_t> src_col_starts,
-    absl::Span<const int64_t> dst_row_starts,
-    absl::Span<const int64_t> dst_col_starts, int64_t row_count,
-    int64_t col_count, ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
-    ffi::Result<ffi::AnyBuffer> matrix_out,
-    ffi::Result<ffi::AnyBuffer> scratch_out,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
-absl::Status XlaRect2DNativePlanPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests);
-absl::Status XlaRect2DNativePlanDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t process_rows, int64_t process_cols, int64_t tile_rows,
-    int64_t tile_cols, absl::Span<const int64_t> rank_map,
-    ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
-    ffi::Result<ffi::AnyBuffer> matrix_out,
-    ffi::Result<ffi::AnyBuffer> scratch_out,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
-absl::Status XlaRectPadded2DNativePlanPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests);
-absl::Status XlaRectPadded2DNativePlanDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    int64_t process_rows, int64_t process_cols, int64_t tile_rows,
-    int64_t tile_cols, int64_t logical_rows, int64_t logical_cols,
-    int64_t reverse, absl::Span<const int64_t> rank_map,
-    ffi::AnyBuffer matrix, ffi::AnyBuffer scratch,
-    ffi::Result<ffi::AnyBuffer> matrix_out,
-    ffi::Result<ffi::AnyBuffer> scratch_out,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
-
 }  // namespace xla::gpu
 
 #endif  // JAXMG_MEMORY_REDIST_H_

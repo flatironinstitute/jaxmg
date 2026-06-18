@@ -41,10 +41,10 @@
 //   5. Execute an already-planned sequence of Native2DStepBatch rounds with one
 //      saved slab, one send slab, and one receive slab per rank.
 //
-// The public cuSOLVERMp path should call this file through the higher-level
-// phase files rather than constructing rectangle moves directly. Focused
-// pack/unpack and one-hop transfer probes live in rectangle_diagnostics.cc so
-// this file remains the production transport layer.
+// The public cuSOLVERMp path calls this file through the higher-level phase
+// files rather than constructing rectangle moves directly. Keeping that
+// boundary explicit makes the transport code reusable without exposing
+// standalone diagnostic FFI targets in the production backend.
 
 #include <algorithm>
 #include <cstdint>
@@ -522,7 +522,7 @@ absl::Status ExecuteNative2DStepBatches(
     const uint64_t collective_bytes =
         static_cast<uint64_t>(collective_elements) * element_bytes;
     JAXMG_RETURN_IF_ERROR(RunRawNcclSendRecv(
-        "xla_rect_native_2d", stream, comm_stream, cuda_stream, comm,
+        "jaxmg_native_2d_redistribution", stream, comm_stream, cuda_stream, comm,
         rank_value, num_ranks, collective_send_slot, recv_slot,
         collective_bytes, source_rank, absl::MakeConstSpan(target_ranks)));
 
@@ -621,7 +621,7 @@ absl::Status ExecuteEdgePaddingBatches(
     const uint64_t collective_bytes =
         static_cast<uint64_t>(payload_elements) * element_bytes;
     JAXMG_RETURN_IF_ERROR(RunRawNcclSendRecv(
-        "xla_rect_edge_padding", stream, comm_stream, cuda_stream, comm,
+        "jaxmg_edge_padding_alignment", stream, comm_stream, cuda_stream, comm,
         rank_value, num_ranks, scratch_base, scratch_base, collective_bytes,
         source_rank, absl::MakeConstSpan(target_ranks)));
 

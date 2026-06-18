@@ -15,34 +15,18 @@
 // Shared helper definitions for the XLA communicator cuSOLVERMp backend.
 //
 // This file owns process-local synchronization state, common CUDA/cuSolver
-// status conversion, scratch allocation, local clique construction, and small
-// communicator utilities used by the solver-specific translation units.
+// status conversion, scratch allocation, all-assigned clique construction, and
+// small communicator utilities used by the solver-specific translation units.
 //
 // File workflow:
 //   1. Translate CUDA/cuSOLVER return codes into absl::Status for FFI.
 //   2. Allocate XLA-owned scratch buffers for fused native handlers.
-//   3. Build all-assigned or node-scoped XLA collective clique keys from
-//      CollectiveParams.
+//   3. Build all-assigned XLA collective clique keys from CollectiveParams.
 
 #include "../include/xla_comm_backend.h"
 
 namespace xla::gpu {
 namespace {
-
-int EnvDevicesPerNodeOrDefault(int fallback) {
-  // Diagnostic node-scoped communicators need the host-local group size when a
-  // distributed launch exposes only one local device to each process.
-  const char* env = std::getenv("JAXMG_NUMBER_OF_DEVICES");
-  if (env == nullptr || env[0] == '\0') {
-    return std::max(fallback, 1);
-  }
-  char* end = nullptr;
-  long parsed = std::strtol(env, &end, 10);
-  if (end == env || parsed <= 0 || parsed > 16) {
-    return std::max(fallback, 1);
-  }
-  return static_cast<int>(parsed);
-}
 
 struct AssignedDeviceEntry {
   int replica_id;
@@ -88,35 +72,6 @@ std::vector<AssignedDeviceEntry> AssignedDevices(
     devices.push_back(AssignedDeviceEntry{i, GlobalDeviceId(i)});
   }
   return devices;
-}
-
-absl::StatusOr<std::pair<int, int>> NodeScopedIndexRange(
-    const CollectiveParams& params, int device_count) {
-  // Split the global device assignment into consecutive host-sized groups and
-  // choose the group containing this rank's global device id.
-  std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
-  std::sort(devices.begin(), devices.end(),
-            [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
-              return a.global_device_id.value() < b.global_device_id.value();
-            });
-  auto self = std::find_if(
-      devices.begin(), devices.end(), [&](const AssignedDeviceEntry& entry) {
-        return entry.global_device_id == params.global_device_id;
-      });
-  if (self == devices.end()) {
-    return absl::InvalidArgumentError(
-        "Could not find this device in XLA device assignment");
-  }
-
-  const int self_index = static_cast<int>(self - devices.begin());
-  const int node_start = (self_index / device_count) * device_count;
-  const int node_end =
-      std::min(node_start + device_count, static_cast<int>(devices.size()));
-  if (node_end <= node_start) {
-    return absl::InvalidArgumentError(
-        "Computed an empty node-scoped XLA communicator group");
-  }
-  return std::pair<int, int>(node_start, node_end);
 }
 
 }  // namespace
@@ -197,73 +152,6 @@ std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
   return device_group;
 }
 
-absl::StatusOr<std::vector<GlobalDeviceId>> NodeScopedGlobalDeviceGroup(
-    const CollectiveParams& params) {
-  // Diagnostic-only grouping. Production solvers use all assigned devices so
-  // the communicator spans the complete cuSOLVERMp process grid.
-  std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
-  std::sort(devices.begin(), devices.end(),
-            [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
-              return a.global_device_id.value() < b.global_device_id.value();
-            });
-  const int devices_per_node =
-      EnvDevicesPerNodeOrDefault(static_cast<int>(devices.size()));
-  absl::StatusOr<std::pair<int, int>> range =
-      NodeScopedIndexRange(params, devices_per_node);
-  if (!range.ok()) {
-    return range.status();
-  }
-
-  std::vector<GlobalDeviceId> device_group;
-  device_group.reserve(range->second - range->first);
-  for (int i = range->first; i < range->second; ++i) {
-    device_group.push_back(devices[i].global_device_id);
-  }
-  return device_group;
-}
-
-absl::StatusOr<ReplicaGroup> NodeScopedReplicaGroup(
-    const CollectiveParams& params) {
-  // Diagnostic helper: construct the replica group for only the current
-  // host-local ranks.
-  std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
-  std::sort(devices.begin(), devices.end(),
-            [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
-              return a.global_device_id.value() < b.global_device_id.value();
-            });
-  const int devices_per_node =
-      EnvDevicesPerNodeOrDefault(static_cast<int>(devices.size()));
-  absl::StatusOr<std::pair<int, int>> range =
-      NodeScopedIndexRange(params, devices_per_node);
-  if (!range.ok()) {
-    return range.status();
-  }
-
-  ReplicaGroup group;
-  for (int i = range->first; i < range->second; ++i) {
-    group.add_replica_ids(devices[i].replica_id);
-  }
-  return group;
-}
-
-absl::StatusOr<int> NodeScopedGroupOrdinal(const CollectiveParams& params) {
-  // Return the host-group index for diagnostics that need a deterministic
-  // per-node label in multi-node launches.
-  std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
-  std::sort(devices.begin(), devices.end(),
-            [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
-              return a.global_device_id.value() < b.global_device_id.value();
-            });
-  const int devices_per_node =
-      EnvDevicesPerNodeOrDefault(static_cast<int>(devices.size()));
-  absl::StatusOr<std::pair<int, int>> range =
-      NodeScopedIndexRange(params, devices_per_node);
-  if (!range.ok()) {
-    return range.status();
-  }
-  return range->first / devices_per_node;
-}
-
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesCliqueKey(
     const CollectiveParams& params) {
   // All-reduce style clique over every assigned rank.
@@ -281,33 +169,6 @@ absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
   // replica group.
   std::vector<ReplicaGroup> replica_groups = {
       AllAssignedDevicesReplicaGroup(params)};
-  return GetGpuCliqueKey(
-      params, replica_groups,
-      CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID,
-      CommunicationId(1));
-}
-
-absl::StatusOr<GpuCliqueKey> NodeScopedCliqueKey(
-    const CollectiveParams& params) {
-  // Node-scoped all-reduce style clique for local communicator diagnostics.
-  absl::StatusOr<ReplicaGroup> replica_group = NodeScopedReplicaGroup(params);
-  if (!replica_group.ok()) {
-    return replica_group.status();
-  }
-  std::vector<ReplicaGroup> replica_groups = {*replica_group};
-  return GetGpuCliqueKey(
-      params, replica_groups,
-      CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID, false);
-}
-
-absl::StatusOr<GpuCliqueKey> NodeScopedP2PCliqueKey(
-    const CollectiveParams& params) {
-  // Node-scoped P2P clique for local permute/rectangle diagnostics.
-  absl::StatusOr<ReplicaGroup> replica_group = NodeScopedReplicaGroup(params);
-  if (!replica_group.ok()) {
-    return replica_group.status();
-  }
-  std::vector<ReplicaGroup> replica_groups = {*replica_group};
   return GetGpuCliqueKey(
       params, replica_groups,
       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID,

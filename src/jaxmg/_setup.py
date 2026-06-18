@@ -48,90 +48,6 @@ _PRODUCTION_FFI_TARGETS = (
 
 _DIAGNOSTIC_FFI_TARGETS = (
     (
-        "xla_comm_collective_probe",
-        {
-            "prepare": "XlaCommCollectiveProbePrepareFFI",
-            "execute": "XlaCommCollectiveProbeFFI",
-        },
-    ),
-    (
-        "xla_comm_allreduce_probe",
-        {
-            "prepare": "XlaCommAllReduceProbePrepareFFI",
-            "execute": "XlaCommAllReduceProbeFFI",
-        },
-    ),
-    (
-        "xla_comm_global_allreduce_probe",
-        {
-            "prepare": "XlaCommGlobalAllReduceProbePrepareFFI",
-            "execute": "XlaCommGlobalAllReduceProbeFFI",
-        },
-    ),
-    (
-        "xla_comm_ring_permute_probe",
-        {
-            "prepare": "XlaCommRingPermuteProbePrepareFFI",
-            "execute": "XlaCommRingPermuteProbeFFI",
-        },
-    ),
-    (
-        "xla_comm_global_ring_permute_probe",
-        {
-            "prepare": "XlaCommGlobalRingPermuteProbePrepareFFI",
-            "execute": "XlaCommGlobalRingPermuteProbeFFI",
-        },
-    ),
-    (
-        "xla_comm_shift_permute_probe",
-        {
-            "prepare": "XlaCommShiftPermuteProbePrepareFFI",
-            "execute": "XlaCommShiftPermuteProbeFFI",
-        },
-    ),
-    (
-        "xla_comm_permute_probe",
-        {
-            "prepare": "XlaCommPermuteProbePrepareFFI",
-            "execute": "XlaCommPermuteProbeFFI",
-        },
-    ),
-    (
-        "xla_comm_chunk_permute_probe",
-        {
-            "prepare": "XlaCommChunkPermuteProbePrepareFFI",
-            "execute": "XlaCommChunkPermuteProbeFFI",
-        },
-    ),
-    (
-        "xla_rect_pack_unpack_probe",
-        {
-            "prepare": "XlaRectPackUnpackProbePrepareFFI",
-            "execute": "XlaRectPackUnpackProbeFFI",
-        },
-    ),
-    (
-        "xla_rect_transfer_probe",
-        {
-            "prepare": "XlaRectTransferProbePrepareFFI",
-            "execute": "XlaRectTransferProbeFFI",
-        },
-    ),
-    (
-        "xla_rect_2d_native_plan",
-        {
-            "prepare": "XlaRect2DNativePlanPrepareFFI",
-            "execute": "XlaRect2DNativePlanFFI",
-        },
-    ),
-    (
-        "xla_rect_padded_2d_native_plan",
-        {
-            "prepare": "XlaRectPadded2DNativePlanPrepareFFI",
-            "execute": "XlaRectPadded2DNativePlanFFI",
-        },
-    ),
-    (
         "cusolvermp_init_probe",
         {
             "prepare": "XlaCusolverMpInitProbePrepareFFI",
@@ -346,8 +262,8 @@ def ensure_init_jaxmg_backend(*, include_diagnostics: bool = False):
     4. registers production JAX FFI targets such as ``cusolvermp_potrs``.
 
     Args:
-        include_diagnostics: If True, also register experimental diagnostic FFI
-            targets (e.g., communication probes). Default is False.
+        include_diagnostics: If True, also register cuSOLVERMp diagnostic FFI
+            targets. Default is False.
     """
     global _initialized
     if not _initialized:

@@ -17,7 +17,6 @@
 // New code should include the narrower headers directly:
 //
 //   * include/xla_comm_common.h
-//   * diagnostics/diagnostics.h
 //   * memory_redist/memory_redist.h
 //   * cusolvermp_routines/cusolvermp_routines.h
 //
@@ -29,7 +28,6 @@
 #define JAXMG_XLA_COMM_BACKEND_H_
 
 #include "../cusolvermp_routines/cusolvermp_routines.h"
-#include "../diagnostics/diagnostics.h"
 #include "../memory_redist/memory_redist.h"
 #include "xla_comm_common.h"
 
