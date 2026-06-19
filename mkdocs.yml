@@ -96,10 +96,12 @@ nav:
         - "install.md"
     - Examples:
         - "examples/potrs_example.ipynb"
+        - "examples/block_cyclic_data_layout.ipynb"
+        - "examples/spmd_mpmd.ipynb"
     - API:
         - "api/index.md"
         - "api/potrs.md"
+        - "api/potri.md"
         - "api/syevd.md"
     - Technical Details:
-        - "technical_details/col_maj.md"
-        - "technical_details/rank_per_gpu.md"
+        - "technical_details/memory_distribution.md"
