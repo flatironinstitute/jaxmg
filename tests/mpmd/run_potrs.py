@@ -14,10 +14,12 @@ from cusolvermp_case_utils import (
     assert_close_scaled,
     dtype_from_name,
     emit,
+    global_array_to_numpy,
     local_device_id_for_process,
     make_hermitian_positive_definite,
     make_process_mesh,
     make_rhs,
+    native_status_words,
     solver_case,
 )
 
@@ -49,10 +51,22 @@ def run_case() -> None:
 
     a = make_hermitian_positive_definite(case.n, dtype, seed=1234)
     b = make_rhs(case.n, case.nrhs, dtype)
+    if case.rhs_mode == "vector_replicated":
+        b = b[:, 0]
     expected = jnp.linalg.solve(a, b)
 
     a_dev = jax.device_put(a, NamedSharding(mesh, matrix_specs))
-    b_dev = jax.device_put(b, NamedSharding(mesh, matrix_specs))
+    if case.rhs_mode == "vector_replicated":
+        rhs_specs = P(None)
+    elif case.rhs_mode == "matrix_replicated":
+        rhs_specs = P(None, None)
+    elif case.rhs_mode == "matrix_row_sharded":
+        rhs_specs = P("pr", None)
+    elif case.rhs_mode == "matrix_2d_sharded":
+        rhs_specs = matrix_specs
+    else:
+        raise ValueError(f"unknown RHS placement mode {case.rhs_mode!r}")
+    b_dev = jax.device_put(b, NamedSharding(mesh, rhs_specs))
 
     @partial(jax.jit, static_argnames=("tile_size",))
     def solve(_a, _b, *, tile_size):
@@ -70,11 +84,15 @@ def run_case() -> None:
     out.block_until_ready()
     status.block_until_ready()
 
-    status_words = np.asarray(status).reshape(-1)
+    status_words = native_status_words(status)
     assert status_words.size % _CUSOLVERMP_POTRS_STATUS_SIZE == 0, status_words
     assert np.all(status_words[::_CUSOLVERMP_POTRS_STATUS_SIZE] == 0), status_words
     assert_close_scaled(out, expected)
-    residual = jnp.linalg.norm(a @ out - b) / jnp.linalg.norm(b)
+
+    out_host = global_array_to_numpy(out)
+    a_host = np.asarray(a)
+    b_host = np.asarray(b)
+    residual = np.linalg.norm(a_host @ out_host - b_host) / np.linalg.norm(b_host)
     assert float(residual) < 1e-3
 
     emit(
@@ -91,6 +109,7 @@ def run_case() -> None:
                 "process_rows": case.process_rows,
                 "process_cols": case.process_cols,
                 "grid_order": case.grid_order,
+                "rhs_mode": case.rhs_mode,
             },
         },
     )

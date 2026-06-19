@@ -9,6 +9,7 @@ if not jax.config.jax_enable_x64:
 
 import jax.numpy as jnp
 import numpy as np
+from jax.experimental import multihost_utils
 from jax.sharding import Mesh
 
 
@@ -22,6 +23,7 @@ class SolverCase:
     n: int
     tile_size: int
     nrhs: int = 1
+    rhs_mode: str = "matrix_2d_sharded"
 
 
 def emit(prefix: str, payload: dict) -> None:
@@ -82,12 +84,19 @@ def _first_valid_n(process_rows: int, process_cols: int, tile: int, *, padded: b
 
 def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCase:
     """Build a named test case for POTRS or SYEVD MPMD runners."""
+    rhs_mode = "matrix_2d_sharded"
     if case_name == "row_major_no_padding":
-        rows, cols, tile, padded, nrhs = 1, num_processes, 64, False, 1
+        if routine == "potrs":
+            rows, cols = 1, num_processes
+            nrhs = max(1, cols)
+        else:
+            rows, cols = 1, num_processes
+            nrhs = 1
+        tile, padded = 64, False
         grid_order = "row_major"
     elif case_name == "column_major_padding":
         rows, cols = balanced_process_grid(num_processes)
-        tile, padded, nrhs = 96, True, 2
+        tile, padded, nrhs = 96, True, max(2, cols)
         grid_order = "column_major"
     elif case_name == "column_grid_padding":
         rows, cols, tile, padded, nrhs = num_processes, 1, 96, True, 1
@@ -97,6 +106,30 @@ def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCa
             raise ValueError("skinny_rhs is only meaningful for POTRS")
         rows, cols, tile, padded, nrhs = 1, num_processes, 64, False, 1
         grid_order = "row_major"
+        rhs_mode = "matrix_row_sharded"
+    elif case_name == "vector_rhs_replicated":
+        if routine != "potrs":
+            raise ValueError("vector_rhs_replicated is only meaningful for POTRS")
+        rows, cols, tile, padded, nrhs = 1, num_processes, 64, False, 1
+        grid_order = "row_major"
+        rhs_mode = "vector_replicated"
+    elif case_name == "single_column_rhs_replicated":
+        if routine != "potrs":
+            raise ValueError(
+                "single_column_rhs_replicated is only meaningful for POTRS"
+            )
+        rows, cols, tile, padded, nrhs = 1, num_processes, 64, False, 1
+        grid_order = "row_major"
+        rhs_mode = "matrix_replicated"
+    elif case_name == "single_column_rhs_row_sharded":
+        if routine != "potrs":
+            raise ValueError(
+                "single_column_rhs_row_sharded is only meaningful for POTRS"
+            )
+        rows, cols = balanced_process_grid(num_processes)
+        tile, padded, nrhs = 64, False, 1
+        grid_order = "row_major"
+        rhs_mode = "matrix_row_sharded"
     else:
         raise ValueError(f"unknown MPMD solver case {case_name!r}")
 
@@ -108,6 +141,7 @@ def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCa
         n=n,
         tile_size=tile,
         nrhs=nrhs,
+        rhs_mode=rhs_mode,
     )
 
 
@@ -160,10 +194,29 @@ def make_rhs(n: int, nrhs: int, dtype):
     return jnp.asarray(values, dtype=dtype)
 
 
+def global_array_to_numpy(value):
+    """Materialize a possibly multi-host JAX array as a host NumPy array.
+
+    In rank-per-GPU tests a result can be a global ``jax.Array`` whose shards
+    live on devices owned by other Python processes.  Direct ``np.asarray`` is
+    only valid when all shards are addressable from the current process.  For
+    distributed arrays, gather the full global value through JAX's multihost
+    helper so all ranks run the same validation code.
+    """
+    if isinstance(value, jax.Array) and not value.is_fully_addressable:
+        return np.asarray(multihost_utils.process_allgather(value, tiled=True))
+    return np.asarray(value)
+
+
+def native_status_words(status) -> np.ndarray:
+    """Return a flattened native status vector from a JAXMg solver result."""
+    return global_array_to_numpy(status).reshape(-1)
+
+
 def assert_close_scaled(actual, expected, *, atol: float = 5e-4, rtol: float = 5e-4):
     """Assert approximate equality with tolerances suitable for GPU solvers."""
     np.testing.assert_allclose(
-        np.asarray(actual),
+        global_array_to_numpy(actual),
         np.asarray(expected),
         atol=atol,
         rtol=rtol,

@@ -14,9 +14,11 @@ from cusolvermp_case_utils import (
     assert_close_scaled,
     dtype_from_name,
     emit,
+    global_array_to_numpy,
     local_device_id_for_process,
     make_hermitian_positive_definite,
     make_process_mesh,
+    native_status_words,
     solver_case,
 )
 
@@ -67,18 +69,24 @@ def run_case() -> None:
     vectors.block_until_ready()
     status.block_until_ready()
 
-    status_words = np.asarray(status).reshape(-1)
+    status_words = native_status_words(status)
     assert status_words.size % _CUSOLVERMP_SYEVD_STATUS_SIZE == 0, status_words
     assert np.all(status_words[::_CUSOLVERMP_SYEVD_STATUS_SIZE] == 0), status_words
 
     assert_close_scaled(eigenvalues, expected_eigenvalues, atol=1e-3, rtol=1e-3)
-    residual = jnp.linalg.norm(a @ vectors - vectors * eigenvalues[None, :])
-    residual = residual / jnp.linalg.norm(a)
+
+    a_host = np.asarray(a)
+    eigenvalues_host = global_array_to_numpy(eigenvalues)
+    vectors_host = global_array_to_numpy(vectors)
+    residual = np.linalg.norm(
+        a_host @ vectors_host - vectors_host * eigenvalues_host[None, :]
+    )
+    residual = residual / np.linalg.norm(a_host)
     assert float(residual) < 5e-3
 
-    identity = jnp.eye(case.n, dtype=vectors.dtype)
-    orthogonality = jnp.linalg.norm(vectors.conj().T @ vectors - identity)
-    orthogonality = orthogonality / jnp.sqrt(case.n)
+    identity = np.eye(case.n, dtype=vectors_host.dtype)
+    orthogonality = np.linalg.norm(vectors_host.conj().T @ vectors_host - identity)
+    orthogonality = orthogonality / np.sqrt(case.n)
     assert float(orthogonality) < 5e-3
 
     emit(
