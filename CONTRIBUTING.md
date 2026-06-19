@@ -41,6 +41,10 @@ targets. Additional communicator and cuSOLVERMp probe targets may be registered
 when present in the shared library; these are diagnostic targets, not public
 solver APIs.
 
+The default CUDA compute capability is `sm_90`, matching Hopper H100/H200
+systems.  Override `JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES` when building for a
+different GPU generation, for example `sm_80` for Ampere A100 systems.
+
 The build helper checks out the pinned OpenXLA revision if `XLA_SRC` is not set.
 Use `XLA_SRC` to point at an existing checkout, or `JAXMG_XLA_SOURCE_ROOT` to
 choose where the helper stores its managed checkout. It also checks any
