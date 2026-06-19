@@ -195,6 +195,44 @@ def calculate_axis_padding(local_size: int, tile_size: int) -> int:
     return (-local_size) % tile_size
 
 
+def validate_nonempty_block_cyclic_ownership(
+    logical_rows: int,
+    logical_cols: int,
+    grid: ProcessGrid,
+    tile_shape: TileShape,
+    *,
+    caller: str,
+) -> None:
+    """Require every cuSOLVERMp process-grid row and column to own data tiles.
+
+    cuSOLVERMp can be fragile when a process-grid row or column owns no logical
+    matrix tiles.  This happens for very small matrices, oversized tile sizes,
+    or overly large process grids.  The check is closed-form: in a cyclic
+    distribution every process row owns a tile iff the number of logical tile
+    rows is at least the number of process rows; columns follow the same rule.
+    """
+    if logical_rows <= 0 or logical_cols <= 0:
+        raise ValueError("logical dimensions must be positive.")
+
+    num_tile_rows = (int(logical_rows) + int(tile_shape.rows) - 1) // int(
+        tile_shape.rows
+    )
+    num_tile_cols = (int(logical_cols) + int(tile_shape.cols) - 1) // int(
+        tile_shape.cols
+    )
+
+    if num_tile_rows < grid.process_rows or num_tile_cols < grid.process_cols:
+        raise ValueError(
+            f"{caller} requires every cuSOLVERMp process-grid row and column "
+            "to own at least one logical block-cyclic tile. "
+            f"Got logical_shape=({logical_rows}, {logical_cols}), "
+            f"tile_shape=({tile_shape.rows}, {tile_shape.cols}), "
+            f"process_grid=({grid.process_rows}, {grid.process_cols}), "
+            f"logical_tile_grid=({num_tile_rows}, {num_tile_cols}). "
+            "Use a smaller process grid, a larger matrix, or a smaller tile size."
+        )
+
+
 def calculate_2d_padding(
     logical_rows: int,
     logical_cols: int,

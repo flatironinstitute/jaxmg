@@ -30,6 +30,7 @@ from ._cusolvermp_layout import (
 from ._cusolvermp_status import _CUSOLVERMP_SYEVD_STATUS_SIZE
 from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap, TileShape
 from ._layout_types import calculate_2d_padding
+from ._layout_types import validate_nonempty_block_cyclic_ownership
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -119,6 +120,13 @@ def syevd(
     )
     native_status_specs = status_specs(row_axis, col_axis, grid)
     tile_shape = TileShape(rows=int(T_A), cols=int(T_A))
+    validate_nonempty_block_cyclic_ownership(
+        logical_rows=a.shape[0],
+        logical_cols=a.shape[1],
+        grid=grid,
+        tile_shape=tile_shape,
+        caller="syevd(A)",
+    )
     a_padding = calculate_2d_padding(
         logical_rows=a.shape[0],
         logical_cols=a.shape[1],
