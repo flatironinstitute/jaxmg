@@ -103,7 +103,8 @@ def potrs(
     """
     if a.ndim != 2:
         raise ValueError("potrs expects a rank-2 matrix A.")
-    if b.ndim == 1:
+    vector_rhs = b.ndim == 1
+    if vector_rhs:
         b = jnp.expand_dims(b, axis=1)
     if b.ndim != 2:
         raise ValueError("potrs expects a rank-1 or rank-2 RHS B.")
@@ -179,6 +180,8 @@ def potrs(
         tile_size=tile_shape.rows,
     )
     out, native_status = impl(a, b)
+    if vector_rhs:
+        out = out[:, 0]
     if return_status:
         return out, native_status
     return out

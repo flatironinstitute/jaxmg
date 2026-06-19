@@ -51,7 +51,7 @@ def test_potrs_accepts_current_2d_mesh_contract(monkeypatch):
     assert captured["kwargs"]["tile_size"] == 2
 
 
-def test_potrs_treats_vector_rhs_as_single_column(monkeypatch):
+def test_potrs_preserves_vector_rhs_rank(monkeypatch):
     captured = _install_fake_potrs_backend(monkeypatch)
     a = jnp.eye(4, dtype=jnp.float64)
     b = jnp.ones((4,), dtype=jnp.float64)
@@ -65,9 +65,25 @@ def test_potrs_treats_vector_rhs_as_single_column(monkeypatch):
         return_status=True,
     )
 
-    assert out.shape == (4, 1)
+    assert out.shape == b.shape
     assert status.shape == (_CUSOLVERMP_POTRS_STATUS_SIZE,)
     assert captured["kwargs"]["nrhs"] == 1
+
+
+def test_potrs_preserves_single_column_rhs_rank(monkeypatch):
+    _install_fake_potrs_backend(monkeypatch)
+    a = jnp.eye(4, dtype=jnp.float64)
+    b = jnp.ones((4, 1), dtype=jnp.float64)
+
+    out = potrs(
+        a,
+        b,
+        2,
+        mesh=_one_rank_mesh(),
+        matrix_specs=P("pr", "pc"),
+    )
+
+    assert out.shape == b.shape
 
 
 def test_potrs_rejects_non_matrix_a():
