@@ -1,15 +1,6 @@
-# Register the 'mpmd' marker for pytest
 def pytest_configure(config):
-    config.addinivalue_line("markers", "mpmd: mark test as mpmd-related")
-def pytest_collection_modifyitems(config, items):
-    selected = []
-    deselected = []
-    for item in items:
-        selected.append(item)
-        # if "mpmd/test_launch_2d_grid_reduce.py" in item.nodeid:
-        #     selected.append(item)
-        # else:
-        #     deselected.append(item)
-    if deselected:
-        config.hook.pytest_deselected(items=deselected)
-    items[:] = selected
+    """Register JAXMg-specific test markers."""
+    config.addinivalue_line("markers", "cpu_only: tests that do not require GPUs")
+    config.addinivalue_line("markers", "gpu: tests that require at least one GPU")
+    config.addinivalue_line("markers", "mpmd: rank-per-GPU subprocess tests")
+    config.addinivalue_line("markers", "slow: longer validation sweeps")

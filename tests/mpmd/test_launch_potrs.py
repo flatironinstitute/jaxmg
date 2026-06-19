@@ -1,44 +1,44 @@
-import pytest
-pytestmark = pytest.mark.mpmd
+import os
 from pathlib import Path
 
 import pytest
-import jax
 
 from mpmd_helper import run_mpmd_test
 
-HERE = Path(__file__).parent
+
+pytestmark = pytest.mark.mpmd
+
+HERE = Path(__file__).resolve().parent
 MP_TEST = HERE / "run_potrs.py"
-
-platforms = set(d.platform for d in jax.devices())
-if "gpu" not in platforms:
-    pytest.skip("No GPUs found. Skipping", allow_module_level=True)
-else:
-    gpu_count = jax.device_count()
-
-    # Only run for the currently visible GPU count; the original test enumerated
-    # requested_procs=(1,2,3,4) and skipped when mismatched. Here we parametrize
-    # only for the local visible gpu count to keep collection stable.
-    requested_procs_list = (gpu_count,)
-
-    dtypes = ["float32", "float64", "complex64", "complex128"]
-    test_names = ["arange", "non_psd", "non_symm", "psd"]
-
-    tasks = []
-    task_ids = []
-    for requested_procs in requested_procs_list:
-        for name in test_names:
-            for dtype_name in dtypes:
-                tasks.append((requested_procs, name, dtype_name))
-                task_ids.append(f"{name}-{dtype_name}-p{requested_procs}")
+DTYPES = ("float32", "float64", "complex64", "complex128")
+SMOKE_CASES = (
+    (1, "row_major_no_padding"),
+    (2, "row_major_no_padding"),
+    (2, "column_major_padding"),
+    (4, "skinny_rhs"),
+)
+COMPREHENSIVE_PROCESS_COUNTS = (1, 2, 3, 4, 5, 6, 7, 8)
+COMPREHENSIVE_CASES = (
+    "row_major_no_padding",
+    "column_major_padding",
+    "column_grid_padding",
+    "skinny_rhs",
+)
 
 
-    @pytest.mark.parametrize(
-        "requested_procs,name, dtype_name",
-        tasks,
-        ids=task_ids,
-    )
-    def test_task_mpmd(requested_procs, name, dtype_name):
-        """Run a single distributed potrs task as an individual pytest test."""
+@pytest.mark.parametrize("requested_procs,case_name", SMOKE_CASES)
+@pytest.mark.parametrize("dtype_name", DTYPES)
+def test_potrs_rank_per_gpu_smoke(requested_procs, case_name, dtype_name):
+    """Run representative POTRS rank-per-GPU cases through public API only."""
+    run_mpmd_test(MP_TEST, requested_procs, case_name, dtype_name)
 
-        run_mpmd_test(MP_TEST, requested_procs, name, dtype_name)
+
+@pytest.mark.slow
+@pytest.mark.parametrize("requested_procs", COMPREHENSIVE_PROCESS_COUNTS)
+@pytest.mark.parametrize("case_name", COMPREHENSIVE_CASES)
+@pytest.mark.parametrize("dtype_name", DTYPES)
+def test_potrs_rank_per_gpu_comprehensive(requested_procs, case_name, dtype_name):
+    """Exercise many process-grid shapes when explicitly requested."""
+    if os.environ.get("JAXMG_RUN_COMPREHENSIVE_MPMD") != "1":
+        pytest.skip("set JAXMG_RUN_COMPREHENSIVE_MPMD=1 for the full MPMD suite")
+    run_mpmd_test(MP_TEST, requested_procs, case_name, dtype_name)

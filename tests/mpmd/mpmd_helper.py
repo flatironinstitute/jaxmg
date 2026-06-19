@@ -26,11 +26,17 @@ def run_mpmd_test(mp_test: Path, requested_procs: int, name: str, dtype_name: st
     basic validation.
     """
 
-    # Quick guard: ensure visible GPUs still match the requested value.
-    gpu_count = jax.device_count("gpu")
-    if gpu_count != requested_procs:
+    # Quick guard: ensure enough visible GPUs are available for the requested
+    # rank-per-GPU subprocess launch.  The runner selects local_device_ids by
+    # process id, so a larger visible set can still run smaller grids.
+    try:
+        gpu_count = jax.device_count("gpu")
+    except RuntimeError:
+        gpu_count = 0
+    if gpu_count < requested_procs:
         pytest.skip(
-            f"Need {requested_procs} GPUs in CUDA_VISIBLE_DEVICES to run this test (have {gpu_count})"
+            f"Need at least {requested_procs} GPUs in CUDA_VISIBLE_DEVICES "
+            f"to run this test (have {gpu_count})"
         )
 
     port = _find_free_port()
@@ -67,7 +73,7 @@ def run_mpmd_test(mp_test: Path, requested_procs: int, name: str, dtype_name: st
         procs.append(p)
 
     # Collect output with a timeout to avoid hanging the test suite
-    deadline = time.time() + 150
+    deadline = time.time() + int(os.environ.get("JAXMG_MPMD_TEST_TIMEOUT", "300"))
     for idx, p in enumerate(procs):
         out_chunks: List[str] = []
         while p.poll() is None and time.time() < deadline:

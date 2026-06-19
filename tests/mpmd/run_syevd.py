@@ -1,263 +1,128 @@
-import os
 import sys
-import json
 import traceback
-from typing import Callable, Dict, List
+from functools import partial
 
 import jax
+if not jax.config.jax_enable_x64:
+    jax.config.update("jax_enable_x64", True)
+
+import jax.numpy as jnp
+import numpy as np
+from jax.sharding import NamedSharding, PartitionSpec as P
+
+from cusolvermp_case_utils import (
+    assert_close_scaled,
+    dtype_from_name,
+    emit,
+    local_device_id_for_process,
+    make_hermitian_positive_definite,
+    make_process_mesh,
+    solver_case,
+)
+
 
 coord_addr = sys.argv[1]
 proc_id = int(sys.argv[2])
 num_procs = int(sys.argv[3])
+case_name = sys.argv[4]
+dtype_name = sys.argv[5]
 
-# Initialize the GPU machines.
 jax.distributed.initialize(
     coordinator_address=coord_addr,
     num_processes=num_procs,
     process_id=proc_id,
-    local_device_ids=[proc_id],
+    local_device_ids=[local_device_id_for_process(proc_id)],
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-# Basic diagnostics for debugging
-print("process id =", jax.process_index(), flush=True)
-print("global devices =", jax.devices(), flush=True)
-print("local devices =", jax.local_devices(), flush=True)
-print("visible devices", os.environ.get("CUDA_VISIBLE_DEVICES", ""), flush=True)
+from jaxmg import syevd
+from jaxmg._cusolvermp_status import _CUSOLVERMP_SYEVD_STATUS_SIZE
 
 
-def _println(prefix: str, payload: dict):
-    """Print a single-line JSON payload with a stable prefix for log parsing."""
-    print(f"{prefix} {json.dumps(payload, sort_keys=True)}", flush=True)
+def run_case() -> None:
+    """Run one rank-per-GPU SYEVD case and emit parser-friendly results."""
+    dtype = dtype_from_name(dtype_name)
+    case = solver_case(case_name, num_procs, routine="syevd")
+    mesh = make_process_mesh(case)
+    matrix_specs = P("pr", "pc")
 
+    a = make_hermitian_positive_definite(case.n, dtype, seed=5678)
+    expected_eigenvalues, _ = jnp.linalg.eigh(a)
 
-import jax.numpy as jnp
-from jax.sharding import NamedSharding, PartitionSpec as P
-from functools import partial
+    a_dev = jax.device_put(a, NamedSharding(mesh, matrix_specs))
 
+    @partial(jax.jit, static_argnames=("tile_size",))
+    def eigensolve(_a, *, tile_size):
+        return syevd(
+            _a,
+            tile_size,
+            mesh=mesh,
+            matrix_specs=matrix_specs,
+            return_status=True,
+            pad=True,
+        )
 
-# These will be initialized after jax.distributed.initialize()
-devices = [d for d in jax.devices() if d.platform == "gpu"]
-mesh = jax.make_mesh((jax.device_count(),), ("x",))
+    eigenvalues, vectors, status = eigensolve(a_dev, tile_size=case.tile_size)
+    eigenvalues.block_until_ready()
+    vectors.block_until_ready()
+    status.block_until_ready()
 
-from jaxmg import syevd, syevd_shardmap_ctx
-from jaxmg.utils import random_psd
+    status_words = np.asarray(status).reshape(-1)
+    assert status_words.size % _CUSOLVERMP_SYEVD_STATUS_SIZE == 0, status_words
+    assert np.all(status_words[::_CUSOLVERMP_SYEVD_STATUS_SIZE] == 0), status_words
 
+    assert_close_scaled(eigenvalues, expected_eigenvalues, atol=1e-3, rtol=1e-3)
+    residual = jnp.linalg.norm(a @ vectors - vectors * eigenvalues[None, :])
+    residual = residual / jnp.linalg.norm(a)
+    assert float(residual) < 5e-3
 
-@partial(jax.jit, static_argnames=("_T_A",))
-def jitted_syevd(_a, _T_A):
-    eigenvalues, V = partial(syevd, mesh=mesh, in_specs=(P("x", None),), pad=True)(
-        _a, _T_A
+    identity = jnp.eye(case.n, dtype=vectors.dtype)
+    orthogonality = jnp.linalg.norm(vectors.conj().T @ vectors - identity)
+    orthogonality = orthogonality / jnp.sqrt(case.n)
+    assert float(orthogonality) < 5e-3
+
+    emit(
+        "MPTEST_RESULT",
+        {
+            "proc": proc_id,
+            "name": case_name,
+            "dtype": dtype_name,
+            "status": "ok",
+            "params": {
+                "n": case.n,
+                "tile_size": case.tile_size,
+                "process_rows": case.process_rows,
+                "process_cols": case.process_cols,
+                "grid_order": case.grid_order,
+            },
+        },
     )
-    return eigenvalues, V
 
 
-@partial(jax.jit, static_argnames=("_T_A",))
-def jitted_syevd_no_shardmap(_a, _T_A):
-    eigenvalues, V, status = jax.shard_map(
-        partial(syevd_shardmap_ctx, T_A=_T_A),
-        mesh=mesh,
-        in_specs=(P("x", None),),
-        out_specs=(P(None), P(None, None), P(None)),
-        check_vma=False,
-    )(_a)
-    return eigenvalues, V, status
+def main() -> None:
+    try:
+        run_case()
+    except Exception:
+        emit(
+            "MPTEST_RESULT",
+            {
+                "proc": proc_id,
+                "name": case_name,
+                "dtype": dtype_name,
+                "status": "fail",
+                "traceback": traceback.format_exc(),
+            },
+        )
+    finally:
+        emit(
+            "MPTEST_SUMMARY",
+            {
+                "proc": proc_id,
+                "name": case_name,
+                "dtype": dtype_name,
+            },
+        )
 
 
-@partial(jax.jit, static_argnames=("_T_A",))
-def jitted_syevd_no_V(_a, _T_A):
-    eigenvalues = partial(
-        syevd, mesh=mesh, in_specs=(P("x", None),), return_eigenvectors=False, pad=True
-    )(_a, _T_A)
-    return eigenvalues
-
-
-@partial(jax.jit, static_argnames=("_T_A",))
-def jitted_syevd_no_V_no_shardmap(_a, _T_A):
-    eigenvalues, status = jax.shard_map(
-        partial(syevd_shardmap_ctx, T_A=_T_A, return_eigenvectors=False),
-        mesh=mesh,
-        in_specs=(P("x", None),),
-        out_specs=(P(None), P(None)),
-        check_vma=False,
-    )(_a)
-    return eigenvalues, status
-
-
-def cusolver_solve_arange(N, T_A, dtype):
-    A = jnp.diag(jnp.arange(N, dtype=dtype) + 1)
-    eigenvalues_expected = jnp.diag(A)
-    # Make mesh and place data
-    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-    eigenvalues, V = jitted_syevd(_A.copy(), T_A)
-    eigenvalues.block_until_ready()
-    V.block_until_ready()
-    assert jnp.allclose(eigenvalues_expected, eigenvalues)
-    eigenvalues_VtAV = jnp.diag(V @ A @ V.T)
-    assert jnp.allclose(eigenvalues_VtAV, eigenvalues_expected)
-    eigenvalues_no_shm, V_no_shm, _ = jitted_syevd_no_shardmap(_A.copy(), T_A)
-    assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm)
-
-
-def cusolver_solve_psd(N, T_A, dtype):
-    A = random_psd(N, dtype=dtype, seed=1234)
-    eigenvalues_expected, V_expected = jnp.linalg.eigh(A)
-    # Make mesh and place data
-    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-    eigenvalues, V = jitted_syevd(_A.copy(), T_A)
-    eigenvalues.block_until_ready()
-    V.block_until_ready()
-    norm_syevd = jnp.linalg.norm(V @ A - jnp.diag(eigenvalues) @ V.T)
-    norm_lax = jnp.linalg.norm(
-        V_expected @ A - jnp.diag(eigenvalues_expected) @ V_expected.T
-    )
-    assert jnp.isclose(norm_syevd, norm_lax, rtol=10, atol=0.0)
-    eigenvalues_no_shm, V_no_shm, _ = jitted_syevd_no_shardmap(_A.copy(), T_A)
-    assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm, rtol=10, atol=0.0)
-
-
-def cusolver_solve_arange_no_V(N, T_A, dtype):
-    A = jnp.diag(jnp.arange(N, dtype=dtype) + 1)
-    eigenvalues_expected = jnp.diag(A)
-    # Make mesh and place data
-    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-    eigenvalues = jitted_syevd_no_V(_A.copy(), T_A)
-    eigenvalues.block_until_ready()
-    assert jnp.allclose(eigenvalues_expected, eigenvalues)
-    eigenvalues_no_shm, _ = jitted_syevd_no_V_no_shardmap(_A.copy(), T_A)
-    assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm)
-
-
-def cusolver_solve_psd_no_V(N, T_A, dtype):
-    A = random_psd(N, dtype=dtype, seed=1234)
-    eigenvalues_expected = jnp.linalg.eigvalsh(A)
-    # Make mesh and place data
-    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-    eigenvalues = jitted_syevd_no_V(_A.copy(), T_A)
-    eigenvalues.block_until_ready()
-    assert jnp.allclose(eigenvalues, eigenvalues_expected, rtol=10, atol=0.0)
-    eigenvalues_no_shm, _ = jitted_syevd_no_V_no_shardmap(_A.copy(), T_A)
-    assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm, rtol=10, atol=0.0)
-
-
-def cusolver_syevd_loop_shm(N, T_A, dtype):
-    T_A = 1
-    dtype = jnp.float64
-    A = random_psd(N, dtype=dtype, seed=5678)
-
-    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-    fd_start = len(os.listdir("/proc/self/fd"))
-    for i in range(100):
-        print(i, len(os.listdir("/proc/self/fd")))
-        out,_ = jitted_syevd(_A, T_A)
-        out.block_until_ready()
-    fd_end = len(os.listdir("/proc/self/fd"))
-    assert fd_end - fd_start < 100
-
-
-def cusolver_syevd_no_V_loop_shm(N, T_A, dtype):
-    T_A = 1
-    dtype = jnp.float64
-    A = random_psd(N, dtype=dtype, seed=5678)
-
-    _A = jax.device_put(A, NamedSharding(mesh, P("x", None)))
-    fd_start = len(os.listdir("/proc/self/fd"))
-    for i in range(100):
-        print(i, len(os.listdir("/proc/self/fd")))
-        out = jitted_syevd_no_V(_A, T_A)
-        out.block_until_ready()
-    fd_end = len(os.listdir("/proc/self/fd"))
-    assert fd_end - fd_start < 100
-
-
-def _build_registry() -> Dict[str, Callable]:
-    # Map test names to callables that accept (N, T_A, dtype)
-    return {
-        "arange": cusolver_solve_arange,
-        "psd": cusolver_solve_psd,
-        "arange_no_V": cusolver_solve_arange_no_V,
-        "psd_no_V": cusolver_solve_psd_no_V,
-        "loop_shm": cusolver_syevd_loop_shm,
-        "loop_shm_no_V": cusolver_syevd_no_V_loop_shm,
-    }
-
-
-def main(argv: List[str]):
-    # Single-task only: expect arguments
-    # run_syevd.py <coord_addr> <proc_id> <num_procs> <test_name> <dtype_name>
-
-    task_name = argv[4]
-    task_dtype_name = argv[5]
-    registry = _build_registry()
-
-    # Parameter grid metadata (for discover message)
-    ndev = len(devices)
-    dtypes = [jnp.float32, jnp.float64, jnp.complex64, jnp.complex128]
-    N_list = list(i * ndev for i in [2, 3, 4, 10])
-    T_A_list = [1, 2, 3, 5]
-    for task_N in N_list:
-        for task_T_A in T_A_list:
-            params_summary = {
-                "N": [task_N],
-                "T_A": [task_T_A],
-                "dtype": [task_dtype_name],
-            }
-
-            # Announce discovery for this single task
-            _println(
-                "MPTEST_DISCOVER",
-                {
-                    "proc": proc_id,
-                    "available": sorted(registry.keys()),
-                    "selected": [task_name],
-                    "params": params_summary,
-                },
-            )
-
-            fn = registry[task_name]
-            # Map dtype name to jnp dtype
-            dt = next(dt for dt in dtypes if jnp.dtype(dt).name == task_dtype_name)
-            n_ok = 0
-            n_fail = 0
-            try:
-                fn(task_N, task_T_A, dt)
-                _println(
-                    "MPTEST_RESULT",
-                    {
-                        "proc": proc_id,
-                        "name": task_name,
-                        "status": "ok",
-                        "params": {
-                            "N": task_N,
-                            "T_A": task_T_A,
-                            "dtype": task_dtype_name,
-                        },
-                    },
-                )
-                n_ok += 1
-            except Exception:
-                tb = traceback.format_exc(limit=40)
-                _println(
-                    "MPTEST_RESULT",
-                    {
-                        "proc": proc_id,
-                        "name": task_name,
-                        "status": "fail",
-                        "params": {
-                            "N": task_N,
-                            "T_A": task_T_A,
-                            "dtype": task_dtype_name,
-                        },
-                        "traceback": tb,
-                    },
-                )
-                n_fail += 1
-
-            _println(
-                "MPTEST_SUMMARY",
-                {"proc": proc_id, "ok": n_ok, "fail": n_fail, "total": n_ok + n_fail},
-            )
-            return 0
-
-
-main(sys.argv)
+if __name__ == "__main__":
+    main()

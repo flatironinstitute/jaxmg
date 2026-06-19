@@ -32,7 +32,10 @@ jaxmg = [
 
 [tool.pytest.ini_options]
 markers = [
+    "cpu_only: tests that do not require GPUs",
+    "gpu: tests that require at least one GPU",
     "mpmd: multi-process multi-device GPU tests",
+    "slow: longer validation sweeps",
 ]
 
 [project.optional-dependencies]
