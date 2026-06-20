@@ -17,13 +17,203 @@ def _find_free_port() -> int:
         return s.getsockname()[1]
 
 
-def run_mpmd_test(mp_test: Path, requested_procs: int, name: str, dtype_name: str) -> None:
-    """Launch an MPMD test runner script across processes and assert success.
+def _launcher_env(name: str, dtype_name: str, requested_procs: int) -> dict[str, str]:
+    """Return the common environment used by all ranks in one test case."""
+    env = os.environ.copy()
+    env.setdefault("XLA_PYTHON_CLIENT_ALLOCATOR", "platform")
+    env.setdefault("JAXMG_BARRIER_NAME", f"{name}_{dtype_name}_{requested_procs}")
+    return env
 
-    The runner script is expected to emit single-line JSON messages prefixed
-    with ``MPTEST_RESULT`` and ``MPTEST_SUMMARY`` describing per-process
-    outcomes. This helper handles launching, log collection, parsing, and
-    basic validation.
+
+def _check_results(
+    logs: List[str],
+    *,
+    requested_procs: int,
+    name: str,
+    dtype_name: str,
+) -> None:
+    """Parse runner JSON records and fail the pytest case on any bad rank."""
+    parsed = []
+    per_proc_seen = set()
+    for log in logs:
+        for line in log.splitlines():
+            try:
+                if line.startswith("MPTEST_RESULT "):
+                    payload = json.loads(line.split(" ", 1)[1])
+                    parsed.append(payload)
+                    per_proc_seen.add(payload.get("proc"))
+                elif line.startswith("MPTEST_SUMMARY "):
+                    payload = json.loads(line.split(" ", 1)[1])
+                    per_proc_seen.add(payload.get("proc"))
+            except json.JSONDecodeError:
+                # Ignore non-JSON lines from JAX, NCCL, or Slurm.
+                pass
+
+    expected_procs = set(range(requested_procs))
+    assert expected_procs.issubset(per_proc_seen), (
+        f"Missing results from some processes for task {name} dtype={dtype_name}. "
+        f"expected={sorted(expected_procs)} seen={sorted(per_proc_seen)}\n"
+        f"Raw logs:\n" + "\n\n".join(f"===== log {i} =====\n{l}" for i, l in enumerate(logs))
+    )
+
+    failures = [r for r in parsed if r.get("status") == "fail"]
+    if failures:
+        def _short_msg(tb: str) -> str:
+            if not tb:
+                return ""
+            lines = [ln for ln in tb.splitlines() if ln.strip()]
+            return lines[-1] if lines else tb.strip()
+
+        summary_lines = [f"Task {name} dtype={dtype_name} failures:"]
+        for r in failures:
+            summary_lines.append(
+                f"- proc {r.get('proc')} :: {r.get('name')}: {_short_msg(r.get('traceback',''))}"
+            )
+        summary_lines.append("")
+        for i, l in enumerate(logs):
+            summary_lines.append(f"===== log {i} =====\n{l}")
+        pytest.fail("\n".join(summary_lines))
+
+    ok_count = sum(1 for r in parsed if r.get("status") == "ok")
+    assert ok_count > 0, (
+        f"Expected at least one ok result for task {name} dtype={dtype_name}; raw logs:\n"
+        + "\n\n".join(logs)
+    )
+
+
+def _run_with_srun(
+    mp_test: Path,
+    requested_procs: int,
+    name: str,
+    dtype_name: str,
+    coord: str,
+    env: dict[str, str],
+) -> List[str]:
+    """Run one distributed case through Slurm, one task per Python rank.
+
+    This is the preferred path on HPC systems.  It lets Slurm create the
+    per-rank environment, including ``SLURM_PROCID`` and ``SLURM_LOCALID``,
+    instead of starting several distributed JAX ranks as unmanaged subprocesses
+    inside one Slurm task.
+    """
+    timeout = int(os.environ.get("JAXMG_MPMD_TEST_TIMEOUT", "300"))
+    env.update(
+        {
+            "JAXMG_COORD": coord,
+            "JAXMG_NUM_PROCS": str(requested_procs),
+            "JAXMG_CASE_NAME": name,
+            "JAXMG_DTYPE_NAME": dtype_name,
+            "JAXMG_RUNNER": mp_test.name,
+            "JAXMG_RUNNER_DIR": str(mp_test.parent),
+            "JAXMG_PYTHON": sys.executable,
+        }
+    )
+    rank_command = (
+        'cd "$JAXMG_RUNNER_DIR" && '
+        '"$JAXMG_PYTHON" -u "$JAXMG_RUNNER" "$JAXMG_COORD" "$SLURM_PROCID" '
+        '"$JAXMG_NUM_PROCS" "$JAXMG_CASE_NAME" "$JAXMG_DTYPE_NAME"'
+    )
+    cmd = [
+        "srun",
+        "--nodes=1",
+        f"--ntasks={requested_procs}",
+        "--kill-on-bad-exit=1",
+        "bash",
+        "-lc",
+        rank_command,
+    ]
+    try:
+        completed = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=env,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        output = exc.stdout or ""
+        pytest.fail(
+            f"srun timed out for task {name} dtype={dtype_name} "
+            f"procs={requested_procs}\n{output}"
+        )
+    if completed.returncode != 0:
+        pytest.fail(
+            f"srun failed for task {name} dtype={dtype_name} "
+            f"procs={requested_procs} rc={completed.returncode}\n{completed.stdout}"
+        )
+    return [completed.stdout]
+
+
+def _run_with_local_subprocesses(
+    mp_test: Path,
+    requested_procs: int,
+    name: str,
+    dtype_name: str,
+    coord: str,
+    env: dict[str, str],
+) -> List[str]:
+    """Run one distributed case with local subprocesses for developer machines."""
+    here = mp_test.parent
+    procs: List[subprocess.Popen] = []
+    logs: List[str] = []
+    for i in range(requested_procs):
+        cmd = [
+            sys.executable,
+            "-u",
+            str(mp_test),
+            coord,
+            str(i),
+            str(requested_procs),
+            name,
+            dtype_name,
+        ]
+        rank_env = env.copy()
+        rank_env["CUDA_VISIBLE_DEVICES"] = str(i)
+        rank_env["JAXMG_LOCAL_DEVICE_ID"] = "0"
+        p = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=rank_env,
+            cwd=str(here),
+            text=True,
+            bufsize=1,
+        )
+        procs.append(p)
+
+    deadline = time.time() + int(os.environ.get("JAXMG_MPMD_TEST_TIMEOUT", "300"))
+    for p in procs:
+        out_chunks: List[str] = []
+        while p.poll() is None and time.time() < deadline:
+            assert p.stdout is not None
+            line = p.stdout.readline()
+            if line:
+                out_chunks.append(line)
+        remaining = p.stdout.read() or ""  # type: ignore[union-attr]
+        if remaining:
+            out_chunks.append(remaining)
+        logs.append("".join(out_chunks))
+
+    exits = [p.wait(timeout=5) for p in procs]
+    for idx, code in enumerate(exits):
+        if code != 0:
+            print(f"===== mp_test proc {idx} combined output =====")
+            print(logs[idx])
+        assert code == 0, f"mp_test process {idx} failed with exit code {code}"
+    return logs
+
+
+def run_mpmd_test(mp_test: Path, requested_procs: int, name: str, dtype_name: str) -> None:
+    """Run one rank-per-GPU solver case and assert success.
+
+    Pytest executes cases sequentially.  A single case still has to start
+    ``requested_procs`` ranks concurrently because JAX distributed arrays and
+    cuSOLVERMp require one live Python process per participating GPU.  Under
+    Slurm, use ``srun`` so that process-to-GPU binding matches the production
+    launch model.  Outside Slurm, fall back to local subprocesses with one
+    visible GPU per rank.
     """
 
     # Quick guard: ensure enough visible GPUs are available for the requested
@@ -42,104 +232,20 @@ def run_mpmd_test(mp_test: Path, requested_procs: int, name: str, dtype_name: st
     port = _find_free_port()
     coord = f"127.0.0.1:{port}"
 
-    env = os.environ.copy()
-    env.setdefault("XLA_PYTHON_CLIENT_ALLOCATOR", "platform")
-    env.setdefault("JAXMG_BARRIER_NAME", f"{name}_{dtype_name}_{requested_procs}")
-    here = mp_test.parent
+    env = _launcher_env(name, dtype_name, requested_procs)
     print(f"[launcher] starting task {name}: dtype={dtype_name}, procs={requested_procs}")
 
-    procs: List[subprocess.Popen] = []
-    logs: List[str] = []
-    for i in range(requested_procs):
-        cmd = [
-            sys.executable,
-            "-u",
-            str(mp_test),
-            coord,
-            str(i),
-            str(requested_procs),
-            name,
-            dtype_name,
-        ]
-        p = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            env=env,
-            cwd=str(here),
-            text=True,
-            bufsize=1,
+    launcher = os.environ.get("JAXMG_MPMD_LAUNCHER")
+    if launcher is None:
+        launcher = "srun" if "SLURM_JOB_ID" in os.environ else "subprocess"
+    if launcher == "srun":
+        logs = _run_with_srun(mp_test, requested_procs, name, dtype_name, coord, env)
+    elif launcher == "subprocess":
+        logs = _run_with_local_subprocesses(
+            mp_test, requested_procs, name, dtype_name, coord, env
         )
-        procs.append(p)
+    else:
+        raise ValueError(f"unknown JAXMG_MPMD_LAUNCHER={launcher!r}")
 
-    # Collect output with a timeout to avoid hanging the test suite
-    deadline = time.time() + int(os.environ.get("JAXMG_MPMD_TEST_TIMEOUT", "300"))
-    for idx, p in enumerate(procs):
-        out_chunks: List[str] = []
-        while p.poll() is None and time.time() < deadline:
-            assert p.stdout is not None
-            line = p.stdout.readline()
-            if line:
-                out_chunks.append(line)
-        remaining = p.stdout.read() or ""  # type: ignore[union-attr]
-        if remaining:
-            out_chunks.append(remaining)
-        logs.append("".join(out_chunks))
-
-    # Ensure all processes exited
-    exits = [p.wait(timeout=5) for p in procs]
-    for idx, code in enumerate(exits):
-        if code != 0:
-            print(f"===== mp_test proc {idx} combined output =====")
-            print(logs[idx])
-        assert code == 0, f"mp_test process {idx} failed with exit code {code}"
-
-    # Parse MPTEST JSON lines and aggregate results
-    parsed = []
-    per_proc_seen = set()
-    for idx, log in enumerate(logs):
-        for line in log.splitlines():
-            try:
-                if line.startswith("MPTEST_RESULT "):
-                    payload = json.loads(line.split(" ", 1)[1])
-                    parsed.append(payload)
-                    per_proc_seen.add(payload.get("proc"))
-                elif line.startswith("MPTEST_SUMMARY "):
-                    payload = json.loads(line.split(" ", 1)[1])
-                    per_proc_seen.add(payload.get("proc"))
-            except json.JSONDecodeError:
-                # Ignore non-JSON lines
-                pass
-
-    expected_procs = set(range(requested_procs))
-    assert expected_procs.issubset(per_proc_seen), (
-        f"Missing results from some processes for task {name} dtype={dtype_name}. "
-        f"expected={sorted(expected_procs)} seen={sorted(per_proc_seen)}\n"
-        f"Raw logs:\n" + "\n\n".join(f"===== proc {i} =====\n{l}" for i, l in enumerate(logs))
-    )
-
-    failures = [r for r in parsed if r.get("status") == "fail"]
-    if failures:
-        def _short_msg(tb: str) -> str:
-            if not tb:
-                return ""
-            lines = [ln for ln in tb.splitlines() if ln.strip()]
-            return lines[-1] if lines else tb.strip()
-
-        summary_lines = [f"Task {name} dtype={dtype_name} failures:"]
-        for r in failures:
-            summary_lines.append(
-                f"- proc {r.get('proc')} :: {r.get('name')}: {_short_msg(r.get('traceback',''))}"
-            )
-        summary_lines.append("")
-        for i, l in enumerate(logs):
-            summary_lines.append(f"===== proc {i} =====\n{l}")
-        pytest.fail("\n".join(summary_lines))
-
-    ok_count = sum(1 for r in parsed if r.get("status") == "ok")
-    assert ok_count > 0, (
-        f"Expected at least one ok result for task {name} dtype={dtype_name}; raw logs:\n"
-        + "\n\n".join(logs)
-    )
-
+    _check_results(logs, requested_procs=requested_procs, name=name, dtype_name=dtype_name)
     print(f"[launcher] task {name} dtype={dtype_name} completed successfully")
