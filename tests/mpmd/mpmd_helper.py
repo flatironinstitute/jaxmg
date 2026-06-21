@@ -1,9 +1,12 @@
 import os
 import sys
+import math
 import socket
 import subprocess
 import time
 import json
+import re
+import shlex
 from pathlib import Path
 from typing import List
 
@@ -15,6 +18,99 @@ def _find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def _positive_int_from_env(name: str) -> int | None:
+    """Return a positive integer environment override, if one is set."""
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return None
+    parsed = int(value)
+    if parsed <= 0:
+        raise ValueError(f"{name} must be positive, got {value!r}")
+    return parsed
+
+
+def _first_integer(value: str | None) -> int | None:
+    """Parse the first integer from a Slurm resource string."""
+    if not value:
+        return None
+    match = re.search(r"\d+", value)
+    return int(match.group(0)) if match else None
+
+
+def _slurm_hostnames() -> list[str]:
+    """Return hostnames in the current Slurm allocation."""
+    nodelist = os.environ.get("SLURM_JOB_NODELIST")
+    if not nodelist:
+        return []
+    try:
+        completed = subprocess.run(
+            ["scontrol", "show", "hostnames", nodelist],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return []
+    return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
+def _slurm_node_count(hostnames: list[str]) -> int:
+    """Return the available Slurm node count for nested ``srun`` launches."""
+    override = _positive_int_from_env("JAXMG_MPMD_SRUN_MAX_NODES")
+    if override is None:
+        override = _positive_int_from_env("JAXMG_MPMD_SRUN_NODES")
+    if override is not None:
+        return override
+    for name in ("SLURM_NNODES", "SLURM_JOB_NUM_NODES"):
+        parsed = _positive_int_from_env(name)
+        if parsed is not None:
+            return parsed
+    return max(1, len(hostnames))
+
+
+def _gpus_per_node(local_gpu_count: int) -> int:
+    """Return the expected GPUs per node in the Slurm allocation."""
+    override = _positive_int_from_env("JAXMG_MPMD_GPUS_PER_NODE")
+    if override is not None:
+        return override
+    for name in ("SLURM_GPUS_ON_NODE", "SLURM_GPUS_PER_NODE"):
+        parsed = _first_integer(os.environ.get(name))
+        if parsed is not None and parsed > 0:
+            return parsed
+    return max(1, local_gpu_count)
+
+
+def _srun_node_count_for(requested_procs: int, local_gpu_count: int) -> int:
+    """Choose enough Slurm nodes for a rank-per-GPU test case."""
+    hostnames = _slurm_hostnames()
+    gpus_per_node = _gpus_per_node(local_gpu_count)
+    max_nodes = _slurm_node_count(hostnames)
+    needed_nodes = math.ceil(requested_procs / gpus_per_node)
+    if needed_nodes > max_nodes:
+        pytest.skip(
+            f"Need {needed_nodes} Slurm nodes for {requested_procs} ranks "
+            f"with {gpus_per_node} GPUs per node; allocation allows {max_nodes}"
+        )
+    return max(1, needed_nodes)
+
+
+def _srun_coordinator(port: int) -> str:
+    """Return a coordinator address reachable by all Slurm ranks."""
+    hostnames = _slurm_hostnames()
+    hostname = hostnames[0] if hostnames else socket.gethostname()
+    return f"{hostname}:{port}"
+
+
+def _srun_gpu_args() -> list[str]:
+    """Return optional Slurm GPU binding arguments for nested ``srun``."""
+    value = os.environ.get(
+        "JAXMG_MPMD_SRUN_GPU_ARGS",
+        "--gpus-per-task=1 --gpu-bind=single:1",
+    )
+    return shlex.split(value) if value else []
 
 
 def _launcher_env(name: str, dtype_name: str, requested_procs: int) -> dict[str, str]:
@@ -84,6 +180,7 @@ def _check_results(
 def _run_with_srun(
     mp_test: Path,
     requested_procs: int,
+    nodes: int,
     name: str,
     dtype_name: str,
     coord: str,
@@ -97,6 +194,7 @@ def _run_with_srun(
     inside one Slurm task.
     """
     timeout = int(os.environ.get("JAXMG_MPMD_TEST_TIMEOUT", "300"))
+    gpu_args = _srun_gpu_args()
     env.update(
         {
             "JAXMG_COORD": coord,
@@ -108,6 +206,8 @@ def _run_with_srun(
             "JAXMG_PYTHON": sys.executable,
         }
     )
+    if any(arg.startswith("--gpus-per-task") for arg in gpu_args):
+        env.setdefault("JAXMG_LOCAL_DEVICE_ID", "0")
     rank_command = (
         'cd "$JAXMG_RUNNER_DIR" && '
         '"$JAXMG_PYTHON" -u "$JAXMG_RUNNER" "$JAXMG_COORD" "$SLURM_PROCID" '
@@ -115,9 +215,10 @@ def _run_with_srun(
     )
     cmd = [
         "srun",
-        "--nodes=1",
+        f"--nodes={nodes}",
         f"--ntasks={requested_procs}",
         "--kill-on-bad-exit=1",
+        *gpu_args,
         "bash",
         "-lc",
         rank_command,
@@ -216,36 +317,50 @@ def run_mpmd_test(mp_test: Path, requested_procs: int, name: str, dtype_name: st
     visible GPU per rank.
     """
 
-    # Quick guard: ensure enough visible GPUs are available for the requested
-    # rank-per-GPU subprocess launch.  The runner selects local_device_ids by
-    # process id, so a larger visible set can still run smaller grids.
+    launcher = os.environ.get("JAXMG_MPMD_LAUNCHER")
+    if launcher is None:
+        launcher = "srun" if "SLURM_JOB_ID" in os.environ else "subprocess"
+
+    # Quick guard: outside Slurm the subprocess launcher needs all requested
+    # GPUs visible to the parent process.  Under Slurm, the parent pytest
+    # process only sees the local node; nested ``srun`` can still start ranks
+    # across the full multi-node allocation.
     try:
         gpu_count = jax.device_count("gpu")
     except RuntimeError:
         gpu_count = 0
-    if gpu_count < requested_procs:
+    srun_nodes = None
+    if launcher == "srun":
+        srun_nodes = _srun_node_count_for(requested_procs, gpu_count)
+    elif launcher == "subprocess" and gpu_count < requested_procs:
         pytest.skip(
             f"Need at least {requested_procs} GPUs in CUDA_VISIBLE_DEVICES "
             f"to run this test (have {gpu_count})"
         )
+    elif launcher not in ("srun", "subprocess"):
+        raise ValueError(f"unknown JAXMG_MPMD_LAUNCHER={launcher!r}")
 
     port = _find_free_port()
-    coord = f"127.0.0.1:{port}"
+    coord = _srun_coordinator(port) if launcher == "srun" else f"127.0.0.1:{port}"
 
     env = _launcher_env(name, dtype_name, requested_procs)
     print(f"[launcher] starting task {name}: dtype={dtype_name}, procs={requested_procs}")
 
-    launcher = os.environ.get("JAXMG_MPMD_LAUNCHER")
-    if launcher is None:
-        launcher = "srun" if "SLURM_JOB_ID" in os.environ else "subprocess"
     if launcher == "srun":
-        logs = _run_with_srun(mp_test, requested_procs, name, dtype_name, coord, env)
-    elif launcher == "subprocess":
+        assert srun_nodes is not None
+        logs = _run_with_srun(
+            mp_test,
+            requested_procs,
+            srun_nodes,
+            name,
+            dtype_name,
+            coord,
+            env,
+        )
+    else:
         logs = _run_with_local_subprocesses(
             mp_test, requested_procs, name, dtype_name, coord, env
         )
-    else:
-        raise ValueError(f"unknown JAXMG_MPMD_LAUNCHER={launcher!r}")
 
     _check_results(logs, requested_procs=requested_procs, name=name, dtype_name=dtype_name)
     print(f"[launcher] task {name} dtype={dtype_name} completed successfully")
