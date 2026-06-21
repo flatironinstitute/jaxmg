@@ -50,52 +50,56 @@ Details for compiling the from source code can be found in `CONTRIBUTING.md`.
 
 ## Example
 
-A minimal example that runs the code is:
+JAXMg's cuSOLVERMp backend uses one Python process per GPU. A minimal
+rank-per-GPU Cholesky solve is:
 
 ```python
 import jax
 jax.config.update("jax_enable_x64", True)
+
 import jax.numpy as jnp
 from jax.sharding import PartitionSpec as P, NamedSharding
 from jaxmg import potrs
-print(f"Devices: {jax.devices()}")
-# Assumes we have at least one GPU available
-devices = jax.devices("gpu")
-N = 12
+
+
+jax.distributed.initialize()
+
 T_A = 3
 dtype = jnp.float64
-# Create diagonal matrix and `b` all equal to one
+
+num_procs = jax.process_count()
+N = max(12, T_A * num_procs)
+
 A = jnp.diag(jnp.arange(N, dtype=dtype) + 1)
 b = jnp.ones((N, 1), dtype=dtype)
-ndev = len(devices)
-# Make a degenerate 2D process grid and place data.
-mesh = jax.make_mesh((ndev, 1), ("pr", "pc"))
+
+mesh = jax.make_mesh((num_procs, 1), ("pr", "pc"))
 sharding = NamedSharding(mesh, P("pr", "pc"))
 A = jax.device_put(A, sharding)
 b = jax.device_put(b, sharding)
-# Call potrs
+
 out = potrs(A, b, T_A=T_A)
-print(out)
+out.block_until_ready()
+
 expected_out = 1.0 / (jnp.arange(N, dtype=dtype) + 1)
-print(jnp.allclose(out.flatten(), expected_out))
+is_correct = jnp.allclose(out.flatten(), expected_out)
+is_correct.block_until_ready()
+
+if jax.process_index() == 0:
+    print(is_correct)
 ```
-which gives
+
+Launch the script with one task per GPU. For example, on a single 4-GPU Slurm
+node:
+
 ```bash
-[[1.        ]
- [0.5       ]
- [0.33333333]
- [0.25      ]
- [0.2       ]
- [0.16666667]
- [0.14285714]
- [0.125     ]
- [0.11111111]
- [0.1       ]
- [0.09090909]
- [0.08333333]]
-True
+srun --nodes=1 --ntasks=4 --gres=gpu:4 python -u example_potrs.py
 ```
-as expected.
+
+which prints `True`. If your launcher does not provide enough information for
+`jax.distributed.initialize()` to infer the coordinator and rank ids, pass those
+arguments explicitly following the JAX distributed initialization API.
+
 ## Projects that use JAXMg
 
 - [JAXMg Benchmarks](https://github.com/therooler/jaxmg_benchmark): Benchmarks for various Multi-GPUs setups.
