@@ -68,7 +68,7 @@ T_A = 3
 dtype = jnp.float64
 
 num_procs = jax.process_count()
-N = max(12, T_A * num_procs)
+N = 12
 
 A = jnp.diag(jnp.arange(N, dtype=dtype) + 1)
 b = jnp.ones((N, 1), dtype=dtype)
@@ -86,19 +86,26 @@ is_correct = jnp.allclose(out.flatten(), expected_out)
 is_correct.block_until_ready()
 
 if jax.process_index() == 0:
+    print(out)
     print(is_correct)
 ```
-
-Launch the script with one task per GPU. For example, on a single 4-GPU Slurm
-node:
-
+which gives
 ```bash
-srun --nodes=1 --ntasks=4 --gres=gpu:4 python -u example_potrs.py
+[[1.        ]
+ [0.5       ]
+ [0.33333333]
+ [0.25      ]
+ [0.2       ]
+ [0.16666667]
+ [0.14285714]
+ [0.125     ]
+ [0.11111111]
+ [0.1       ]
+ [0.09090909]
+ [0.08333333]]
+True
 ```
-
-which prints `True`. If your launcher does not provide enough information for
-`jax.distributed.initialize()` to infer the coordinator and rank ids, pass those
-arguments explicitly following the JAX distributed initialization API.
+as expected.
 
 ## Projects that use JAXMg
 
