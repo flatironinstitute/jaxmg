@@ -68,7 +68,7 @@ T_A = 3
 dtype = jnp.float64
 
 num_procs = jax.process_count()
-N = 12
+N = T_A * num_procs
 
 A = jnp.diag(jnp.arange(N, dtype=dtype) + 1)
 b = jnp.ones((N, 1), dtype=dtype)
@@ -89,7 +89,7 @@ if jax.process_index() == 0:
     print(out)
     print(is_correct)
 ```
-which gives
+On four ranks, this gives
 ```bash
 [[1.        ]
  [0.5       ]
