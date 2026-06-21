@@ -106,10 +106,7 @@ def _srun_coordinator(port: int) -> str:
 
 def _srun_gpu_args() -> list[str]:
     """Return optional Slurm GPU binding arguments for nested ``srun``."""
-    value = os.environ.get(
-        "JAXMG_MPMD_SRUN_GPU_ARGS",
-        "--gpus-per-task=1 --gpu-bind=single:1",
-    )
+    value = os.environ.get("JAXMG_MPMD_SRUN_GPU_ARGS", "")
     return shlex.split(value) if value else []
 
 
