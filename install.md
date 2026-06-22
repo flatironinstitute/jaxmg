@@ -1,9 +1,7 @@
 # Building the native backend (workstation notes)
 
 These are the steps to compile `libjaxmg_xla_comm_backend.so` against XLA (`@xla`)
-inside the official JAX CI container (`tensorflow/ml-build:latest`) on a Flatiron
-workstation, then install and smoke-test the package. See `CONTRIBUTING.md` for the
-general (non-site-specific) flow.
+inside the official JAX CI container (`tensorflow/ml-build:latest`).
 
 ## 0. Load modules
 
@@ -63,18 +61,11 @@ Copy it back into this repo:
 cp "$JAXCO/jaxmg/src/jaxmg/cu12/libjaxmg_xla_comm_backend.so" "$JAXMG/src/jaxmg/cu12/"
 ```
 
-Sanity checks (host, needs `cuda/12.8`):
-
-```bash
-cuobjdump --list-elf src/jaxmg/cu12/libjaxmg_xla_comm_backend.so   # expect sm_70/sm_80/sm_90
-nm -D src/jaxmg/cu12/libjaxmg_xla_comm_backend.so | grep XlaCusolverMp  # 4 *FFI symbols exported
-```
-
 ## 4. Install and smoke-test
 
 ```bash
 python -m venv .venv
-.venv/bin/python -m pip install -e ".[cuda12]"   # jax[cuda12]==0.10.1 + cuSOLVERMp + jaxmg
+.venv/bin/python -m pip install -e ".[cuda12]" 
 ```
 
 Single-GPU functional check (one process, 1×1 mesh):
