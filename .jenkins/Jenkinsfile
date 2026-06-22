@@ -4,33 +4,85 @@ properties([
   pipelineTriggers([cron('@monthly')])
 ])
 
+// Native backend build settings.
+//
+// The backend is now built against XLA as the external Bazel repo `@xla`, from
+// inside the official JAX CI container (tensorflow/ml-build:latest) using a JAX
+// checkout. We no longer clone a pinned OpenXLA tree or build a custom
+// manylinux image. JAX_GIT_TAG must be compatible with the `jax==0.10.1` pin in
+// pyproject.toml (the JAX checkout determines the XLA revision behind `@xla`).
+JAX_GIT_REPOSITORY = 'https://github.com/jax-ml/jax.git'
+JAX_GIT_TAG        = 'jax-v0.10.1'
+// Broad arch list (Volta -> Hopper SASS + PTX). CUDA 13 drops Volta, so it uses
+// a narrower default below.
+CUDA12_ARCHS = 'sm_70,sm_80,sm_90,compute_90'
+CUDA13_ARCHS = 'sm_80,sm_90,compute_90'
+CUSOLVERMP12 = 'nvidia-cusolvermp-cu12==0.8.0.3126'
+
+// Compile the native backend for one CUDA major version inside the JAX CI
+// container and copy the resulting .so into src/jaxmg/cu${cudaMajor}.
+//
+// NOTE: this stage requires a Docker-capable agent (run_docker_container.sh
+// performs `docker run`). The container is named per CUDA major so the parallel
+// cuda12/cuda13 branches do not collide; pass that name through whatever
+// mechanism run_docker_container.sh supports in your environment
+// (JAXCI_CONTAINER_NAME below is illustrative and may need adjusting to the
+// installed JAX CI scripts).
+def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
+  withEnv([
+    "CUDA_MAJOR=${cudaMajor}",
+    "ARCHS=${archs}",
+    "CUSOLVERMP_PKG=${cusolvermpPkg}",
+    "JAX_GIT_REPOSITORY=${JAX_GIT_REPOSITORY}",
+    "JAX_GIT_TAG=${JAX_GIT_TAG}",
+    "JAXCI_CONTAINER_NAME=jax${cudaMajor}"
+  ]) {
+    sh '''#!/bin/bash -ex
+      WS="$(pwd)"
+
+      # 1. Clone the JAX repo (provides the `@xla` Bazel external repo).
+      rm -rf jax-src
+      git clone --depth 1 --branch "$JAX_GIT_TAG" "$JAX_GIT_REPOSITORY" jax-src
+
+      # 2. Stage this jaxmg checkout inside the jax tree so the build sources are
+      #    visible under /jax once the container mounts the jax checkout.
+      mkdir -p jax-src/jaxmg
+      cp -r src bazel build_native_backend.sh pyproject.toml setup.py jax-src/jaxmg/
+
+      # 3. Start the JAX CI container and generate .jax_configure.bazelrc.
+      cd jax-src
+      JAXCI_DOCKER_CONTAINER_NAME="$JAXCI_CONTAINER_NAME" ./ci/utilities/run_docker_container.sh
+      docker exec "$JAXCI_CONTAINER_NAME" ./ci/build_artifacts.sh jax-cuda-plugin
+
+      # 4. Build the backend against @xla inside the container.
+      # The ml-build container has no system nvcc (CUDA is hermetic), so
+      # CUDA_MAJOR cannot be auto-detected and is passed explicitly.
+      docker exec "$JAXCI_CONTAINER_NAME" bash -lc "
+        python -m pip install '$CUSOLVERMP_PKG' &&
+        JAX_SRC=/jax JAXMG_ROOT=/jax/jaxmg CUDA_MAJOR='$CUDA_MAJOR' \
+        JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES='$ARCHS' \
+        JAXMG_XLA_BAZEL_JOBS='${PARALLEL:-$(nproc)}' \
+        /jax/jaxmg/build_native_backend.sh"
+
+      docker rm -f "$JAXCI_CONTAINER_NAME" || true
+
+      # 5. Copy the built library back into the workspace for stashing.
+      cd "$WS"
+      mkdir -p "src/jaxmg/cu${CUDA_MAJOR}"
+      cp "jax-src/jaxmg/src/jaxmg/cu${CUDA_MAJOR}/libjaxmg_xla_comm_backend.so" \
+        "src/jaxmg/cu${CUDA_MAJOR}/"
+      echo "Built libs at $WS/src/jaxmg/cu${CUDA_MAJOR}:"
+      ls -la "src/jaxmg/cu${CUDA_MAJOR}"
+    '''
+  }
+}
+
 timeout(time: 2, unit: 'HOURS') {
   parallel cuda12: {
-    buildPod(tag: '12',
-      context: '.jenkins',
-      dockerfile: 'Dockerfile12') {
+    buildPod(tag: '12', context: '.jenkins') {
         stage('Compile CUDA 12') {
-          withEnv([
-            "CUDA_ROOT=/usr/local/cuda",
-            "CUDNN_ROOT=/usr",
-            "XLA_PYTHON_CLIENT_ALLOCATOR=platform"
-          ]) {
-            sh '''#!/bin/bash -ex
-              export PATH="/usr/local/cuda/bin:$PATH"
-              export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
-              export CUDA_HOME="$CUDA_ROOT"
-              export JAXMG_XLA_BAZEL_JOBS="${PARALLEL:-$(nproc)}"
-              export JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT="${WORKSPACE_TMP:-${WORKSPACE}/.bazel-output}/jaxmg-bazel-output-cuda12"
-              export JAXMG_XLA_BAZEL_REPOSITORY_CACHE="${WORKSPACE}/.bazel-repository-cache"
-              mkdir -p "$JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT" "$JAXMG_XLA_BAZEL_REPOSITORY_CACHE"
-              trap 'rm -rf "$JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT"' EXIT
-
-              ./build_native_backend.sh
-              echo "Built libs at $WORKSPACE/src/jaxmg/cu12:"
-              ls -la "$WORKSPACE/src/jaxmg/cu12"
-            '''
-            stash name: 'bin12', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
-          }
+          compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
+          stash name: 'bin12', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
         }
     }
 
@@ -110,30 +162,13 @@ timeout(time: 2, unit: 'HOURS') {
         }
     }
   }, cuda13: {
-    buildPod(tag: '13',
-      context: '.jenkins',
-      dockerfile: 'Dockerfile13') {
+    buildPod(tag: '13', context: '.jenkins') {
         stage('Compile CUDA 13') {
-          withEnv([
-            "CUDA_ROOT=/usr/local/cuda",
-            "CUDNN_ROOT=/usr"
-          ]) {
-            sh '''#!/bin/bash -ex
-              export PATH="/usr/local/cuda/bin:$PATH"
-              export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
-              export CUDA_HOME="$CUDA_ROOT"
-              export JAXMG_XLA_BAZEL_JOBS="${PARALLEL:-$(nproc)}"
-              export JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT="${WORKSPACE_TMP:-${WORKSPACE}/.bazel-output}/jaxmg-bazel-output-cuda13"
-              export JAXMG_XLA_BAZEL_REPOSITORY_CACHE="${WORKSPACE}/.bazel-repository-cache"
-              mkdir -p "$JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT" "$JAXMG_XLA_BAZEL_REPOSITORY_CACHE"
-              trap 'rm -rf "$JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT"' EXIT
-
-              ./build_native_backend.sh
-              echo "Built libs at $WORKSPACE/src/jaxmg/cu13:"
-              ls -la "$WORKSPACE/src/jaxmg/cu13"
-            '''
-            stash name: 'bin13', includes: 'src/jaxmg/cu13/**', useDefaultExcludes: false
-          }
+          // CUDA 13 follows the same flow; it requires a CUDA-13-capable
+          // tensorflow/ml-build image/JAX checkout. If unavailable, this stage
+          // will fail fast rather than silently shipping a stale binary.
+          compileNativeBackend('13', CUDA13_ARCHS, '')
+          stash name: 'bin13', includes: 'src/jaxmg/cu13/**', useDefaultExcludes: false
         }
     }
 

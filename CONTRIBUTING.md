@@ -19,51 +19,56 @@ https://github.com/openxla/xla/discussions/42689
 
 ## Build from source
 
-This branch pins JAX/JAXLIB to `0.10.1` and builds the native CUDA backend as a
-Bazel target inside the matching OpenXLA source tree.
-
-The expected source build is:
+The native CUDA backend is built as a Bazel target **against XLA as the external
+Bazel repo `@xla`**, from inside the official JAX CI container
+(`tensorflow/ml-build:latest`) using a JAX checkout. We no longer clone a pinned
+OpenXLA tree: the JAX checkout determines the XLA revision that `@xla` resolves
+to, so the build configuration always matches JAX/XLA.
 
 ```bash
-export CUDA_ROOT=/path/to/cuda
-export CUDA_HOME="${CUDA_ROOT}"
-export BAZEL=/path/to/bazel-or-bazelisk
+# 1. Clone JAX (provides @xla) at a tag compatible with the jax pin in
+#    pyproject.toml, and start the JAX CI container.
+git clone --branch jax-v0.10.1 https://github.com/jax-ml/jax.git
+cd jax
+./ci/utilities/run_docker_container.sh          # starts a container named "jax"
 
-python -m pip install "jax[cuda12]==0.10.1"
-python -m pip install --no-deps -e .
+# 2. Generate .jax_configure.bazelrc (CUDA/cuDNN/Bazel config).
+docker exec jax ./ci/build_artifacts.sh jax-cuda-plugin
 
-./build_native_backend.sh
+# 3. Make this jaxmg checkout available inside the container (mounted at /jax),
+#    install cuSOLVERMp, and build the backend against @xla.
+#    Here JAXMG_ROOT is the path to this repo as seen inside the container.
+docker exec jax bash -lc '
+  python -m pip install nvidia-cusolvermp-cu12==0.8.0.3126 &&
+  JAX_SRC=/jax JAXMG_ROOT=/path/to/jaxmg ./path/to/jaxmg/build_native_backend.sh'
 ```
 
-This installs `src/jaxmg/cu12/libjaxmg_xla_comm_backend.so`, which registers
-the production `cusolvermp_potrs` and `cusolvermp_syevd` FFI
-targets. Additional communicator and cuSOLVERMp probe targets may be registered
-when present in the shared library; these are diagnostic targets, not public
-solver APIs.
+This installs `src/jaxmg/cu12/libjaxmg_xla_comm_backend.so`, which registers the
+production `cusolvermp_potrs` and `cusolvermp_syevd` FFI targets. Additional
+communicator and cuSOLVERMp probe targets may be registered when present in the
+shared library; these are diagnostic targets, not public solver APIs.
 
-The default CUDA compute capability is `sm_90`, matching Hopper H100/H200
-systems.  Override `JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES` when building for a
-different GPU generation, for example `sm_80` for Ampere A100 systems.
+`build_native_backend.sh` assembles the backend sources into
+`${JAX_SRC}/jaxmg_backend`, substitutes the CUDA major version into
+`bazel/jaxmg_backend.BUILD.bazel`, and runs
+`bazel build --config=cuda_libraries_from_stubs //jaxmg_backend:libjaxmg_xla_comm_backend.so`.
+Key environment variables:
 
-The build helper checks out the pinned OpenXLA revision if `XLA_SRC` is not set.
-Use `XLA_SRC` to point at an existing checkout, or `JAXMG_XLA_SOURCE_ROOT` to
-choose where the helper stores its managed checkout. It also checks any
-installed `jax` package against the expected pinned version and warns if JAX is
-not installed in the active Python environment; set
-`JAXMG_SKIP_JAX_VERSION_CHECK=1` only when intentionally overriding this check.
-Bazel output defaults to
-`$TMPDIR` via `JAXMG_XLA_BAZEL_CACHE_ROOT`; override
-`JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT` and `JAXMG_XLA_BAZEL_REPOSITORY_CACHE` if the
-temporary filesystem is not suitable.
+- `JAX_SRC` — the JAX checkout root (default `/jax`); this is where `@xla` is defined.
+- `JAXMG_ROOT` — path to this repo (default: the script's own directory).
+- `JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES` — target GPU archs. Default is a broad
+  list `sm_70,sm_80,sm_90,compute_90` (Volta→Hopper SASS + PTX). CUDA 13 drops
+  Volta, so use e.g. `sm_80,sm_90,compute_90` there.
+- `JAXMG_CUSOLVERMP_INCLUDE_DIR` / `JAXMG_CUSOLVERMP_LIBRARY_DIR` — override the
+  cuSOLVERMp wheel auto-discovery.
 
 ## JAX and CUDA
 
-This branch pins the Python package to `jax==0.10.1` and builds the native
-backend against the matching OpenXLA revision:
-
-```bash
-XLA_GIT_TAG=9b635916ecc6df6efee62d8e4b0c7ef87ef84d69
-```
+The Python package pins `jax==0.10.1` (see `pyproject.toml`). The native backend
+depends on **internal** OpenXLA APIs, so changing the JAX version is not just a
+Python dependency change: the `@xla` targets in `bazel/jaxmg_backend.BUILD.bazel`
+must be audited against the XLA revision behind the new JAX checkout, and
+`JAX_GIT_TAG` in `.jenkins/Jenkinsfile` updated to match.
 
 For CUDA 12, install JAX with either:
 
@@ -77,20 +82,15 @@ CUDA 13 should use the same JAX pin with the CUDA 13 extras:
 
 2. `pip install "jax[cuda13-local]==0.10.1"`
 
-Changing the JAX version is not only a Python dependency change: the XLA
-communicator APIs used here are internal OpenXLA APIs, so `XLA_GIT_TAG` in
-`build_native_backend.sh` and the Bazel target/dependency list in
-`bazel/jaxmg_backend.BUILD.bazel` must be audited together with any JAX/JAXLIB
-version bump.
-
 ## Continuous integration
 
 We make use of Jenkins to build and test the code. Jenkins builds the native
-backend by calling `build_native_backend.sh` inside the CUDA
-manylinux images, then packages the resulting shared library into wheels. We
-test the following configurations:
+backend by calling `build_native_backend.sh` inside the official JAX CI
+container (`tensorflow/ml-build:latest`) against a JAX checkout, then packages
+the resulting shared library into wheels. We test the following configurations:
 
-1. A manylinux docker images (quay.io/pypa/manylinux_2_28_x86_64) where we install CUDA, CUDNN and NCCL.
+1. The JAX CI container `tensorflow/ml-build:latest`, building against `@xla`
+   from a `jax` checkout (`JAX_GIT_TAG` in `.jenkins/Jenkinsfile`).
 
 2. Python `3.11`, `3.12`, `3.13`, `3.14`
 

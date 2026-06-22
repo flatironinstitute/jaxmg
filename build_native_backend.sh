@@ -1,67 +1,47 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Builds libjaxmg_xla_comm_backend.so against XLA as the external Bazel repo
+# `@xla`, from inside a JAX repo checkout (the JAX CI container workflow).
+#
+# Expected usage (see CONTRIBUTING.md):
+#   1. Clone jax and start the JAX CI container:
+#        git clone https://github.com/jax-ml/jax.git && cd jax
+#        ./ci/utilities/run_docker_container.sh
+#   2. Generate .jax_configure.bazelrc (CUDA/cuDNN/Bazel config):
+#        docker exec jax ./ci/build_artifacts.sh jax-cuda-plugin
+#   3. Run this script inside the container with JAX_SRC pointing at the jax
+#      checkout (default /jax) and JAXMG_ROOT pointing at this repo:
+#        docker exec jax bash -lc 'JAX_SRC=/jax JAXMG_ROOT=/path/to/jaxmg \
+#          /path/to/jaxmg/build_native_backend.sh'
+#
+# The script no longer clones a pinned OpenXLA tree and no longer inspects the
+# locally installed JAX version: both are determined by the container/jax repo.
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-XLA_GIT_REPOSITORY="${XLA_GIT_REPOSITORY:-https://github.com/openxla/xla.git}"
-XLA_GIT_TAG="${XLA_GIT_TAG:-9b635916ecc6df6efee62d8e4b0c7ef87ef84d69}"
-XLA_SHORT_TAG="${XLA_GIT_TAG:0:12}"
-XLA_SOURCE_ROOT="${JAXMG_XLA_SOURCE_ROOT:-${ROOT}/.jaxmg-xla}"
-XLA_SRC="${XLA_SRC:-${XLA_SOURCE_ROOT}/xla-${XLA_SHORT_TAG}}"
-EXPECTED_JAX_VERSION="${JAXMG_EXPECTED_JAX_VERSION:-0.10.1}"
+JAXMG_ROOT="${JAXMG_ROOT:-${ROOT}}"
+JAX_SRC="${JAX_SRC:-/jax}"
 PYTHON="${PYTHON:-python}"
 BAZEL="${BAZEL:-bazel}"
-BAZEL_CONFIGS="${JAXMG_XLA_BAZEL_CONFIGS:-bzlmod cuda_clang}"
+# Config provided by .jax_configure.bazelrc; we only add the stubs config used
+# to build XLA targets in the JAX CI container.
+BAZEL_CONFIGS="${JAXMG_XLA_BAZEL_CONFIGS:-cuda_libraries_from_stubs}"
 BAZEL_JOBS="${JAXMG_XLA_BAZEL_JOBS:-8}"
-CUDA_COMPUTE_CAPABILITIES="${JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES:-sm_90}"
-BAZEL_CACHE_ROOT="${JAXMG_XLA_BAZEL_CACHE_ROOT:-${TMPDIR:-/tmp}/jaxmg-bazel-${USER:-user}}"
-BAZEL_OUTPUT_USER_ROOT="${JAXMG_XLA_BAZEL_OUTPUT_USER_ROOT:-${BAZEL_CACHE_ROOT}/output_user_root}"
-BAZEL_REPOSITORY_CACHE="${JAXMG_XLA_BAZEL_REPOSITORY_CACHE:-${BAZEL_CACHE_ROOT}/repository_cache}"
-BACKEND_BUILD_TEMPLATE="${JAXMG_BACKEND_BUILD_TEMPLATE:-${ROOT}/bazel/jaxmg_backend.BUILD.bazel}"
+# Build for a broad range of GPU architectures (Volta -> Hopper SASS, plus PTX
+# for forward compatibility). Override for a narrower/faster build.
+CUDA_COMPUTE_CAPABILITIES="${JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES:-sm_70,sm_80,sm_90,compute_90}"
+BACKEND_BUILD_TEMPLATE="${JAXMG_BACKEND_BUILD_TEMPLATE:-${JAXMG_ROOT}/bazel/jaxmg_backend.BUILD.bazel}"
 
-if [[ ! -d "${XLA_SRC}/.git" ]]; then
-  if [[ -e "${XLA_SRC}" ]]; then
-    echo "XLA source path exists but is not a git checkout: ${XLA_SRC}" >&2
-    echo "Set XLA_SRC to a valid OpenXLA checkout or remove the path." >&2
-    exit 1
-  fi
-  mkdir -p "$(dirname "${XLA_SRC}")"
-  git clone "${XLA_GIT_REPOSITORY}" "${XLA_SRC}"
-fi
-
-if ! git -C "${XLA_SRC}" cat-file -e "${XLA_GIT_TAG}^{commit}" 2>/dev/null; then
-  git -C "${XLA_SRC}" fetch origin
-fi
-git -C "${XLA_SRC}" checkout --detach "${XLA_GIT_TAG}"
-
-if ! command -v "${BAZEL}" >/dev/null 2>&1; then
-  echo "Unable to find Bazel executable: ${BAZEL}" >&2
-  echo "Set BAZEL to a bazel/bazelisk path or install Bazelisk on PATH." >&2
+if [[ ! -d "${JAX_SRC}" ]]; then
+  echo "JAX checkout not found: ${JAX_SRC}" >&2
+  echo "Set JAX_SRC to the jax repo root (the JAX CI container mounts it at /jax)." >&2
   exit 1
 fi
 
-if [[ "${JAXMG_SKIP_JAX_VERSION_CHECK:-0}" != "1" ]]; then
-  if command -v "${PYTHON}" >/dev/null 2>&1; then
-    JAX_VERSION="$("${PYTHON}" - <<'PY' 2>/dev/null || true
-import importlib.metadata as metadata
-
-try:
-    print(metadata.version("jax"))
-except metadata.PackageNotFoundError:
-    pass
-PY
-)"
-    if [[ -n "${JAX_VERSION}" && "${JAX_VERSION}" != "${EXPECTED_JAX_VERSION}" ]]; then
-      echo "JAX version mismatch: found ${JAX_VERSION}, expected ${EXPECTED_JAX_VERSION}." >&2
-      echo "This backend is pinned to a matching OpenXLA revision; install the pinned JAX version or set JAXMG_SKIP_JAX_VERSION_CHECK=1." >&2
-      exit 1
-    elif [[ -n "${JAX_VERSION}" ]]; then
-      echo "Using Python JAX version: ${JAX_VERSION}"
-    else
-      echo "JAX is not installed in ${PYTHON}; skipping Python package version check." >&2
-    fi
-  else
-    echo "Python executable not found for JAX version check: ${PYTHON}" >&2
-  fi
+if ! command -v "${BAZEL}" >/dev/null 2>&1; then
+  echo "Unable to find Bazel executable: ${BAZEL}" >&2
+  echo "Run inside the JAX CI container (tensorflow/ml-build:latest), which ships Bazel." >&2
+  exit 1
 fi
 
 if [[ ! -f "${BACKEND_BUILD_TEMPLATE}" ]]; then
@@ -151,55 +131,56 @@ if [[ ! -f "${CUSOLVERMP_LIBRARY_DIR}/${CUSOLVERMP_LIBRARY_NAME}" ]]; then
   exit 1
 fi
 
-echo "Using OpenXLA checkout: ${XLA_SRC}"
-echo "Using OpenXLA revision: $(git -C "${XLA_SRC}" rev-parse --short HEAD)"
+echo "Using JAX checkout (provides @xla): ${JAX_SRC}"
 echo "Using cuSOLVERMp include directory: ${CUSOLVERMP_INCLUDE_DIR}"
 echo "Using cuSOLVERMp library directory: ${CUSOLVERMP_LIBRARY_DIR}"
+echo "Building for compute capabilities: ${CUDA_COMPUTE_CAPABILITIES}"
 
-BACKEND_PKG="${XLA_SRC}/jaxmg_backend"
+# Assemble the backend Bazel package inside the JAX checkout so that bazel can
+# build it while resolving the `@xla` external repo. Copy (rather than symlink)
+# the sources so the package survives container mount boundaries.
+BACKEND_PKG="${JAX_SRC}/jaxmg_backend"
+rm -rf "${BACKEND_PKG}"
 mkdir -p \
   "${BACKEND_PKG}/xla_ffi" \
   "${BACKEND_PKG}/memory_redist" \
   "${BACKEND_PKG}/cusolvermp_routines"
 for src in handlers.cc runtime.cc runtime.h; do
-  ln -sfn "${ROOT}/src/cuda/xla_ffi/${src}" \
+  cp -f "${JAXMG_ROOT}/src/cuda/xla_ffi/${src}" \
     "${BACKEND_PKG}/xla_ffi/${src}"
 done
-ln -sfn "${CUSOLVERMP_INCLUDE_DIR}" "${BACKEND_PKG}/cusolvermp_include"
-ln -sfn "${CUSOLVERMP_LIBRARY_DIR}" "${BACKEND_PKG}/cusolvermp_lib"
 for src in block_cyclic_2d.cc edge_padding_2d.cc layout_convert.cu.cc layout_convert.h memory_redist.h rectangle_pack.cc scratch.cc; do
-  ln -sfn "${ROOT}/src/cuda/memory_redist/${src}" \
+  cp -f "${JAXMG_ROOT}/src/cuda/memory_redist/${src}" \
     "${BACKEND_PKG}/memory_redist/${src}"
 done
 for src in cusolvermp_common.cc cusolvermp_common.h cusolvermp_potrs.cc cusolvermp_routines.h cusolvermp_syevd.cc; do
-  ln -sfn "${ROOT}/src/cuda/cusolvermp_routines/${src}" \
+  cp -f "${JAXMG_ROOT}/src/cuda/cusolvermp_routines/${src}" \
     "${BACKEND_PKG}/cusolvermp_routines/${src}"
 done
+ln -sfn "${CUSOLVERMP_INCLUDE_DIR}" "${BACKEND_PKG}/cusolvermp_include"
+ln -sfn "${CUSOLVERMP_LIBRARY_DIR}" "${BACKEND_PKG}/cusolvermp_lib"
 
 sed "s/@JAXMG_CUDA_MAJOR@/${CUDA_MAJOR}/g" \
   "${BACKEND_BUILD_TEMPLATE}" > "${BACKEND_PKG}/BUILD.bazel"
 
-cd "${XLA_SRC}"
-mkdir -p "${BAZEL_OUTPUT_USER_ROOT}" "${BAZEL_REPOSITORY_CACHE}"
+cd "${JAX_SRC}"
 export HERMETIC_CUDA_COMPUTE_CAPABILITIES="${CUDA_COMPUTE_CAPABILITIES}"
 export TF_CUDA_COMPUTE_CAPABILITIES="${CUDA_COMPUTE_CAPABILITIES}"
 BAZEL_CONFIG_ARGS=()
 for config in ${BAZEL_CONFIGS}; do
   BAZEL_CONFIG_ARGS+=(--config="${config}")
 done
-"${BAZEL}" \
-  --output_user_root="${BAZEL_OUTPUT_USER_ROOT}" \
-  build \
+"${BAZEL}" build \
   "${BAZEL_CONFIG_ARGS[@]}" \
-  --repository_cache="${BAZEL_REPOSITORY_CACHE}" \
+  --verbose_failures=true \
   --repo_env="HERMETIC_CUDA_COMPUTE_CAPABILITIES=${CUDA_COMPUTE_CAPABILITIES}" \
   --jobs="${BAZEL_JOBS}" \
   //jaxmg_backend:libjaxmg_xla_comm_backend.so
 
-INSTALL_DIR="${ROOT}/src/jaxmg/cu${CUDA_MAJOR}"
+INSTALL_DIR="${JAXMG_ROOT}/src/jaxmg/cu${CUDA_MAJOR}"
 mkdir -p "${INSTALL_DIR}"
 install -m 755 \
-  "${XLA_SRC}/bazel-bin/jaxmg_backend/libjaxmg_xla_comm_backend.so" \
+  "${JAX_SRC}/bazel-bin/jaxmg_backend/libjaxmg_xla_comm_backend.so" \
   "${INSTALL_DIR}/libjaxmg_xla_comm_backend.so"
 
 echo "Installed ${INSTALL_DIR}/libjaxmg_xla_comm_backend.so"

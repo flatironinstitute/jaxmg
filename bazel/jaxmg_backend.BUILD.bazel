@@ -1,5 +1,7 @@
-# Copied by build_native_backend.sh into the pinned OpenXLA checkout.
-# Keep these internal XLA dependencies in sync with XLA_GIT_TAG.
+# Copied by build_native_backend.sh into the JAX repo checkout, where XLA is
+# the external Bazel repo `@xla`. The internal XLA targets below resolve against
+# the XLA revision pinned by the JAX version installed in the build container,
+# so keep them in sync with that JAX/XLA pin.
 
 load("@local_config_cuda//cuda:build_defs.bzl", "cuda_library")
 
@@ -35,16 +37,28 @@ cc_binary(
     ],
     linkshared = True,
     linkstatic = True,
+    # `@local_config_cuda//cuda:cuda_headers` (in deps) stages the hermetic CUDA
+    # header *files* into the sandbox, but it exposes them only under XLA's
+    # `third_party/gpus/...` prefix. cuSOLVERMp's own headers (and our code)
+    # include CUDA headers unprefixed (e.g. <cuda_runtime.h>, <cusolver_common.h>),
+    # so we add the redist repos' include dirs directly. The canonical repo names
+    # below are those used by the JAX CI container (tensorflow/ml-build:latest);
+    # confirm with `ls bazel-jax/external | grep cuda_` if the container changes.
     copts = [
-        "-Iexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_cudart/include",
-        "-Iexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_cusolver/include",
-        "-Iexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_nvcc/include",
-        "-Iexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_cublas/include",
-        "-Iexternal/_main~cccl_extension~cuda_cccl/libcudacxx/include",
+        # The JAX CI container's .bazelrc compiles with -fvisibility=hidden, which
+        # would hide the XLA_FFI_DEFINE_HANDLER_SYMBOL handler symbols
+        # (XlaCusolverMp*FFI) that the Python loader resolves via ctypes/dlsym.
+        # Re-export them by compiling our sources with default visibility.
+        "-fvisibility=default",
+        "-Iexternal/cuda_cudart/include",
+        "-Iexternal/cuda_cusolver/include",
+        "-Iexternal/cuda_cublas/include",
         "-Ijaxmg_backend/cusolvermp_include",
     ],
+    # cuSOLVERMp is not part of the hermetic CUDA set, so it is linked explicitly
+    # from our symlinked lib dir. The other CUDA libs link via stubs under
+    # --config=cuda_libraries_from_stubs (see :cusolver / :cudart deps).
     linkopts = [
-        "-Lexternal/rules_ml_toolchain~~cuda_redist_init_ext~cuda_cusolver/lib",
         "-Ljaxmg_backend/cusolvermp_lib",
         "-l:libcusolverMp.so.0",
         "-Wl,-rpath,$ORIGIN/../../nvidia/cu@JAXMG_CUDA_MAJOR@/lib",
@@ -54,24 +68,23 @@ cc_binary(
         "@local_config_cuda//cuda:cuda_headers",
         "@cuda_cudart//:cudart",
         "@cuda_cusolver//:cusolver",
-        "//xla:xla_data_proto_cc",
-        "//xla/backends/gpu/collectives:gpu_clique_key",
-        "//xla/backends/gpu/collectives:gpu_collectives",
-        "//xla/backends/gpu/collectives:gpu_communicator",
-        "//xla/backends/gpu:ffi",
-        "//xla/backends/gpu/runtime:collective_clique_requests",
-        "//xla/backends/gpu/runtime:collective_cliques",
-        "//xla/backends/gpu/runtime:collective_execution",
-        "//xla/backends/gpu/runtime:collective_params",
-        "//xla/core/collectives:communicator",
-        "//xla/core/collectives:rank_id",
-        "//xla/core/collectives:reduction_kind",
-        "//xla/ffi",
-        "//xla/ffi:ffi_api",
-        "//xla:future",
-        "//xla/runtime:device_id",
-        "//xla/stream_executor:stream",
-        "//xla/tsl/cuda:nccl",
+        "@xla//xla:xla_data_proto_cc",
+        "@xla//xla/backends/gpu/collectives:gpu_clique_key",
+        "@xla//xla/backends/gpu/collectives:gpu_collectives",
+        "@xla//xla/backends/gpu/collectives:gpu_communicator",
+        "@xla//xla/backends/gpu:ffi",
+        "@xla//xla/backends/gpu/runtime:collective_clique_requests",
+        "@xla//xla/backends/gpu/runtime:collective_cliques",
+        "@xla//xla/backends/gpu/runtime:collective_execution",
+        "@xla//xla/backends/gpu/runtime:collective_params",
+        "@xla//xla/core/collectives:communicator",
+        "@xla//xla/core/collectives:rank_id",
+        "@xla//xla/core/collectives:reduction_kind",
+        "@xla//xla/ffi",
+        "@xla//xla/ffi:ffi_api",
+        "@xla//xla:future",
+        "@xla//xla/stream_executor:stream",
+        "@xla//xla/tsl/cuda:nccl",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
