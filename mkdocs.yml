@@ -30,10 +30,10 @@ theme:
 site_name: JAXMg
 site_description: The documentation for the jaxmg software library.
 site_author: Roeland Wiersema
-site_url: https://therooler.github.io/jaxmg
+site_url: https://flatironinstitute.github.io/jaxmg
 
-repo_url: https://github.com/therooler/jaxmg
-repo_name: therooler/jaxmg
+repo_url: https://github.com/flatironinstitute/jaxmg
+repo_name: flatironinstitute/jaxmg
 edit_uri: ""
 
 strict: true # Don't allow warnings during the build process
