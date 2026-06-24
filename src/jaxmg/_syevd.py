@@ -149,7 +149,7 @@ def syevd(
         tile_size=tile_shape.rows,
         dtype=a.dtype,
     )
-    eigenvalues, vectors, native_status = impl(a)
+    eigenvalues, _, vectors, native_status = impl(a)
     if return_status:
         return eigenvalues, vectors, native_status
     return eigenvalues, vectors
@@ -298,7 +298,7 @@ def _syevd_compiled(
         local_cols=a_padding.local_logical_cols,
     )
 
-    def syevd_ffi(_a: Array) -> tuple[Array, Array, Array]:
+    def syevd_ffi(_a: Array) -> tuple[Array, Array, Array, Array]:
         """Call fused native redistribution and vector-producing ``syevd``.
 
         This function is mapped over local shards.  It declares the native FFI
@@ -335,23 +335,25 @@ def _syevd_compiled(
             n=int(n),
             tile_size=int(tile_size),
         )
-        eigenvalues, _, eigenvectors, status = ffi_fn(_a)
-        return eigenvalues, eigenvectors, status
+        eigenvalues, work, eigenvectors, status = ffi_fn(_a)
+        return eigenvalues, work, eigenvectors, status
 
     syevd_shardmap = jax.shard_map(
         syevd_ffi,
         mesh=mesh,
         in_specs=matrix_specs,
-        out_specs=(P(None), matrix_specs, native_status_specs),
+        out_specs=(P(None), matrix_specs, matrix_specs, native_status_specs),
         check_vma=False,
     )
 
     @partial(jax.jit, donate_argnums=(0,))
-    def impl(_a: Array) -> tuple[Array, Array, Array]:
+    def impl(_a: Array) -> tuple[Array, Array, Array, Array]:
         """Run padding, fused native SYEVD, and unpadding as one compiled path."""
         a_padded = pad_a(_a)
-        eigenvalues, vectors_padded, native_status = syevd_shardmap(a_padded)
+        eigenvalues, work_padded, vectors_padded, native_status = syevd_shardmap(
+            a_padded
+        )
         vectors = unpad_vectors(vectors_padded)
-        return eigenvalues, vectors, native_status
+        return eigenvalues, work_padded, vectors, native_status
 
     return impl
