@@ -16,7 +16,10 @@ properties([
 // `@xla`).
 JAX_GIT_REPOSITORY = 'https://github.com/jax-ml/jax.git'
 JAX_GIT_TAG        = 'jax-v0.10.1'
-ML_BUILD_IMAGE     = 'tensorflow/ml-build:latest'
+// Full Artifact Registry path for the JAX CI container (the public image the
+// `tensorflow/ml-build:latest` shorthand resolves to via ci/envs/docker.env).
+// docker.io/tensorflow/ml-build is not publicly pullable.
+ML_BUILD_IMAGE     = 'us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest'
 // Broad arch list (Volta -> Hopper SASS + PTX).
 CUDA12_ARCHS = 'sm_70,sm_80,sm_90,compute_90'
 CUSOLVERMP12 = 'nvidia-cusolvermp-cu12==0.8.0.3126'
