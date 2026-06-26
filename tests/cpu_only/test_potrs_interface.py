@@ -29,7 +29,8 @@ def _install_fake_potrs_backend(monkeypatch):
 
         def impl(_a, _b):
             status = jnp.zeros((_CUSOLVERMP_POTRS_STATUS_SIZE,), dtype=jnp.int32)
-            return _b, status
+            # impl returns the donated A work buffer, the solved RHS, and status.
+            return _a, _b, status
 
         return impl
 

@@ -31,7 +31,9 @@ def _install_fake_syevd_backend(monkeypatch):
             n = int(kwargs["n"])
             eigenvalues = jnp.arange(n, dtype=jnp.float32)
             status = jnp.zeros((_CUSOLVERMP_SYEVD_STATUS_SIZE,), dtype=jnp.int32)
-            return eigenvalues, _a, status
+            # impl returns eigenvalues, the donated work buffer, eigenvectors,
+            # and status.
+            return eigenvalues, _a, _a, status
 
         return impl
 
