@@ -44,6 +44,11 @@ def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
     sh '''#!/bin/bash -ex
       WS="$(pwd)"
 
+      # The pod runs as uid 1000 with no $HOME set, so `git config --global`
+      # (in JAX's setup_build_environment.sh) and Bazel's output base would try
+      # to write to `/`. Point HOME at the writable workspace.
+      export HOME="$WS"
+
       # 1. Clone the JAX repo (provides the `@xla` Bazel external repo).
       rm -rf jax-src
       git clone --depth 1 --branch "$JAX_GIT_TAG" "$JAX_GIT_REPOSITORY" jax-src
