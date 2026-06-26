@@ -123,7 +123,7 @@ timeout(time: 2, unit: 'HOURS') {
               }
               stage("Build ${c}-${p}-${j}") {
                 unstash 'bin12'
-                withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
+                withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}", "CUSOLVERMP_PKG=${CUSOLVERMP12}"]) {
                   sh '''#!/bin/bash -ex
                     mkdir -p "$WORKDIR"
 
@@ -148,6 +148,10 @@ timeout(time: 2, unit: 'HOURS') {
                       "$WORKDIR"/dist/jaxmg-*.whl -w "$WORKDIR/dist_repaired"
 
                     python -m pip install --no-deps "$WORKDIR"/dist_repaired/jaxmg-*.whl
+                    # jaxmg links libcusolverMp.so.0, which is excluded from the
+                    # wheel and ships in nvidia-cusolvermp-cu12. --no-deps skips
+                    # it, so install it explicitly into the test venv.
+                    python -m pip install "$CUSOLVERMP_PKG"
                     python -c "import sys, jax; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices()); import jaxmg"
                   '''
                   archiveArtifacts artifacts: "${WORKDIR}/dist_repaired/*.whl", onlyIfSuccessful: true
