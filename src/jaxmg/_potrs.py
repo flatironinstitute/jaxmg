@@ -179,7 +179,7 @@ def potrs(
         b_distribution_cols=b_distribution_cols,
         tile_size=tile_shape.rows,
     )
-    out, native_status = impl(a, b)
+    _, out, native_status = impl(a, b)
     if vector_rhs:
         out = out[:, 0]
     if return_status:
@@ -314,7 +314,7 @@ def _potrs_compiled(
         local_cols=b_padding.local_logical_cols,
     )
 
-    def potrs_ffi(_a: Array, _b: Array) -> tuple[Array, Array]:
+    def potrs_ffi(_a: Array, _b: Array) -> tuple[Array, Array, Array]:
         """Call fused native redistribution and ``potrf/potrs`` on one shard.
 
         The closure captures only static metadata that XLA needs at trace time:
@@ -356,19 +356,19 @@ def _potrs_compiled(
             b_distribution_cols=int(b_distribution_cols),
             tile_size=int(tile_size),
         )
-        _, b_out, status = ffi_fn(_a, _b)
-        return b_out, status
+        a_work, b_out, status = ffi_fn(_a, _b)
+        return a_work, b_out, status
 
     potrs_shardmap = jax.shard_map(
         potrs_ffi,
         mesh=mesh,
         in_specs=(matrix_specs, matrix_specs),
-        out_specs=(matrix_specs, native_status_specs),
+        out_specs=(matrix_specs, matrix_specs, native_status_specs),
         check_vma=False,
     )
 
     @partial(jax.jit, donate_argnums=(0, 1))
-    def impl(_a: Array, _b: Array) -> tuple[Array, Array]:
+    def impl(_a: Array, _b: Array) -> tuple[Array, Array, Array]:
         """Run padding, fused native POTRS, and unpadding as one compiled path."""
         a_padded = pad_a(_a)
         if b_distribution_padding:
@@ -376,8 +376,10 @@ def _potrs_compiled(
         else:
             b_distribution = _b
         b_padded = pad_b(b_distribution)
-        b_solved_padded, native_status = potrs_shardmap(a_padded, b_padded)
+        a_work_padded, b_solved_padded, native_status = potrs_shardmap(
+            a_padded, b_padded
+        )
         out = unpad_b(b_solved_padded)
-        return out[:, :nrhs], native_status
+        return a_work_padded, out[:, :nrhs], native_status
 
     return impl
