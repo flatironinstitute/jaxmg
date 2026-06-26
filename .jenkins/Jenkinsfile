@@ -104,7 +104,12 @@ timeout(time: 2, unit: 'HOURS') {
         "CUDA_ROOT=/usr/local/cuda",
         "CUDNN_ROOT=/usr",
         "CUDA_VISIBLE_DEVICES=0,1",
-        "JAXMG_MPMD_LAUNCHER=subprocess"
+        "JAXMG_MPMD_LAUNCHER=subprocess",
+        // Disable NCCL's cuMem allocator (fails at ncclGroupEnd in the pod) and
+        // turn on init/alloc debug logging.
+        "NCCL_CUMEM_ENABLE=0",
+        "NCCL_DEBUG=INFO",
+        "NCCL_DEBUG_SUBSYS=INIT,ALLOC"
       ]) {
         sh '''#!/bin/bash -ex
           export PATH="/usr/local/cuda/bin:$PATH"
