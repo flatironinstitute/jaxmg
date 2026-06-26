@@ -108,8 +108,6 @@ timeout(time: 2, unit: 'HOURS') {
         // Disable NCCL's cuMem allocator (fails at ncclGroupEnd in the pod) and
         // turn on init/alloc debug logging.
         "NCCL_CUMEM_ENABLE=0",
-        "NCCL_DEBUG=INFO",
-        "NCCL_DEBUG_SUBSYS=INIT,ALLOC"
       ]) {
         sh '''#!/bin/bash -ex
           export PATH="/usr/local/cuda/bin:$PATH"
@@ -118,7 +116,7 @@ timeout(time: 2, unit: 'HOURS') {
 
         def cudaVersions = ['cuda12-local']
         def pyVersions = ['3.11', '3.12', '3.13', '3.14']
-        def jaxVersions = ['0.10.1']
+        def jaxVersions = ['0.8.1', '0.10.1']
         for (c in cudaVersions) {
           for (p in pyVersions) {
             for (j in jaxVersions) {
