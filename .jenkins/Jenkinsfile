@@ -6,36 +6,37 @@ properties([
 
 // Native backend build settings.
 //
-// The backend is now built against XLA as the external Bazel repo `@xla`, from
+// The backend is built against XLA as the external Bazel repo `@xla`, from
 // inside the official JAX CI container (tensorflow/ml-build:latest) using a JAX
-// checkout. We no longer clone a pinned OpenXLA tree or build a custom
-// manylinux image. JAX_GIT_TAG must be compatible with the `jax==0.10.1` pin in
-// pyproject.toml (the JAX checkout determines the XLA revision behind `@xla`).
+// checkout. The Flatiron Jenkins pods cannot run nested containers (no docker
+// socket, runAsUser 1000), so instead of `docker exec`-ing into the CI
+// container we run the build *directly* in a pod whose image IS that container
+// (runPod(image: ...)). JAX_GIT_TAG must be compatible with the `jax==0.10.1`
+// pin in pyproject.toml (the JAX checkout determines the XLA revision behind
+// `@xla`).
 JAX_GIT_REPOSITORY = 'https://github.com/jax-ml/jax.git'
 JAX_GIT_TAG        = 'jax-v0.10.1'
-// Broad arch list (Volta -> Hopper SASS + PTX). CUDA 13 drops Volta, so it uses
-// a narrower default below.
+ML_BUILD_IMAGE     = 'tensorflow/ml-build:latest'
+// Broad arch list (Volta -> Hopper SASS + PTX).
 CUDA12_ARCHS = 'sm_70,sm_80,sm_90,compute_90'
-CUDA13_ARCHS = 'sm_80,sm_90,compute_90'
 CUSOLVERMP12 = 'nvidia-cusolvermp-cu12==0.8.0.3126'
 
-// Compile the native backend for one CUDA major version inside the JAX CI
-// container and copy the resulting .so into src/jaxmg/cu${cudaMajor}.
-//
-// NOTE: this stage requires a Docker-capable agent (run_docker_container.sh
-// performs `docker run`). The container is named per CUDA major so the parallel
-// cuda12/cuda13 branches do not collide; pass that name through whatever
-// mechanism run_docker_container.sh supports in your environment
-// (JAXCI_CONTAINER_NAME below is illustrative and may need adjusting to the
-// installed JAX CI scripts).
+// NOTE: CUDA 13 is intentionally not built here. There is no
+// nvidia-cusolvermp-cu13 wheel for header/lib discovery, so the cu13 native
+// backend cannot be compiled yet. Re-add a cu13 branch once a cu13 cuSOLVERMp
+// source is available.
+
+// Compile the native backend for one CUDA major version. This runs inside a pod
+// whose image is the JAX CI container (ML_BUILD_IMAGE), so bazel + hermetic CUDA
+// are already present and we invoke the JAX CI scripts and build script
+// directly (no run_docker_container.sh / docker exec).
 def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
   withEnv([
     "CUDA_MAJOR=${cudaMajor}",
     "ARCHS=${archs}",
     "CUSOLVERMP_PKG=${cusolvermpPkg}",
     "JAX_GIT_REPOSITORY=${JAX_GIT_REPOSITORY}",
-    "JAX_GIT_TAG=${JAX_GIT_TAG}",
-    "JAXCI_CONTAINER_NAME=jax${cudaMajor}"
+    "JAX_GIT_TAG=${JAX_GIT_TAG}"
   ]) {
     sh '''#!/bin/bash -ex
       WS="$(pwd)"
@@ -45,26 +46,24 @@ def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
       git clone --depth 1 --branch "$JAX_GIT_TAG" "$JAX_GIT_REPOSITORY" jax-src
 
       # 2. Stage this jaxmg checkout inside the jax tree so the build sources are
-      #    visible under /jax once the container mounts the jax checkout.
+      #    visible alongside the jax checkout (JAX_SRC).
       mkdir -p jax-src/jaxmg
       cp -r src bazel build_native_backend.sh pyproject.toml setup.py jax-src/jaxmg/
 
-      # 3. Start the JAX CI container and generate .jax_configure.bazelrc.
+      # 3. Generate .jax_configure.bazelrc (CUDA/cuDNN/Bazel config). We are
+      #    already inside the ml-build container, so run the CI script directly.
       cd jax-src
-      JAXCI_DOCKER_CONTAINER_NAME="$JAXCI_CONTAINER_NAME" ./ci/utilities/run_docker_container.sh
-      docker exec "$JAXCI_CONTAINER_NAME" ./ci/build_artifacts.sh jax-cuda-plugin
+      ./ci/build_artifacts.sh jax-cuda-plugin
 
-      # 4. Build the backend against @xla inside the container.
-      # The ml-build container has no system nvcc (CUDA is hermetic), so
-      # CUDA_MAJOR cannot be auto-detected and is passed explicitly.
-      docker exec "$JAXCI_CONTAINER_NAME" bash -lc "
-        python -m pip install '$CUSOLVERMP_PKG' &&
-        JAX_SRC=/jax JAXMG_ROOT=/jax/jaxmg CUDA_MAJOR='$CUDA_MAJOR' \
-        JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES='$ARCHS' \
-        JAXMG_XLA_BAZEL_JOBS='${PARALLEL:-$(nproc)}' \
-        /jax/jaxmg/build_native_backend.sh"
-
-      docker rm -f "$JAXCI_CONTAINER_NAME" || true
+      # 4. Build the backend against @xla. The ml-build container has no system
+      #    nvcc (CUDA is hermetic), so CUDA_MAJOR is passed explicitly.
+      if [ -n "$CUSOLVERMP_PKG" ]; then
+        python -m pip install "$CUSOLVERMP_PKG"
+      fi
+      JAX_SRC="$PWD" JAXMG_ROOT="$PWD/jaxmg" CUDA_MAJOR="$CUDA_MAJOR" \
+        JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$ARCHS" \
+        JAXMG_XLA_BAZEL_JOBS="${PARALLEL:-$(nproc)}" \
+        ./jaxmg/build_native_backend.sh
 
       # 5. Copy the built library back into the workspace for stashing.
       cd "$WS"
@@ -78,156 +77,90 @@ def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
 }
 
 timeout(time: 2, unit: 'HOURS') {
-  parallel cuda12: {
-    buildPod(tag: '12', context: '.jenkins') {
-        stage('Compile CUDA 12') {
-          compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
-          stash name: 'bin12', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
-        }
+  // Compile the native backend directly inside the JAX CI container image.
+  // Bazel building XLA is CPU/memory heavy and needs no GPU.
+  runPod(image: ML_BUILD_IMAGE, cpus: 32, memory: '64Gi') {
+    stage('Compile CUDA 12') {
+      compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
+      stash name: 'bin12', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
     }
+  }
 
-    runPod(tag: '12',
-      devShm: true,
-      gpus: 2) {
-        stage('Test CUDA 12') {
-          withEnv([
-            "CUDA_ROOT=/usr/local/cuda",
-            "CUDNN_ROOT=/usr",
-            "CUDA_VISIBLE_DEVICES=0,1"
-          ]) {
-            sh '''#!/bin/bash -ex
-              export PATH="/usr/local/cuda/bin:$PATH"
-              export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
-            '''
+  // Test in a manylinux + local CUDA toolkit image (multiple Python versions),
+  // built from .jenkins/Dockerfile12. buildPod builds that image and runs this
+  // body in a GPU pod using it (buildPod == buildImage + runPod, args pass
+  // through), so there is no separate runPod here.
+  buildPod(tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12', devShm: true, gpus: 2) {
+    stage('Test CUDA 12') {
+      withEnv([
+        "CUDA_ROOT=/usr/local/cuda",
+        "CUDNN_ROOT=/usr",
+        "CUDA_VISIBLE_DEVICES=0,1"
+      ]) {
+        sh '''#!/bin/bash -ex
+          export PATH="/usr/local/cuda/bin:$PATH"
+          export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+        '''
 
-            def cudaVersions = ['cuda12-local']
-            def pyVersions = ['3.11', '3.12', '3.13', '3.14']
-            def jaxVersions = ['0.10.1']
-            for (c in cudaVersions) {
-              for (p in pyVersions) {
-                for (j in jaxVersions) {
-                  if (p == '3.11') {
-                    pytest_cmd = "python -m pytest -svv tests"
-                  } else {
-                    pytest_cmd = "python -m pytest -svv -m 'not mpmd' tests"
-                  }
-                  stage("Build ${c}-${p}-${j}") {
-                    unstash 'bin12'
-                    withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
-                      sh '''#!/bin/bash -ex
-                        mkdir -p "$WORKDIR"
+        def cudaVersions = ['cuda12-local']
+        def pyVersions = ['3.11', '3.12', '3.13', '3.14']
+        def jaxVersions = ['0.10.1']
+        for (c in cudaVersions) {
+          for (p in pyVersions) {
+            for (j in jaxVersions) {
+              if (p == '3.11') {
+                pytest_cmd = "python -m pytest -svv tests"
+              } else {
+                pytest_cmd = "python -m pytest -svv -m 'not mpmd' tests"
+              }
+              stage("Build ${c}-${p}-${j}") {
+                unstash 'bin12'
+                withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
+                  sh '''#!/bin/bash -ex
+                    mkdir -p "$WORKDIR"
 
-                        python"$PYV" -m venv "$WORKDIR/venv"
-                        source "$WORKDIR/venv/bin/activate"
+                    python"$PYV" -m venv "$WORKDIR/venv"
+                    source "$WORKDIR/venv/bin/activate"
 
-                        python -m pip install --upgrade pip build auditwheel
-                        python -m pip install "jax[$CUV]==$JAXV"
+                    python -m pip install --upgrade pip build auditwheel
+                    python -m pip install "jax[$CUV]==$JAXV"
 
-                        python -m build --wheel --outdir "$WORKDIR/dist"
-                        auditwheel repair \
-                          --plat manylinux_2_26_x86_64 \
-                          --exclude 'libcuda.so*' \
-                          --exclude 'libcusolver.so*' \
-                          --exclude 'libcusolverMg.so*' \
-                          --exclude 'libcupti.so*' \
-                          --exclude 'libcusparse.so*' \
-                          --exclude 'libcublasLt.so*' \
-                          --exclude 'libcublas.so*' \
-                          --exclude 'libnvJitLink.so*' \
-                          "$WORKDIR"/dist/jaxmg-*.whl -w "$WORKDIR/dist_repaired"
+                    python -m build --wheel --outdir "$WORKDIR/dist"
+                    auditwheel repair \
+                      --plat manylinux_2_26_x86_64 \
+                      --exclude 'libcuda.so*' \
+                      --exclude 'libcusolver.so*' \
+                      --exclude 'libcusolverMg.so*' \
+                      --exclude 'libcupti.so*' \
+                      --exclude 'libcusparse.so*' \
+                      --exclude 'libcublasLt.so*' \
+                      --exclude 'libcublas.so*' \
+                      --exclude 'libnvJitLink.so*' \
+                      "$WORKDIR"/dist/jaxmg-*.whl -w "$WORKDIR/dist_repaired"
 
-                        python -m pip install --no-deps "$WORKDIR"/dist_repaired/jaxmg-*.whl
-                        source .jenkins/scripts/gpu_utils.sh
-                        killgpu
-                        python -c "import sys, jax; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices()); import jaxmg"
-                      '''
-                      archiveArtifacts artifacts: "${WORKDIR}/dist_repaired/*.whl", onlyIfSuccessful: true
-                    }
-                  }
-                  stage("Test ${c}-${p}-${j}") {
-                    withEnv(["WORKDIR=${c}/${p}/${j}"]) {
-                      sh """#!/bin/bash -ex
-                        source .jenkins/scripts/gpu_utils.sh
-                        killgpu
-                        source "$WORKDIR/venv/bin/activate"
-                        python -m pip install pytest matplotlib
-                        ${pytest_cmd}
-                      """
-                    }
-                  }
+                    python -m pip install --no-deps "$WORKDIR"/dist_repaired/jaxmg-*.whl
+                    source .jenkins/scripts/gpu_utils.sh
+                    killgpu
+                    python -c "import sys, jax; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices()); import jaxmg"
+                  '''
+                  archiveArtifacts artifacts: "${WORKDIR}/dist_repaired/*.whl", onlyIfSuccessful: true
                 }
               }
-            }
-          }
-        }
-    }
-  }, cuda13: {
-    buildPod(tag: '13', context: '.jenkins') {
-        stage('Compile CUDA 13') {
-          // CUDA 13 follows the same flow; it requires a CUDA-13-capable
-          // tensorflow/ml-build image/JAX checkout. If unavailable, this stage
-          // will fail fast rather than silently shipping a stale binary.
-          compileNativeBackend('13', CUDA13_ARCHS, '')
-          stash name: 'bin13', includes: 'src/jaxmg/cu13/**', useDefaultExcludes: false
-        }
-    }
-
-    runPod(tag: '13',
-      devShm: true,
-      gpus: 2) {
-        stage('Test CUDA 13') {
-          withEnv([
-            "CUDA_ROOT=/usr/local/cuda",
-            "CUDNN_ROOT=/usr",
-            "CUDA_VISIBLE_DEVICES=0,1"
-          ]) {
-            sh '''#!/bin/bash -ex
-              export PATH="/usr/local/cuda/bin:$PATH"
-              export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
-            '''
-
-            def cudaVersions = ['cuda13-local']
-            def pyVersions = ['3.11', '3.12', '3.13', '3.14']
-            def jaxVersions = ['0.10.1']
-            for (c in cudaVersions) {
-              for (p in pyVersions) {
-                for (j in jaxVersions) {
-                  stage("Build ${c}-${p}-${j}") {
-                    unstash 'bin13'
-                    withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
-                      sh '''#!/bin/bash -ex
-                        mkdir -p "$WORKDIR"
-
-                        python"$PYV" -m venv "$WORKDIR/venv"
-                        source "$WORKDIR/venv/bin/activate"
-
-                        python -m pip install --upgrade pip build auditwheel
-                        python -m pip install "jax[$CUV]==$JAXV"
-
-                        python -m build --wheel --outdir "$WORKDIR/dist"
-                        auditwheel repair \
-                          --plat manylinux_2_26_x86_64 \
-                          --exclude 'libcuda.so*' \
-                          --exclude 'libcusolver.so*' \
-                          --exclude 'libcusolverMg.so*' \
-                          --exclude 'libcupti.so*' \
-                          --exclude 'libcusparse.so*' \
-                          --exclude 'libcublasLt.so*' \
-                          --exclude 'libcublas.so*' \
-                          --exclude 'libnvJitLink.so*' \
-                          "$WORKDIR"/dist/jaxmg-*.whl -w "$WORKDIR/dist_repaired"
-
-                        python -m pip install --no-deps "$WORKDIR"/dist_repaired/jaxmg-*.whl
-                        echo "Cannot CUDA 13 test package on V100s"
-                      '''
-                      archiveArtifacts artifacts: "${WORKDIR}/dist_repaired/*.whl", onlyIfSuccessful: true
-                    }
-                  }
+              stage("Test ${c}-${p}-${j}") {
+                withEnv(["WORKDIR=${c}/${p}/${j}"]) {
+                  sh """#!/bin/bash -ex
+                    source .jenkins/scripts/gpu_utils.sh
+                    killgpu
+                    source "$WORKDIR/venv/bin/activate"
+                    python -m pip install pytest matplotlib
+                    ${pytest_cmd}
+                  """
                 }
               }
             }
           }
         }
       }
+    }
   }
 }

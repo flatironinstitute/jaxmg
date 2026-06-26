@@ -1,0 +1,16 @@
+FROM quay.io/pypa/manylinux_2_28_x86_64
+
+# Install NVIDIA CUDA Toolkit 12.8 and optional cuDNN on RHEL8 baseline
+RUN dnf -y install dnf-plugins-core && \
+    dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo && \
+    dnf clean all && \
+    dnf -y --nogpgcheck install cuda-toolkit-12-8 && \
+    dnf -y --nogpgcheck install libnccl-2.26.2-1+cuda12.8 libnccl-devel-2.26.2-1+cuda12.8 && \
+    dnf -y --nogpgcheck install libcudnn9-cuda-12 libcudnn9-devel-cuda-12 || true && \
+    dnf -y install gcc-c++ make cmake git && \
+    dnf clean all
+
+# Create symlink from extras/CUPTI/include to main include directory and list headers
+RUN mkdir -p /usr/local/cuda/extras/CUPTI && \
+    ln -sfn /usr/local/cuda/include /usr/local/cuda/extras/CUPTI/include && \
+    ls -la /usr/local/cuda/extras/CUPTI/include/cupti*.h || true
