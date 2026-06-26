@@ -139,6 +139,7 @@ timeout(time: 2, unit: 'HOURS') {
                       --exclude 'libcuda.so*' \
                       --exclude 'libcusolver.so*' \
                       --exclude 'libcusolverMg.so*' \
+                      --exclude 'libcusolverMp.so*' \
                       --exclude 'libcupti.so*' \
                       --exclude 'libcusparse.so*' \
                       --exclude 'libcublasLt.so*' \
