@@ -103,7 +103,8 @@ timeout(time: 2, unit: 'HOURS') {
       withEnv([
         "CUDA_ROOT=/usr/local/cuda",
         "CUDNN_ROOT=/usr",
-        "CUDA_VISIBLE_DEVICES=0,1"
+        "CUDA_VISIBLE_DEVICES=0,1",
+        "JAXMG_MPMD_LAUNCHER=subprocess"
       ]) {
         sh '''#!/bin/bash -ex
           export PATH="/usr/local/cuda/bin:$PATH"
