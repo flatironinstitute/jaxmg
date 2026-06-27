@@ -198,7 +198,7 @@ absl::StatusOr<int64_t> RequiredPadded2DNativePlanScratchElements(
 // The memory_redist layer owns this calculation because it is an implementation
 // detail of the native layout conversion, edge-padding compaction, and 2D
 // block-cyclic scheduler. Solver files should describe the redistribution
-// requests they need, then receive one XLA scratch allocation that is large
+// requests they need, then receive one CUDA scratch allocation that is large
 // enough for all phases in the fused FFI call.
 struct Padded2DRedistScratchRequest {
   int64_t process_rows;
@@ -214,6 +214,7 @@ struct Padded2DRedistScratchRequest {
 
 struct Padded2DRedistScratch {
   se::DeviceAddressBase base;
+  void* pointer;
   int64_t elements;
   size_t bytes;
 };
@@ -223,12 +224,17 @@ struct Padded2DRedistScratch {
 absl::StatusOr<int64_t> RequiredPadded2DRedistScratchElements(
     const Padded2DRedistScratchRequest& request);
 
-// Allocates one XLA scratch buffer large enough for every matrix described by
+// Allocates one CUDA scratch buffer large enough for every matrix described by
 // the fused solver's redistribution requests.
 absl::StatusOr<Padded2DRedistScratch> AllocatePadded2DRedistScratch(
-    se::ScratchAllocator& scratch, size_t element_bytes,
+    cudaStream_t cuda_stream, size_t element_bytes,
     absl::Span<const Padded2DRedistScratchRequest> requests,
     const char* caller);
+
+// Releases a scratch buffer allocated by AllocatePadded2DRedistScratch.
+absl::Status FreePadded2DRedistScratch(cudaStream_t cuda_stream,
+                                       Padded2DRedistScratch scratch,
+                                       const char* caller);
 
 // Production raw executor used inside fused solver handlers.  It assumes the
 // caller already copied/aliased into the work buffer and supplied one scratch

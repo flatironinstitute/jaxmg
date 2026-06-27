@@ -37,8 +37,7 @@ absl::Status XlaCusolverMpPotrsPrepare(
 // one FFI dispatch.
 absl::Status XlaCusolverMpPotrsDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    se::OwningScratchAllocator<> scratch, int64_t process_rows,
-    int64_t process_cols, int64_t n, int64_t nrhs,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
     int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
     ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
@@ -57,8 +56,7 @@ absl::Status XlaCusolverMpSyevdPrepare(
 // output layout restore in one FFI dispatch.
 absl::Status XlaCusolverMpSyevdDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    se::OwningScratchAllocator<> scratch, int64_t process_rows,
-    int64_t process_cols, int64_t n, int64_t tile_size,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
     int64_t grid_mapping, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues,
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> vectors,
