@@ -26,20 +26,6 @@ Solve for $x$ using the Cholesky factors.
 
 ---
 
-## potri
-
-Multi-GPU matrix inversion helper for symmetric (Hermitian) positive-definite matrices.
-
-$$
-A^{-1} = (L L^{\top})^{-1} = L^{-\top} L^{-1} \quad\text{(real)}\quad\text{or}\quad A^{-1} = L^{-\dagger} L^{-1} \;\text{(complex)}
-$$
-
-Compute the inverse (or the upper-triangular part) of using Cholesky the Cholesky factors.
-
-[Full potri module →](potri.md)
-
----
-
 ## syevd
 
 Multi-GPU eigensolver for symmetric (Hermitian) matrices.
