@@ -8,8 +8,8 @@ initialize JAX or load the jaxmg native backend. They are therefore safe to call
 
 import ctypes
 
-# CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED. This is a stable CUDA
-# driver enum value (introduced with VMM in CUDA 10.2).
+# enum CUdevice_attribute 102 corresponds to
+# CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED. 
 _CU_DEVICE_ATTRIBUTE_VMM_SUPPORTED = 102
 
 _libcuda = None
