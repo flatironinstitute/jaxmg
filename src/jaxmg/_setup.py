@@ -27,6 +27,7 @@ _lib_dir = os.path.dirname(__file__)
 _initialized = False
 _xla_comm_backend_library = "libjaxmg_xla_comm_backend.so"
 _preloaded_cuda_libraries = {}
+_backend_library = None
 
 _PRODUCTION_FFI_TARGETS = (
     (
@@ -121,6 +122,8 @@ def _register_cuda_target_bundle(bin_dir, library_name, ffi_name, symbols):
     cuda_major = bin_dir.removeprefix("cu")
     _preload_cusolvermp_runtime(cuda_major)
     library = ctypes.cdll.LoadLibrary(path)
+    global _backend_library
+    _backend_library = library
     bundle = {
         stage: jax.ffi.pycapsule(getattr(library, symbol_name))
         for stage, symbol_name in symbols.items()
@@ -194,3 +197,13 @@ def ensure_init_jaxmg_backend():
     if not _initialized:
         _initialized = True
         _initialize()
+
+
+def get_backend_library():
+    """Return the ctypes handle to the loaded native backend.
+
+    Returns ``None`` when no GPU is present (the backend is not loaded in the
+    CPU-only / documentation path). Triggers one-time initialization first.
+    """
+    ensure_init_jaxmg_backend()
+    return _backend_library

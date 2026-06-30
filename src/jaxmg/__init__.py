@@ -12,8 +12,10 @@ Main Entry Points:
 
 from ._potrs import potrs
 from ._syevd import syevd
+from ._device import device_supports_vmm
 
 __all__ = [
     "potrs",
     "syevd",
+    "device_supports_vmm",
 ]
