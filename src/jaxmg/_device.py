@@ -1,32 +1,58 @@
-"""Device capability queries backed by the native JAXMg backend."""
+"""Device capability queries via the CUDA driver (libcuda).
+
+These helpers query the CUDA driver API directly with ``ctypes`` and do not
+initialize JAX or load the jaxmg native backend. They are therefore safe to call
+*before* JAX initializes its GPU allocator — e.g. to decide
+``XLA_PYTHON_CLIENT_ALLOCATOR``.
+"""
 
 import ctypes
 
-from ._setup import get_backend_library
+# CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED. This is a stable CUDA
+# driver enum value (introduced with VMM in CUDA 10.2).
+_CU_DEVICE_ATTRIBUTE_VMM_SUPPORTED = 102
+
+_libcuda = None
+
+
+def _load_libcuda():
+    """Return a cached handle to the CUDA driver library."""
+    global _libcuda
+    if _libcuda is None:
+        try:
+            _libcuda = ctypes.CDLL("libcuda.so.1")
+        except OSError as e:
+            raise RuntimeError(
+                "CUDA driver library (libcuda.so.1) is not available; "
+                "cannot query CUDA device capabilities."
+            ) from e
+    return _libcuda
 
 
 def device_supports_vmm(device: int = 0) -> bool:
-    """Return True if the given CUDA device supports Virtual Memory Management.
+    """Return True if the CUDA device supports Virtual Memory Management.
 
-    VMM support is required by JAX's platform/async GPU allocator. ``device`` is
-    a CUDA device ordinal (default 0, the single GPU owned by this process).
+    VMM support is required by JAX's ``vmm`` GPU allocator. ``device`` is a CUDA
+    device ordinal (default 0). Queries the CUDA driver directly, independent of
+    JAX, so it is safe to call before JAX GPU initialization.
 
     Raises:
-        RuntimeError: if the native backend is not loaded (no GPU detected) or
-            the underlying ``cuDeviceGetAttribute`` driver query fails.
+        RuntimeError: if the CUDA driver is unavailable or a driver query fails.
     """
-    lib = get_backend_library()
-    if lib is None:
-        raise RuntimeError(
-            "JAXMg native backend is not loaded (no GPU detected); "
-            "cannot query CUDA VMM support."
+    lib = _load_libcuda()
+    if lib.cuInit(0) != 0:
+        raise RuntimeError("cuInit failed; no usable CUDA driver or GPU present.")
+    dev = ctypes.c_int()
+    if lib.cuDeviceGet(ctypes.byref(dev), int(device)) != 0:
+        raise RuntimeError(f"cuDeviceGet failed for device ordinal {device}.")
+    value = ctypes.c_int()
+    if (
+        lib.cuDeviceGetAttribute(
+            ctypes.byref(value), _CU_DEVICE_ATTRIBUTE_VMM_SUPPORTED, dev
         )
-    fn = lib.jaxmg_device_supports_vmm
-    fn.restype = ctypes.c_int
-    fn.argtypes = [ctypes.c_int]
-    result = fn(int(device))
-    if result < 0:
+        != 0
+    ):
         raise RuntimeError(
             f"cuDeviceGetAttribute failed querying VMM support for device {device}."
         )
-    return bool(result)
+    return bool(value.value)

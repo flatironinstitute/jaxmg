@@ -68,7 +68,6 @@ cc_binary(
         "@local_config_cuda//cuda:cuda_headers",
         "@cuda_cudart//:cudart",
         "@cuda_cusolver//:cusolver",
-        "@cuda_cudart//:cuda_driver",
         "@xla//xla:xla_data_proto_cc",
         "@xla//xla/backends/gpu/collectives:gpu_clique_key",
         "@xla//xla/backends/gpu/collectives:gpu_collectives",

@@ -51,6 +51,30 @@ def local_device_id_for_process(process_id: int) -> int:
     return int(process_id)
 
 
+def select_gpu_allocator(process_id: int) -> str:
+    """Pick this rank's GPU allocator based on CUDA VMM support.
+
+    Sets ``XLA_PYTHON_CLIENT_ALLOCATOR`` for the current process and returns the
+    chosen value. Must be called before the GPU backend is created (e.g. before
+    ``jax.distributed.initialize``), since XLA reads the variable when it builds
+    the GPU client. An allocator already present in the environment is honored.
+
+    The ``vmm`` allocator requires CUDA Virtual Memory Management support; ranks
+    on GPUs without it fall back to the ``platform`` allocator.
+    """
+    from jaxmg._device import device_supports_vmm
+
+    existing = os.environ.get("XLA_PYTHON_CLIENT_ALLOCATOR")
+    if existing:
+        return existing
+    if device_supports_vmm(local_device_id_for_process(process_id)):
+        os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "vmm"
+    else:
+        os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
+    os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.9")
+    return os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"]
+
+
 def balanced_process_grid(num_processes: int) -> tuple[int, int]:
     """Choose a near-square process grid for a rank count."""
     for rows in range(int(math.sqrt(num_processes)), 0, -1):
