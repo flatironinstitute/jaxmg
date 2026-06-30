@@ -20,6 +20,7 @@ from cusolvermp_case_utils import (
     make_process_mesh,
     make_rhs,
     native_status_words,
+    select_gpu_allocator,
     solver_case,
 )
 
@@ -29,6 +30,9 @@ proc_id = int(sys.argv[2])
 num_procs = int(sys.argv[3])
 case_name = sys.argv[4]
 dtype_name = sys.argv[5]
+
+# Choose the GPU allocator (vmm vs platform) before the backend is created.
+select_gpu_allocator(proc_id)
 
 jax.distributed.initialize(
     coordinator_address=coord_addr,

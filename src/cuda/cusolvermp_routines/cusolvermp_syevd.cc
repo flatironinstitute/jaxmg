@@ -542,15 +542,14 @@ absl::Status XlaCusolverMpSyevdPrepare(
 
 // Fused SYEVD FFI entry point.
 //
-// This is the production native workflow called from Python: allocate one XLA
+// This is the production native workflow called from Python: allocate one CUDA
 // scratch window, convert the local JAX shard to cuSOLVERMp column-major
 // storage, run forward edge-padding/block-cyclic redistribution, call
 // vector-producing cuSOLVERMp SYEVD, reverse-redistribute eigenvectors, and
 // restore row-major local storage for the user-visible eigenvector output.
 absl::Status XlaCusolverMpSyevdDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    se::OwningScratchAllocator<> scratch, int64_t process_rows,
-    int64_t process_cols, int64_t n, int64_t tile_size,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
     int64_t grid_mapping, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues,
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> vectors,
@@ -596,15 +595,47 @@ absl::Status XlaCusolverMpSyevdDispatch(
           /*rank_map=*/rank_map,
       },
   }};
-  absl::StatusOr<Padded2DRedistScratch> redistribution_scratch =
+  absl::StatusOr<Padded2DRedistScratch> redistribution_scratch_status =
       AllocatePadded2DRedistScratch(
-          scratch, element_bytes, absl::MakeConstSpan(scratch_requests),
+          cuda_stream, element_bytes, absl::MakeConstSpan(scratch_requests),
           "cusolvermp_syevd_redistribution");
-  if (!redistribution_scratch.ok()) {
-    return redistribution_scratch.status();
+  if (!redistribution_scratch_status.ok()) {
+    return redistribution_scratch_status.status();
   }
-  se::DeviceAddressBase scratch_base = redistribution_scratch->base;
-  const int64_t scratch_elements = redistribution_scratch->elements;
+  Padded2DRedistScratch redistribution_scratch =
+      *redistribution_scratch_status;
+  se::DeviceAddressBase scratch_base = redistribution_scratch.base;
+  const int64_t scratch_elements = redistribution_scratch.elements;
+
+  bool scratch_freed = false;
+  auto free_redistribution_scratch = [&]() -> absl::Status {
+    if (scratch_freed) {
+      return absl::OkStatus();
+    }
+    absl::Status free_status = FreePadded2DRedistScratch(
+        cuda_stream, redistribution_scratch, "cusolvermp_syevd_redistribution");
+    if (!free_status.ok()) {
+      return free_status;
+    }
+    scratch_freed = true;
+    return absl::OkStatus();
+  };
+  auto return_after_cleanup = [&](absl::Status status) -> absl::Status {
+    absl::Status free_status = free_redistribution_scratch();
+    if (!status.ok()) {
+      return status;
+    }
+    return free_status;
+  };
+  auto cuda_status_after_cleanup =
+      [&](cudaError_t status, const char* caller) -> absl::Status {
+    if (status == cudaSuccess) {
+      return absl::OkStatus();
+    }
+    return return_after_cleanup(absl::InternalError(absl::StrFormat(
+        "%s failed: cuda status %d (%s)", caller, static_cast<int>(status),
+        cudaGetErrorString(status))));
+  };
 
   ffi::AnyBuffer a_forward_input = a;
   // Stage 3: copy/alias the input into work and convert the local storage from
@@ -612,53 +643,83 @@ absl::Status XlaCusolverMpSyevdDispatch(
   // the public input and the solver work buffer must stay conceptually
   // separate even when XLA can alias storage. If XLA cannot alias, `work`
   // remains the single full-size storage slot used by the fused call.
-  JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, a, work));
+  if (absl::Status status = CopyMatrixIfNeeded(cuda_stream, a, work);
+      !status.ok()) {
+    return return_after_cleanup(status);
+  }
   a_forward_input = *work;
-  JAXMG_RETURN_IF_ERROR(ConvertRowMajorToColumnMajorInPlace(
-      cuda_stream, "cusolvermp_syevd/a_layout_convert", a_forward_input,
-      scratch_base, scratch_elements));
+  if (absl::Status status = ConvertRowMajorToColumnMajorInPlace(
+          cuda_stream, "cusolvermp_syevd/a_layout_convert", a_forward_input,
+          scratch_base, scratch_elements);
+      !status.ok()) {
+    return return_after_cleanup(status);
+  }
 
   // Stage 4: redistribute A into cuSOLVERMp's 2D block-cyclic layout.
-  JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
-      "cusolvermp_syevd/a_forward", stream, comm_stream, cuda_stream,
-      process_rows, process_cols, tile_size, tile_size, n, n, /*reverse=*/0,
-      rank_map, a_forward_input, work->device_memory(), scratch_base,
-      scratch_elements, collective_params, collective_cliques));
+  if (absl::Status status = ExecutePadded2DNativePlanRaw(
+          "cusolvermp_syevd/a_forward", stream, comm_stream, cuda_stream,
+          process_rows, process_cols, tile_size, tile_size, n, n,
+          /*reverse=*/0, rank_map, a_forward_input, work->device_memory(),
+          scratch_base, scratch_elements, collective_params,
+          collective_cliques);
+      !status.ok()) {
+    return return_after_cleanup(status);
+  }
 
   // Preserve the old split-call sequencing semantics inside the fused handler:
   // the host-side cuSOLVERMp call must not observe the work buffer until all
   // pack/NCCL/unpack redistribution work is complete.
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  if (absl::Status status = cuda_status_after_cleanup(
+          cudaStreamSynchronize(cuda_stream),
+          "cusolvermp_syevd forward stream synchronize");
+      !status.ok()) {
+    return status;
+  }
 
   ffi::AnyBuffer a_cyclic = *work;
   // Stage 5: run vector-producing SYEVD.  The helper creates cuSOLVERMp
   // descriptors for A and Q and writes eigenvectors into `vectors`.
-  JAXMG_RETURN_IF_ERROR(RunCusolverMpSyevdSolver(
-      stream, comm_stream, cuda_stream, process_rows, process_cols, n,
-      tile_size, grid_mapping, rank_map, a_cyclic, eigenvalues, work, vectors,
-      status, collective_params, collective_cliques));
+  if (absl::Status solver_call_status = RunCusolverMpSyevdSolver(
+          stream, comm_stream, cuda_stream, process_rows, process_cols, n,
+          tile_size, grid_mapping, rank_map, a_cyclic, eigenvalues, work,
+          vectors, status, collective_params, collective_cliques);
+      !solver_call_status.ok()) {
+    return return_after_cleanup(solver_call_status);
+  }
 
   // SYEVD writes the eigenvectors in cuSOLVERMp layout.  Keep the reverse
   // redistribution after a completed solver call, mirroring the old separate
   // FFI-call pipeline.
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  if (absl::Status status = cuda_status_after_cleanup(
+          cudaStreamSynchronize(cuda_stream),
+          "cusolvermp_syevd solver stream synchronize");
+      !status.ok()) {
+    return status;
+  }
 
   ffi::AnyBuffer vectors_cyclic = *vectors;
   // Stage 6: reverse-redistribute eigenvectors to the original JAX-facing shard
   // placement.  Eigenvalues are already a replicated rank-1 output from
   // cuSOLVERMp and do not need matrix redistribution.
-  JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
-      "cusolvermp_syevd/vectors_reverse", stream, comm_stream,
-      cuda_stream, process_rows, process_cols, tile_size, tile_size, n, n,
-      /*reverse=*/1, rank_map, vectors_cyclic, vectors->device_memory(),
-      scratch_base, scratch_elements, collective_params, collective_cliques));
+  if (absl::Status status = ExecutePadded2DNativePlanRaw(
+          "cusolvermp_syevd/vectors_reverse", stream, comm_stream,
+          cuda_stream, process_rows, process_cols, tile_size, tile_size, n, n,
+          /*reverse=*/1, rank_map, vectors_cyclic, vectors->device_memory(),
+          scratch_base, scratch_elements, collective_params,
+          collective_cliques);
+      !status.ok()) {
+    return return_after_cleanup(status);
+  }
 
   // Stage 7: restore JAX's row-major local storage for the user-visible
   // eigenvector shard.
-  JAXMG_RETURN_IF_ERROR(ConvertColumnMajorToRowMajorInPlace(
-      cuda_stream, "cusolvermp_syevd/vectors_layout_restore", *vectors,
-      scratch_base, scratch_elements));
-  return absl::OkStatus();
+  if (absl::Status status = ConvertColumnMajorToRowMajorInPlace(
+          cuda_stream, "cusolvermp_syevd/vectors_layout_restore", *vectors,
+          scratch_base, scratch_elements);
+      !status.ok()) {
+    return return_after_cleanup(status);
+  }
+  return return_after_cleanup(absl::OkStatus());
 }
 
 }  // namespace xla::gpu

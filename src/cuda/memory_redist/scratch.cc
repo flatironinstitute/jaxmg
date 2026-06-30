@@ -14,7 +14,7 @@
 //
 // Native scratch sizing for the cuSOLVERMp redistribution path.
 //
-// The fused solver handlers use one XLA-owned scratch allocation for every
+// The fused solver handlers use one CUDA-owned scratch allocation for every
 // temporary movement inside a call:
 //
 //   1. local row-major <-> column-major layout conversion;
@@ -71,10 +71,10 @@ absl::StatusOr<int64_t> RequiredPadded2DRedistScratchElements(
   return *elements;
 }
 
-// Allocates one XLA scratch buffer sized to the maximum requirement across all
+// Allocates one CUDA scratch buffer sized to the maximum requirement across all
 // matrices participating in a fused solver call.
 absl::StatusOr<Padded2DRedistScratch> AllocatePadded2DRedistScratch(
-    se::ScratchAllocator& scratch, size_t element_bytes,
+    cudaStream_t cuda_stream, size_t element_bytes,
     absl::Span<const Padded2DRedistScratchRequest> requests,
     const char* caller) {
   if (element_bytes == 0) {
@@ -102,17 +102,41 @@ absl::StatusOr<Padded2DRedistScratch> AllocatePadded2DRedistScratch(
 
   const size_t bytes =
       std::max<size_t>(1, static_cast<size_t>(max_elements)) * element_bytes;
-  absl::StatusOr<void*> scratch_pointer =
-      AllocateFfiScratch(scratch, bytes, caller);
-  if (!scratch_pointer.ok()) {
-    return scratch_pointer.status();
+  void* scratch_pointer = nullptr;
+  const cudaError_t cuda_status =
+      cudaMallocAsync(&scratch_pointer, bytes, cuda_stream);
+  if (cuda_status != cudaSuccess) {
+    return absl::ResourceExhaustedError(absl::StrFormat(
+        "Unable to allocate CUDA scratch memory for %s: requested %zu "
+        "bytes, cuda status %d (%s)",
+        caller, bytes, static_cast<int>(cuda_status),
+        cudaGetErrorString(cuda_status)));
   }
 
   return Padded2DRedistScratch{
-      /*base=*/se::DeviceAddressBase(*scratch_pointer, bytes),
+      /*base=*/se::DeviceAddressBase(scratch_pointer, bytes),
+      /*pointer=*/scratch_pointer,
       /*elements=*/max_elements,
       /*bytes=*/bytes,
   };
+}
+
+// Releases CUDA scratch memory allocated for one fused redistribution call.
+absl::Status FreePadded2DRedistScratch(cudaStream_t cuda_stream,
+                                       Padded2DRedistScratch scratch,
+                                       const char* caller) {
+  void* pointer = scratch.pointer;
+  if (pointer == nullptr || scratch.bytes == 0) {
+    return absl::OkStatus();
+  }
+  const cudaError_t cuda_status = cudaFreeAsync(pointer, cuda_stream);
+  if (cuda_status != cudaSuccess) {
+    return absl::InternalError(absl::StrFormat(
+        "Unable to free CUDA scratch memory for %s: cuda status %d (%s)",
+        caller, static_cast<int>(cuda_status),
+        cudaGetErrorString(cuda_status)));
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace xla::gpu

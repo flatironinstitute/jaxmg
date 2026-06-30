@@ -560,15 +560,14 @@ absl::Status XlaCusolverMpPotrsPrepare(
 
 // Fused POTRS FFI entry point.
 //
-// This is the production native workflow called from Python: allocate one XLA
+// This is the production native workflow called from Python: allocate one CUDA
 // scratch window, convert local JAX layout to cuSOLVERMp layout, run forward
 // edge-padding/block-cyclic redistribution for A and B, call cuSOLVERMp, move
 // the solved B back to the JAX distribution, and restore B's local row-major
 // layout for the user-visible output.
 absl::Status XlaCusolverMpPotrsDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
-    se::OwningScratchAllocator<> scratch, int64_t process_rows,
-    int64_t process_cols, int64_t n, int64_t nrhs,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
     int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
     ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
@@ -642,15 +641,47 @@ absl::Status XlaCusolverMpPotrsDispatch(
           /*rank_map=*/rank_map,
       },
   }};
-  absl::StatusOr<Padded2DRedistScratch> redistribution_scratch =
+  absl::StatusOr<Padded2DRedistScratch> redistribution_scratch_status =
       AllocatePadded2DRedistScratch(
-          scratch, element_bytes, absl::MakeConstSpan(scratch_requests),
+          cuda_stream, element_bytes, absl::MakeConstSpan(scratch_requests),
           "cusolvermp_potrs_redistribution");
-  if (!redistribution_scratch.ok()) {
-    return redistribution_scratch.status();
+  if (!redistribution_scratch_status.ok()) {
+    return redistribution_scratch_status.status();
   }
-  se::DeviceAddressBase scratch_base = redistribution_scratch->base;
-  const int64_t scratch_elements = redistribution_scratch->elements;
+  Padded2DRedistScratch redistribution_scratch =
+      *redistribution_scratch_status;
+  se::DeviceAddressBase scratch_base = redistribution_scratch.base;
+  const int64_t scratch_elements = redistribution_scratch.elements;
+
+  bool scratch_freed = false;
+  auto free_redistribution_scratch = [&]() -> absl::Status {
+    if (scratch_freed) {
+      return absl::OkStatus();
+    }
+    absl::Status free_status = FreePadded2DRedistScratch(
+        cuda_stream, redistribution_scratch, "cusolvermp_potrs_redistribution");
+    if (!free_status.ok()) {
+      return free_status;
+    }
+    scratch_freed = true;
+    return absl::OkStatus();
+  };
+  auto return_after_cleanup = [&](absl::Status status) -> absl::Status {
+    absl::Status free_status = free_redistribution_scratch();
+    if (!status.ok()) {
+      return status;
+    }
+    return free_status;
+  };
+  auto cuda_status_after_cleanup =
+      [&](cudaError_t status, const char* caller) -> absl::Status {
+    if (status == cudaSuccess) {
+      return absl::OkStatus();
+    }
+    return return_after_cleanup(absl::InternalError(absl::StrFormat(
+        "%s failed: cuda status %d (%s)", caller, static_cast<int>(status),
+        cudaGetErrorString(status))));
+  };
 
   ffi::AnyBuffer a_forward_input = a;
   ffi::AnyBuffer b_forward_input = b;
@@ -660,66 +691,106 @@ absl::Status XlaCusolverMpPotrsDispatch(
   // layout-copy allocation. When XLA aliases input/output buffers the copy is a
   // no-op; otherwise the explicit copy preserves correctness without a second
   // native matrix allocation.
-  JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, a, a_work));
-  JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, b, b_out));
+  if (absl::Status status = CopyMatrixIfNeeded(cuda_stream, a, a_work);
+      !status.ok()) {
+    return return_after_cleanup(status);
+  }
+  if (absl::Status status = CopyMatrixIfNeeded(cuda_stream, b, b_out);
+      !status.ok()) {
+    return return_after_cleanup(status);
+  }
   a_forward_input = *a_work;
   b_forward_input = *b_out;
-  JAXMG_RETURN_IF_ERROR(ConvertRowMajorToColumnMajorInPlace(
-      cuda_stream, "cusolvermp_potrs/a_layout_convert", a_forward_input,
-      scratch_base, scratch_elements));
-  JAXMG_RETURN_IF_ERROR(ConvertRowMajorToColumnMajorInPlace(
-      cuda_stream, "cusolvermp_potrs/b_layout_convert", b_forward_input,
-      scratch_base, scratch_elements));
+  if (absl::Status status = ConvertRowMajorToColumnMajorInPlace(
+          cuda_stream, "cusolvermp_potrs/a_layout_convert", a_forward_input,
+          scratch_base, scratch_elements);
+      !status.ok()) {
+    return return_after_cleanup(status);
+  }
+  if (absl::Status status = ConvertRowMajorToColumnMajorInPlace(
+          cuda_stream, "cusolvermp_potrs/b_layout_convert", b_forward_input,
+          scratch_base, scratch_elements);
+      !status.ok()) {
+    return return_after_cleanup(status);
+  }
 
   // Stage 4: move local shards into cuSOLVERMp's 2D block-cyclic distribution.
   // A is routed over the full n x n logical matrix; B is routed over the padded
   // distribution width but only the first nrhs columns are solved.
-  JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
-      "cusolvermp_potrs/a_forward", stream, comm_stream, cuda_stream,
-      process_rows, process_cols, tile_size, tile_size, n, n, /*reverse=*/0,
-      rank_map, a_forward_input, a_work->device_memory(), scratch_base,
-      scratch_elements, collective_params, collective_cliques));
-  JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
-      "cusolvermp_potrs/b_forward", stream, comm_stream, cuda_stream,
-      process_rows, process_cols, tile_size, tile_size, n, b_distribution_cols,
-      /*reverse=*/0, rank_map, b_forward_input, b_out->device_memory(),
-      scratch_base, scratch_elements, collective_params, collective_cliques));
+  if (absl::Status status = ExecutePadded2DNativePlanRaw(
+          "cusolvermp_potrs/a_forward", stream, comm_stream, cuda_stream,
+          process_rows, process_cols, tile_size, tile_size, n, n,
+          /*reverse=*/0, rank_map, a_forward_input, a_work->device_memory(),
+          scratch_base, scratch_elements, collective_params,
+          collective_cliques);
+      !status.ok()) {
+    return return_after_cleanup(status);
+  }
+  if (absl::Status status = ExecutePadded2DNativePlanRaw(
+          "cusolvermp_potrs/b_forward", stream, comm_stream, cuda_stream,
+          process_rows, process_cols, tile_size, tile_size, n,
+          b_distribution_cols, /*reverse=*/0, rank_map, b_forward_input,
+          b_out->device_memory(), scratch_base, scratch_elements,
+          collective_params, collective_cliques);
+      !status.ok()) {
+    return return_after_cleanup(status);
+  }
 
   // The previous production prototype ran redistribution and cuSOLVERMp as
   // separate FFI calls, which gave XLA a hard sequencing boundary.  The fused
   // handler must provide the same safety explicitly before the host-side
   // cuSOLVERMp call reads the redistributed buffers.  This can be relaxed to an
   // event dependency after the correctness matrix is stable.
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  if (absl::Status status = cuda_status_after_cleanup(
+          cudaStreamSynchronize(cuda_stream),
+          "cusolvermp_potrs forward stream synchronize");
+      !status.ok()) {
+    return status;
+  }
 
   ffi::AnyBuffer a_cyclic = *a_work;
   ffi::AnyBuffer b_cyclic = *b_out;
   // Stage 5: run potrf/potrs on the redistributed buffers.  The shared helper
   // handles the cuSOLVERMp ABI boundary and borrowed NCCL communicator.
-  JAXMG_RETURN_IF_ERROR(RunCusolverMpPotrsSolver(
-      stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
-      tile_size, grid_mapping, rank_map, a_cyclic, b_cyclic, a_work, b_out,
-      status, collective_params, collective_cliques));
+  if (absl::Status solver_call_status = RunCusolverMpPotrsSolver(
+          stream, comm_stream, cuda_stream, process_rows, process_cols, n,
+          nrhs, tile_size, grid_mapping, rank_map, a_cyclic, b_cyclic, a_work,
+          b_out, status, collective_params, collective_cliques);
+      !solver_call_status.ok()) {
+    return return_after_cleanup(solver_call_status);
+  }
 
   // cuSOLVERMp is issued on the same stream, but keep the fused reverse
   // redistribution boundary explicit for the same reason as the forward solve
   // boundary above.
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  if (absl::Status status = cuda_status_after_cleanup(
+          cudaStreamSynchronize(cuda_stream),
+          "cusolvermp_potrs solver stream synchronize");
+      !status.ok()) {
+    return status;
+  }
 
   ffi::AnyBuffer b_solved_cyclic = *b_out;
   // Stage 6: return only B to the JAX-facing distribution.  A is a factorized
   // work buffer after potrf and is not part of the public result.
-  JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
-      "cusolvermp_potrs/b_reverse", stream, comm_stream, cuda_stream,
-      process_rows, process_cols, tile_size, tile_size, n, b_distribution_cols,
-      /*reverse=*/1, rank_map, b_solved_cyclic, b_out->device_memory(),
-      scratch_base, scratch_elements, collective_params, collective_cliques));
+  if (absl::Status status = ExecutePadded2DNativePlanRaw(
+          "cusolvermp_potrs/b_reverse", stream, comm_stream, cuda_stream,
+          process_rows, process_cols, tile_size, tile_size, n,
+          b_distribution_cols, /*reverse=*/1, rank_map, b_solved_cyclic,
+          b_out->device_memory(), scratch_base, scratch_elements,
+          collective_params, collective_cliques);
+      !status.ok()) {
+    return return_after_cleanup(status);
+  }
 
   // Stage 7: restore the local storage convention for the user-visible output.
-  JAXMG_RETURN_IF_ERROR(ConvertColumnMajorToRowMajorInPlace(
-      cuda_stream, "cusolvermp_potrs/b_layout_restore", *b_out, scratch_base,
-      scratch_elements));
-  return absl::OkStatus();
+  if (absl::Status status = ConvertColumnMajorToRowMajorInPlace(
+          cuda_stream, "cusolvermp_potrs/b_layout_restore", *b_out,
+          scratch_base, scratch_elements);
+      !status.ok()) {
+    return return_after_cleanup(status);
+  }
+  return return_after_cleanup(absl::OkStatus());
 }
 
 }  // namespace xla::gpu

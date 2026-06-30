@@ -22,4 +22,17 @@ The provided binaries are compiled with
 | `cuda12`,`cuda12-local` | 12.8.0 | 9.17.1.4|
 | `cuda13`,`cuda13-local` | 13.0.0 | 9.17.1.4|
 
+## Runtime memory settings
+
+For large cuSOLVERMp solves close to the GPU memory limit, we recommend setting
+JAX's GPU allocator before Python starts:
+
+```bash
+export XLA_PYTHON_CLIENT_ALLOCATOR=vmm
+export XLA_PYTHON_CLIENT_MEM_FRACTION=0.99
+```
+
+These settings leave the allocator policy explicit in the launch environment,
+where it can be adjusted for local driver and cluster behaviour.
+
 > **_Note:_** `pip install jaxmg` will install a CPU-only version of JAX. Since `jaxmg` is a GPU-only package you will receive a warning to install a GPU-compatible version of jax. 
