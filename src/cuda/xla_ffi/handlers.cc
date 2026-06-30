@@ -31,6 +31,8 @@
 // the native implementation. Renaming one requires the matching _setup.py entry
 // to change as well.
 
+#include <cuda.h>
+
 #include "runtime.h"
 #include "../cusolvermp_routines/cusolvermp_routines.h"
 
@@ -107,3 +109,18 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveCliques>());
 
 }  // namespace xla::gpu
+
+// ---------------------------------------------------------------------------
+// Plain device-capability query.
+// ---------------------------------------------------------------------------
+//
+// Returns 1 if the device supports CUDA Virtual Memory Management, 0 if not,
+// and -1 if the driver query failed.
+extern "C" int jaxmg_device_supports_vmm(int device) {
+  int supported = 0;
+  CUresult result = cuDeviceGetAttribute(
+      &supported, CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
+      device);
+  if (result != CUDA_SUCCESS) return -1;
+  return supported;
+}
