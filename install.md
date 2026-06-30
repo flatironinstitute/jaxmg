@@ -3,11 +3,36 @@
 These are the steps to compile `libjaxmg_xla_comm_backend.so` against XLA (`@xla`)
 inside the official JAX CI container (`tensorflow/ml-build:latest`).
 
-## 0. Load modules
+`libjaxmg_xla_comm_backend.so` is a C++/CUDA shared library that links against
+XLA's internal C++ API (the FFI bindings, GPU collectives, and communicator
+cliques). That API is **not** shipped as a normal library — it is only available
+as the Bazel external repo `@xla`, which is defined inside a **JAX source
+checkout**. 
 
-```bash
-module load docker
-```
+To ensure maximum compatibility with the current state of JAX, the build runs inside the official JAX CI Docker container
+(`ml-build:latest`), which provides Bazel and the hermetic CUDA toolchain. The
+container bind-mounts a jax checkout at `/jax`, and `@xla` resolves to the XLA
+revision pinned by that jax version.
+
+For JAXMg, `build_native_backend.sh` orchestrates the build:
+
+1. **Discover cuSOLVERMp** headers/library from the installed
+   `nvidia-cusolvermp-cuXX` wheel (or from `JAXMG_CUSOLVERMP_*` overrides).
+2. **Stage the sources** as a Bazel package: it copies the C++/CUDA sources
+   (`src/cuda/...`) and the `bazel/jaxmg_backend.BUILD.bazel` template from
+   `JAXMG_ROOT` into `$JAX_SRC/jaxmg_backend/` inside the jax tree, substituting
+   the CUDA major version into the BUILD file. Bazel can only see `@xla` and the
+   hermetic CUDA repos from inside the jax workspace, which is why the sources
+   are copied in rather than built in place.
+3. **Compile** with `bazel build //jaxmg_backend:libjaxmg_xla_comm_backend.so`,
+   linking the hermetic CUDA libs (cudart, cusolver, cuda driver stub) plus the
+   externally-provided `libcusolverMp.so`, and building for a range of GPU
+   architectures.
+4. **Install** the resulting `.so` back into `JAXMG_ROOT/src/jaxmg/cuXX/`.
+
+At runtime, the Python layer (`_setup.py`) loads this `.so` with `ctypes`,
+registers its exported XLA FFI targets with JAX, and resolves plain `extern "C"`
+helper symbols (e.g. the VMM-support query) directly.
 
 ## 1. JAX CI container
 
@@ -32,7 +57,7 @@ sources must be visible under the mounted `/jax`. Copy this repo's build inputs 
 `<jax-checkout>/jaxmg`:
 
 ```bash
-JAXMG=/path/to/jaxmg            # this repo
+JAXMG=/path/to/jaxmg            # this repo (no relative paths)
 JAXCO=/path/to/jax              # the jax checkout (mounted at /jax)
 mkdir -p "$JAXCO/jaxmg"
 cp -r "$JAXMG"/{src,bazel,build_native_backend.sh,pyproject.toml,setup.py} "$JAXCO/jaxmg/"
@@ -63,7 +88,9 @@ cp "$JAXCO/jaxmg/src/jaxmg/cu12/libjaxmg_xla_comm_backend.so" "$JAXMG/src/jaxmg/
 
 ## 4. Install and smoke-test
 
+From the root, install the package
 ```bash
+cd $JAXMG
 python -m venv .venv
 .venv/bin/python -m pip install -e ".[cuda12]" 
 ```
