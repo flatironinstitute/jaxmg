@@ -12,7 +12,7 @@ from typing import List
 
 import pytest
 import jax
-
+from jaxmg._device import device_supports_vmm
 
 def _find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -113,8 +113,11 @@ def _srun_gpu_args() -> list[str]:
 def _launcher_env(name: str, dtype_name: str, requested_procs: int) -> dict[str, str]:
     """Return the common environment used by all ranks in one test case."""
     env = os.environ.copy()
-    env.setdefault("XLA_PYTHON_CLIENT_ALLOCATOR", "platform")
-    # env.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.99")
+    if device_supports_vmm(0):
+        env.setdefault("XLA_PYTHON_CLIENT_ALLOCATOR", "vmm")
+    else:
+        env.setdefault("XLA_PYTHON_CLIENT_ALLOCATOR", "platform")
+        env.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.99")
     env.setdefault("JAXMG_BARRIER_NAME", f"{name}_{dtype_name}_{requested_procs}")
     return env
 
