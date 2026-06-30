@@ -56,6 +56,9 @@ jobs:
         run: mkdocs build --clean
 
       - name: Deploy to GitHub Pages (gh-pages branch)
+        # Only publish from main. PRs and branch dispatches still build above as a
+        # validation check, but must never overwrite the live gh-pages site.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
