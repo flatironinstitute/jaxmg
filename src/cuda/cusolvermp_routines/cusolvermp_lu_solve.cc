@@ -833,12 +833,12 @@ absl::Status XlaCusolverMpLuSolveDispatch(
   // handles the cuSOLVERMp ABI boundary and borrowed NCCL communicator.
   {
     JaxmgCudaStageTimer timer(-1, "lu_solve/solver_total", cuda_stream);
-    if (absl::Status status = RunCusolverMpLuSolveSolver(
+    if (absl::Status solver_call_status = RunCusolverMpLuSolveSolver(
             stream, comm_stream, cuda_stream, process_rows, process_cols, n,
             nrhs, tile_size, grid_mapping, rank_map, a_cyclic, b_cyclic,
             a_work, b_out, status, collective_params, collective_cliques);
-        !status.ok()) {
-      return return_after_cleanup(status);
+        !solver_call_status.ok()) {
+      return return_after_cleanup(solver_call_status);
     }
   }
   CusolverMpMemoryDebug(-1, "lu_solve/after_solver_return");
