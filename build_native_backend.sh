@@ -145,7 +145,7 @@ mkdir -p \
   "${BACKEND_PKG}/xla_ffi" \
   "${BACKEND_PKG}/memory_redist" \
   "${BACKEND_PKG}/cusolvermp_routines"
-for src in handlers.cc runtime.cc runtime.h; do
+for src in diagnostics.cc diagnostics.h handlers.cc layout_convert_probe.cc runtime.cc runtime.h; do
   cp -f "${JAXMG_ROOT}/src/cuda/xla_ffi/${src}" \
     "${BACKEND_PKG}/xla_ffi/${src}"
 done
@@ -153,7 +153,7 @@ for src in block_cyclic_2d.cc edge_padding_2d.cc layout_convert.cu.cc layout_con
   cp -f "${JAXMG_ROOT}/src/cuda/memory_redist/${src}" \
     "${BACKEND_PKG}/memory_redist/${src}"
 done
-for src in cusolvermp_common.cc cusolvermp_common.h cusolvermp_potrs.cc cusolvermp_routines.h cusolvermp_syevd.cc; do
+for src in cusolvermp_common.cc cusolvermp_common.h cusolvermp_lu_solve.cc cusolvermp_potrs.cc cusolvermp_routines.h cusolvermp_syevd.cc; do
   cp -f "${JAXMG_ROOT}/src/cuda/cusolvermp_routines/${src}" \
     "${BACKEND_PKG}/cusolvermp_routines/${src}"
 done

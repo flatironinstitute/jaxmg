@@ -1,4 +1,5 @@
 import sys
+import time
 import traceback
 from functools import partial
 
@@ -14,6 +15,8 @@ from cusolvermp_case_utils import (
     assert_close_scaled,
     dtype_from_name,
     emit,
+    emit_python_memory_checkpoint,
+    emit_python_timing,
     global_array_to_numpy,
     local_device_id_for_process,
     make_hermitian_positive_definite,
@@ -71,8 +74,9 @@ def run_case() -> None:
     else:
         raise ValueError(f"unknown RHS placement mode {case.rhs_mode!r}")
     b_dev = jax.device_put(b, NamedSharding(mesh, rhs_specs))
+    emit_python_memory_checkpoint(proc_id, "potrs/inputs_ready")
 
-    @partial(jax.jit, static_argnames=("tile_size",))
+    @partial(jax.jit, static_argnames=("tile_size",), donate_argnums=(0, 1))
     def solve(_a, _b, *, tile_size):
         return potrs(
             _a,
@@ -84,9 +88,12 @@ def run_case() -> None:
             pad=True,
         )
 
+    start = time.perf_counter()
     out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
     out.block_until_ready()
     status.block_until_ready()
+    emit_python_timing(proc_id, "potrs/end_to_end", time.perf_counter() - start)
+    emit_python_memory_checkpoint(proc_id, "potrs/result_ready")
 
     status_words = native_status_words(status)
     assert status_words.size % _CUSOLVERMP_POTRS_STATUS_SIZE == 0, status_words

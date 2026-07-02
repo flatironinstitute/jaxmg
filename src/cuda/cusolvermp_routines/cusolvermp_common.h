@@ -14,11 +14,12 @@
 //
 // Shared cuSOLVERMp runtime helpers.
 //
-// This header is the private boundary between the fused POTRS/SYEVD FFI
+// This header is the private boundary between the fused POTRS/LU/SYEVD FFI
 // handlers and NVIDIA's cuSOLVERMp runtime. It deliberately contains only
 // production concerns: status-vector schema, grid/rank validation, direct
 // cuSOLVERMp symbol access, and small CUDA/XLA utility helpers. Solver-specific
-// orchestration stays in cusolvermp_potrs.cc and cusolvermp_syevd.cc.
+// orchestration stays in cusolvermp_potrs.cc, cusolvermp_lu_solve.cc, and
+// cusolvermp_syevd.cc.
 
 #ifndef JAXMG_CUSOLVERMP_COMMON_H_
 #define JAXMG_CUSOLVERMP_COMMON_H_
@@ -37,8 +38,8 @@ namespace xla::gpu {
 
 // Direct cuSOLVERMp API table used by the solver wrappers.
 //
-// Keeping these symbols grouped makes the POTRS/SYEVD call sites easy to audit
-// and gives tests one place to inspect which cuSOLVERMp entry points the native
+// Keeping these symbols grouped makes the solver call sites easy to audit and
+// gives tests one place to inspect which cuSOLVERMp entry points the native
 // backend depends on.
 struct CusolverMpApi {
   decltype(&cusolverMpCreate) create = &cusolverMpCreate;
@@ -57,6 +58,12 @@ struct CusolverMpApi {
   decltype(&cusolverMpPotrs_bufferSize) potrs_buffer_size =
       &cusolverMpPotrs_bufferSize;
   decltype(&cusolverMpPotrs) potrs = &cusolverMpPotrs;
+  decltype(&cusolverMpGetrf_bufferSize) getrf_buffer_size =
+      &cusolverMpGetrf_bufferSize;
+  decltype(&cusolverMpGetrf) getrf = &cusolverMpGetrf;
+  decltype(&cusolverMpGetrs_bufferSize) getrs_buffer_size =
+      &cusolverMpGetrs_bufferSize;
+  decltype(&cusolverMpGetrs) getrs = &cusolverMpGetrs;
   decltype(&cusolverMpSyevd_bufferSize) syevd_buffer_size =
       &cusolverMpSyevd_bufferSize;
   decltype(&cusolverMpSyevd) syevd = &cusolverMpSyevd;
@@ -104,9 +111,16 @@ enum CusolverMpStatusCode : int32_t {
   kSyevdWorkspaceFailed = 33,
   kSyevdFailed = 34,
   kSyevdInfoNonzero = 35,
+  kGetrfWorkspaceFailed = 36,
+  kGetrsWorkspaceFailed = 37,
+  kGetrfFailed = 38,
+  kGetrfInfoNonzero = 39,
+  kGetrsFailed = 40,
+  kGetrsInfoNonzero = 41,
 };
 
 inline constexpr int kPotrsStatusSize = 40;
+inline constexpr int kLuSolveStatusSize = 41;
 inline constexpr int kSyevdStatusSize = 36;
 inline constexpr cusolverMpGridMapping_t kCusolverMpGridMappingRowMajor =
     CUSOLVERMP_GRID_MAPPING_ROW_MAJOR;
@@ -154,6 +168,12 @@ absl::Status CopyPotrsStatusToDevice(
     se::Stream* stream, const std::array<int32_t, kPotrsStatusSize>& status,
     ffi::Result<ffi::BufferR1<S32>> out);
 
+// Copies an LU-solve status vector from host memory into the JAX-visible device
+// status output.
+absl::Status CopyLuSolveStatusToDevice(
+    se::Stream* stream, const std::array<int32_t, kLuSolveStatusSize>& status,
+    ffi::Result<ffi::BufferR1<S32>> out);
+
 // Copies an SYEVD status vector from host memory into the JAX-visible device
 // status output.
 absl::Status CopySyevdStatusToDevice(
@@ -175,6 +195,15 @@ bool CusolverMpDebugEnabled();
 // Emits rank-tagged debug logging for hard-to-debug distributed cuSOLVERMp
 // failures when JAXMG_CUSOLVERMP_DEBUG is set.
 void CusolverMpDebug(int rank, const char* format, ...);
+
+// Returns whether per-rank CUDA memory checkpoint logging is enabled.
+bool CusolverMpMemoryDebugEnabled();
+
+// Emits a cudaMemGetInfo() checkpoint when JAXMG_CUDA_MEM_DEBUG is set.
+void CusolverMpMemoryDebug(int rank, const char* label);
+
+// Emits an expected allocation/workspace size when JAXMG_CUDA_MEM_DEBUG is set.
+void CusolverMpMemoryDebugBytes(int rank, const char* label, size_t bytes);
 
 // Resolves the CUDA device that owns a donated JAX buffer pointer so each FFI
 // rank binds cuSOLVERMp to the correct local GPU.

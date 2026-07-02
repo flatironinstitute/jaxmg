@@ -31,6 +31,62 @@ def emit(prefix: str, payload: dict) -> None:
     print(f"{prefix} {json.dumps(payload, sort_keys=True)}", flush=True)
 
 
+def diagnostics_enabled() -> bool:
+    """Return whether the distributed test should emit benchmark diagnostics."""
+    for name in (
+        "JAXMG_CUDA_DIAGNOSTICS",
+        "JAXMG_CUDA_MEM_DEBUG",
+        "JAXMG_CUDA_TIMING_DEBUG",
+        "JAXMG_PYTHON_DIAGNOSTICS",
+    ):
+        value = os.environ.get(name)
+        if value not in (None, "", "0"):
+            return True
+    return False
+
+
+def emit_python_memory_checkpoint(proc_id: int, label: str) -> None:
+    """Emit JAX-visible device memory stats for benchmark diagnostics.
+
+    This complements the native ``cudaMemGetInfo`` checkpoints printed by the
+    fused CUDA backend.  JAX's ``memory_stats`` keys vary by backend/version, so
+    the helper records every scalar numeric field it can read and lets the
+    benchmark parser decide which ones are present on a given machine.
+    """
+    if not diagnostics_enabled():
+        return
+
+    payload: dict[str, object] = {"proc": proc_id, "label": label}
+    try:
+        devices = jax.local_devices()
+        if devices:
+            device = devices[0]
+            payload["device"] = str(device)
+            stats = device.memory_stats() or {}
+            payload["stats"] = {
+                str(key): int(value)
+                for key, value in stats.items()
+                if isinstance(value, (bool, int, np.integer))
+            }
+    except Exception as exc:  # pragma: no cover - backend dependent.
+        payload["error"] = repr(exc)
+    emit("MPTEST_PY_MEMORY", payload)
+
+
+def emit_python_timing(proc_id: int, label: str, elapsed_seconds: float) -> None:
+    """Emit one Python-side wall-clock timing record when diagnostics are on."""
+    if not diagnostics_enabled():
+        return
+    emit(
+        "MPTEST_PY_TIMING",
+        {
+            "proc": proc_id,
+            "label": label,
+            "elapsed_ms": elapsed_seconds * 1000.0,
+        },
+    )
+
+
 def dtype_from_name(dtype_name: str):
     """Map pytest dtype parameters to JAX dtypes."""
     mapping = {

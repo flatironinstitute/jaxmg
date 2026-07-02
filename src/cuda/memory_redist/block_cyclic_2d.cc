@@ -35,10 +35,14 @@
 #include <algorithm>
 #include <functional>
 #include <map>
+#include <string>
 #include <tuple>
 #include <vector>
 
+#include "absl/strings/str_cat.h"
+
 #include "memory_redist.h"
+#include "../xla_ffi/diagnostics.h"
 
 namespace xla::gpu {
 
@@ -765,26 +769,53 @@ absl::Status ExecutePadded2DNativePlanRawImpl(
   if (reverse != 0) {
     // Output path: cuSOLVERMp layout -> edge-padded JAX-local layout ->
     // per-shard padded JAX layout.
-    JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
-        stream, comm_stream, cuda_stream, slab_batches, local_rows, local_cols,
-        rank_value, num_ranks, element_bytes, *cyclic_slot_elements, matrix,
-        matrix_out_base, scratch_base, *comm));
-    return ExecuteEdgePaddingBatches(
-        stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
-        rank_value, num_ranks, element_bytes, scratch_elements, matrix,
-        matrix_out_base, scratch_base, *comm);
+    const std::string slab_label =
+        absl::StrCat(caller, "/block_cyclic_reverse");
+    {
+      JaxmgCudaStageTimer timer(rank_value, slab_label.c_str(), cuda_stream);
+      JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
+          stream, comm_stream, cuda_stream, slab_batches, local_rows,
+          local_cols, rank_value, num_ranks, element_bytes,
+          *cyclic_slot_elements, matrix, matrix_out_base, scratch_base,
+          *comm));
+    }
+    JaxmgCudaMemoryCheckpoint(rank_value, slab_label.c_str());
+
+    const std::string edge_label = absl::StrCat(caller, "/edge_reverse");
+    {
+      JaxmgCudaStageTimer timer(rank_value, edge_label.c_str(), cuda_stream);
+      JAXMG_RETURN_IF_ERROR(ExecuteEdgePaddingBatches(
+          stream, comm_stream, cuda_stream, edge_batches, local_rows,
+          local_cols, rank_value, num_ranks, element_bytes, scratch_elements,
+          matrix, matrix_out_base, scratch_base, *comm));
+    }
+    JaxmgCudaMemoryCheckpoint(rank_value, edge_label.c_str());
+    return absl::OkStatus();
   }
 
   // Input path: per-shard padded JAX layout -> edge-padded global layout ->
   // cuSOLVERMp 2D block-cyclic layout.
-  JAXMG_RETURN_IF_ERROR(ExecuteEdgePaddingBatches(
-      stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
-      rank_value, num_ranks, element_bytes, scratch_elements, matrix,
-      matrix_out_base, scratch_base, *comm));
-  return ExecuteNative2DStepBatches(
-      stream, comm_stream, cuda_stream, slab_batches, local_rows, local_cols,
-      rank_value, num_ranks, element_bytes, *cyclic_slot_elements, matrix,
-      matrix_out_base, scratch_base, *comm);
+  const std::string edge_label = absl::StrCat(caller, "/edge_forward");
+  {
+    JaxmgCudaStageTimer timer(rank_value, edge_label.c_str(), cuda_stream);
+    JAXMG_RETURN_IF_ERROR(ExecuteEdgePaddingBatches(
+        stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
+        rank_value, num_ranks, element_bytes, scratch_elements, matrix,
+        matrix_out_base, scratch_base, *comm));
+  }
+  JaxmgCudaMemoryCheckpoint(rank_value, edge_label.c_str());
+
+  const std::string slab_label =
+      absl::StrCat(caller, "/block_cyclic_forward");
+  {
+    JaxmgCudaStageTimer timer(rank_value, slab_label.c_str(), cuda_stream);
+    JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
+        stream, comm_stream, cuda_stream, slab_batches, local_rows, local_cols,
+        rank_value, num_ranks, element_bytes, *cyclic_slot_elements, matrix,
+        matrix_out_base, scratch_base, *comm));
+  }
+  JaxmgCudaMemoryCheckpoint(rank_value, slab_label.c_str());
+  return absl::OkStatus();
 }
 
 }  // namespace

@@ -15,10 +15,10 @@
 // Shared cuSOLVERMp grid, status, and CUDA utility implementation.
 //
 // The routines here intentionally avoid solver-specific behavior. They provide
-// the common mechanics needed by POTRS and SYEVD: validate that a JAX mesh can
-// be represented by cuSOLVERMp, compute local NUMROC capacities, copy private
-// status vectors back to device memory, and bind CUDA work to the device that
-// owns each donated JAX buffer.
+// the common mechanics needed by POTRS, LU solve, and SYEVD: validate that a
+// JAX mesh can be represented by cuSOLVERMp, compute local NUMROC capacities,
+// copy private status vectors back to device memory, and bind CUDA work to the
+// device that owns each donated JAX buffer.
 
 #include "cusolvermp_common.h"
 
@@ -28,6 +28,8 @@
 #include <cstdlib>
 #include <limits>
 #include <vector>
+
+#include "../xla_ffi/diagnostics.h"
 
 namespace xla::gpu {
 
@@ -135,6 +137,15 @@ absl::Status CopyPotrsStatusToDevice(
   return stream->MemcpyH2D(absl::MakeConstSpan(status), &dst);
 }
 
+// Writes the LU-solve per-rank status words into the rank-1 device output
+// buffer.
+absl::Status CopyLuSolveStatusToDevice(
+    se::Stream* stream, const std::array<int32_t, kLuSolveStatusSize>& status,
+    ffi::Result<ffi::BufferR1<S32>> out) {
+  se::DeviceAddress<int32_t> dst = out->device_memory();
+  return stream->MemcpyH2D(absl::MakeConstSpan(status), &dst);
+}
+
 // Writes the SYEVD per-rank status words into the rank-1 device output buffer.
 absl::Status CopySyevdStatusToDevice(
     se::Stream* stream, const std::array<int32_t, kSyevdStatusSize>& status,
@@ -191,6 +202,27 @@ void CusolverMpDebug(int rank, const char* format, ...) {
   va_end(args);
   std::fprintf(stderr, "\n");
   std::fflush(stderr);
+}
+
+// Reads the memory-debug switch independently from the solver-debug switch so
+// large benchmark jobs can collect memory checkpoints without enabling every
+// cuSOLVERMp trace line.
+bool CusolverMpMemoryDebugEnabled() {
+  return JaxmgCudaMemoryDebugEnabled();
+}
+
+// Prints the current device memory state for the active CUDA device. This is a
+// diagnostic-only helper: it performs no allocation, and normal production runs
+// pay only the environment-variable branch.
+void CusolverMpMemoryDebug(int rank, const char* label) {
+  JaxmgCudaMemoryCheckpoint(rank, label);
+}
+
+// Prints a requested allocation size beside cudaMemGetInfo() checkpoints. The
+// byte count is supplied by the caller because these values are known before
+// the CUDA runtime accepts or rejects an allocation.
+void CusolverMpMemoryDebugBytes(int rank, const char* label, size_t bytes) {
+  JaxmgCudaSizeRecord(rank, label, bytes);
 }
 
 // Uses CUDA pointer attributes to bind the current host thread to the GPU that

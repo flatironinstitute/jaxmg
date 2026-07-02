@@ -1,4 +1,5 @@
 import sys
+import time
 import traceback
 from functools import partial
 
@@ -14,6 +15,8 @@ from cusolvermp_case_utils import (
     assert_close_scaled,
     dtype_from_name,
     emit,
+    emit_python_memory_checkpoint,
+    emit_python_timing,
     global_array_to_numpy,
     local_device_id_for_process,
     make_hermitian_positive_definite,
@@ -56,8 +59,9 @@ def run_case() -> None:
     expected_eigenvalues, _ = jnp.linalg.eigh(a)
 
     a_dev = jax.device_put(a, NamedSharding(mesh, matrix_specs))
+    emit_python_memory_checkpoint(proc_id, "syevd/inputs_ready")
 
-    @partial(jax.jit, static_argnames=("tile_size",))
+    @partial(jax.jit, static_argnames=("tile_size",), donate_argnums=(0,))
     def eigensolve(_a, *, tile_size):
         return syevd(
             _a,
@@ -68,10 +72,13 @@ def run_case() -> None:
             pad=True,
         )
 
+    start = time.perf_counter()
     eigenvalues, vectors, status = eigensolve(a_dev, tile_size=case.tile_size)
     eigenvalues.block_until_ready()
     vectors.block_until_ready()
     status.block_until_ready()
+    emit_python_timing(proc_id, "syevd/end_to_end", time.perf_counter() - start)
+    emit_python_memory_checkpoint(proc_id, "syevd/result_ready")
 
     status_words = native_status_words(status)
     assert status_words.size % _CUSOLVERMP_SYEVD_STATUS_SIZE == 0, status_words
