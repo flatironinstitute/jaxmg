@@ -1,3 +1,5 @@
+from functools import partial
+
 import numpy as np
 import pytest
 
@@ -9,7 +11,7 @@ import jax.numpy as jnp
 from jax.sharding import Mesh, PartitionSpec as P
 
 import jaxmg._potrs as potrs_module
-from jaxmg import potrs
+from jaxmg import potrs, potrs_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_POTRS_STATUS_SIZE
 
 
@@ -23,9 +25,9 @@ def _install_fake_potrs_backend(monkeypatch):
     """Replace native backend entry points with a small Python stand-in."""
     captured = {}
 
-    def fake_compiled(*args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
+    def fake_pipeline(*args, **kwargs):
+        captured["pipeline_args"] = args
+        captured["pipeline_kwargs"] = kwargs
 
         def impl(_a, _b):
             status = jnp.zeros((_CUSOLVERMP_POTRS_STATUS_SIZE,), dtype=jnp.int32)
@@ -34,7 +36,13 @@ def _install_fake_potrs_backend(monkeypatch):
 
         return impl
 
+    def fake_compiled(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return fake_pipeline(*args, **kwargs)
+
     monkeypatch.setattr(potrs_module, "ensure_init_jaxmg_backend", lambda: None)
+    monkeypatch.setattr(potrs_module, "_potrs_pipeline", fake_pipeline)
     monkeypatch.setattr(potrs_module, "_potrs_compiled", fake_compiled)
     return captured
 
@@ -85,6 +93,96 @@ def test_potrs_preserves_single_column_rhs_rank(monkeypatch):
     )
 
     assert out.shape == b.shape
+
+
+def test_potrs_public_api_can_be_wrapped_in_external_jit(monkeypatch):
+    _install_fake_potrs_backend(monkeypatch)
+    mesh = _one_rank_mesh()
+    solve = jax.jit(
+        partial(potrs, T_A=2, mesh=mesh, matrix_specs=P("pr", "pc")),
+        donate_argnums=(0, 1),
+    )
+
+    out = solve(
+        jnp.eye(4, dtype=jnp.float32),
+        jnp.ones((4, 1), dtype=jnp.float32),
+    )
+
+    assert out.shape == (4, 1)
+
+
+def test_potrs_shardmap_ctx_returns_work_solution_and_status(monkeypatch):
+    captured = _install_fake_potrs_backend(monkeypatch)
+    a = jnp.eye(4, dtype=jnp.float32)
+    b = jnp.ones((4, 2), dtype=jnp.float32)
+
+    a_work, out, status = potrs_shardmap_ctx(
+        a,
+        b,
+        2,
+        mesh=_one_rank_mesh(),
+        matrix_specs=P("pr", "pc"),
+    )
+
+    assert a_work.shape == a.shape
+    assert out.shape == b.shape
+    assert status.shape == (_CUSOLVERMP_POTRS_STATUS_SIZE,)
+    assert captured["pipeline_kwargs"]["n"] == 4
+    assert captured["pipeline_kwargs"]["nrhs"] == 2
+    assert captured["pipeline_kwargs"]["tile_size"] == 2
+
+
+def test_potrs_shardmap_ctx_preserves_vector_rhs_rank(monkeypatch):
+    captured = _install_fake_potrs_backend(monkeypatch)
+    a = jnp.eye(4, dtype=jnp.float64)
+    b = jnp.ones((4,), dtype=jnp.float64)
+
+    a_work, out, status = potrs_shardmap_ctx(
+        a,
+        b,
+        2,
+        mesh=_one_rank_mesh(),
+        matrix_specs=P("pr", "pc"),
+    )
+
+    assert a_work.shape == a.shape
+    assert out.shape == b.shape
+    assert status.shape == (_CUSOLVERMP_POTRS_STATUS_SIZE,)
+    assert captured["pipeline_kwargs"]["nrhs"] == 1
+
+
+def test_potrs_shardmap_ctx_can_be_wrapped_in_external_jit(monkeypatch):
+    _install_fake_potrs_backend(monkeypatch)
+    mesh = _one_rank_mesh()
+    solve = jax.jit(
+        partial(potrs_shardmap_ctx, T_A=2, mesh=mesh, matrix_specs=P("pr", "pc")),
+        donate_argnums=(0, 1),
+    )
+
+    a_work, out, status = solve(
+        jnp.eye(4, dtype=jnp.float32),
+        jnp.ones((4, 1), dtype=jnp.float32),
+    )
+
+    assert a_work.shape == (4, 4)
+    assert out.shape == (4, 1)
+    assert status.shape == (_CUSOLVERMP_POTRS_STATUS_SIZE,)
+
+
+def test_potrs_external_jit_can_lower_from_shape_specs(monkeypatch):
+    _install_fake_potrs_backend(monkeypatch)
+    mesh = _one_rank_mesh()
+    solve = jax.jit(
+        partial(potrs, T_A=2, mesh=mesh, matrix_specs=P("pr", "pc")),
+        donate_argnums=(0, 1),
+    )
+
+    compiled = solve.lower(
+        jax.ShapeDtypeStruct((4, 4), jnp.float32),
+        jax.ShapeDtypeStruct((4, 1), jnp.float32),
+    ).compile()
+
+    assert compiled.memory_analysis() is not None
 
 
 def test_potrs_rejects_non_matrix_a():

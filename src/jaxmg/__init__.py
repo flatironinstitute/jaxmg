@@ -10,12 +10,13 @@ Main Entry Points:
     - :func:`jaxmg.syevd`: Compute eigenvalues and eigenvectors.
 """
 
-from ._potrs import potrs
+from ._potrs import potrs, potrs_shardmap_ctx
 from ._syevd import syevd
 from ._device import device_supports_vmm
 
 __all__ = [
     "potrs",
+    "potrs_shardmap_ctx",
     "syevd",
     "device_supports_vmm",
 ]
