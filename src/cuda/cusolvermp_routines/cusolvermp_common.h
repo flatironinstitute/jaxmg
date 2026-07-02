@@ -196,15 +196,6 @@ bool CusolverMpDebugEnabled();
 // failures when JAXMG_CUSOLVERMP_DEBUG is set.
 void CusolverMpDebug(int rank, const char* format, ...);
 
-// Returns whether per-rank CUDA memory checkpoint logging is enabled.
-bool CusolverMpMemoryDebugEnabled();
-
-// Emits a cudaMemGetInfo() checkpoint when JAXMG_CUDA_MEM_DEBUG is set.
-void CusolverMpMemoryDebug(int rank, const char* label);
-
-// Emits an expected allocation/workspace size when JAXMG_CUDA_MEM_DEBUG is set.
-void CusolverMpMemoryDebugBytes(int rank, const char* label, size_t bytes);
-
 // Resolves the CUDA device that owns a donated JAX buffer pointer so each FFI
 // rank binds cuSOLVERMp to the correct local GPU.
 absl::StatusOr<int> DeviceForCudaPointer(const void* ptr);

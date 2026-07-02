@@ -145,7 +145,7 @@ mkdir -p \
   "${BACKEND_PKG}/xla_ffi" \
   "${BACKEND_PKG}/memory_redist" \
   "${BACKEND_PKG}/cusolvermp_routines"
-for src in diagnostics.cc diagnostics.h handlers.cc layout_convert_probe.cc runtime.cc runtime.h; do
+for src in handlers.cc runtime.cc runtime.h; do
   cp -f "${JAXMG_ROOT}/src/cuda/xla_ffi/${src}" \
     "${BACKEND_PKG}/xla_ffi/${src}"
 done

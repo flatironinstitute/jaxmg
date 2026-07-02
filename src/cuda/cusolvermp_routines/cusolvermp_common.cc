@@ -29,8 +29,6 @@
 #include <limits>
 #include <vector>
 
-#include "../xla_ffi/diagnostics.h"
-
 namespace xla::gpu {
 
 // Normalizes the integer attribute used by Python into the cuSOLVERMp enum
@@ -155,7 +153,7 @@ absl::Status CopySyevdStatusToDevice(
 }
 
 // Converts byte counts to rounded-up KiB values that fit in the compact status
-// schema used by Python-side diagnostics.
+// schema returned to Python.
 int32_t SizeToKiBForStatus(size_t bytes) {
   const size_t kib = (bytes + 1023) / 1024;
   if (kib > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
@@ -202,27 +200,6 @@ void CusolverMpDebug(int rank, const char* format, ...) {
   va_end(args);
   std::fprintf(stderr, "\n");
   std::fflush(stderr);
-}
-
-// Reads the memory-debug switch independently from the solver-debug switch so
-// large benchmark jobs can collect memory checkpoints without enabling every
-// cuSOLVERMp trace line.
-bool CusolverMpMemoryDebugEnabled() {
-  return JaxmgCudaMemoryDebugEnabled();
-}
-
-// Prints the current device memory state for the active CUDA device. This is a
-// diagnostic-only helper: it performs no allocation, and normal production runs
-// pay only the environment-variable branch.
-void CusolverMpMemoryDebug(int rank, const char* label) {
-  JaxmgCudaMemoryCheckpoint(rank, label);
-}
-
-// Prints a requested allocation size beside cudaMemGetInfo() checkpoints. The
-// byte count is supplied by the caller because these values are known before
-// the CUDA runtime accepts or rejects an allocation.
-void CusolverMpMemoryDebugBytes(int rank, const char* label, size_t bytes) {
-  JaxmgCudaSizeRecord(rank, label, bytes);
 }
 
 // Uses CUDA pointer attributes to bind the current host thread to the GPU that
