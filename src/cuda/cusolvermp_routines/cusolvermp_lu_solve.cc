@@ -692,19 +692,52 @@ absl::Status XlaCusolverMpLuSolveDispatch(
           /*rank_map=*/rank_map,
       },
   }};
-  absl::StatusOr<Padded2DRedistScratch> redistribution_scratch =
+  absl::StatusOr<Padded2DRedistScratch> redistribution_scratch_status =
       AllocatePadded2DRedistScratch(
-          scratch, element_bytes, absl::MakeConstSpan(scratch_requests),
+          cuda_stream, element_bytes, absl::MakeConstSpan(scratch_requests),
           "cusolvermp_lu_solve_redistribution");
-  if (!redistribution_scratch.ok()) {
-    return redistribution_scratch.status();
+  if (!redistribution_scratch_status.ok()) {
+    return redistribution_scratch_status.status();
   }
-  se::DeviceAddressBase scratch_base = redistribution_scratch->base;
-  const int64_t scratch_elements = redistribution_scratch->elements;
+  Padded2DRedistScratch redistribution_scratch =
+      *redistribution_scratch_status;
+  se::DeviceAddressBase scratch_base = redistribution_scratch.base;
+  const int64_t scratch_elements = redistribution_scratch.elements;
   CusolverMpMemoryDebugBytes(
       -1, "lu_solve/redistribution_scratch_request",
-      redistribution_scratch->bytes);
+      redistribution_scratch.bytes);
   CusolverMpMemoryDebug(-1, "lu_solve/after_redistribution_scratch_alloc");
+
+  bool scratch_freed = false;
+  auto free_redistribution_scratch = [&]() -> absl::Status {
+    if (scratch_freed) {
+      return absl::OkStatus();
+    }
+    absl::Status free_status = FreePadded2DRedistScratch(
+        cuda_stream, redistribution_scratch,
+        "cusolvermp_lu_solve_redistribution");
+    if (!free_status.ok()) {
+      return free_status;
+    }
+    scratch_freed = true;
+    return absl::OkStatus();
+  };
+  auto return_after_cleanup = [&](absl::Status status) -> absl::Status {
+    absl::Status free_status = free_redistribution_scratch();
+    if (!status.ok()) {
+      return status;
+    }
+    return free_status;
+  };
+  auto cuda_status_after_cleanup =
+      [&](cudaError_t status, const char* caller) -> absl::Status {
+    if (status == cudaSuccess) {
+      return absl::OkStatus();
+    }
+    return return_after_cleanup(absl::InternalError(absl::StrFormat(
+        "%s failed: cuda status %d (%s)", caller, static_cast<int>(status),
+        cudaGetErrorString(status))));
+  };
 
   ffi::AnyBuffer a_forward_input = a;
   ffi::AnyBuffer b_forward_input = b;
@@ -716,24 +749,36 @@ absl::Status XlaCusolverMpLuSolveDispatch(
   // native matrix allocation.
   {
     JaxmgCudaStageTimer timer(-1, "lu_solve/input_copy_or_alias", cuda_stream);
-    JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, a, a_work));
-    JAXMG_RETURN_IF_ERROR(CopyMatrixIfNeeded(cuda_stream, b, b_out));
+    if (absl::Status status = CopyMatrixIfNeeded(cuda_stream, a, a_work);
+        !status.ok()) {
+      return return_after_cleanup(status);
+    }
+    if (absl::Status status = CopyMatrixIfNeeded(cuda_stream, b, b_out);
+        !status.ok()) {
+      return return_after_cleanup(status);
+    }
   }
   CusolverMpMemoryDebug(-1, "lu_solve/after_input_copy_or_alias");
   a_forward_input = *a_work;
   b_forward_input = *b_out;
   {
     JaxmgCudaStageTimer timer(-1, "lu_solve/a_layout_forward", cuda_stream);
-    JAXMG_RETURN_IF_ERROR(ConvertRowMajorToColumnMajorInPlace(
-        cuda_stream, "cusolvermp_lu_solve/a_layout_convert", a_forward_input,
-        scratch_base, scratch_elements));
+    if (absl::Status status = ConvertRowMajorToColumnMajorInPlace(
+            cuda_stream, "cusolvermp_lu_solve/a_layout_convert",
+            a_forward_input, scratch_base, scratch_elements);
+        !status.ok()) {
+      return return_after_cleanup(status);
+    }
   }
   CusolverMpMemoryDebug(-1, "lu_solve/after_a_layout_convert");
   {
     JaxmgCudaStageTimer timer(-1, "lu_solve/b_layout_forward", cuda_stream);
-    JAXMG_RETURN_IF_ERROR(ConvertRowMajorToColumnMajorInPlace(
-        cuda_stream, "cusolvermp_lu_solve/b_layout_convert", b_forward_input,
-        scratch_base, scratch_elements));
+    if (absl::Status status = ConvertRowMajorToColumnMajorInPlace(
+            cuda_stream, "cusolvermp_lu_solve/b_layout_convert",
+            b_forward_input, scratch_base, scratch_elements);
+        !status.ok()) {
+      return return_after_cleanup(status);
+    }
   }
   CusolverMpMemoryDebug(-1, "lu_solve/after_b_layout_convert");
 
@@ -743,22 +788,29 @@ absl::Status XlaCusolverMpLuSolveDispatch(
   {
     JaxmgCudaStageTimer timer(-1, "lu_solve/a_forward_redistribution_total",
                               cuda_stream);
-    JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
-        "cusolvermp_lu_solve/a_forward", stream, comm_stream, cuda_stream,
-        process_rows, process_cols, tile_size, tile_size, n, n, /*reverse=*/0,
-        rank_map, a_forward_input, a_work->device_memory(), scratch_base,
-        scratch_elements, collective_params, collective_cliques));
+    if (absl::Status status = ExecutePadded2DNativePlanRaw(
+            "cusolvermp_lu_solve/a_forward", stream, comm_stream, cuda_stream,
+            process_rows, process_cols, tile_size, tile_size, n, n,
+            /*reverse=*/0, rank_map, a_forward_input, a_work->device_memory(),
+            scratch_base, scratch_elements, collective_params,
+            collective_cliques);
+        !status.ok()) {
+      return return_after_cleanup(status);
+    }
   }
   CusolverMpMemoryDebug(-1, "lu_solve/after_a_forward_redist");
   {
     JaxmgCudaStageTimer timer(-1, "lu_solve/b_forward_redistribution_total",
                               cuda_stream);
-    JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
-        "cusolvermp_lu_solve/b_forward", stream, comm_stream, cuda_stream,
-        process_rows, process_cols, tile_size, tile_size, n,
-        b_distribution_cols, /*reverse=*/0, rank_map, b_forward_input,
-        b_out->device_memory(), scratch_base, scratch_elements,
-        collective_params, collective_cliques));
+    if (absl::Status status = ExecutePadded2DNativePlanRaw(
+            "cusolvermp_lu_solve/b_forward", stream, comm_stream, cuda_stream,
+            process_rows, process_cols, tile_size, tile_size, n,
+            b_distribution_cols, /*reverse=*/0, rank_map, b_forward_input,
+            b_out->device_memory(), scratch_base, scratch_elements,
+            collective_params, collective_cliques);
+        !status.ok()) {
+      return return_after_cleanup(status);
+    }
   }
   CusolverMpMemoryDebug(-1, "lu_solve/after_b_forward_redist");
 
@@ -767,7 +819,12 @@ absl::Status XlaCusolverMpLuSolveDispatch(
   // handler must provide the same safety explicitly before the host-side
   // cuSOLVERMp call reads the redistributed buffers.  This can be relaxed to an
   // event dependency after the correctness matrix is stable.
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  if (absl::Status status = cuda_status_after_cleanup(
+          cudaStreamSynchronize(cuda_stream),
+          "cusolvermp_lu_solve forward stream synchronize");
+      !status.ok()) {
+    return status;
+  }
   CusolverMpMemoryDebug(-1, "lu_solve/after_forward_sync_before_solver");
 
   ffi::AnyBuffer a_cyclic = *a_work;
@@ -776,17 +833,25 @@ absl::Status XlaCusolverMpLuSolveDispatch(
   // handles the cuSOLVERMp ABI boundary and borrowed NCCL communicator.
   {
     JaxmgCudaStageTimer timer(-1, "lu_solve/solver_total", cuda_stream);
-    JAXMG_RETURN_IF_ERROR(RunCusolverMpLuSolveSolver(
-        stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
-        tile_size, grid_mapping, rank_map, a_cyclic, b_cyclic, a_work, b_out,
-        status, collective_params, collective_cliques));
+    if (absl::Status status = RunCusolverMpLuSolveSolver(
+            stream, comm_stream, cuda_stream, process_rows, process_cols, n,
+            nrhs, tile_size, grid_mapping, rank_map, a_cyclic, b_cyclic,
+            a_work, b_out, status, collective_params, collective_cliques);
+        !status.ok()) {
+      return return_after_cleanup(status);
+    }
   }
   CusolverMpMemoryDebug(-1, "lu_solve/after_solver_return");
 
   // cuSOLVERMp is issued on the same stream, but keep the fused reverse
   // redistribution boundary explicit for the same reason as the forward solve
   // boundary above.
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  if (absl::Status status = cuda_status_after_cleanup(
+          cudaStreamSynchronize(cuda_stream),
+          "cusolvermp_lu_solve solver stream synchronize");
+      !status.ok()) {
+    return status;
+  }
   CusolverMpMemoryDebug(-1, "lu_solve/after_solver_sync_before_reverse");
 
   ffi::AnyBuffer b_solved_cyclic = *b_out;
@@ -795,12 +860,15 @@ absl::Status XlaCusolverMpLuSolveDispatch(
   {
     JaxmgCudaStageTimer timer(-1, "lu_solve/b_reverse_redistribution_total",
                               cuda_stream);
-    JAXMG_RETURN_IF_ERROR(ExecutePadded2DNativePlanRaw(
-        "cusolvermp_lu_solve/b_reverse", stream, comm_stream, cuda_stream,
-        process_rows, process_cols, tile_size, tile_size, n,
-        b_distribution_cols, /*reverse=*/1, rank_map, b_solved_cyclic,
-        b_out->device_memory(), scratch_base, scratch_elements,
-        collective_params, collective_cliques));
+    if (absl::Status status = ExecutePadded2DNativePlanRaw(
+            "cusolvermp_lu_solve/b_reverse", stream, comm_stream, cuda_stream,
+            process_rows, process_cols, tile_size, tile_size, n,
+            b_distribution_cols, /*reverse=*/1, rank_map, b_solved_cyclic,
+            b_out->device_memory(), scratch_base, scratch_elements,
+            collective_params, collective_cliques);
+        !status.ok()) {
+      return return_after_cleanup(status);
+    }
   }
   CusolverMpMemoryDebug(-1, "lu_solve/after_b_reverse_redist");
 
@@ -808,12 +876,15 @@ absl::Status XlaCusolverMpLuSolveDispatch(
   CusolverMpMemoryDebug(-1, "lu_solve/before_b_layout_restore");
   {
     JaxmgCudaStageTimer timer(-1, "lu_solve/b_layout_reverse", cuda_stream);
-    JAXMG_RETURN_IF_ERROR(ConvertColumnMajorToRowMajorInPlace(
-        cuda_stream, "cusolvermp_lu_solve/b_layout_restore", *b_out,
-        scratch_base, scratch_elements));
+    if (absl::Status status = ConvertColumnMajorToRowMajorInPlace(
+            cuda_stream, "cusolvermp_lu_solve/b_layout_restore", *b_out,
+            scratch_base, scratch_elements);
+        !status.ok()) {
+      return return_after_cleanup(status);
+    }
   }
   CusolverMpMemoryDebug(-1, "lu_solve/after_b_layout_restore");
-  return absl::OkStatus();
+  return return_after_cleanup(absl::OkStatus());
 }
 
 }  // namespace xla::gpu
