@@ -8,6 +8,7 @@ if not jax.config.jax_enable_x64:
 
 import jax.numpy as jnp
 import numpy as np
+from jax.experimental import multihost_utils
 from jax.sharding import NamedSharding, PartitionSpec as P
 
 from cusolvermp_case_utils import (
@@ -108,6 +109,9 @@ def run_case() -> None:
                 "grid_order": case.grid_order,
             },
         },
+    )
+    multihost_utils.sync_global_devices(
+        f"syevd_{case_name}_{dtype_name}_{num_procs}_complete"
     )
 
 
