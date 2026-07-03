@@ -10,14 +10,15 @@
 
 
 # JAXMg
-JAXMg provides a jittable C++/CUDA interface between [JAX](https://github.com/google/jax) and [cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/), NVIDIA's distributed linear algebra runtime. The public API exposes two fused cuSOLVERMp routines:
+JAXMg provides a jittable C++/CUDA interface between [JAX](https://github.com/google/jax) and [cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/), NVIDIA's distributed linear algebra runtime. The public API exposes three fused cuSOLVERMp routines:
 
 - [cusolverMpPotrf/Potrs](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): solves symmetric (Hermitian) positive-definite systems on a 2D process grid via `jaxmg.potrs`.
+- [cusolverMpGetrf/Getrs](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): solves general nonsingular systems on a 2D process grid via `jaxmg.lu_solve`.
 - [cusolverMpSyevd](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): computes eigenvalues and eigenvectors on a 2D process grid via `jaxmg.syevd`.
 
-Both routines accept ordinary 2D JAX-sharded arrays, locally pad shards when needed, enter one fused native FFI call, redistribute to cuSOLVERMp's 2D block-cyclic layout, call cuSOLVERMp, and redistribute results back to the JAX-facing layout.
+All three routines accept ordinary 2D JAX-sharded arrays, locally pad shards when needed, enter one fused native FFI call, redistribute to cuSOLVERMp's 2D block-cyclic layout, call cuSOLVERMp, and redistribute results back to the JAX-facing layout.
 
-For more details, see the [API](api/potrs.md).
+For more details, see the [API](docs/api/index.md).
 
 ## Installation
 
@@ -118,6 +119,11 @@ True
 ```
 as expected.
 
+For applications that already manage an outer `jax.jit` boundary, JAXMg also
+exports `potrs_shardmap_ctx` and `lu_solve_shardmap_ctx`. These lower-level
+helpers expose the donated matrix work buffer so an outer jitted function can
+use `donate_argnums` safely.
+
 ## Projects that use JAXMg
 
 - [JAXMg Benchmarks](https://github.com/therooler/jaxmg_benchmark): Benchmarks for various Multi-GPUs setups.
@@ -127,9 +133,10 @@ as expected.
 ## cuSOLVERMp
 The cuSOLVERMp backend uses JAX's XLA-owned NCCL communicator through FFI,
 redistributes ordinary 2D JAX-sharded matrices into cuSOLVERMp's 2D
-block-cyclic layout, and calls cuSOLVERMp directly. Explicit inverse support is
-intentionally absent: current cuSOLVERMp releases do not expose a direct
-explicit-inverse routine.
+block-cyclic layout, and calls cuSOLVERMp directly. JAXMg currently supports
+Cholesky solves, LU solves, and symmetric/Hermitian eigensolves. Explicit
+inverse support is intentionally absent: current cuSOLVERMp releases do not
+expose a direct explicit-inverse routine.
 
 ## Citations
 ```

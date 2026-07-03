@@ -44,9 +44,10 @@ docker exec jax bash -lc '
 ```
 
 This installs `src/jaxmg/cu12/libjaxmg_xla_comm_backend.so`, which registers the
-production `cusolvermp_potrs` and `cusolvermp_syevd` FFI targets. Additional
-communicator and cuSOLVERMp probe targets may be registered when present in the
-shared library; these are diagnostic targets, not public solver APIs.
+production `cusolvermp_potrs`, `cusolvermp_lu_solve`, and `cusolvermp_syevd`
+FFI targets. Additional communicator and cuSOLVERMp probe targets may be
+registered when present in the shared library; these are diagnostic targets,
+not public solver APIs.
 
 `build_native_backend.sh` assembles the backend sources into
 `${JAX_SRC}/jaxmg_backend`, substitutes the CUDA major version into

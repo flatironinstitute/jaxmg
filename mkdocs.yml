@@ -101,6 +101,7 @@ nav:
     - API:
         - "api/index.md"
         - "api/potrs.md"
+        - "api/lu_solve.md"
         - "api/syevd.md"
     - Technical Details:
         - "technical_details/memory_distribution.md"
