@@ -106,8 +106,11 @@ timeout(time: 2, unit: 'HOURS') {
         "CUDA_VISIBLE_DEVICES=0,1",
         "JAXMG_MPMD_LAUNCHER=subprocess",
         // Disable NCCL's cuMem allocator (fails at ncclGroupEnd in the pod) and
-        // turn on init/alloc debug logging.
+        // keep JAX on the conservative platform allocator. The Jenkins GPU pod
+        // reports CUDA VMM support, but repeated distributed smoke tests can
+        // leave too little contiguous memory for NCCL communicator creation.
         "NCCL_CUMEM_ENABLE=0",
+        "XLA_PYTHON_CLIENT_ALLOCATOR=platform",
       ]) {
         sh '''#!/bin/bash -ex
           export PATH="/usr/local/cuda/bin:$PATH"

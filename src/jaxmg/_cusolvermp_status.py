@@ -60,6 +60,53 @@ _CUSOLVERMP_POTRS_STATUS_FIELDS = (
 )
 
 
+# Mirrors kLuSolveStatusSize/status_words in
+# src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc.
+_CUSOLVERMP_LU_SOLVE_STATUS_FIELDS = (
+    "status_code",
+    "cuda_device",
+    "nccl_rank",
+    "nccl_rank_count",
+    "process_rows",
+    "process_cols",
+    "cusolvermp_version",
+    "cusolvermp_runtime_available",
+    "handle_created",
+    "grid_created",
+    "a_descriptor_created",
+    "raw_cusolver_status",
+    "a_size_bytes",
+    "n",
+    "tile_size",
+    "a_local_rows",
+    "a_local_cols",
+    "b_local_rows",
+    "a_numroc_rows",
+    "a_numroc_cols",
+    "b_numroc_rows",
+    "b_numroc_cols",
+    "getrf_device_workspace_kib",
+    "getrf_host_workspace_kib",
+    "getrs_device_workspace_kib",
+    "getrs_host_workspace_kib",
+    "getrf_called",
+    "getrf_info",
+    "getrs_called",
+    "getrs_info",
+    "a_native_redist",
+    "b_native_redist",
+    "b_reverse_redist",
+    "ipiv_len",
+    "dtype_code",
+    "b_local_cols",
+    "nrhs",
+    "a_native_redist_final",
+    "b_native_redist_final",
+    "grid_mapping",
+    "ipiv_bytes_kib",
+)
+
+
 # Mirrors kSyevdStatusSize/status_words in
 # src/cuda/cusolvermp_routines/cusolvermp_syevd.cc.
 _CUSOLVERMP_SYEVD_STATUS_FIELDS = (
@@ -103,4 +150,5 @@ _CUSOLVERMP_SYEVD_STATUS_FIELDS = (
 
 
 _CUSOLVERMP_POTRS_STATUS_SIZE = len(_CUSOLVERMP_POTRS_STATUS_FIELDS)
+_CUSOLVERMP_LU_SOLVE_STATUS_SIZE = len(_CUSOLVERMP_LU_SOLVE_STATUS_FIELDS)
 _CUSOLVERMP_SYEVD_STATUS_SIZE = len(_CUSOLVERMP_SYEVD_STATUS_FIELDS)

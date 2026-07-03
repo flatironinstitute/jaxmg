@@ -107,10 +107,11 @@ def _first_valid_n(process_rows: int, process_cols: int, tile: int, *, padded: b
 
 
 def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCase:
-    """Build a named test case for POTRS or SYEVD MPMD runners."""
+    """Build a named test case for POTRS, LU solve, or SYEVD MPMD runners."""
     rhs_mode = "matrix_2d_sharded"
+    has_rhs = routine in ("potrs", "lu_solve")
     if case_name == "row_major_no_padding":
-        if routine == "potrs":
+        if has_rhs:
             rows, cols = 1, num_processes
             nrhs = max(1, cols)
         else:
@@ -126,29 +127,31 @@ def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCa
         rows, cols, tile, padded, nrhs = num_processes, 1, 96, True, 1
         grid_order = "row_major"
     elif case_name == "skinny_rhs":
-        if routine != "potrs":
-            raise ValueError("skinny_rhs is only meaningful for POTRS")
+        if not has_rhs:
+            raise ValueError("skinny_rhs is only meaningful for solve routines")
         rows, cols, tile, padded, nrhs = 1, num_processes, 64, False, 1
         grid_order = "row_major"
         rhs_mode = "matrix_row_sharded"
     elif case_name == "vector_rhs_replicated":
-        if routine != "potrs":
-            raise ValueError("vector_rhs_replicated is only meaningful for POTRS")
+        if not has_rhs:
+            raise ValueError(
+                "vector_rhs_replicated is only meaningful for solve routines"
+            )
         rows, cols, tile, padded, nrhs = 1, num_processes, 64, False, 1
         grid_order = "row_major"
         rhs_mode = "vector_replicated"
     elif case_name == "single_column_rhs_replicated":
-        if routine != "potrs":
+        if not has_rhs:
             raise ValueError(
-                "single_column_rhs_replicated is only meaningful for POTRS"
+                "single_column_rhs_replicated is only meaningful for solve routines"
             )
         rows, cols, tile, padded, nrhs = 1, num_processes, 64, False, 1
         grid_order = "row_major"
         rhs_mode = "matrix_replicated"
     elif case_name == "single_column_rhs_row_sharded":
-        if routine != "potrs":
+        if not has_rhs:
             raise ValueError(
-                "single_column_rhs_row_sharded is only meaningful for POTRS"
+                "single_column_rhs_row_sharded is only meaningful for solve routines"
             )
         rows, cols = balanced_process_grid(num_processes)
         tile, padded, nrhs = 64, False, 1

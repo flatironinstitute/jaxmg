@@ -29,7 +29,7 @@ padding consolidated on the right and bottom edges
         v
 cuSOLVERMp column-major block-cyclic local buffers
         |
-        | cuSOLVERMp POTRS / SYEVD
+        | cuSOLVERMp POTRS / LU / SYEVD
         v
 reverse Stage 3 -> reverse Stage 2 -> reverse Stage 1
         |
@@ -951,9 +951,24 @@ row-major local shards
 JAX-facing result
 ```
 
-For `potrs`, a vector right-hand side is represented internally as an `N x 1`
-matrix.  The public wrapper returns a vector again, so the output rank matches
-the input rank.
+For `potrs` and `lu_solve`, a vector right-hand side is represented internally
+as an `N x 1` matrix.  The public wrappers return a vector again, so the output
+rank matches the input rank.
+
+## Solver-specific native work
+
+The redistribution stages are shared by the fused solver entry points.  The
+main differences are inside the cuSOLVERMp call sequence and the workspace
+requested by that sequence:
+
+- `potrs` uses `cusolverMpPotrf` followed by `cusolverMpPotrs`.  It is intended
+  for symmetric (Hermitian) positive-definite matrices and does not allocate a
+  pivot vector.
+- `lu_solve` uses `cusolverMpGetrf` followed by `cusolverMpGetrs`.  It is
+  intended for general nonsingular matrices and allocates a pivot vector sized
+  by the local cuSOLVERMp column ownership, `LOCc(N_A)`.
+- `syevd` uses `cusolverMpSyevd` and has different output and workspace
+  pressure because eigenvectors are materialized as a full distributed matrix.
 
 ## Python and native responsibilities
 
@@ -991,5 +1006,6 @@ Stage 3:
 
 Solver orchestration:
   src/cuda/cusolvermp_routines/cusolvermp_potrs.cc
+  src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc
   src/cuda/cusolvermp_routines/cusolvermp_syevd.cc
 ```

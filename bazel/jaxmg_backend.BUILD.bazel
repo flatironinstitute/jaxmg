@@ -23,6 +23,7 @@ cc_binary(
     srcs = glob(["cusolvermp_include/**/*.h"]) + [
         "cusolvermp_routines/cusolvermp_common.cc",
         "cusolvermp_routines/cusolvermp_common.h",
+        "cusolvermp_routines/cusolvermp_lu_solve.cc",
         "cusolvermp_routines/cusolvermp_potrs.cc",
         "cusolvermp_routines/cusolvermp_routines.h",
         "cusolvermp_routines/cusolvermp_syevd.cc",

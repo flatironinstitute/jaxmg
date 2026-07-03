@@ -15,10 +15,10 @@
 // Shared cuSOLVERMp grid, status, and CUDA utility implementation.
 //
 // The routines here intentionally avoid solver-specific behavior. They provide
-// the common mechanics needed by POTRS and SYEVD: validate that a JAX mesh can
-// be represented by cuSOLVERMp, compute local NUMROC capacities, copy private
-// status vectors back to device memory, and bind CUDA work to the device that
-// owns each donated JAX buffer.
+// the common mechanics needed by POTRS, LU solve, and SYEVD: validate that a
+// JAX mesh can be represented by cuSOLVERMp, compute local NUMROC capacities,
+// copy private status vectors back to device memory, and bind CUDA work to the
+// device that owns each donated JAX buffer.
 
 #include "cusolvermp_common.h"
 
@@ -135,6 +135,15 @@ absl::Status CopyPotrsStatusToDevice(
   return stream->MemcpyH2D(absl::MakeConstSpan(status), &dst);
 }
 
+// Writes the LU-solve per-rank status words into the rank-1 device output
+// buffer.
+absl::Status CopyLuSolveStatusToDevice(
+    se::Stream* stream, const std::array<int32_t, kLuSolveStatusSize>& status,
+    ffi::Result<ffi::BufferR1<S32>> out) {
+  se::DeviceAddress<int32_t> dst = out->device_memory();
+  return stream->MemcpyH2D(absl::MakeConstSpan(status), &dst);
+}
+
 // Writes the SYEVD per-rank status words into the rank-1 device output buffer.
 absl::Status CopySyevdStatusToDevice(
     se::Stream* stream, const std::array<int32_t, kSyevdStatusSize>& status,
@@ -144,7 +153,7 @@ absl::Status CopySyevdStatusToDevice(
 }
 
 // Converts byte counts to rounded-up KiB values that fit in the compact status
-// schema used by Python-side diagnostics.
+// schema returned to Python.
 int32_t SizeToKiBForStatus(size_t bytes) {
   const size_t kib = (bytes + 1023) / 1024;
   if (kib > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {

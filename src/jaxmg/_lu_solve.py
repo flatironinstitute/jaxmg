@@ -1,9 +1,9 @@
-"""Public cuSOLVERMp Cholesky solve wrapper.
+"""Public cuSOLVERMp LU solve wrapper.
 
 The Python layer validates JAX array metadata, applies per-shard tile padding,
 and constructs the compiled FFI call.  The fused native C++/CUDA handler then
 performs the row-major to column-major local layout conversion, 2D
-redistribution, ``cusolverMpPotrf``/``cusolverMpPotrs`` calls, reverse
+redistribution, ``cusolverMpGetrf``/``cusolverMpGetrs`` calls, reverse
 redistribution, and final layout restoration.
 """
 
@@ -28,14 +28,14 @@ from ._cusolvermp_layout import (
     status_specs,
     validate_2d_matrix_specs,
 )
-from ._cusolvermp_status import _CUSOLVERMP_POTRS_STATUS_SIZE
+from ._cusolvermp_status import _CUSOLVERMP_LU_SOLVE_STATUS_SIZE
 from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap, TileShape
 from ._layout_types import calculate_2d_padding
 from ._layout_types import validate_nonempty_block_cyclic_ownership
 from ._setup import ensure_init_jaxmg_backend
 
 
-def potrs(
+def lu_solve(
     a: Array,
     b: Array,
     T_A: int,
@@ -46,11 +46,11 @@ def potrs(
     return_status: bool = False,
     pad: bool = True,
 ) -> Union[Array, Tuple[Array, Array]]:
-    """Solve the linear system A x = B using the multi-GPU potrs native kernel.
+    """Solve the linear system A x = B using the multi-GPU LU native kernel.
 
-    This is the high-level JAXMg Cholesky-solve entry point.  It prepares a
-    block-sharded JAX array for cuSOLVERMp, calls the fused native backend, and
-    returns the solution in the same JAX-facing layout as ``b``.
+    This is the high-level JAXMg general linear-solve entry point.  It prepares
+    a block-sharded JAX array for cuSOLVERMp, calls the fused native backend,
+    and returns the solution in the same JAX-facing layout as ``b``.
 
     Tip:
         If the shards of the matrix cannot be padded with tiles of size `T_A`
@@ -62,9 +62,9 @@ def potrs(
         saturate.
 
     Args:
-        a (Array): 2D, symmetric positive-definite coefficient matrix. Expected
-            to be sharded across a 2D mesh with a matrix ``PartitionSpec`` such
-            as ``P(<row_axis>, <col_axis>)``.
+        a (Array): 2D, nonsingular coefficient matrix. Expected to be sharded
+            across a 2D mesh with a matrix ``PartitionSpec`` such as
+            ``P(<row_axis>, <col_axis>)``.
         b (Array): 1D or 2D right-hand side. A vector is treated as an
             ``N x 1`` right-hand-side matrix.
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
@@ -96,23 +96,23 @@ def potrs(
           interaction with the native library.
         - Native code converts row-major JAX local storage to cuSOLVERMp's
           column-major local layout, redistributes to 2D block-cyclic layout,
-          calls ``cusolverMpPotrf``/``cusolverMpPotrs``, and redistributes the
+          calls ``cusolverMpGetrf``/``cusolverMpGetrs``, and redistributes the
           result back.
         - If the native solver fails the returned solution may contain NaNs
           and ``status`` will be non-zero.
     """
     if a.ndim != 2:
-        raise ValueError("potrs expects a rank-2 matrix A.")
+        raise ValueError("lu_solve expects a rank-2 matrix A.")
     vector_rhs = b.ndim == 1
     if vector_rhs:
         b = jnp.expand_dims(b, axis=1)
     if b.ndim != 2:
-        raise ValueError("potrs expects a rank-1 or rank-2 RHS B.")
+        raise ValueError("lu_solve expects a rank-1 or rank-2 RHS B.")
     if a.dtype != b.dtype:
-        raise TypeError("potrs requires matching A/B dtypes.")
-    _check_supported_potrs_dtype(a.dtype)
+        raise TypeError("lu_solve requires matching A/B dtypes.")
+    _check_supported_lu_solve_dtype(a.dtype)
     if a.shape[0] != a.shape[1]:
-        raise ValueError("potrs expects A to be square.")
+        raise ValueError("lu_solve expects A to be square.")
     if a.shape[0] != b.shape[0]:
         raise ValueError("A and B must have matching leading dimensions.")
     if int(T_A) <= 0:
@@ -130,7 +130,7 @@ def potrs(
         row_axis=row_axis,
         col_axis=col_axis,
         grid=grid,
-        caller="potrs",
+        caller="lu_solve",
     )
     native_status_specs = status_specs(row_axis, col_axis, grid)
     tile_shape = TileShape(rows=int(T_A), cols=int(T_A))
@@ -139,7 +139,7 @@ def potrs(
         logical_cols=a.shape[1],
         grid=grid,
         tile_shape=tile_shape,
-        caller="potrs(A)",
+        caller="lu_solve(A)",
     )
     nrhs = int(b.shape[1])
     b_distribution_cols = rhs_distribution_columns(
@@ -160,12 +160,12 @@ def potrs(
         grid=grid,
         tile_shape=tile_shape,
     )
-    _check_padding_allowed(a_padding, pad=pad, caller="potrs(A)")
-    _check_padding_allowed(b_padding, pad=pad, caller="potrs(B)")
+    _check_padding_allowed(a_padding, pad=pad, caller="lu_solve(A)")
+    _check_padding_allowed(b_padding, pad=pad, caller="lu_solve(B)")
 
     ensure_init_jaxmg_backend()
 
-    impl = _potrs_compiled(
+    impl = _lu_solve_compiled(
         mesh,
         matrix_specs,
         native_status_specs,
@@ -187,7 +187,7 @@ def potrs(
     return out
 
 
-def potrs_shardmap_ctx(
+def lu_solve_shardmap_ctx(
     a: Array,
     b: Array,
     T_A: int,
@@ -199,31 +199,21 @@ def potrs_shardmap_ctx(
 ) -> Tuple[Array, Array, Array]:
     """Solve A x = B while exposing the donated matrix work buffer.
 
-    This helper is the lower-level variant of :func:`jaxmg.potrs` intended for
-    contexts where the caller wants to control the outer ``jax.jit`` boundary.
-    It performs the same validation, local padding, shard-map construction, and
-    fused cuSOLVERMp FFI call as the public solver, but it does not wrap the
-    pipeline in an internal ``jax.jit``.  Instead, it returns the native matrix
-    work buffer alongside the solution so an outer JIT can donate ``a`` into an
-    ``A``-sized output.
-
-    Tip:
-        If the shards of the matrix cannot be padded with tiles of size `T_A`
-        we have to add padding to fit the last tile. This requires copying the
-        matrix, which we want to avoid at all costs for large ``N``. Make sure
-        you pick ``T_A`` large enough (>=128) and such that it can evenly cover
-        the shards. In principle, increasing ``T_A`` will increase performance
-        at the cost of memory, but depending on ``N``, the performance will
-        saturate.
+    This helper is the lower-level variant of :func:`jaxmg.lu_solve` intended
+    for contexts where the caller wants to control the outer ``jax.jit``
+    boundary.  It performs the same validation, local padding, shard-map
+    construction, and fused cuSOLVERMp FFI call as the public solver, but it
+    does not wrap the pipeline in an internal ``jax.jit``.  Instead, it returns
+    the native matrix work buffer alongside the solution so an outer JIT can
+    donate ``a`` into an ``A``-sized output.
 
     Args:
-        a (Array): 2D, symmetric positive-definite coefficient matrix. Expected
-            to be sharded across a 2D mesh with a matrix ``PartitionSpec`` such
-            as ``P(<row_axis>, <col_axis>)``.
+        a (Array): 2D, nonsingular coefficient matrix. Expected to be sharded
+            across a 2D mesh with a matrix ``PartitionSpec`` such as
+            ``P(<row_axis>, <col_axis>)``.
         b (Array): 1D or 2D right-hand side. A vector is treated as an
             ``N x 1`` right-hand-side matrix.
-        T_A (int): Square tile width used by cuSOLVERMp. Each local shard
-            dimension must be a multiple of ``T_A`` after padding.
+        T_A (int): Square tile width used by cuSOLVERMp.
         mesh (Mesh, optional): JAX mesh used for ``jax.shard_map``. If omitted,
             inferred from ``a.sharding.mesh``.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
@@ -239,34 +229,19 @@ def potrs_shardmap_ctx(
         work buffer returned by the native FFI call, ``x`` is the solution in
         the same JAX-facing layout as ``b``, and ``status`` is the native
         per-rank diagnostic vector.
-
-    Raises:
-        TypeError: If dtypes or ``PartitionSpec`` inputs are unsupported.
-        ValueError: If shapes, tile sizes, or mesh layouts are incompatible.
-
-    Notes:
-        - This function intentionally returns ``a_work``.  Public
-          :func:`potrs` discards that buffer for convenience, but an outer
-          ``jax.jit(..., donate_argnums=(0, 1))`` can only donate ``a`` if an
-          ``A``-sized output is returned.  Callers that want donation must
-          keep ``a_work`` in the jitted function's returned pytree.
-        - Native code converts row-major JAX local storage to cuSOLVERMp's
-          column-major local layout, redistributes to 2D block-cyclic layout,
-          calls ``cusolverMpPotrf``/``cusolverMpPotrs``, and redistributes the
-          result back.
     """
     if a.ndim != 2:
-        raise ValueError("potrs_shardmap_ctx expects a rank-2 matrix A.")
+        raise ValueError("lu_solve_shardmap_ctx expects a rank-2 matrix A.")
     vector_rhs = b.ndim == 1
     if vector_rhs:
         b = jnp.expand_dims(b, axis=1)
     if b.ndim != 2:
-        raise ValueError("potrs_shardmap_ctx expects a rank-1 or rank-2 RHS B.")
+        raise ValueError("lu_solve_shardmap_ctx expects a rank-1 or rank-2 RHS B.")
     if a.dtype != b.dtype:
-        raise TypeError("potrs_shardmap_ctx requires matching A/B dtypes.")
-    _check_supported_potrs_dtype(a.dtype)
+        raise TypeError("lu_solve_shardmap_ctx requires matching A/B dtypes.")
+    _check_supported_lu_solve_dtype(a.dtype)
     if a.shape[0] != a.shape[1]:
-        raise ValueError("potrs_shardmap_ctx expects A to be square.")
+        raise ValueError("lu_solve_shardmap_ctx expects A to be square.")
     if a.shape[0] != b.shape[0]:
         raise ValueError("A and B must have matching leading dimensions.")
     if int(T_A) <= 0:
@@ -284,7 +259,7 @@ def potrs_shardmap_ctx(
         row_axis=row_axis,
         col_axis=col_axis,
         grid=grid,
-        caller="potrs_shardmap_ctx",
+        caller="lu_solve_shardmap_ctx",
     )
     native_status_specs = status_specs(row_axis, col_axis, grid)
     tile_shape = TileShape(rows=int(T_A), cols=int(T_A))
@@ -293,7 +268,7 @@ def potrs_shardmap_ctx(
         logical_cols=a.shape[1],
         grid=grid,
         tile_shape=tile_shape,
-        caller="potrs_shardmap_ctx(A)",
+        caller="lu_solve_shardmap_ctx(A)",
     )
     nrhs = int(b.shape[1])
     b_distribution_cols = rhs_distribution_columns(
@@ -314,12 +289,12 @@ def potrs_shardmap_ctx(
         grid=grid,
         tile_shape=tile_shape,
     )
-    _check_padding_allowed(a_padding, pad=pad, caller="potrs_shardmap_ctx(A)")
-    _check_padding_allowed(b_padding, pad=pad, caller="potrs_shardmap_ctx(B)")
+    _check_padding_allowed(a_padding, pad=pad, caller="lu_solve_shardmap_ctx(A)")
+    _check_padding_allowed(b_padding, pad=pad, caller="lu_solve_shardmap_ctx(B)")
 
     ensure_init_jaxmg_backend()
 
-    impl = _potrs_pipeline(
+    impl = _lu_solve_pipeline(
         mesh,
         matrix_specs,
         native_status_specs,
@@ -342,15 +317,12 @@ def potrs_shardmap_ctx(
 _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
-def _check_supported_potrs_dtype(dtype) -> None:
-    """Validate that ``dtype`` maps to a cuSOLVERMp POTRS entry point.
-
-    The native backend dispatches to the real, double, complex64, and
-    complex128 cuSOLVERMp routines.  Rejecting unsupported dtypes at the Python
-    boundary gives a clear user error before JAX traces a compiled FFI call.
-    """
+def _check_supported_lu_solve_dtype(dtype) -> None:
+    """Validate that ``dtype`` maps to cuSOLVERMp GETRF/GETRS entry points."""
     if dtype not in (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128):
-        raise TypeError("potrs supports float32, float64, complex64, and complex128.")
+        raise TypeError(
+            "lu_solve supports float32, float64, complex64, and complex128."
+        )
 
 
 def _check_padding_allowed(
@@ -359,13 +331,7 @@ def _check_padding_allowed(
     pad: bool,
     caller: str,
 ) -> None:
-    """Enforce the public ``pad`` policy for a padded matrix-like argument.
-
-    ``calculate_2d_padding`` records whether each local shard must grow before
-    it can be handed to the native cuSOLVERMp redistribution path.  When users
-    set ``pad=False`` they are explicitly asking JAXMg not to allocate that
-    extra capacity, so any required padding becomes a Python-side error.
-    """
+    """Enforce the public ``pad`` policy for a padded matrix-like argument."""
     if not pad and padding.needs_padding:
         raise ValueError(
             f"{caller} requires tile-aligned local shards when pad=False. "
@@ -374,13 +340,7 @@ def _check_padding_allowed(
 
 
 def _make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
-    """Build the shard-local bottom/right padding transform.
-
-    The returned function preserves the caller's JAX sharding contract.  If no
-    padding is needed it is a plain identity function; otherwise it is a
-    ``jax.shard_map`` that applies ``jnp.pad`` independently to each local
-    device shard.
-    """
+    """Build the shard-local bottom/right padding transform."""
     if not padding.needs_padding:
         return lambda block: block
     return jax.shard_map(
@@ -403,12 +363,7 @@ def _make_local_unpad_fn(
     local_rows: int,
     local_cols: int,
 ):
-    """Build the shard-local slice transform that removes visible padding.
-
-    Native code returns data in the padded physical capacity.  This helper
-    constructs the matching ``jax.shard_map`` slice so the public wrapper
-    returns exactly the logical shape supplied by the user.
-    """
+    """Build the shard-local slice transform that removes visible padding."""
     return jax.shard_map(
         partial(_unpad_local_2d, local_rows=local_rows, local_cols=local_cols),
         mesh=mesh,
@@ -419,7 +374,7 @@ def _make_local_unpad_fn(
 
 
 @lru_cache(maxsize=None)
-def _potrs_pipeline(
+def _lu_solve_pipeline(
     mesh: Mesh,
     matrix_specs: P,
     native_status_specs: P,
@@ -434,27 +389,21 @@ def _potrs_pipeline(
     b_distribution_cols: int,
     tile_size: int,
 ):
-    """Build and cache the unjitted JAX-visible POTRS execution pipeline.
-
-    This factory is cached by static configuration: mesh, process grid, rank
-    mapping, padding shape, matrix size, RHS width, and tile size.  Reusing the
-    wrapper avoids rebuilding the same ``jax.shard_map`` structure on repeated
-    solves with identical layout metadata.
-    """
+    """Build and cache the unjitted JAX-visible LU-solve execution pipeline."""
     process_rows = grid.process_rows
     process_cols = grid.process_cols
     rank_array = standard_grid_rank_map_attr(
         rank_map,
         process_rows=process_rows,
         process_cols=process_cols,
-        caller="cusolvermp_potrs",
+        caller="cusolvermp_lu_solve",
     )
     grid_mapping = cusolvermp_grid_mapping_attr(
         rank_map,
         grid_mapping,
         process_rows=process_rows,
         process_cols=process_cols,
-        caller="cusolvermp_potrs",
+        caller="cusolvermp_lu_solve",
     )
     b_distribution_padding = int(b_distribution_cols) - int(nrhs)
     pad_a = _make_local_pad_fn(mesh, matrix_specs, a_padding)
@@ -466,30 +415,24 @@ def _potrs_pipeline(
         local_cols=b_padding.local_logical_cols,
     )
 
-    def potrs_ffi(_a: Array, _b: Array) -> tuple[Array, Array, Array]:
-        """Call fused native redistribution and ``potrf/potrs`` on one shard.
-
-        The closure captures only static metadata that XLA needs at trace time:
-        process-grid shape, rank map, logical dimensions, and tile size.  The
-        actual matrix buffers remain donated JAX arrays and enter native code
-        through ``jax.ffi.ffi_call``.
-        """
+    def lu_solve_ffi(_a: Array, _b: Array) -> tuple[Array, Array, Array]:
+        """Call fused native redistribution and ``getrf/getrs`` on one shard."""
         if _a.ndim != 2 or _b.ndim != 2:
-            raise ValueError("cusolvermp_potrs expects rank-2 A and B buffers.")
+            raise ValueError("cusolvermp_lu_solve expects rank-2 A and B buffers.")
         if _a.dtype != _b.dtype:
-            raise TypeError("cusolvermp_potrs requires matching A/B dtypes.")
-        _check_supported_potrs_dtype(_a.dtype)
+            raise TypeError("cusolvermp_lu_solve requires matching A/B dtypes.")
+        _check_supported_lu_solve_dtype(_a.dtype)
         if _a.shape[0] != _b.shape[0]:
             raise ValueError("A and B must have matching local row capacity.")
 
         out_type = (
             jax.ShapeDtypeStruct(_a.shape, _a.dtype),
             jax.ShapeDtypeStruct(_b.shape, _b.dtype),
-            jax.ShapeDtypeStruct((_CUSOLVERMP_POTRS_STATUS_SIZE,), jnp.int32),
+            jax.ShapeDtypeStruct((_CUSOLVERMP_LU_SOLVE_STATUS_SIZE,), jnp.int32),
         )
         ffi_fn = partial(
             jax.ffi.ffi_call(
-                "cusolvermp_potrs",
+                "cusolvermp_lu_solve",
                 out_type,
                 input_layouts=(_ROW_MAJOR_JAX_LAYOUT, _ROW_MAJOR_JAX_LAYOUT),
                 output_layouts=(
@@ -511,8 +454,8 @@ def _potrs_pipeline(
         a_work, b_out, status = ffi_fn(_a, _b)
         return a_work, b_out, status
 
-    potrs_shardmap = jax.shard_map(
-        potrs_ffi,
+    lu_solve_shardmap = jax.shard_map(
+        lu_solve_ffi,
         mesh=mesh,
         in_specs=(matrix_specs, matrix_specs),
         out_specs=(matrix_specs, matrix_specs, native_status_specs),
@@ -520,14 +463,14 @@ def _potrs_pipeline(
     )
 
     def impl(_a: Array, _b: Array) -> tuple[Array, Array, Array]:
-        """Run padding, fused native POTRS, and unpadding as one compiled path."""
+        """Run padding, fused native LU solve, and unpadding."""
         a_padded = pad_a(_a)
         if b_distribution_padding:
             b_distribution = jnp.pad(_b, ((0, 0), (0, b_distribution_padding)))
         else:
             b_distribution = _b
         b_padded = pad_b(b_distribution)
-        a_work_padded, b_solved_padded, native_status = potrs_shardmap(
+        a_work_padded, b_solved_padded, native_status = lu_solve_shardmap(
             a_padded, b_padded
         )
         out = unpad_b(b_solved_padded)
@@ -537,7 +480,7 @@ def _potrs_pipeline(
 
 
 @lru_cache(maxsize=None)
-def _potrs_compiled(
+def _lu_solve_compiled(
     mesh: Mesh,
     matrix_specs: P,
     native_status_specs: P,
@@ -552,8 +495,8 @@ def _potrs_compiled(
     b_distribution_cols: int,
     tile_size: int,
 ):
-    """Build and cache the internally jitted public POTRS execution pipeline."""
-    pipeline = _potrs_pipeline(
+    """Build and cache the internally jitted public LU-solve pipeline."""
+    pipeline = _lu_solve_pipeline(
         mesh,
         matrix_specs,
         native_status_specs,
@@ -570,7 +513,7 @@ def _potrs_compiled(
 
     @partial(jax.jit, donate_argnums=(0, 1))
     def impl(_a: Array, _b: Array) -> tuple[Array, Array, Array]:
-        """Run the cached POTRS pipeline behind the public convenience API."""
+        """Run the cached LU-solve pipeline behind the public API."""
         return pipeline(_a, _b)
 
     return impl
