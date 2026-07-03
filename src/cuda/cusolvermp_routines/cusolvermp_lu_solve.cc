@@ -120,7 +120,12 @@ absl::Status RunCusolverMpDistributedLuSolve(
     api.destroy_matrix_desc(desc_a);
   };
 
-  const int64_t ipiv_len = local_rows + tile_size;
+  // cuSOLVERMp GETRF writes one local pivot entry per locally owned matrix
+  // column.  Older documentation has described this as a local-row quantity,
+  // but NVIDIA's sample code and forum clarification use LOCc(N_A).  This is
+  // especially important for degenerate P x 1 grids, where every rank owns all
+  // columns and a row-sized pivot buffer can be much too small.
+  const int64_t ipiv_len = local_cols_a;
   const size_t ipiv_bytes =
       static_cast<size_t>(ipiv_len) * sizeof(int64_t);
   (*status_words)[33] = static_cast<int32_t>(ipiv_len);
