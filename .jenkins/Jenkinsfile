@@ -123,11 +123,13 @@ timeout(time: 2, unit: 'HOURS') {
         for (c in cudaVersions) {
           for (p in pyVersions) {
             for (j in jaxVersions) {
-              if (p == '3.11') {
-                pytest_cmd = "python -m pytest -svv tests"
-              } else {
-                pytest_cmd = "python -m pytest -svv -m 'not mpmd' tests"
-              }
+              // The rank-per-GPU MPMD tests need a production process launcher
+              // such as Slurm/srun.  Jenkins runs local subprocesses inside a
+              // single GPU pod, which can leave one JAX distributed rank stuck
+              // at shutdown even when the solver path itself has passed.  Keep
+              // Jenkins focused on wheel/build and non-MPMD regression tests;
+              // run tests marked `mpmd` on an HPC scheduler.
+              pytest_cmd = "python -m pytest -svv -m 'not mpmd' tests"
               stage("Build ${c}-${p}-${j}") {
                 unstash 'bin12'
                 withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}", "CUSOLVERMP_PKG=${CUSOLVERMP12}"]) {
