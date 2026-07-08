@@ -12,13 +12,13 @@
         <meta name="author" content="Roeland Wiersema">
       
       
-        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/examples/spmd_mpmd/">
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/api/potri/">
       
       
-        <link rel="prev" href="../block_cyclic_data_layout/">
+        <link rel="prev" href="../potrs/">
       
       
-        <link rel="next" href="../../api/">
+        <link rel="next" href="../syevd/">
       
       
       <link rel="icon" href="../../_static/square.png">
@@ -26,7 +26,7 @@
     
     
       
-        <title>MPMD support - JAXMg</title>
+        <title>jaxmg.potri - JAXMg</title>
       
     
     
@@ -84,7 +84,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#mpmd-support" class="md-skip">
+        <a href="#jaxmgpotri" class="md-skip">
           Skip to content
         </a>
       
@@ -117,7 +117,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              MPMD support
+              jaxmg.potri
             
           </span>
         </div>
@@ -246,13 +246,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../potrs_example/" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../examples/potrs_example/" class="md-tabs__link">
           
   
   
@@ -268,11 +266,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../api/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
           
   
   
@@ -448,31 +448,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
             
   
   
@@ -485,7 +480,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             Examples
@@ -499,7 +494,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../potrs_example/" class="md-nav__link">
+      <a href="../../examples/potrs_example/" class="md-nav__link">
         
   
   
@@ -522,12 +517,136 @@
   
   
     <li class="md-nav__item">
-      <a href="../block_cyclic_data_layout/" class="md-nav__link">
+      <a href="../../examples/block_cyclic_data_layout/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     The importance of Tile size: Performance of the eigensolver
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/spmd_mpmd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    MPMD support
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    API
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            API
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    API Reference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../potrs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.potrs
     
   </span>
   
@@ -554,127 +673,20 @@
         
       
       
-      <a href="./" class="md-nav__link md-nav__link--active">
-        
-  
-  
-  <span class="md-ellipsis">
-    MPMD support
-    
-  </span>
-  
-
-      </a>
-      
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
-        
+        <label class="md-nav__link md-nav__link--active" for="__toc">
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
-            
   
   
   <span class="md-ellipsis">
-    API
+    jaxmg.potri
     
   </span>
   
 
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
-            <span class="md-nav__icon md-icon"></span>
-            API
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../api/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    API Reference
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../api/potrs/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    jaxmg.potrs
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../api/potri/" class="md-nav__link">
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -685,6 +697,44 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#jaxmg.potri" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;potri
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#jaxmg.potri_shardmap_ctx" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;potri_shardmap_ctx
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -697,7 +747,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../api/syevd/" class="md-nav__link">
+      <a href="../syevd/" class="md-nav__link">
         
   
   
@@ -859,6 +909,32 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#jaxmg.potri" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;potri
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#jaxmg.potri_shardmap_ctx" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;potri_shardmap_ctx
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -873,215 +949,434 @@
 
 
 
-<h1 id="mpmd-support">MPMD support<a class="headerlink" href="#mpmd-support" title="Permanent link">¤</a></h1>
-<p>We support two modes of distributed computing. Single Process Multiple Devices mode (SPMD), where we have
-a single process per node that potentially manages multiple devices. We also support MPMD mode (MPMD). Here the user needs to
-use one process for each GPU. When <code>jaxmg</code> is imported, we attempt to verify the user's distributed setup to not go out beyond these two modes of computation.</p>
-<p><code>jaxmg</code> supports multi-process <code>jax.distributed</code> environments but cuSolverMg <strong>can only run on a single node</strong>. There are some technical reasons for this that will hopefully be resolved in a future release.</p>
-<p>To circumvent this limitation, one can perform a computation over all global devices, replicate the results over all host by gathering the data and calling the solver only on each machine.</p>
-<p>Here we provide an example of using <code>jaxmg</code> in a context where we have 2 nodes, each with 4 GPUs.
-In order to use the solver, we will have to gather the results onto each node by making use of a 2D <code>Mesh</code>.</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Call ./examples/multi_process.sh to launch this code!</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<h1 id="jaxmgpotri">jaxmg.potri<a class="headerlink" href="#jaxmgpotri" title="Permanent link">¤</a></h1>
 
-<span class="n">proc_id</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span> <span class="k">else</span> <span class="mi">0</span>
-<span class="n">num_procs</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span> <span class="k">else</span> <span class="mi">1</span>
 
-<span class="c1"># initialize the distributed system</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
+<div class="doc doc-object doc-function">
 
-<span class="n">jax</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="s2">&quot;jax_platform_name&quot;</span><span class="p">,</span> <span class="s2">&quot;cpu&quot;</span><span class="p">)</span>
-<span class="n">jax</span><span class="o">.</span><span class="n">distributed</span><span class="o">.</span><span class="n">initialize</span><span class="p">(</span><span class="s2">&quot;localhost:6000&quot;</span><span class="p">,</span> <span class="n">num_procs</span><span class="p">,</span> <span class="n">proc_id</span><span class="p">)</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">jax.sharding</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mesh</span><span class="p">,</span> <span class="n">PartitionSpec</span> <span class="k">as</span> <span class="n">P</span><span class="p">,</span> <span class="n">NamedSharding</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<h4 id="jaxmg.potri" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potri</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="p">,</span> <span class="n">in_specs</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">get_device_grid</span><span class="p">():</span>
-    <span class="n">by_proc</span> <span class="o">=</span> <span class="p">{}</span>
-    <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">jax</span><span class="o">.</span><span class="n">devices</span><span class="p">():</span>
-        <span class="n">by_proc</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">process_index</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
-    <span class="n">hosts</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">by_proc</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
-        <span class="p">[[</span><span class="n">by_proc</span><span class="p">[</span><span class="n">h</span><span class="p">][</span><span class="n">x</span><span class="p">]</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">local_device_count</span><span class="p">())]</span> <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">hosts</span><span class="p">]</span>
-    <span class="p">)</span>
+<a href="#jaxmg.potri" class="headerlink" title="Permanent link">¤</a></h4>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">create_2d_mesh</span><span class="p">():</span>
-    <span class="n">dev_grid</span> <span class="o">=</span> <span class="n">get_device_grid</span><span class="p">()</span>
-    <span class="k">return</span> <span class="n">Mesh</span><span class="p">(</span><span class="n">dev_grid</span><span class="p">,</span> <span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">))</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">create_1d_mesh</span><span class="p">():</span>
-    <span class="n">dev_grid</span> <span class="o">=</span> <span class="n">get_device_grid</span><span class="p">()</span>
-    <span class="k">return</span> <span class="n">Mesh</span><span class="p">(</span><span class="n">dev_grid</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span> <span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">,))</span>
+    <div class="doc doc-contents first">
 
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Rank </span><span class="si">{</span><span class="n">proc_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Local devices </span><span class="si">{</span><span class="n">jax</span><span class="o">.</span><span class="n">local_device_count</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Global devices </span><span class="si">{</span><span class="n">jax</span><span class="o">.</span><span class="n">device_count</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;World size </span><span class="si">{</span><span class="n">num_procs</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Device grid</span><span class="si">{</span><span class="n">get_device_grid</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</code></pre></div>
-<p>When we launch this code like this:
-<div class="highlight"><pre><span></span><code><span class="ch">#!/bin/bash</span>
+        <p>Compute the inverse of a symmetric matrix using the multi-GPU potri native kernel.</p>
+<p>Prepares inputs for the native <code>potri_mg</code> kernel and executes it via
+<code>jax.ffi.ffi_call</code> under <code>jax.jit</code> and <code>jax.shard_map</code>. Handles
+per-device padding driven by <code>T_A</code> and symmetrizes the result before
+returning.</p>
 
-<span class="nb">export</span><span class="w"> </span><span class="nv">JAX_NUM_CPU_DEVICES</span><span class="o">=</span><span class="m">4</span>
-<span class="nv">num_processes</span><span class="o">=</span><span class="m">2</span>
 
-<span class="nv">range</span><span class="o">=</span><span class="k">$(</span>seq<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="k">$((</span><span class="nv">$num_processes</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="m">1</span><span class="k">)))</span>
+<details class="tip" open>
+  <summary>Tip</summary>
+  <p>If the shards of the matrix cannot be padded with tiles of size <code>T_A</code>
+(<code>N / num_gpus % T_A != 0</code>) we have to add padding to fit the last tile.
+This requires copying the matrix, which we want to avoid at all costs for
+large <code>N</code>. Make sure you pick <code>T_A</code> large enough (&gt;=128) and such that it
+can evenly cover the shards. In principle, increasing <code>T_A</code> will increase
+performance at the cost of memory, but depending on <code>N</code>, the performance
+  will saturate.</p>
+</details>
 
-<span class="k">for</span><span class="w"> </span>i<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="nv">$range</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
-<span class="w">  </span>python<span class="w"> </span>multi_process.py<span class="w"> </span><span class="nv">$i</span><span class="w"> </span><span class="nv">$num_processes</span><span class="w"> </span>&gt;<span class="w"> </span>/tmp/multi_process_<span class="nv">$i</span>.out<span class="w"> </span><span class="p">&amp;</span>
-<span class="k">done</span>
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>a</code>
+            </td>
+            <td>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A 2D JAX array of shape <code>(N_rows, N)</code>. Must be symmetric and
+is expected to be sharded across the mesh along the first (row)
+axis using <code>P(&lt;axis_name&gt;, None)</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>T_A</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Tile width used by the native solver. Each
+local shard length must be a multiple of <code>T_A</code>. If the user provides a
+<code>T_A</code> that is incompatible with the shard size we pad the matrix
+accordingly. For small tile sizes (<code>T_A</code>&lt; 128), the solver can
+be extremely slow, so ensure that <code>T_A</code> is large enough. In principle,
+the larger <code>T_A</code> the faster the solver runs. See https://arxiv.org/abs/2601.14466
+for more details.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mesh</code>
+            </td>
+            <td>
+                  <code><span title="jax._src.mesh.Mesh">Mesh</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>JAX device mesh used for <code>jax.shard_map</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>in_specs</code>
+            </td>
+            <td>
+                  <code><span title="PartitionSpec">PartitionSpec</span> or <span title="tuple">tuple</span> / <span title="list">list</span>[<span title="PartitionSpec">PartitionSpec</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>PartitionSpec
+describing the input sharding (row sharding). May be provided as a
+single <code>PartitionSpec</code> or a single-element container containing one.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>return_status</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True return <code>(A_inv, status)</code> where
+<code>status</code> is a host-replicated int32 from the native solver. If
+False return <code>A_inv</code> only. Default is False.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pad</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True (default) apply per-device padding to meet
+<code>T_A</code> requirements; if False the caller must supply already-
+padded shapes.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
 
-<span class="nb">wait</span>
 
-<span class="k">for</span><span class="w"> </span>i<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="nv">$range</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
-<span class="w">  </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;=================== process </span><span class="nv">$i</span><span class="s2"> output ===================&quot;</span>
-<span class="w">  </span>cat<span class="w"> </span>/tmp/multi_process_<span class="nv">$i</span>.out
-<span class="w">  </span><span class="nb">echo</span>
-<span class="k">done</span>
-</code></pre></div>
-we see
-<div class="highlight"><pre><span></span><code>=================== process 0 output ===================
-Rank 0
-Local devices 4
-Global devices 8
-World size 2
-Device grid
- [[CpuDevice(id=0) CpuDevice(id=1) CpuDevice(id=2) CpuDevice(id=3)]
- [CpuDevice(id=131072) CpuDevice(id=131073) CpuDevice(id=131074) CpuDevice(id=131075)]]
- =================== process 1 output ===================
-Rank 1
-Local devices 4
-Global devices 8
-World size 2
-Device grid
- [[CpuDevice(id=0) CpuDevice(id=1) CpuDevice(id=2) CpuDevice(id=3)]
- [CpuDevice(id=131072) CpuDevice(id=131073) CpuDevice(id=131074) CpuDevice(id=131075)]]
-</code></pre></div>
-We can then construct a matrix that has its columns sharded over all global devices, and gather the columns onto each host:</p>
-<div class="highlight"><pre><span></span><code><span class="n">mesh2d</span> <span class="o">=</span> <span class="n">create_2d_mesh</span><span class="p">()</span>
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Array or (Array, int): The inverted matrix (row-sharded). If
+<code>return_status=True</code> also return the native solver status code.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
 
-<span class="n">A</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span>
-    <span class="n">jnp</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_count</span><span class="p">()</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)),</span>
-    <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh2d</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">))),</span>
-<span class="p">)</span>
 
-<span class="k">for</span> <span class="n">shard</span> <span class="ow">in</span> <span class="n">A</span><span class="o">.</span><span class="n">addressable_shards</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;shard</span><span class="se">\n</span><span class="s2"> </span><span class="si">{</span><span class="n">shard</span><span class="o">.</span><span class="n">data</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="TypeError">TypeError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If <code>in_specs</code> is not a <code>PartitionSpec</code> or a single-
+element container.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If <code>in_specs</code> does not indicate row sharding
+(<code>P(&lt;axis_name&gt;, None)</code>).</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="AssertionError">AssertionError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If <code>a</code> is not 2D or if required shapes do not match
+when <code>pad=False</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
 
-<span class="c1"># Gather over the number of hosts</span>
-<span class="n">A</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">lax</span><span class="o">.</span><span class="n">with_sharding_constraint</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh2d</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">)))</span>
 
-<span class="k">for</span> <span class="n">shard</span> <span class="ow">in</span> <span class="n">A</span><span class="o">.</span><span class="n">addressable_shards</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;shard</span><span class="se">\n</span><span class="s2"> </span><span class="si">{</span><span class="n">shard</span><span class="o">.</span><span class="n">data</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</code></pre></div>
-<p>which prints
-<div class="highlight"><pre><span></span><code>=================== process 0 output ===================
-Rank 0
-Local devices 4
-Global devices 8
-World size 2
-Device grid
- [[CpuDevice(id=0) CpuDevice(id=1) CpuDevice(id=2) CpuDevice(id=3)]
- [CpuDevice(id=131072) CpuDevice(id=131073) CpuDevice(id=131074)
-  CpuDevice(id=131075)]]
-shard
- [[1.]
- [0.]
- [0.]
- [0.]
- [0.]
- [0.]
- [0.]
- [0.]]
-...
-shard
- [[0.]
- [0.]
- [0.]
- [4.]
- [0.]
- [0.]
- [0.]
- [0.]]
-shard
- [[1. 0.]
- [0. 2.]
- [0. 0.]
- [0. 0.]
- [0. 0.]
- [0. 0.]
- [0. 0.]
- [0. 0.]]
-...
-shard
- [[0. 0.]
- [0. 0.]
- [0. 0.]
- [0. 0.]
- [0. 0.]
- [0. 0.]
- [7. 0.]
- [0. 8.]]
+<details class="notes" open>
+  <summary>Notes</summary>
+  <ul>
+<li>The FFI call is executed with <code>donate_argnums=0</code> enabling zero-copy
+  buffer sharing with the native library.</li>
+<li>If the native solver fails the output may contain NaNs and <code>status</code>
+  will be non-zero.</li>
+</ul>
+</details>
 
-=================== process 1 output ===================
-...
-shard
- [[0.]
- [0.]
- [0.]
- [0.]
- [5.]
- [0.]
- [0.]
- [0.]]
-shard
- ...
-shard
- [[0.]
- [0.]
- [0.]
- [0.]
- [0.]
- [0.]
- [0.]
- [8.]]
-shard
- [[1. 0.]
- [0. 2.]
- [0. 0.]
- [0. 0.]
- [0. 0.]
- [0. 0.]
- [0. 0.]
- [0. 0.]]
-...
-shard
- [[0. 0.]
- [0. 0.]
- [0. 0.]
- [0. 0.]
- [0. 0.]
- [0. 0.]
- [7. 0.]
- [0. 8.]]
-</code></pre></div></p>
-<p>We went from a matrix that was column sharded over all 8 global devices, to a matrix that was column sharded over the 4 gpus in each process.</p>
-<p>In this host-replicated layout we can safely call <code>jaxmg.potrs</code> on the array with a 2D mesh as long as we specify how many local devices there are in each node with the environment variable <code>JAXMG_NUMBER_OF_DEVICES</code> (the code below only works if we are actually performing this computation with access to GPUs):</p>
-<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">potrs</span>
-<span class="c1"># Must set this environment variable to tell JAXMg that there are 4 local GPUs per node.</span>
-<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;JAXMG_NUMBER_OF_DEVICES&quot;</span><span class="p">]</span><span class="o">=</span><span class="s2">&quot;4&quot;</span>
+    </div>
 
-<span class="n">out</span><span class="o">=</span> <span class="n">potrs</span><span class="p">(</span>
-    <span class="n">A</span><span class="p">,</span>
-    <span class="n">jnp</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">jax</span><span class="o">.</span><span class="n">device_count</span><span class="p">(),</span> <span class="mi">1</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span>
-    <span class="n">T_A</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
-    <span class="n">mesh</span><span class="o">=</span><span class="n">mesh2d</span><span class="p">,</span>
-    <span class="n">in_specs</span><span class="o">=</span><span class="p">(</span><span class="n">P</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;T&quot;</span><span class="p">),</span> <span class="p">),</span>
-<span class="p">)</span>
-</code></pre></div>
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="jaxmg.potri_shardmap_ctx" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potri_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+
+<a href="#jaxmg.potri_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+
+        <p>Compute the inverse of a symmetric matrix for already-sharded inputs.</p>
+<p>This helper is a lower-level variant of :func:<code>potri</code> intended for
+environments where the caller already manages sharding/device placement
+(for example inside a custom <code>shard_map</code> or other placement context).
+It performs the same per-device padding logic driven by <code>T_A</code> and calls
+the native <code>potri_mg</code> FFI target directly via <code>jax.ffi.ffi_call</code>.</p>
+
+
+<details class="warning" open>
+  <summary>Warning</summary>
+  <p>On exit, we return the upper triangular part of <code>A_inv</code>.
+To achieve the full inverse, call <code>jaxmg.potri_symmetrize</code> outside of
+the shardmap_context.</p>
+</details>
+
+<details class="tip" open>
+  <summary>Tip</summary>
+  <p>If the shards of the matrix cannot be padded with tiles of size <code>T_A</code>
+(<code>N / num_gpus % T_A != 0</code>) we have to add padding to fit the last tile.
+This requires copying the matrix, which we want to avoid at all costs for
+large <code>N</code>. Make sure you pick <code>T_A</code> large enough (&gt;=128) and such that it
+can evenly cover the shards. In principle, increasing <code>T_A</code> will increase
+performance at the cost of memory, but depending on <code>N</code>, the performance
+  will saturate.</p>
+</details>
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>a</code>
+            </td>
+            <td>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Local, row-sharded slice of the global matrix with shape
+<code>(shard_size, N)</code> where <code>shard_size</code> is the per-device local
+row count and <code>N</code> is the global matrix dimension. The matrix
+should be symmetric.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>T_A</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Tile width used by the native solver. Each
+local shard length must be a multiple of <code>T_A</code>. If the user provides a
+<code>T_A</code> that is incompatible with the shard size we pad the matrix
+accordingly. For small tile sizes (<code>T_A</code>&lt; 128), the solver can
+be extremely slow, so ensure that <code>T_A</code> is large enough. In principle,
+the larger <code>T_A</code> the faster the solver runs.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pad</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True (default) apply per-device padding to
+<code>a</code> to satisfy <code>T_A</code>. If False the caller must ensure the
+provided local shape already meets kernel requirements.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>tuple</code></td>            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(A_inv, status)</code> where <code>A_inv</code> contains the the upper triangular part
+of the inverted matrix (in  the same local/sharded layout as the input,
+with padding removed if applied) and <code>status</code> is
+the int32 status value returned by the native kernel
+(shape <code>(1,)</code> device array).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="AssertionError">AssertionError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If <code>a</code> is not 2D.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If <code>T_A</code> is too large or shape requirements are violated
+when <code>pad=False</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<details class="notes" open>
+  <summary>Notes</summary>
+  <ul>
+<li>This function does not create an outer <code>jax.shard_map</code> or apply
+  <code>donate_argnums</code>; it is intended for use when the caller already
+  controls sharding and device placement.</li>
+<li>Padding is handled with :func:<code>calculate_padding</code>, :func:<code>pad_rows</code>,
+  and :func:<code>unpad_rows</code>.</li>
+<li>If the native solver fails the output may contain NaNs and the
+  returned <code>status</code> will be non-zero.</li>
+</ul>
+</details>
+
+    </div>
+
+</div>
 
 
 

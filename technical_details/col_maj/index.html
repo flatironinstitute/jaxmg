@@ -12,22 +12,28 @@
         <meta name="author" content="Roeland Wiersema">
       
       
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/technical_details/col_maj/">
       
       
+        <link rel="prev" href="../../api/syevd/">
       
-      <link rel="icon" href="/jaxmg/_static/square.png">
+      
+        <link rel="next" href="../spmd/">
+      
+      
+      <link rel="icon" href="../../_static/square.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.23">
     
     
       
-        <title>JAXMg</title>
+        <title>Column major layout expectations - JAXMg</title>
       
     
     
-      <link rel="stylesheet" href="/jaxmg/assets/stylesheets/main.84d31ad4.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.84d31ad4.min.css">
       
         
-        <link rel="stylesheet" href="/jaxmg/assets/stylesheets/palette.06af60db.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
       
       
 
@@ -46,13 +52,13 @@
       
     
     
-      <link rel="stylesheet" href="/jaxmg/assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="/jaxmg/assets/_hippogriffe.css">
+      <link rel="stylesheet" href="../../assets/_hippogriffe.css">
     
-      <link rel="stylesheet" href="/jaxmg/_static/custom.css">
+      <link rel="stylesheet" href="../../_static/custom.css">
     
-    <script>__md_scope=new URL("/jaxmg/",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -77,6 +83,11 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
+        
+        <a href="#column-major-layout-expectations" class="md-skip">
+          Skip to content
+        </a>
+      
     </div>
     <div data-md-component="announce">
       
@@ -87,9 +98,9 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="/jaxmg/." title="JAXMg" class="md-header__button md-logo" aria-label="JAXMg" data-md-component="logo">
+    <a href="../.." title="JAXMg" class="md-header__button md-logo" aria-label="JAXMg" data-md-component="logo">
       
-  <img src="/jaxmg/_static/square.png" alt="logo">
+  <img src="../../_static/square.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -106,7 +117,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              
+              Column major layout expectations
             
           </span>
         </div>
@@ -219,7 +230,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/jaxmg/." class="md-tabs__link">
+        <a href="../.." class="md-tabs__link">
           
   
   
@@ -239,7 +250,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/jaxmg/examples/potrs_example/" class="md-tabs__link">
+        <a href="../../examples/potrs_example/" class="md-tabs__link">
           
   
   
@@ -259,7 +270,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/jaxmg/api/" class="md-tabs__link">
+        <a href="../../api/" class="md-tabs__link">
           
   
   
@@ -275,11 +286,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="/jaxmg/technical_details/col_maj/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
           
   
   
@@ -313,9 +326,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="/jaxmg/." title="JAXMg" class="md-nav__button md-logo" aria-label="JAXMg" data-md-component="logo">
+    <a href="../.." title="JAXMg" class="md-nav__button md-logo" aria-label="JAXMg" data-md-component="logo">
       
-  <img src="/jaxmg/_static/square.png" alt="logo">
+  <img src="../../_static/square.png" alt="logo">
 
     </a>
     JAXMg
@@ -385,7 +398,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/jaxmg/." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -408,7 +421,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/jaxmg/install/" class="md-nav__link">
+      <a href="../../install/" class="md-nav__link">
         
   
   
@@ -481,7 +494,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/jaxmg/examples/potrs_example/" class="md-nav__link">
+      <a href="../../examples/potrs_example/" class="md-nav__link">
         
   
   
@@ -504,7 +517,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/jaxmg/examples/block_cyclic_data_layout/" class="md-nav__link">
+      <a href="../../examples/block_cyclic_data_layout/" class="md-nav__link">
         
   
   
@@ -527,7 +540,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/jaxmg/examples/spmd_mpmd/" class="md-nav__link">
+      <a href="../../examples/spmd_mpmd/" class="md-nav__link">
         
   
   
@@ -600,7 +613,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/jaxmg/api/" class="md-nav__link">
+      <a href="../../api/" class="md-nav__link">
         
   
   
@@ -623,7 +636,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/jaxmg/api/potrs/" class="md-nav__link">
+      <a href="../../api/potrs/" class="md-nav__link">
         
   
   
@@ -646,7 +659,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/jaxmg/api/potri/" class="md-nav__link">
+      <a href="../../api/potri/" class="md-nav__link">
         
   
   
@@ -669,7 +682,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/jaxmg/api/syevd/" class="md-nav__link">
+      <a href="../../api/syevd/" class="md-nav__link">
         
   
   
@@ -696,26 +709,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -728,7 +746,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Technical Details
@@ -739,10 +757,19 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="/jaxmg/technical_details/col_maj/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -753,6 +780,7 @@
   
 
       </a>
+      
     </li>
   
 
@@ -765,7 +793,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/jaxmg/technical_details/spmd/" class="md-nav__link">
+      <a href="../spmd/" class="md-nav__link">
         
   
   
@@ -788,7 +816,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/jaxmg/technical_details/mpmd/" class="md-nav__link">
+      <a href="../mpmd/" class="md-nav__link">
         
   
   
@@ -828,6 +856,8 @@
   
   
   
+    
+  
   
 </nav>
                   </div>
@@ -839,8 +869,94 @@
             <div class="md-content" data-md-component="content">
               <article class="md-content__inner md-typeset">
                 
-  <h1>404 - Not found</h1>
+                  
 
+
+
+<h1 id="column-major-layout-expectations">Column major layout expectations<a class="headerlink" href="#column-major-layout-expectations" title="Permanent link">¤</a></h1>
+<p>This note explains the difference between row-major and column-major memory
+layouts, why cuSolverMg requires column-major data, how asking JAX to present
+column-major memory via <code>input_layouts=(1,0)</code> forces a copy (and therefore
+temporarily doubles memory), and how we can instead choose a sharding that
+avoids the extra copy by presenting per-device buffers already in the solver's
+expected column-major order.</p>
+<p>Row-major vs column-major
+- Row-major (C order): rows are laid out contiguously. For an <span class="arithmatex">\(m\times n\)</span>
+    matrix <span class="arithmatex">\(A\)</span> the memory is the concatenation of rows <span class="arithmatex">\(1,2,\dots,m\)</span>.
+- Column-major (Fortran order): columns are laid out contiguously. The
+    memory is the concatenation of columns <span class="arithmatex">\(1,2,\dots,n\)</span>.</p>
+<p>Concretely, for a small <span class="arithmatex">\(4\times 4\)</span> matrix</p>
+<div class="arithmatex">\[
+A = \begin{bmatrix}
+a_{11} &amp; a_{12} &amp; a_{13} &amp; a_{14} \\
+a_{21} &amp; a_{22} &amp; a_{23} &amp; a_{24} \\
+a_{31} &amp; a_{32} &amp; a_{33} &amp; a_{34} \\
+a_{41} &amp; a_{42} &amp; a_{43} &amp; a_{44}
+\end{bmatrix}
+\]</div>
+<ul>
+<li>Row-major flattening (C order) produces</li>
+</ul>
+<div class="arithmatex">\[
+\operatorname{row\_major}(A) = [a_{11}, a_{12}, a_{13}, a_{14},\; a_{21}, a_{22},\dots,a_{44}]
+\]</div>
+<ul>
+<li>Column-major flattening (Fortran order) produces</li>
+</ul>
+<div class="arithmatex">\[
+\operatorname{col\_major}(A) = [a_{11}, a_{21}, a_{31}, a_{41},\; a_{12}, a_{22},\dots,a_{44}]
+\]</div>
+<p>Why this matters for cuSolverMg
+- cuSolverMg (like many Fortran-style numerical libraries) expects matrix
+    buffers in column-major order. If the Python/JAX side stores matrices in
+    row-major order, the native call must be given a column-major view.</p>
+<p>Using <code>input_layouts=(1,0)</code>
+- When you construct an FFI call with <code>input_layouts=(1,0)</code> you are telling
+    JAX to present the native function with the axes swapped (i.e. the memory
+    should look column-major to the native code). JAX will therefore allocate a
+    new buffer and copy/reorder the data into the requested layout before the
+    call.
+- Practically this means: original buffer (size <span class="arithmatex">\(N\)</span>) + reordered buffer
+    (size <span class="arithmatex">\(N\)</span>) exist at peak, so the memory used for this array is roughly
+    doubled during the call. For large matrices this spike can be prohibitive.</p>
+<p>Avoiding the copy by matching sharding to column-major
+- Instead of asking JAX to transpose the whole matrix, we can arrange the
+    per-device sharding so that the collection of device-local buffers already
+    matches the solver's expected column-major ordering. The key idea is to map
+    global columns (or column tiles) to contiguous device-local memory.</p>
+<p>Example: split into two column-blocks</p>
+<p>Split <span class="arithmatex">\(A\)</span> into two column-blocks <span class="arithmatex">\(B\)</span> and <span class="arithmatex">\(C\)</span> (each <span class="arithmatex">\(4\times 2\)</span>):</p>
+<div class="arithmatex">\[
+A = [\; B \;|\; C \;],\quad
+B=\begin{bmatrix} a_{11} &amp; a_{12} \\
+a_{21} &amp; a_{22} \\
+a_{31} &amp; a_{32} \\
+a_{41} &amp; a_{42}\end{bmatrix},\quad
+C=\begin{bmatrix} a_{13} &amp; a_{14} \\
+a_{23} &amp; a_{24} \\
+a_{33} &amp; a_{34} \\
+a_{43} &amp; a_{44}\end{bmatrix}
+\]</div>
+<p>In column-major flattening, <span class="arithmatex">\(B\)</span> appears as a contiguous chunk followed by <span class="arithmatex">\(C\)</span>:</p>
+<div class="arithmatex">\[
+\operatorname{col\_major}(A) = [\operatorname{col\_major}(B),\; \operatorname{col\_major}(C)].
+\]</div>
+<p>If device 0 stores <span class="arithmatex">\(B\)</span> and device 1 stores <span class="arithmatex">\(C\)</span> in their native local buffers
+then the solver can consume device-local memory directly in the expected
+column-major order without a global transpose or full-array copy.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
               </article>
             </div>
           
@@ -882,12 +998,12 @@
     
     
       
-      <script id="__config" type="application/json">{"base": "/jaxmg/", "features": ["navigation.top", "navigation.instant", "navigation.tabs", "navigation.sections", "header.autohide"], "search": "/jaxmg/assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.top", "navigation.instant", "navigation.tabs", "navigation.sections", "header.autohide"], "search": "../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="/jaxmg/assets/javascripts/bundle.f55a23d4.min.js"></script>
+      <script src="../../assets/javascripts/bundle.f55a23d4.min.js"></script>
       
-        <script src="/jaxmg/_static/mathjax.js"></script>
+        <script src="../../_static/mathjax.js"></script>
       
         <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       

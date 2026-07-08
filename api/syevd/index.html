@@ -12,13 +12,13 @@
         <meta name="author" content="Roeland Wiersema">
       
       
-        <link rel="canonical" href="https://therooler.github.io/jaxmg/api/syevd/">
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/api/syevd/">
       
       
-        <link rel="prev" href="../potrs/">
+        <link rel="prev" href="../potri/">
       
       
-        <link rel="next" href="../../technical_details/memory_distribution/">
+        <link rel="next" href="../../technical_details/col_maj/">
       
       
       <link rel="icon" href="../../_static/square.png">
@@ -197,13 +197,13 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/therooler/jaxmg" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/flatironinstitute/jaxmg" title="Go to repository" class="md-source" data-md-component="source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
   </div>
   <div class="md-source__repository">
-    therooler/jaxmg
+    flatironinstitute/jaxmg
   </div>
 </a>
       </div>
@@ -292,7 +292,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../technical_details/memory_distribution/" class="md-tabs__link">
+        <a href="../../technical_details/col_maj/" class="md-tabs__link">
           
   
   
@@ -335,13 +335,13 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/therooler/jaxmg" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/flatironinstitute/jaxmg" title="Go to repository" class="md-source" data-md-component="source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
   </div>
   <div class="md-source__repository">
-    therooler/jaxmg
+    flatironinstitute/jaxmg
   </div>
 </a>
     </div>
@@ -661,6 +661,29 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../potri/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.potri
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -717,6 +740,15 @@
   <a href="#jaxmg.syevd" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;syevd
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#jaxmg.syevd_shardmap_ctx" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;syevd_shardmap_ctx
     </span>
   </a>
   
@@ -788,12 +820,58 @@
   
   
     <li class="md-nav__item">
-      <a href="../../technical_details/memory_distribution/" class="md-nav__link">
+      <a href="../../technical_details/col_maj/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Memory distribution
+    Column major layout expectations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../technical_details/spmd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Single Process Multiple Devices (SPMD)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../technical_details/mpmd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Multiple Process Multiple Devices (MPMD)
     
   </span>
   
@@ -846,6 +924,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#jaxmg.syevd_shardmap_ctx" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;syevd_shardmap_ctx
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -869,30 +956,30 @@
 
 
 <h4 id="jaxmg.syevd" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="p">,</span> <span class="n">in_specs</span><span class="p">,</span> <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
 <a href="#jaxmg.syevd" class="headerlink" title="Permanent link">¤</a></h4>
 
 
     <div class="doc doc-contents first">
 
-        <p>Compute eigenvalues and eigenvectors using the multi-GPU syevd kernel.</p>
-<p>This is the high-level JAXMg symmetric/Hermitian eigensolver entry point.
-It accepts a block-sharded JAX matrix, prepares the tile-aligned local
-capacity required by cuSOLVERMp, calls the fused native backend, and returns
-eigenvalues together with eigenvectors in the same JAX-facing matrix layout
-as the input.</p>
+        <p>Compute eigenvalues (and optionally eigenvectors) of a symmetric matrix via the multi-GPU syevd kernel.</p>
+<p>Prepares the input and executes the appropriate native cuSolverMg kernel
+(<code>syevd_mg</code> when eigenvectors are requested or <code>syevd_no_V_mg</code> when
+not) via <code>jax.ffi.ffi_call</code> under <code>jax.jit</code> and <code>jax.shard_map</code>. Handles
+per-device padding driven by <code>T_A</code> and returns eigenvalues and, optionally,
+eigenvectors and a host-side status.</p>
 
 
 <details class="tip" open>
   <summary>Tip</summary>
   <p>If the shards of the matrix cannot be padded with tiles of size <code>T_A</code>
-we have to add padding to fit the last tile. This requires copying the
-matrix, which we want to avoid at all costs for large <code>N</code>. Make sure
-you pick <code>T_A</code> large enough (&gt;=128) and such that it can evenly cover
-the shards. In principle, increasing <code>T_A</code> will increase performance
-at the cost of memory, but depending on <code>N</code>, the performance will
-saturate.</p>
+(<code>N / num_gpus % T_A != 0</code>) we have to add padding to fit the last tile.
+This requires copying the matrix, which we want to avoid at all costs for 
+large <code>N</code>. Make sure you pick <code>T_A</code> large enough (&gt;=128) and such that it
+can evenly cover the shards. In principle, increasing <code>T_A</code> will increase 
+performance at the cost of memory, but depending on <code>N</code>, the performance
+  will saturate.</p>
 </details>
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -915,9 +1002,9 @@ saturate.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>A 2D symmetric/Hermitian matrix. Expected to be sharded
-across a 2D mesh with a matrix <code>PartitionSpec</code> such as
-<code>P(&lt;row_axis&gt;, &lt;col_axis&gt;)</code>.</p>
+                <p>A 2D JAX array of shape <code>(N_rows, N)</code>. Must be symmetric and
+is expected to be sharded across the mesh along the first (row)
+axis using <code>P(&lt;axis_name&gt;, None)</code>.</p>
               </div>
             </td>
             <td>
@@ -933,8 +1020,14 @@ across a 2D mesh with a matrix <code>PartitionSpec</code> such as
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Square tile width used by cuSOLVERMp. Each local shard
-dimension must be a multiple of <code>T_A</code> after padding.</p>
+                <p>Tile width used by the native solver. Each 
+local shard length must be a multiple of <code>T_A</code>. If the user provides a 
+<code>T_A</code> that is incompatible with the shard size we pad the matrix
+accordingly. For small tile sizes (<code>T_A</code>&lt; 128), the solver can 
+be extremely slow, so ensure that <code>T_A</code> is large enough. 
+The Cusolver implementation enforces an upper bound of
+<code>T_A &lt;= 1024</code>. See https://arxiv.org/abs/2601.14466
+for more details.</p>
               </div>
             </td>
             <td>
@@ -950,29 +1043,11 @@ dimension must be a multiple of <code>T_A</code> after padding.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>JAX mesh used for <code>jax.shard_map</code>. If omitted,
-inferred from <code>a.sharding.mesh</code>.</p>
+                <p>JAX device mesh used for <code>jax.shard_map</code>.</p>
               </div>
             </td>
             <td>
-                  <code>None</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>matrix_specs</code>
-            </td>
-            <td>
-                  <code><span title="PartitionSpec">PartitionSpec</span> or <span title="tuple">tuple</span> / <span title="list">list</span>[<span title="PartitionSpec">PartitionSpec</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>PartitionSpec describing the matrix sharding. If omitted, inferred
-from <code>a.sharding.spec</code>.</p>
-              </div>
-            </td>
-            <td>
-                  <code>None</code>
+                <em>required</em>
             </td>
           </tr>
           <tr class="doc-section-item">
@@ -980,15 +1055,36 @@ from <code>a.sharding.spec</code>.</p>
                 <code>in_specs</code>
             </td>
             <td>
-                  <code><span title="jax.P">P</span> | <span title="typing.Tuple">Tuple</span>[<span title="jax.P">P</span>] | <span title="typing.List">List</span>[<span title="jax.P">P</span>] | None</code>
+                  <code><span title="PartitionSpec">PartitionSpec</span> or <span title="tuple">tuple</span> / <span title="list">list</span>[<span title="PartitionSpec">PartitionSpec</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Backwards-compatible alias for <code>matrix_specs</code>.</p>
+                <p>PartitionSpec
+describing the input sharding (row sharding). May be provided as a
+single <code>PartitionSpec</code> or a single-element container containing one.</p>
               </div>
             </td>
             <td>
-                  <code>None</code>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>return_eigenvectors</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True (default) compute and
+return eigenvectors alongside eigenvalues. Eigenvectors are
+returned row-sharded to the same layout as the input and will be
+unpadded if padding was applied.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
             </td>
           </tr>
           <tr class="doc-section-item">
@@ -1000,8 +1096,8 @@ from <code>a.sharding.spec</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If True append a native per-rank
-diagnostic status vector to the return values. Default is False.</p>
+                <p>If True append a host-replicated int32
+solver status to the return values. Default is False.</p>
               </div>
             </td>
             <td>
@@ -1017,8 +1113,8 @@ diagnostic status vector to the return values. Default is False.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If True (default) apply per-device padding to
-meet <code>T_A</code> requirements; if False the caller must supply already
+                <p>If True (default) apply per-device padding to meet
+<code>T_A</code> requirements; if False the caller must supply already-
 correct shapes.</p>
               </div>
             </td>
@@ -1041,11 +1137,15 @@ correct shapes.</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
+                  <code><span title="typing.Union">Union</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>]]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(eigenvalues, eigenvectors) or (eigenvalues, eigenvectors, status).</p>
+                <p>Depending on <code>return_eigenvectors</code> and <code>return_status</code>, one of:
+- eigenvalues (Array of shape <code>(N,)</code>)
+- (eigenvalues, eigenvectors)
+- (eigenvalues, status)
+- (eigenvalues, eigenvectors, status)</p>
               </div>
             </td>
           </tr>
@@ -1068,7 +1168,8 @@ correct shapes.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If dtypes or <code>PartitionSpec</code> inputs are unsupported.</p>
+                <p>If <code>in_specs</code> is not a <code>PartitionSpec</code> or a single-
+element container.</p>
               </div>
             </td>
           </tr>
@@ -1078,7 +1179,20 @@ correct shapes.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If shapes, tile sizes, or mesh layouts are incompatible.</p>
+                <p>If <code>in_specs</code> does not indicate row sharding
+(<code>P(&lt;axis_name&gt;, None)</code>) or if <code>T_A</code> exceeds implementation
+limits.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="AssertionError">AssertionError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If <code>a</code> is not 2D or if shape requirements are violated
+when <code>pad=False</code>.</p>
               </div>
             </td>
           </tr>
@@ -1089,14 +1203,225 @@ correct shapes.</p>
 <details class="notes" open>
   <summary>Notes</summary>
   <ul>
-<li>Only the eigenvector-producing mode is currently exposed.</li>
-<li>The FFI call can donate the input buffer to enable zero-copy
-  interaction with the native library.</li>
-<li>Native code converts row-major JAX local storage to cuSOLVERMp's
-  column-major local layout, redistributes to 2D block-cyclic layout,
-  calls <code>cusolverMpSyevd</code>, and redistributes the eigenvectors back.</li>
+<li>Eigenvectors (when requested) are returned in the same
+  row sharding as the input.</li>
+<li>The FFI call can donate the input buffer (<code>donate_argnums=0</code>) to
+  enable zero-copy interaction with the native library.</li>
 <li>If the native solver fails the outputs may contain NaNs and the
-  status, when requested, will be non-zero.</li>
+  status (when requested) will be non-zero.</li>
+</ul>
+</details>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="jaxmg.syevd_shardmap_ctx" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+
+<a href="#jaxmg.syevd_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+
+        <p>Compute eigenvalues (and optionally eigenvectors) for row-sharded inputs without shard_map wiring.</p>
+<p>This helper is a lightweight, lower-level variant of :func:<code>syevd</code> intended
+for contexts where the input <code>a</code> is already laid out and sharded at the
+application level (for example when running inside a custom
+<code>shard_map</code>/pjit-managed context). It performs the same padding logic
+driven by <code>T_A</code> and directly calls the native <code>syevd_mg</code> /
+<code>syevd_no_V_mg</code> FFI targets via <code>jax.ffi.ffi_call</code> instead of
+constructing an additional <code>shard_map</code> wrapper.</p>
+
+
+<details class="tip" open>
+  <summary>Tip</summary>
+  <p>If the shards of the matrix cannot be padded with tiles of size <code>T_A</code>
+(<code>N / num_gpus % T_A != 0</code>) we have to add padding to fit the last tile.
+This requires copying the matrix, which we want to avoid at all costs for 
+large <code>N</code>. Make sure you pick <code>T_A</code> large enough (&gt;=128) and such that it
+can evenly cover the shards. In principle, increasing <code>T_A</code> will increase 
+performance at the cost of memory, but depending on <code>N</code>, the performance
+  will saturate.</p>
+</details>
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>a</code>
+            </td>
+            <td>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>2D JAX array representing the local, row-sharded slice of
+the global matrix. Shape should be <code>(shard_size, N)</code> where
+<code>shard_size</code> is the per-device (local) row count and <code>N</code> is the
+global matrix dimension.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>T_A</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Tile width used by the native solver. Each 
+local shard length must be a multiple of <code>T_A</code>. If the user provides a 
+<code>T_A</code> that is incompatible with the shard size we pad the matrix
+accordingly. For small tile sizes (<code>T_A</code>&lt; 128), the solver can 
+be extremely slow, so ensure that <code>T_A</code> is large enough. 
+The Cusolver implementation enforces an upper bound of
+<code>T_A &lt;= 1024</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>return_eigenvectors</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True (default) compute and
+return eigenvectors in addition to eigenvalues. When True the
+returned eigenvector array has the same local/sharded shape as the
+input (and will be unpadded if padding was applied).</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pad</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True (default) apply per-device padding to
+<code>a</code> to satisfy <code>T_A</code>. If False the caller must ensure the
+provided local shape already meets kernel requirements.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>One of the following, depending on <code>return_eigenvectors</code> and whether</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="int">int</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>the caller requests status:
+- <code>eigenvalues</code> (Array, shape <code>(N,)</code>)
+- <code>(eigenvalues, eigenvectors)</code>
+- <code>(eigenvalues, status)</code>
+- <code>(eigenvalues, eigenvectors, status)</code></p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="AssertionError">AssertionError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If <code>a</code> is not a 2D array.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If <code>T_A</code> exceeds implementation limits.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<details class="notes" open>
+  <summary>Notes</summary>
+  <ul>
+<li>This function does not create a <code>jax.shard_map</code> wrapper and does
+  not set <code>donate_argnums</code>; it is intended for use when the caller
+  already controls sharding/device placement.</li>
+<li>Padding is handled via :func:<code>calculate_padding</code>, :func:<code>pad_rows</code>,
+  and :func:<code>unpad_rows</code> (the latter two are used as local callables
+  rather than shard_map-wrapped functions).</li>
+<li>If the native solver fails the outputs may contain NaNs and the
+  returned <code>status</code> (when present) will be non-zero.</li>
 </ul>
 </details>
 
