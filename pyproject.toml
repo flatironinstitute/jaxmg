@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jaxmg"
-version = "0.0.8"
+version = "0.0.9"
 description = "JAXMg provides a C++ interface between JAX and cuSolverMg, NVIDIA's multi-GPU linear solver. "
 authors = [{ name = "Roeland Wiersema" }]
 classifiers = ["Programming Language :: Python :: 3"]
