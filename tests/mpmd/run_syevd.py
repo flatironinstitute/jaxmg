@@ -93,8 +93,10 @@ def cusolver_solve_arange(N, T_A, dtype):
     eigenvalues.block_until_ready()
     V.block_until_ready()
     assert jnp.allclose(eigenvalues_expected, eigenvalues)
-    eigenvalues_VtAV = jnp.diag(V @ A @ V.T)
-    assert jnp.allclose(eigenvalues_VtAV, eigenvalues_expected)
+    # Columns of V are eigenvectors of A (not conj(A)): A V = V diag(w).
+    atol = 5e-3 if dtype in (jnp.float32, jnp.complex64) else 1e-6
+    assert jnp.allclose(A @ V, V @ jnp.diag(eigenvalues), atol=atol)
+    assert jnp.allclose(V @ jnp.diag(eigenvalues) @ V.conj().T, A, atol=atol)
     eigenvalues_no_shm, V_no_shm, _ = jitted_syevd_no_shardmap(_A.copy(), T_A)
     assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm)
 
@@ -107,11 +109,11 @@ def cusolver_solve_psd(N, T_A, dtype):
     eigenvalues, V = jitted_syevd(_A.copy(), T_A)
     eigenvalues.block_until_ready()
     V.block_until_ready()
-    norm_syevd = jnp.linalg.norm(V @ A - jnp.diag(eigenvalues) @ V.T)
-    norm_lax = jnp.linalg.norm(
-        V_expected @ A - jnp.diag(eigenvalues_expected) @ V_expected.T
-    )
-    assert jnp.isclose(norm_syevd, norm_lax, rtol=10, atol=0.0)
+    # Columns of V are eigenvectors of A (not conj(A)); use .conj().T so the
+    # check is conjugation-sensitive for complex Hermitian inputs.
+    atol = 5e-3 if dtype in (jnp.float32, jnp.complex64) else 1e-6
+    assert jnp.allclose(A @ V, V @ jnp.diag(eigenvalues), atol=atol)
+    assert jnp.allclose(V @ jnp.diag(eigenvalues) @ V.conj().T, A, atol=atol)
     eigenvalues_no_shm, V_no_shm, _ = jitted_syevd_no_shardmap(_A.copy(), T_A)
     assert jnp.allclose(eigenvalues_expected, eigenvalues_no_shm, rtol=10, atol=0.0)
 

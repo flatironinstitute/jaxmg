@@ -210,6 +210,7 @@ def syevd(
         check_vma=False,
     )
     def impl(_a):
+        _a = _a.conj()
         return ffi_fn(_a)
 
     def fn(_a):
@@ -358,6 +359,9 @@ def syevd_shardmap_ctx(
 
     def fn(_a):
         _a = pad_fn(_a)
+        # See note in `syevd.impl`: conjugate so the column-major solver
+        # decomposes A rather than conj(A) for Hermitian inputs (no-op for real).
+        _a = _a.conj()
         if target_name == "syevd_mg":
             _ev, _V, _status = ffi_fn(_a)
             return _ev, unpad_fn(_V).T, _status
