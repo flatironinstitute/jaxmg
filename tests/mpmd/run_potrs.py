@@ -6,6 +6,7 @@ from typing import Callable, Dict, List
 
 import jax
 
+jax.config.update("jax_enable_x64", True)
 coord_addr = sys.argv[1]
 proc_id = int(sys.argv[2])
 num_procs = int(sys.argv[3])
@@ -35,7 +36,6 @@ import jax.numpy as jnp
 from jax.sharding import NamedSharding, PartitionSpec as P
 from functools import partial
 
-
 # These will be initialized after jax.distributed.initialize()
 devices = [d for d in jax.devices() if d.platform == "gpu"]
 mesh = jax.make_mesh((jax.device_count(),), ("x",))
@@ -46,9 +46,7 @@ from jaxmg.utils import random_psd
 
 @partial(jax.jit, static_argnames=("_T_A",))
 def jitted_potrs(_a, _b, _T_A):
-    out = partial(potrs, mesh=mesh, in_specs=(P("x", None),), pad=True)(
-        _a, _b, _T_A
-    )
+    out = partial(potrs, mesh=mesh, in_specs=(P("x", None),), pad=True)(_a, _b, _T_A)
     return out
 
 
@@ -57,7 +55,7 @@ def jitted_potrs_status(_a, _b, _T_A):
     out = partial(
         potrs,
         mesh=mesh,
-        in_specs=(P("x", None), ),
+        in_specs=(P("x", None),),
         pad=True,
         return_status=True,
     )(_a, _b, _T_A)

@@ -6,6 +6,7 @@ from typing import Callable, Dict, List
 
 import jax
 
+jax.config.update("jax_enable_x64", True)
 coord_addr = sys.argv[1]
 proc_id = int(sys.argv[2])
 num_procs = int(sys.argv[3])
@@ -34,7 +35,6 @@ def _println(prefix: str, payload: dict):
 import jax.numpy as jnp
 from jax.sharding import NamedSharding, PartitionSpec as P
 from functools import partial
-
 
 # These will be initialized after jax.distributed.initialize()
 devices = [d for d in jax.devices() if d.platform == "gpu"]
@@ -151,7 +151,7 @@ def cusolver_syevd_loop_shm(N, T_A, dtype):
     fd_start = len(os.listdir("/proc/self/fd"))
     for i in range(100):
         print(i, len(os.listdir("/proc/self/fd")))
-        out,_ = jitted_syevd(_A, T_A)
+        out, _ = jitted_syevd(_A, T_A)
         out.block_until_ready()
     fd_end = len(os.listdir("/proc/self/fd"))
     assert fd_end - fd_start < 100
