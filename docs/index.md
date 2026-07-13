@@ -25,7 +25,7 @@ routines:
   $N\times N$ symmetric (Hermitian) matrix
   ([`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)).
 
-## What this allows you to do
+**What this allows you to do**
 
 Pass an ordinary JAX matrix sharded over a two-dimensional device mesh directly
 to JAXMg. JAXMg handles the native local-memory conversion, global
