@@ -55,9 +55,6 @@ Local devices: [CudaDevice(id=0)]
 Global devices: [CudaDevice(id=0), ..., CudaDevice(id=7)]
 ```
 
-The exact `CudaDevice(...)` representation depends on the JAX version and job
-launcher. The important result is one local device and eight global devices.
-
 ## 3. Construct the process grid
 
 JAXMg uses an ordinary two-dimensional JAX mesh. For eight ranks, valid grid
@@ -74,9 +71,31 @@ mesh = jax.make_mesh((process_rows, process_cols), ("pr", "pc"))
 matrix_specs = P("pr", "pc")
 ```
 
-The mesh dimensions become the cuSOLVERMp process-grid dimensions. The first
-axis, `pr`, identifies process rows; the second, `pc`, identifies process
-columns.
+These JAX mesh dimensions are used throughout the backend and hence are inherited by cuSOLVERMp process-grid. The first
+axis, `pr`, identifies process rows; the second, `pc`, identifies process columns.
+
+You can inspect the resultant process-rank mapping selected by JAX:
+
+```python
+import numpy as np
+
+
+rank_grid = np.asarray(
+    [[device.process_index for device in row] for row in mesh.devices]
+)
+if jax.process_index() == 0:
+    print(rank_grid)
+```
+
+For the row-major $4\times2$ mesh used in this example, rank 0 prints
+
+```text
+[[0 1]
+ [2 3]
+ [4 5]
+ [6 7]]
+```
+
 
 JAXMg accepts regular row-major and column-major rank mappings. For a
 $4\times2$ grid these are
@@ -101,18 +120,8 @@ $$
 \end{bmatrix}.
 $$
 
-You can inspect the process-rank mapping selected by JAX:
-
-```python
-import numpy as np
 
 
-rank_grid = np.asarray(
-    [[device.process_index for device in row] for row in mesh.devices]
-)
-if jax.process_index() == 0:
-    print(rank_grid)
-```
 
 To request an explicit regular mapping, construct the JAX mesh from devices
 sorted by process rank:
