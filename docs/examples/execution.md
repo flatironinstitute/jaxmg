@@ -1,11 +1,8 @@
 # Distributed Execution
 
-JAXMg uses one Python process per GPU. Each process contributes one rank to the
-JAX/XLA communicator borrowed by the native backend and must see exactly one
-local GPU.
+JAXMg requires one Python process per GPU, this is something that it requires during a solver call and will raise a `RuntimeError` if not the case.
 
-This guide uses two nodes with four GPUs per node, giving eight processes and
-eight global devices:
+This guide assumes a computational set up of two nodes with four GPUs per node, giving eight global devices:
 
 ```text
 node 0                              node 1
@@ -15,13 +12,6 @@ rank 1 -> local GPU 1               rank 5 -> local GPU 1
 rank 2 -> local GPU 2               rank 6 -> local GPU 2
 rank 3 -> local GPU 3               rank 7 -> local GPU 3
 ```
-
-The job launcher normally restricts each process to its assigned GPU. JAXMg
-checks this requirement during initialization and raises a `RuntimeError` before
-calling a solver if a process can see more than one local GPU.
-
-All eight processes run the same Python program and must enter distributed JAX
-and JAXMg collective operations in the same order.
 
 ## 1. Initialize distributed JAX
 
@@ -34,33 +24,16 @@ import jax
 jax.distributed.initialize()
 ```
 
-When the program is launched with Slurm, Open MPI, or another supported cluster
-environment, JAX can infer the distributed configuration. This is the preferred
-form for the Slurm example below.
-
-If automatic discovery is unavailable, provide the configuration explicitly:
+While JAX supports automatic detection of the distributed configuration, the user can provide the configuration explicitly:
 
 ```python
 jax.distributed.initialize(
-    coordinator_address="node-0-hostname:12345",
-    num_processes=8,
-    process_id=process_id,
-    local_device_ids=[local_device_id],
+    coordinator_address="node-0-hostname:12345",  # Rank 0 host and shared port.
+    num_processes=8,  # Total process count.
+    process_id=process_id,  # This process's global rank.
+    local_device_ids=[local_device_id],  # This process's local GPU.
 )
 ```
-
-The values have the following meanings:
-
-- `coordinator_address` is the hostname or IP address of rank 0 followed by an
-  available port. Every process must use the same address. Do not use
-  `localhost` for a multi-node job.
-- `num_processes` is the total number of Python processes participating in the
-  computation: eight in this example.
-- `process_id` is the unique global rank of the current process, from `0` to
-  `num_processes - 1`.
-- `local_device_ids` identifies the GPU assigned to the current process on its
-  node. A supported Slurm or Open MPI launch normally determines this
-  automatically.
 
 ## 2. Check the process and device view
 
