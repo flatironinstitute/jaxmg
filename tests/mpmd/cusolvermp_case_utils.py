@@ -157,6 +157,17 @@ def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCa
         tile, padded, nrhs = 64, False, 1
         grid_order = "row_major"
         rhs_mode = "matrix_row_sharded"
+    elif case_name == "documented_degenerate_rhs":
+        if not has_rhs:
+            raise ValueError(
+                "documented_degenerate_rhs is only meaningful for solve routines"
+            )
+        # Match the public solver examples: an N x 1 RHS is row-sharded over
+        # an N-process-by-1 mesh, so P("pr", None) and P("pr", "pc") have the
+        # same ownership but distinct JAX metadata.
+        rows, cols, tile, padded, nrhs = num_processes, 1, 64, False, 1
+        grid_order = "row_major"
+        rhs_mode = "matrix_row_sharded"
     else:
         raise ValueError(f"unknown MPMD solver case {case_name!r}")
 

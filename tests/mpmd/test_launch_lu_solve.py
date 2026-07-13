@@ -21,6 +21,7 @@ RHS_PLACEMENT_CASES = (
     (4, "vector_rhs_replicated", "float32"),
     (4, "single_column_rhs_replicated", "float32"),
     (4, "single_column_rhs_row_sharded", "float32"),
+    (4, "documented_degenerate_rhs", "float32"),
     (4, "row_major_no_padding", "float32"),
 )
 COMPREHENSIVE_PROCESS_COUNTS = (1, 2, 3, 4, 5, 6, 7, 8)
