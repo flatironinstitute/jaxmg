@@ -14,6 +14,12 @@ The context interface returns `(a_work, x, status)`. The additional `a_work`
 result allows an outer compiled function to preserve input/output aliasing when
 the input matrix is donated.
 
+Both interfaces accept `return_logdet=True`. The high-level interface then
+returns `(x, logdet)`, or `(x, logdet, status)` when `return_status=True`. The
+context interface returns `(a_work, x, logdet, status)`. The log determinant is
+a replicated float64 scalar computed from the existing distributed Cholesky
+factor.
+
 ```python
 from functools import partial
 

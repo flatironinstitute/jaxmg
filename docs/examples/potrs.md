@@ -81,6 +81,45 @@ an internally cached jitted wrapper and manages donation and aliasing itself.
 If the solve must be embedded inside a larger jitted calculation, use the
 advanced interface below instead of wrapping `potrs` in another `jax.jit`.
 
+## Return the log determinant
+
+The Cholesky factor produced during the solve also provides the log
+determinant of the input matrix:
+
+$$
+\log\det(A) = 2\sum_i \log |L_{ii}|,
+$$
+
+where $A=LL^H$. Request it without performing a second factorization:
+
+```python
+a, b = make_problem()
+
+x, logdet = potrs(
+    a,
+    b,
+    T_A=T_A,
+    mesh=mesh,
+    matrix_specs=matrix_specs,
+    return_logdet=True,
+)
+
+expected_logdet = jnp.sum(jnp.log(jnp.arange(1, N + 1, dtype=dtype)))
+correct = jnp.allclose(logdet, expected_logdet)
+
+if jax.process_index() == 0:
+    print(logdet)
+    print(correct)
+```
+
+`logdet` is a replicated float64 scalar for all supported matrix dtypes:
+float32, float64, complex64, and complex128. Setting `return_status=True` as
+well returns `(x, logdet, status)`.
+
+Native code reads the diagonal directly from the distributed 2D block-cyclic
+Cholesky factor and all-reduces one float64 value. It does not gather, copy, or
+reverse-redistribute the factor matrix.
+
 ## Advanced: control the outer `jax.jit`
 
 `potrs_shardmap_ctx` runs the same padding, redistribution, Cholesky
@@ -92,6 +131,10 @@ The context interface returns `(a_work, x, status)` rather than only `x`.
 `a_work` is the native work buffer that aliases the input matrix. Whether it
 must be returned from the outer function depends on where the input matrix was
 created.
+
+Pass `return_logdet=True` to receive `(a_work, x, logdet, status)` from the
+context interface. The scalar can be consumed by further operations in the
+same outer jitted computation.
 
 ### Case 1: `a` and `b` are arguments of the jitted function
 
