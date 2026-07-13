@@ -91,8 +91,8 @@ nav:
     - Home:
         - "index.md"
         - "install.md"
-        - "execution.md"
     - Examples:
+        - "execution.md"
         - "examples/potrs.md"
         - "examples/lu_solve.md"
         - "examples/syevd.md"
