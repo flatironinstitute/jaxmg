@@ -588,11 +588,9 @@ def _potrs_pipeline(
             b_distribution = _b
         # The public API permits a replicated RHS-column axis, such as
         # P("pr", None).  Native redistribution instead consumes a regular
-        # 2D work buffer, so normalize the intermediate before shard-local
+        # 2D work buffer, so reshard the intermediate before shard-local
         # tile-capacity padding.
-        b_distribution = jax.lax.with_sharding_constraint(
-            b_distribution, rhs_work_sharding
-        )
+        b_distribution = jax.reshard(b_distribution, rhs_work_sharding)
         b_padded = pad_b(b_distribution)
         native_result = potrs_shardmap(a_padded, b_padded)
         if return_logdet:
