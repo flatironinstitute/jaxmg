@@ -38,9 +38,13 @@ def make_problem():
     diagonal = jnp.arange(N, dtype=dtype) + 2 * N
     a = jnp.diag(diagonal)
     a = a + 0.01 * jnp.triu(jnp.ones((N, N), dtype=dtype), k=1)
-    b = a @ expected_x
     a = jax.device_put(a, a_sharding)
-    b = jax.device_put(b, b_sharding)
+
+    # Form B from the globally sharded matrix. This is important in MPMD:
+    # every process must not independently provide a different local B to
+    # device_put as though it were a complete global array.
+    x = jax.device_put(expected_x, NamedSharding(mesh, P(None, None)))
+    b = jax.reshard(a @ x, b_sharding)
     return a, b
 ```
 
