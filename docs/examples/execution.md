@@ -1,8 +1,10 @@
 # Distributed Execution
 
-JAXMg requires one Python process per GPU, this is something that it requires during a solver call and will raise a `RuntimeError` if not the case.
+JAXMg requires one Python process per GPU. It checks this requirement during a
+solver call and raises a `RuntimeError` if the execution setup is unsupported.
 
-This guide assumes a computational set up of two nodes with four GPUs per node, giving eight global devices:
+This guide assumes two nodes with four GPUs per node, giving eight global
+devices:
 
 ```text
 node 0                              node 1
@@ -121,8 +123,6 @@ $$
 $$
 
 
-
-
 To request an explicit regular mapping, construct the JAX mesh from devices
 sorted by process rank:
 
@@ -145,14 +145,10 @@ column_major_mesh = Mesh(
 )
 ```
 
-Use one of these meshes as `mesh`. Arbitrary rank permutations are rejected
-because cuSOLVERMp supports standard row-major and column-major process-grid
-mappings rather than a general rank-to-coordinate table.
-
 ## 4. Place the matrix and right-hand side
 
 `PartitionSpec` describes how each array dimension maps onto the process-grid
-axes. A coefficient matrix is normally sharded over both axes:
+axes. A matrix is normally sharded over both axes:
 
 ```python
 import jax.numpy as jnp
@@ -187,26 +183,6 @@ b_matrix = jax.device_put(b_matrix, NamedSharding(mesh, P("pr", None)))
 The public solver accepts either representation. JAXMg adds any routing or tile
 padding required for a narrow right-hand side and redistributes it internally
 for cuSOLVERMp.
-
-## 5. Launch the program with Slurm
-
-Save the initialization, mesh construction, array placement, and solver call in
-the same Python script, for example `solve.py`. A typical two-node, eight-GPU
-launch is
-
-```bash
-srun \
-  --nodes=2 \
-  --ntasks=8 \
-  --ntasks-per-node=4 \
-  --gpus-per-task=1 \
-  python -u solve.py
-```
-
-Slurm flag names vary between clusters, but the required mapping does not: run
-eight tasks, assign one GPU to each task, and execute the same program on every
-rank. Each process calls `jax.distributed.initialize()`, constructs the same
-global mesh, and enters the same solver call.
 
 With distributed execution configured, continue to [Choose a tile size
 $T_A$](choose_tile_size.md) before selecting a solver example.
