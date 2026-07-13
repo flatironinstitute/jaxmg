@@ -37,25 +37,17 @@ jax.distributed.initialize(
 
 ## 2. Check the process and device view
 
-After initialization, each process should report one local device, while the
-global JAX client should contain all eight devices:
+After initialization, print the process and device information:
 
 ```python
-print(
-    f"rank {jax.process_index()} of {jax.process_count()}: "
-    f"{jax.local_device_count()} local GPU, "
-    f"{jax.device_count()} global GPUs"
-)
+print("Process index:", jax.process_index())
+print("Process count:", jax.process_count())
+print("Local devices:", jax.local_devices())
+print("Global devices:", jax.devices())
 ```
 
-The output from rank 0 should have the form
-
-```text
-rank 0 of 8: 1 local GPU, 8 global GPUs
-```
-
-`jax.local_devices()` contains the GPU owned by the current process.
-`jax.devices()` contains the global devices participating across both nodes.
+For this example, each process should print one local device and eight global
+devices.
 
 ## 3. Construct the process grid
 
