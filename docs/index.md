@@ -25,14 +25,16 @@ routines:
   $N\times N$ symmetric (Hermitian) matrix
   ([`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)).
 
-The public functions accept ordinary JAX arrays sharded over a two-dimensional
-device mesh. Inside one fused FFI call, the native backend converts the local
-memory layout, redistributes the matrix into cuSOLVERMp's 2D block-cyclic
-layout, executes the solver, and restores the JAX-facing layout.
+## What this allows you to do
 
-JAXMg uses one Python process per GPU. See [Distributed
-execution](execution.md) before launching a multi-GPU or multi-node program.
+Pass an ordinary JAX matrix sharded over a two-dimensional device mesh directly
+to JAXMg. JAXMg handles the native local-memory conversion, global
+redistribution into cuSOLVERMp's 2D block-cyclic layout, distributed solver
+execution, and restoration of the result to its JAX-facing layout.
 
-For more details, see the [API reference](api/index.md), the [native
-workflow](technical_details/index.md), and the accompanying
+This allows a JAX linear algebra calculation to scale across multiple GPUs and
+nodes, supporting matrices beyond the memory and computational limits of
+single-device JAX implementations.
+
+For more details, see the [API reference](api/index.md) and the accompanying
 [paper](https://arxiv.org/abs/2601.14466).
