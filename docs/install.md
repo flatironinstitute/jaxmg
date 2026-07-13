@@ -36,7 +36,7 @@ cuSOLVERMp requires a one-to-one mapping between processes and GPUs. Multi-GPU
 and multi-node JAXMg jobs must therefore be launched with one Python process per
 GPU and initialized with
 `jax.distributed.initialize()` before the global device mesh is constructed.
-See [Distributed execution](execution.md).
+See [Distributed execution](examples/execution.md).
 
 For large solves close to the GPU memory limit, CUDA Virtual Memory Management
 can improve allocator behaviour. Enable it by setting these variables before

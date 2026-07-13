@@ -93,7 +93,7 @@ nav:
         - "install.md"
     - Examples:
         - "examples/index.md"
-        - "execution.md"
+        - "examples/execution.md"
         - "examples/choose_tile_size.md"
         - "examples/potrs.md"
         - "examples/lu_solve.md"

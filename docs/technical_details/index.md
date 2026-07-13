@@ -90,8 +90,8 @@ The redistribution stages are shared by all public routines:
   eigenvectors.
 
 Each Python process owns one GPU and contributes one rank to the XLA/NCCL and
-cuSOLVERMp communicators. See [Distributed execution](../execution.md) for the
-required launch model.
+cuSOLVERMp communicators. See [Distributed execution](../examples/execution.md)
+for the required launch model.
 
 ## Detailed implementation
 

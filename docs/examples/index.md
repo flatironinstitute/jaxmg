@@ -10,7 +10,7 @@ JAXMg uses one Python process per GPU. Start by initializing distributed JAX,
 assigning one GPU to each process, and constructing the two-dimensional device
 mesh used by the matrix.
 
-[Configure distributed execution](../execution.md)
+[Configure distributed execution](execution.md)
 
 ## 2. Choose a tile size $T_A$
 
