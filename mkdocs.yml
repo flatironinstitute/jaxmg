@@ -92,11 +92,12 @@ nav:
         - "index.md"
         - "install.md"
     - Examples:
+        - "examples/index.md"
         - "execution.md"
+        - "examples/choose_tile_size.md"
         - "examples/potrs.md"
         - "examples/lu_solve.md"
         - "examples/syevd.md"
-        - "examples/choose_tile_size.md"
     - API:
         - "api/index.md"
         - "api/potrs.md"
