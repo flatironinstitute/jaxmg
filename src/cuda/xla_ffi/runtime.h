@@ -60,6 +60,7 @@
 #include "xla/service/computation_placer.h"
 #include "xla/stream_executor/stream.h"
 #include "xla/xla_data.pb.h"
+#include "third_party/nccl/nccl.h"
 
 namespace xla::gpu {
 namespace ffi = ::xla::ffi;
@@ -69,6 +70,7 @@ namespace ffi = ::xla::ffi;
 absl::Status CudaToStatus(cudaError_t err, const char* file, int line);
 absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
                               int line);
+absl::Status NcclToStatus(ncclResult_t err, const char* file, int line);
 
 #define JAXMG_RETURN_IF_CUDA_ERROR(expr)                              \
   do {                                                                \
@@ -82,6 +84,13 @@ absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
     absl::Status _jaxmg_cusolver_status =                             \
         CusolverToStatus((expr), __FILE__, __LINE__);                 \
     if (!_jaxmg_cusolver_status.ok()) return _jaxmg_cusolver_status;  \
+  } while (0)
+
+#define JAXMG_RETURN_IF_NCCL_ERROR(expr)                         \
+  do {                                                           \
+    absl::Status _jaxmg_nccl_status =                            \
+        NcclToStatus((expr), __FILE__, __LINE__);                \
+    if (!_jaxmg_nccl_status.ok()) return _jaxmg_nccl_status;     \
   } while (0)
 
 #define JAXMG_RETURN_IF_ERROR(expr)                         \
@@ -169,6 +178,34 @@ absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
 absl::Status RequestAllAssignedP2PCommunicator(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests, const char* caller);
+
+// Borrows and validates the raw NCCL handle owned by XLA for one FFI call.
+// The returned handle remains owned by XLA and must never be destroyed by
+// JAXMg.
+absl::StatusOr<ncclComm_t> BorrowNcclComm(const char* caller,
+                                          GpuCommunicator* comm);
+absl::Status ValidateBorrowedNcclComm(const char* caller, ncclComm_t comm,
+                                      int64_t expected_rank,
+                                      int64_t expected_count);
+
+// Records the CUDA stream selected for raw NCCL work. Production calls prefer
+// XLA's communication stream and fall back to the ordinary platform stream in
+// contexts where XLA does not expose a separate communication stream.
+struct NcclStreamChoice {
+  cudaStream_t stream;
+  bool uses_comm_stream;
+};
+
+absl::StatusOr<NcclStreamChoice> ChooseNcclStream(
+    const char* caller, se::Stream* comm_stream, cudaStream_t cuda_stream);
+
+// Reduces one device-resident real scalar across the borrowed communicator and
+// leaves the global sum in the same buffer on every rank. `dtype` must be
+// ncclFloat or ncclDouble.
+absl::Status RunRawNcclAllReduceReal(
+    const char* caller, se::Stream* stream, se::Stream* comm_stream,
+    cudaStream_t cuda_stream, ncclComm_t comm, ncclDataType_t dtype,
+    void* value);
 
 }  // namespace xla::gpu
 

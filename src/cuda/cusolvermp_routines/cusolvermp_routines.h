@@ -46,6 +46,20 @@ absl::Status XlaCusolverMpPotrsDispatch(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 
+// Runtime POTRS-with-logdet hook. It performs the same fused solve and also
+// returns the replicated real Cholesky log determinant in the matrix's real
+// component precision.
+absl::Status XlaCusolverMpPotrsLogdetDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
+    int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
+    ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
+    ffi::Result<ffi::AnyBuffer> logdet,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
 // Prepare hook for LU solve. Requests the all-assigned XLA P2P communicator
 // before runtime dispatch so GETRF/GETRS can use cuSOLVERMp's NCCL grid.
 absl::Status XlaCusolverMpLuSolvePrepare(

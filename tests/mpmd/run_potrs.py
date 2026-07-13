@@ -1,3 +1,4 @@
+import os
 import sys
 import traceback
 from functools import partial
@@ -31,6 +32,7 @@ proc_id = int(sys.argv[2])
 num_procs = int(sys.argv[3])
 case_name = sys.argv[4]
 dtype_name = sys.argv[5]
+return_logdet = os.environ.get("JAXMG_TEST_POTRS_LOGDET") == "1"
 
 # Choose the GPU allocator (vmm vs platform) before the backend is created.
 select_gpu_allocator(proc_id)
@@ -82,10 +84,16 @@ def run_case() -> None:
             mesh=mesh,
             matrix_specs=matrix_specs,
             return_status=True,
+            return_logdet=return_logdet,
             pad=True,
         )
 
-    out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
+    result = solve(a_dev, b_dev, tile_size=case.tile_size)
+    if return_logdet:
+        out, logdet, status = result
+        logdet.block_until_ready()
+    else:
+        out, status = result
     out.block_until_ready()
     status.block_until_ready()
 
@@ -99,6 +107,18 @@ def run_case() -> None:
     b_host = np.asarray(b)
     residual = np.linalg.norm(a_host @ out_host - b_host) / np.linalg.norm(b_host)
     assert float(residual) < 1e-3
+    if return_logdet:
+        expected_logdet_dtype = (
+            jnp.float32 if dtype in (jnp.float32, jnp.complex64) else jnp.float64
+        )
+        assert logdet.dtype == expected_logdet_dtype
+        expected_sign, expected_logdet = np.linalg.slogdet(a_host)
+        assert float(np.real(expected_sign)) > 0.0
+        tolerance = 5e-4 if dtype in (jnp.float32, jnp.complex64) else 1e-10
+        assert np.allclose(
+            float(logdet), float(expected_logdet), rtol=tolerance, atol=tolerance
+        )
+        assert np.all(status_words[33::_CUSOLVERMP_POTRS_STATUS_SIZE] == 1)
 
     emit(
         "MPTEST_RESULT",
@@ -107,6 +127,7 @@ def run_case() -> None:
             "name": case_name,
             "dtype": dtype_name,
             "status": "ok",
+            "return_logdet": return_logdet,
             "params": {
                 "n": case.n,
                 "nrhs": case.nrhs,

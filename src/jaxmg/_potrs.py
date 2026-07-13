@@ -44,8 +44,9 @@ def potrs(
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
     return_status: bool = False,
+    return_logdet: bool = False,
     pad: bool = True,
-) -> Union[Array, Tuple[Array, Array]]:
+) -> Union[Array, Tuple[Array, Array], Tuple[Array, Array, Array]]:
     """Solve the linear system A x = B using the multi-GPU potrs native kernel.
 
     This is the high-level JAXMg Cholesky-solve entry point.  It prepares a
@@ -78,14 +79,16 @@ def potrs(
         return_status (bool, optional): If True return ``(x, status)`` where
             ``status`` is the native per-rank diagnostic vector. If False
             return ``x`` only. Default is False.
+        return_logdet (bool, optional): If True also return ``log(det(A))``
+            computed from the distributed Cholesky factor. Default is False.
         pad (bool, optional): If True (default) apply per-device padding so
             each local shard length is compatible with ``T_A``; if False the
             caller must ensure shapes already match the kernel's requirements.
 
     Returns:
-        Array or (Array, Array): The solution ``x`` in the same JAX-facing
-            block-sharded layout as ``b``. If ``return_status=True`` also
-            return the native solver status.
+        One of ``x``, ``(x, status)``, ``(x, logdet)``, or
+        ``(x, logdet, status)``. The solution retains the JAX-facing layout of
+        ``b`` and ``logdet`` is a replicated real scalar.
 
     Raises:
         TypeError: If dtypes or ``PartitionSpec`` inputs are unsupported.
@@ -178,10 +181,19 @@ def potrs(
         nrhs=nrhs,
         b_distribution_cols=b_distribution_cols,
         tile_size=tile_shape.rows,
+        return_logdet=return_logdet,
     )
-    _, out, native_status = impl(a, b)
+    result = impl(a, b)
+    if return_logdet:
+        _, out, logdet, native_status = result
+    else:
+        _, out, native_status = result
     if vector_rhs:
         out = out[:, 0]
+    if return_logdet and return_status:
+        return out, logdet[0], native_status
+    if return_logdet:
+        return out, logdet[0]
     if return_status:
         return out, native_status
     return out
@@ -195,8 +207,9 @@ def potrs_shardmap_ctx(
     matrix_specs: P | Tuple[P] | List[P] | None = None,
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
+    return_logdet: bool = False,
     pad: bool = True,
-) -> Tuple[Array, Array, Array]:
+) -> Union[Tuple[Array, Array, Array], Tuple[Array, Array, Array, Array]]:
     """Solve A x = B while exposing the donated matrix work buffer.
 
     This helper is the lower-level variant of :func:`jaxmg.potrs` intended for
@@ -230,15 +243,18 @@ def potrs_shardmap_ctx(
             PartitionSpec describing the matrix sharding. If omitted, inferred
             from ``a.sharding.spec``.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
+        return_logdet (bool, optional): If True return the replicated Cholesky
+            log determinant between the solution and status outputs. Default
+            is False.
         pad (bool, optional): If True (default) apply per-device padding so
             each local shard length is compatible with ``T_A``; if False the
             caller must ensure shapes already match the kernel's requirements.
 
     Returns:
-        tuple: ``(a_work, x, status)`` where ``a_work`` is the padded matrix
-        work buffer returned by the native FFI call, ``x`` is the solution in
-        the same JAX-facing layout as ``b``, and ``status`` is the native
-        per-rank diagnostic vector.
+        tuple: ``(a_work, x, status)`` or
+        ``(a_work, x, logdet, status)``. ``a_work`` is the padded matrix work
+        buffer required for donation, ``x`` retains the JAX-facing layout of
+        ``b``, and ``logdet`` is a replicated real scalar.
 
     Raises:
         TypeError: If dtypes or ``PartitionSpec`` inputs are unsupported.
@@ -332,10 +348,17 @@ def potrs_shardmap_ctx(
         nrhs=nrhs,
         b_distribution_cols=b_distribution_cols,
         tile_size=tile_shape.rows,
+        return_logdet=return_logdet,
     )
-    a_work, out, native_status = impl(a, b)
+    result = impl(a, b)
+    if return_logdet:
+        a_work, out, logdet, native_status = result
+    else:
+        a_work, out, native_status = result
     if vector_rhs:
         out = out[:, 0]
+    if return_logdet:
+        return a_work, out, logdet[0], native_status
     return a_work, out, native_status
 
 
@@ -351,6 +374,15 @@ def _check_supported_potrs_dtype(dtype) -> None:
     """
     if dtype not in (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128):
         raise TypeError("potrs supports float32, float64, complex64, and complex128.")
+
+
+def _real_dtype_for_logdet(dtype):
+    """Return the real-component dtype used for the log determinant."""
+    if dtype == jnp.float32 or dtype == jnp.complex64:
+        return jnp.float32
+    if dtype == jnp.float64 or dtype == jnp.complex128:
+        return jnp.float64
+    raise TypeError("potrs supports float32, float64, complex64, and complex128.")
 
 
 def _check_padding_allowed(
@@ -433,6 +465,7 @@ def _potrs_pipeline(
     nrhs: int,
     b_distribution_cols: int,
     tile_size: int,
+    return_logdet: bool,
 ):
     """Build and cache the unjitted JAX-visible POTRS execution pipeline.
 
@@ -466,7 +499,7 @@ def _potrs_pipeline(
         local_cols=b_padding.local_logical_cols,
     )
 
-    def potrs_ffi(_a: Array, _b: Array) -> tuple[Array, Array, Array]:
+    def potrs_ffi(_a: Array, _b: Array):
         """Call fused native redistribution and ``potrf/potrs`` on one shard.
 
         The closure captures only static metadata that XLA needs at trace time:
@@ -482,21 +515,39 @@ def _potrs_pipeline(
         if _a.shape[0] != _b.shape[0]:
             raise ValueError("A and B must have matching local row capacity.")
 
-        out_type = (
+        common_out_type = (
             jax.ShapeDtypeStruct(_a.shape, _a.dtype),
             jax.ShapeDtypeStruct(_b.shape, _b.dtype),
-            jax.ShapeDtypeStruct((_CUSOLVERMP_POTRS_STATUS_SIZE,), jnp.int32),
         )
+        status_type = jax.ShapeDtypeStruct(
+            (_CUSOLVERMP_POTRS_STATUS_SIZE,), jnp.int32
+        )
+        if return_logdet:
+            out_type = common_out_type + (
+                jax.ShapeDtypeStruct((1,), _real_dtype_for_logdet(_a.dtype)),
+                status_type,
+            )
+            output_layouts = (
+                _ROW_MAJOR_JAX_LAYOUT,
+                _ROW_MAJOR_JAX_LAYOUT,
+                (0,),
+                (0,),
+            )
+            target_name = "cusolvermp_potrs_logdet"
+        else:
+            out_type = common_out_type + (status_type,)
+            output_layouts = (
+                _ROW_MAJOR_JAX_LAYOUT,
+                _ROW_MAJOR_JAX_LAYOUT,
+                (0,),
+            )
+            target_name = "cusolvermp_potrs"
         ffi_fn = partial(
             jax.ffi.ffi_call(
-                "cusolvermp_potrs",
+                target_name,
                 out_type,
                 input_layouts=(_ROW_MAJOR_JAX_LAYOUT, _ROW_MAJOR_JAX_LAYOUT),
-                output_layouts=(
-                    _ROW_MAJOR_JAX_LAYOUT,
-                    _ROW_MAJOR_JAX_LAYOUT,
-                    (0,),
-                ),
+                output_layouts=output_layouts,
                 input_output_aliases={0: 0, 1: 1},
             ),
             process_rows=process_rows,
@@ -508,18 +559,26 @@ def _potrs_pipeline(
             b_distribution_cols=int(b_distribution_cols),
             tile_size=int(tile_size),
         )
-        a_work, b_out, status = ffi_fn(_a, _b)
-        return a_work, b_out, status
+        return ffi_fn(_a, _b)
 
+    if return_logdet:
+        native_out_specs = (
+            matrix_specs,
+            matrix_specs,
+            P(),
+            native_status_specs,
+        )
+    else:
+        native_out_specs = (matrix_specs, matrix_specs, native_status_specs)
     potrs_shardmap = jax.shard_map(
         potrs_ffi,
         mesh=mesh,
         in_specs=(matrix_specs, matrix_specs),
-        out_specs=(matrix_specs, matrix_specs, native_status_specs),
+        out_specs=native_out_specs,
         check_vma=False,
     )
 
-    def impl(_a: Array, _b: Array) -> tuple[Array, Array, Array]:
+    def impl(_a: Array, _b: Array):
         """Run padding, fused native POTRS, and unpadding as one compiled path."""
         a_padded = pad_a(_a)
         if b_distribution_padding:
@@ -527,10 +586,14 @@ def _potrs_pipeline(
         else:
             b_distribution = _b
         b_padded = pad_b(b_distribution)
-        a_work_padded, b_solved_padded, native_status = potrs_shardmap(
-            a_padded, b_padded
-        )
+        native_result = potrs_shardmap(a_padded, b_padded)
+        if return_logdet:
+            a_work_padded, b_solved_padded, logdet, native_status = native_result
+        else:
+            a_work_padded, b_solved_padded, native_status = native_result
         out = unpad_b(b_solved_padded)
+        if return_logdet:
+            return a_work_padded, out[:, :nrhs], logdet, native_status
         return a_work_padded, out[:, :nrhs], native_status
 
     return impl
@@ -551,6 +614,7 @@ def _potrs_compiled(
     nrhs: int,
     b_distribution_cols: int,
     tile_size: int,
+    return_logdet: bool,
 ):
     """Build and cache the internally jitted public POTRS execution pipeline."""
     pipeline = _potrs_pipeline(
@@ -566,10 +630,11 @@ def _potrs_compiled(
         nrhs=nrhs,
         b_distribution_cols=b_distribution_cols,
         tile_size=tile_size,
+        return_logdet=return_logdet,
     )
 
     @partial(jax.jit, donate_argnums=(0, 1))
-    def impl(_a: Array, _b: Array) -> tuple[Array, Array, Array]:
+    def impl(_a: Array, _b: Array):
         """Run the cached POTRS pipeline behind the public convenience API."""
         return pipeline(_a, _b)
 

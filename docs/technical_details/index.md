@@ -83,7 +83,9 @@ allocate a second full local matrix.
 
 The redistribution stages are shared by all public routines:
 
-- `potrs` calls `cusolverMpPotrf` followed by `cusolverMpPotrs`.
+- `potrs` calls `cusolverMpPotrf` followed by `cusolverMpPotrs`. When requested,
+  it reads the distributed factor diagonal and performs a one-scalar NCCL
+  all-reduce to return `log(det(A))`.
 - `lu_solve` calls `cusolverMpGetrf` followed by `cusolverMpGetrs` and manages
   the distributed pivot allocation.
 - `syevd` calls `cusolverMpSyevd` and materializes distributed eigenvalues and

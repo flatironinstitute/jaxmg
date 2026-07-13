@@ -76,6 +76,41 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
 
+// Registers the logdet POTRS prepare target. It requests the same communicator
+// as ordinary POTRS because both cuSOLVERMp and the final scalar all-reduce use
+// the all-assigned XLA-owned NCCL clique.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpPotrsLogdetPrepareFFI, XlaCusolverMpPotrsPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+// Registers the optional logdet runtime target. The extra real scalar follows
+// the matrix component precision and is replicated by a native NCCL all-reduce
+// before the FFI call completes.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpPotrsLogdetFFI, XlaCusolverMpPotrsLogdetDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("n")
+        .Attr<int64_t>("nrhs")
+        .Attr<int64_t>("b_distribution_cols")
+        .Attr<int64_t>("tile_size")
+        .Attr<int64_t>("grid_mapping")
+        .Attr<absl::Span<const int64_t>>("rank_map")
+        .Arg<ffi::AnyBuffer>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
 // Registers the LU-solve prepare target that asks XLA to construct the P2P
 // communicator clique before runtime.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(

@@ -962,7 +962,9 @@ requested by that sequence:
 
 - `potrs` uses `cusolverMpPotrf` followed by `cusolverMpPotrs`.  It is intended
   for symmetric (Hermitian) positive-definite matrices and does not allocate a
-  pivot vector.
+  pivot vector. If `return_logdet=True`, each process reads the Cholesky
+  diagonal entries owned by its 2D block-cyclic process coordinate and the
+  rank-local sums are combined with an in-place NCCL all-reduce.
 - `lu_solve` uses `cusolverMpGetrf` followed by `cusolverMpGetrs`.  It is
   intended for general nonsingular matrices and allocates a pivot vector sized
   by the local cuSOLVERMp column ownership, `LOCc(N_A)`.
@@ -1005,6 +1007,7 @@ Stage 3:
 
 Solver orchestration:
   src/cuda/cusolvermp_routines/cusolvermp_potrs.cc
+  src/cuda/cusolvermp_routines/potrs_logdet.cu.cc
   src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc
   src/cuda/cusolvermp_routines/cusolvermp_syevd.cc
 ```
