@@ -96,7 +96,7 @@ nav:
         - "examples/potrs.md"
         - "examples/lu_solve.md"
         - "examples/syevd.md"
-        - "examples/block_cyclic_data_layout.md"
+        - "examples/choose_tile_size.md"
     - API:
         - "api/index.md"
         - "api/potrs.md"
