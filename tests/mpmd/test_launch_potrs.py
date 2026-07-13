@@ -31,6 +31,7 @@ COMPREHENSIVE_CASES = (
     "skinny_rhs",
 )
 LOGDET_CASES = (
+    (1, "row_major_no_padding"),
     (2, "row_major_no_padding"),
     (4, "column_major_padding"),
     (4, "column_grid_padding"),
