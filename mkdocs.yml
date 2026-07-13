@@ -52,7 +52,10 @@ markdown_extensions:
     - pymdownx.superfences # Seems to enable syntax highlighting when used with the Material theme.
     - pymdownx.details # Allowing hidden expandable regions denoted by ???
     - pymdownx.snippets: # Include one Markdown file into another
-          base_path: docs
+          base_path:
+              - docs
+              - .
+          check_paths: true
     - admonition
     - md_in_html
     - attr_list
@@ -104,5 +107,7 @@ nav:
         - "api/lu_solve.md"
         - "api/syevd.md"
     - Technical Details:
-        - "technical_details/index.md"
-        - "technical_details/memory_distribution.md"
+        - Native workflow: "technical_details/index.md"
+        - Memory distribution: "technical_details/memory_distribution.md"
+        - Building from source: "technical_details/building_from_source.md"
+        - Contributing: "technical_details/contributing.md"

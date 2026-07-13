@@ -27,8 +27,8 @@ JAX release. The provided binaries currently use:
 | JAX | `0.10.1` |
 | cuSOLVERMp | `nvidia-cusolvermp-cu12==0.8.0.3126` |
 
-See [Contributing](https://github.com/flatironinstitute/jaxmg/blob/main/CONTRIBUTING.md#build-from-source)
-for the complete source-build procedure.
+See [Building from source](technical_details/building_from_source.md) for the
+complete native-backend build procedure.
 
 ## Runtime requirements
 

@@ -57,7 +57,8 @@ imports, because they affect JAX's whole GPU allocator for the process.
 
 The wheel contains the Bazel-built `libjaxmg_xla_comm_backend.so` native
 backend. Installing a wheel does not run Bazel. Details for compiling from
-source can be found in `CONTRIBUTING.md`.
+source can be found in the
+[native-backend build guide](https://flatironinstitute.github.io/jaxmg/technical_details/building_from_source/).
 
 > **Note:** `pip install jaxmg` installs a CPU-only version of JAX. Since JAXMg
 > is a GPU-only package, install one of the CUDA extras shown above.
@@ -121,10 +122,12 @@ True
 ```
 as expected.
 
-For applications that already manage an outer `jax.jit` boundary, JAXMg also
-exports `potrs_shardmap_ctx` and `lu_solve_shardmap_ctx`. These lower-level
-helpers expose the donated matrix work buffer so an outer jitted function can
-use `donate_argnums` safely.
+Use `potrs` or `lu_solve` for a direct solve. When the solve must instead be
+embedded inside a larger function compiled by the application, use
+`potrs_shardmap_ctx` or `lu_solve_shardmap_ctx`. These context interfaces run
+the same native solver pipelines but leave the outer `jax.jit` boundary to the
+caller and expose the donated input-matrix work buffer so `donate_argnums` can
+be used safely.
 
 ## Projects that use JAXMg
 

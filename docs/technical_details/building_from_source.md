@@ -1,4 +1,4 @@
-# Building the native backend (workstation notes)
+# Building the Native Backend
 
 These are the steps to compile `libjaxmg_xla_comm_backend.so` against XLA (`@xla`)
 inside the official JAX CI container (`tensorflow/ml-build:latest`).
@@ -7,7 +7,7 @@ inside the official JAX CI container (`tensorflow/ml-build:latest`).
 XLA's internal C++ API (the FFI bindings, GPU collectives, and communicator
 cliques). That API is **not** shipped as a normal library — it is only available
 as the Bazel external repo `@xla`, which is defined inside a **JAX source
-checkout**. 
+checkout**.
 
 To ensure maximum compatibility with the current state of JAX, the build runs inside the official JAX CI Docker container
 (`ml-build:latest`), which provides Bazel and the hermetic CUDA toolchain. The
@@ -92,7 +92,7 @@ From the root, install the package
 ```bash
 cd $JAXMG
 python -m venv .venv
-.venv/bin/python -m pip install -e ".[cuda12]" 
+.venv/bin/python -m pip install -e ".[cuda12]"
 ```
 
 Single-GPU functional check (one process, 1×1 mesh):
