@@ -145,11 +145,11 @@ be returned from the outer function:
 def build_and_solve(diagonal):
     a = jnp.diag(diagonal)
     a = a + 0.01 * jnp.triu(jnp.ones((N, N), dtype=diagonal.dtype), k=1)
-    a = jax.lax.with_sharding_constraint(a, a_sharding)
+    a = jax.reshard(a, a_sharding)
 
     expected_x = jnp.ones((N, 1), dtype=diagonal.dtype)
     b = a @ expected_x
-    b = jax.lax.with_sharding_constraint(b, b_sharding)
+    b = jax.reshard(b, b_sharding)
 
     _, x, status = lu_solve_shardmap_ctx(
         a,

@@ -144,8 +144,8 @@ def build_and_solve(diagonal):
     a = jnp.diag(diagonal)
     b = jnp.ones((N, 1), dtype=diagonal.dtype)
 
-    a = jax.lax.with_sharding_constraint(a, a_sharding)
-    b = jax.lax.with_sharding_constraint(b, b_sharding)
+    a = jax.reshard(a, a_sharding)
+    b = jax.reshard(b, b_sharding)
 
     _, x, status = potrs_shardmap_ctx(
         a,
