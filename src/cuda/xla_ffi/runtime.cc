@@ -271,14 +271,19 @@ absl::StatusOr<NcclStreamChoice> ChooseNcclStream(
                           /*uses_comm_stream=*/false};
 }
 
-// Performs an in-place sum of one float64 scalar across every NCCL rank.
-absl::Status RunRawNcclAllReduceDouble(
+// Performs an in-place sum of one real scalar across every NCCL rank.
+absl::Status RunRawNcclAllReduceReal(
     const char* caller, se::Stream* stream, se::Stream* comm_stream,
-    cudaStream_t cuda_stream, ncclComm_t comm, double* value) {
+    cudaStream_t cuda_stream, ncclComm_t comm, ncclDataType_t dtype,
+    void* value) {
   if (stream == nullptr || comm == nullptr || value == nullptr) {
     return absl::InvalidArgumentError(absl::StrFormat(
         "%s requires non-null XLA stream, NCCL communicator, and value",
         caller));
+  }
+  if (dtype != ncclFloat && dtype != ncclDouble) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s requires an ncclFloat or ncclDouble scalar", caller));
   }
 
   absl::StatusOr<NcclStreamChoice> nccl_stream =
@@ -294,7 +299,7 @@ absl::Status RunRawNcclAllReduceDouble(
   }
 
   JAXMG_RETURN_IF_NCCL_ERROR(ncclAllReduce(
-      value, value, /*count=*/1, ncclDouble, ncclSum, comm,
+      value, value, /*count=*/1, dtype, ncclSum, comm,
       nccl_stream->stream));
 
   if (nccl_stream->uses_comm_stream) {

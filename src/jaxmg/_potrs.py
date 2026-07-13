@@ -79,9 +79,8 @@ def potrs(
         return_status (bool, optional): If True return ``(x, status)`` where
             ``status`` is the native per-rank diagnostic vector. If False
             return ``x`` only. Default is False.
-        return_logdet (bool, optional): If True also return the float64 scalar
-            ``log(det(A))`` computed from the distributed Cholesky factor.
-            Default is False.
+        return_logdet (bool, optional): If True also return ``log(det(A))``
+            computed from the distributed Cholesky factor. Default is False.
         pad (bool, optional): If True (default) apply per-device padding so
             each local shard length is compatible with ``T_A``; if False the
             caller must ensure shapes already match the kernel's requirements.
@@ -89,7 +88,7 @@ def potrs(
     Returns:
         One of ``x``, ``(x, status)``, ``(x, logdet)``, or
         ``(x, logdet, status)``. The solution retains the JAX-facing layout of
-        ``b`` and ``logdet`` is a replicated float64 scalar.
+        ``b`` and ``logdet`` is a replicated real scalar.
 
     Raises:
         TypeError: If dtypes or ``PartitionSpec`` inputs are unsupported.
@@ -244,9 +243,9 @@ def potrs_shardmap_ctx(
             PartitionSpec describing the matrix sharding. If omitted, inferred
             from ``a.sharding.spec``.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
-        return_logdet (bool, optional): If True return the replicated float64
-            Cholesky log determinant between the solution and status outputs.
-            Default is False.
+        return_logdet (bool, optional): If True return the replicated Cholesky
+            log determinant between the solution and status outputs. Default
+            is False.
         pad (bool, optional): If True (default) apply per-device padding so
             each local shard length is compatible with ``T_A``; if False the
             caller must ensure shapes already match the kernel's requirements.
@@ -255,7 +254,7 @@ def potrs_shardmap_ctx(
         tuple: ``(a_work, x, status)`` or
         ``(a_work, x, logdet, status)``. ``a_work`` is the padded matrix work
         buffer required for donation, ``x`` retains the JAX-facing layout of
-        ``b``, and ``logdet`` is a replicated float64 scalar.
+        ``b``, and ``logdet`` is a replicated real scalar.
 
     Raises:
         TypeError: If dtypes or ``PartitionSpec`` inputs are unsupported.
@@ -375,6 +374,15 @@ def _check_supported_potrs_dtype(dtype) -> None:
     """
     if dtype not in (jnp.float32, jnp.float64, jnp.complex64, jnp.complex128):
         raise TypeError("potrs supports float32, float64, complex64, and complex128.")
+
+
+def _real_dtype_for_logdet(dtype):
+    """Return the real-component dtype used for the log determinant."""
+    if dtype == jnp.float32 or dtype == jnp.complex64:
+        return jnp.float32
+    if dtype == jnp.float64 or dtype == jnp.complex128:
+        return jnp.float64
+    raise TypeError("potrs supports float32, float64, complex64, and complex128.")
 
 
 def _check_padding_allowed(
@@ -516,7 +524,7 @@ def _potrs_pipeline(
         )
         if return_logdet:
             out_type = common_out_type + (
-                jax.ShapeDtypeStruct((1,), jnp.float64),
+                jax.ShapeDtypeStruct((1,), _real_dtype_for_logdet(_a.dtype)),
                 status_type,
             )
             output_layouts = (

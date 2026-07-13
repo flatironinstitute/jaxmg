@@ -26,12 +26,13 @@
 //   2. Reset it to zero after a successful factorization and solve.
 //   3. Let every thread inspect a grid-stride subset of the global diagonal.
 //   4. Reduce contributions within each CUDA block in shared memory.
-//   5. Atomically add one partial sum per block to the rank-local float64
-//      output. The caller subsequently all-reduces that scalar with NCCL.
+//   5. Atomically add one partial sum per block to the rank-local real output.
+//      The caller subsequently all-reduces that scalar with NCCL.
 //
-// The output is always float64, including for float32 and complex64 inputs, to
-// limit summation error for large distributed matrices. The implementation
-// allocates no matrix-, tile-, or vector-sized device workspace.
+// Thread-local and block-local accumulation uses float64 to limit summation
+// error. The public result follows JAX's real-component convention: float32
+// for float32/complex64 matrices and float64 for float64/complex128 matrices.
+// The implementation allocates no matrix-, tile-, or vector-sized workspace.
 
 #include <algorithm>
 #include <cmath>
@@ -74,7 +75,8 @@ __device__ double DiagonalMagnitude<cuDoubleComplex>(
 }
 
 // Initializes the single device scalar without a host-to-device staging copy.
-__global__ void SetLogdetValueKernel(double* output, double value) {
+template <typename ResultType>
+__global__ void SetLogdetValueKernel(ResultType* output, ResultType value) {
   if (blockIdx.x == 0 && threadIdx.x == 0) {
     *output = value;
   }
@@ -87,11 +89,11 @@ __global__ void SetLogdetValueKernel(double* output, double value) {
 // mapping keeps the kernel independent of row-major versus column-major rank
 // numbering: the caller has already converted the communicator rank into the
 // corresponding (process_row, process_col) coordinate.
-template <typename DataType>
+template <typename DataType, typename ResultType>
 __global__ void AccumulateLocalLogdetKernel(
     const DataType* factor, int64_t n, int64_t tile_size,
     int64_t process_rows, int64_t process_cols, int32_t process_row,
-    int32_t process_col, int64_t local_physical_rows, double* output) {
+    int32_t process_col, int64_t local_physical_rows, ResultType* output) {
   extern __shared__ double block_sums[];
 
   double thread_sum = 0.0;
@@ -127,42 +129,55 @@ __global__ void AccumulateLocalLogdetKernel(
     __syncthreads();
   }
   if (threadIdx.x == 0) {
-    atomicAdd(output, block_sums[0]);
+    atomicAdd(output, static_cast<ResultType>(block_sums[0]));
   }
 }
 
 // Launches the dtype-specialized reduction after resetting the output scalar.
-template <typename DataType>
+template <typename DataType, typename ResultType>
 cudaError_t LaunchLocalLogdet(cudaStream_t cuda_stream, const void* factor,
                               int64_t n, int64_t tile_size,
                               int64_t process_rows, int64_t process_cols,
                               int32_t process_row, int32_t process_col,
                               int64_t local_physical_rows,
-                              double* logdet_out) {
+                              void* logdet_out) {
+  auto* typed_output = static_cast<ResultType*>(logdet_out);
   cudaError_t status =
-      cudaMemsetAsync(logdet_out, 0, sizeof(double), cuda_stream);
+      cudaMemsetAsync(typed_output, 0, sizeof(ResultType), cuda_stream);
   if (status != cudaSuccess) {
     return status;
   }
   const int block_count = static_cast<int>(std::min<int64_t>(
       kMaxLogdetBlocks, (n + kLogdetBlockSize - 1) / kLogdetBlockSize));
-  AccumulateLocalLogdetKernel<DataType>
+  AccumulateLocalLogdetKernel<DataType, ResultType>
       <<<block_count, kLogdetBlockSize,
          kLogdetBlockSize * static_cast<int>(sizeof(double)), cuda_stream>>>(
           static_cast<const DataType*>(factor), n, tile_size, process_rows,
           process_cols, process_row, process_col, local_physical_rows,
-          logdet_out);
+          typed_output);
   return cudaGetLastError();
 }
 
 }  // namespace
 
 cudaError_t InitializeCholeskyLogdet(cudaStream_t cuda_stream,
-                                     double* logdet_out) {
+                                     cudaDataType_t output_dtype,
+                                     void* logdet_out) {
   if (cuda_stream == nullptr || logdet_out == nullptr) {
     return cudaErrorInvalidValue;
   }
-  SetLogdetValueKernel<<<1, 1, 0, cuda_stream>>>(logdet_out, NAN);
+  switch (output_dtype) {
+    case CUDA_R_32F:
+      SetLogdetValueKernel<float><<<1, 1, 0, cuda_stream>>>(
+          static_cast<float*>(logdet_out), NAN);
+      break;
+    case CUDA_R_64F:
+      SetLogdetValueKernel<double><<<1, 1, 0, cuda_stream>>>(
+          static_cast<double*>(logdet_out), NAN);
+      break;
+    default:
+      return cudaErrorInvalidValue;
+  }
   return cudaGetLastError();
 }
 
@@ -170,7 +185,7 @@ cudaError_t AccumulateLocalCholeskyLogdet(
     cudaStream_t cuda_stream, cudaDataType_t dtype, const void* factor,
     int64_t n, int64_t tile_size, int64_t process_rows,
     int64_t process_cols, int32_t process_row, int32_t process_col,
-    int64_t local_physical_rows, double* logdet_out) {
+    int64_t local_physical_rows, void* logdet_out) {
   if (cuda_stream == nullptr || factor == nullptr || logdet_out == nullptr) {
     return cudaErrorInvalidValue;
   }
@@ -182,19 +197,19 @@ cudaError_t AccumulateLocalCholeskyLogdet(
 
   switch (dtype) {
     case CUDA_R_32F:
-      return LaunchLocalLogdet<float>(
+      return LaunchLocalLogdet<float, float>(
           cuda_stream, factor, n, tile_size, process_rows, process_cols,
           process_row, process_col, local_physical_rows, logdet_out);
     case CUDA_R_64F:
-      return LaunchLocalLogdet<double>(
+      return LaunchLocalLogdet<double, double>(
           cuda_stream, factor, n, tile_size, process_rows, process_cols,
           process_row, process_col, local_physical_rows, logdet_out);
     case CUDA_C_32F:
-      return LaunchLocalLogdet<cuFloatComplex>(
+      return LaunchLocalLogdet<cuFloatComplex, float>(
           cuda_stream, factor, n, tile_size, process_rows, process_cols,
           process_row, process_col, local_physical_rows, logdet_out);
     case CUDA_C_64F:
-      return LaunchLocalLogdet<cuDoubleComplex>(
+      return LaunchLocalLogdet<cuDoubleComplex, double>(
           cuda_stream, factor, n, tile_size, process_rows, process_cols,
           process_row, process_col, local_physical_rows, logdet_out);
     default:

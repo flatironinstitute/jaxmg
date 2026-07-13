@@ -199,11 +199,13 @@ struct NcclStreamChoice {
 absl::StatusOr<NcclStreamChoice> ChooseNcclStream(
     const char* caller, se::Stream* comm_stream, cudaStream_t cuda_stream);
 
-// Reduces one device-resident float64 scalar across the borrowed communicator
-// and leaves the global sum in the same buffer on every rank.
-absl::Status RunRawNcclAllReduceDouble(
+// Reduces one device-resident real scalar across the borrowed communicator and
+// leaves the global sum in the same buffer on every rank. `dtype` must be
+// ncclFloat or ncclDouble.
+absl::Status RunRawNcclAllReduceReal(
     const char* caller, se::Stream* stream, se::Stream* comm_stream,
-    cudaStream_t cuda_stream, ncclComm_t comm, double* value);
+    cudaStream_t cuda_stream, ncclComm_t comm, ncclDataType_t dtype,
+    void* value);
 
 }  // namespace xla::gpu
 

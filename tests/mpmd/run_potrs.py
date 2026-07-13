@@ -108,6 +108,10 @@ def run_case() -> None:
     residual = np.linalg.norm(a_host @ out_host - b_host) / np.linalg.norm(b_host)
     assert float(residual) < 1e-3
     if return_logdet:
+        expected_logdet_dtype = (
+            jnp.float32 if dtype in (jnp.float32, jnp.complex64) else jnp.float64
+        )
+        assert logdet.dtype == expected_logdet_dtype
         expected_sign, expected_logdet = np.linalg.slogdet(a_host)
         assert float(np.real(expected_sign)) > 0.0
         tolerance = 5e-4 if dtype in (jnp.float32, jnp.complex64) else 1e-10

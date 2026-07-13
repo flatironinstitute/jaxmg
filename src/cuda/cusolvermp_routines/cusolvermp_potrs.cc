@@ -275,7 +275,7 @@ absl::Status RunCusolverMpPotrsSolver(
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
     ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
-    ffi::Result<ffi::BufferR1<F64>>* logdet_out,
+    ffi::Result<ffi::AnyBuffer>* logdet_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   // Stage 1: validate the static FFI contract.  By this point Python/JAX has
@@ -377,7 +377,9 @@ absl::Status RunCusolverMpPotrsSolver(
   status_words[1] = cuda_device;
   if (logdet_out != nullptr) {
     JAXMG_RETURN_IF_CUDA_ERROR(InitializeCholeskyLogdet(
-        cuda_stream, (*logdet_out)->typed_data()));
+        cuda_stream,
+        ((*logdet_out)->element_type() == F32) ? CUDA_R_32F : CUDA_R_64F,
+        (*logdet_out)->untyped_data()));
   }
 
   // Stage 3: retrieve the communicator that XLA already created for the
@@ -533,17 +535,21 @@ absl::Status RunCusolverMpPotrsSolver(
 
   // Stage 7: optionally extract the Cholesky log determinant while A remains
   // in its factorized local 2D block-cyclic layout. Each rank produces one
-  // float64 partial sum; an in-place NCCL all-reduce replicates the global
-  // scalar without gathering or reverse-redistributing the factor matrix.
+  // real partial sum; an in-place NCCL all-reduce replicates the global scalar
+  // without gathering or reverse-redistributing the factor matrix. Single-
+  // precision matrices return float32; double-precision matrices return
+  // float64.
   if (logdet_out != nullptr && status_words[0] == kStatusOk) {
-    double* logdet_data = (*logdet_out)->typed_data();
+    void* logdet_data = (*logdet_out)->untyped_data();
     JAXMG_RETURN_IF_CUDA_ERROR(AccumulateLocalCholeskyLogdet(
         cuda_stream, logdet_dtype, a_out->untyped_data(), n, tile_size,
         process_rows, process_cols, process_row, process_col,
         a.dimensions()[0], logdet_data));
-    JAXMG_RETURN_IF_ERROR(RunRawNcclAllReduceDouble(
+    const ncclDataType_t logdet_nccl_dtype =
+        ((*logdet_out)->element_type() == F32) ? ncclFloat : ncclDouble;
+    JAXMG_RETURN_IF_ERROR(RunRawNcclAllReduceReal(
         "cusolvermp_potrs_logdet", stream, comm_stream, cuda_stream,
-        nccl_comm, logdet_data));
+        nccl_comm, logdet_nccl_dtype, logdet_data));
     status_words[33] = 1;
   }
 
@@ -598,7 +604,7 @@ absl::Status XlaCusolverMpPotrsDispatchImpl(
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
     ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::BufferR1<S32>> status,
-    ffi::Result<ffi::BufferR1<F64>>* logdet,
+    ffi::Result<ffi::AnyBuffer>* logdet,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   // Stage 1: validate the local FFI buffers.  Python has already padded A/B to
@@ -635,6 +641,14 @@ absl::Status XlaCusolverMpPotrsDispatchImpl(
                             (*logdet)->dimensions()[0] != 1)) {
     return absl::InvalidArgumentError(
         "cusolvermp_potrs_logdet expects logdet shape (1,)");
+  }
+  if (logdet != nullptr) {
+    const PrimitiveType expected_logdet_type =
+        (a.element_type() == F32 || a.element_type() == C64) ? F32 : F64;
+    if ((*logdet)->element_type() != expected_logdet_type) {
+      return absl::InvalidArgumentError(
+          "cusolvermp_potrs_logdet received a result with the wrong dtype");
+    }
   }
 
   // Stage 2: size one reusable scratch allocation for the whole fused call.
@@ -852,7 +866,7 @@ absl::Status XlaCusolverMpPotrsLogdetDispatch(
     int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
     ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
-    ffi::Result<ffi::BufferR1<F64>> logdet,
+    ffi::Result<ffi::AnyBuffer> logdet,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {

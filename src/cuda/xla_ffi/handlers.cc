@@ -85,8 +85,9 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliqueRequests>());
 
-// Registers the optional logdet runtime target. The extra float64 result is
-// replicated by a native NCCL all-reduce before the FFI call completes.
+// Registers the optional logdet runtime target. The extra real scalar follows
+// the matrix component precision and is replicated by a native NCCL all-reduce
+// before the FFI call completes.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpPotrsLogdetFFI, XlaCusolverMpPotrsLogdetDispatch,
     ffi::Ffi::Bind()
@@ -105,7 +106,7 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Arg<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
-        .Ret<ffi::BufferR1<F64>>()
+        .Ret<ffi::AnyBuffer>()
         .Ret<ffi::BufferR1<S32>>()
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());

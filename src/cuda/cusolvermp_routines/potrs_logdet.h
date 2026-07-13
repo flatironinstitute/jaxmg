@@ -34,7 +34,8 @@ namespace xla::gpu {
 // fails, Python receives an invalid scalar alongside the non-zero status rather
 // than an uninitialized device value.
 cudaError_t InitializeCholeskyLogdet(cudaStream_t cuda_stream,
-                                     double* logdet_out);
+                                     cudaDataType_t output_dtype,
+                                     void* logdet_out);
 
 // Accumulates 2 * log(abs(L_ii)) for diagonal entries owned by this rank.
 // `factor` uses cuSOLVERMp's local column-major 2D block-cyclic layout and
@@ -43,7 +44,7 @@ cudaError_t AccumulateLocalCholeskyLogdet(
     cudaStream_t cuda_stream, cudaDataType_t dtype, const void* factor,
     int64_t n, int64_t tile_size, int64_t process_rows,
     int64_t process_cols, int32_t process_row, int32_t process_col,
-    int64_t local_physical_rows, double* logdet_out);
+    int64_t local_physical_rows, void* logdet_out);
 
 }  // namespace xla::gpu
 
