@@ -964,7 +964,7 @@ requested by that sequence:
   for symmetric (Hermitian) positive-definite matrices and does not allocate a
   pivot vector. If `return_logdet=True`, each process reads the Cholesky
   diagonal entries owned by its 2D block-cyclic process coordinate and the
-  rank-local float64 sums are combined with an in-place NCCL all-reduce.
+  rank-local sums are combined with an in-place NCCL all-reduce.
 - `lu_solve` uses `cusolverMpGetrf` followed by `cusolverMpGetrs`.  It is
   intended for general nonsingular matrices and allocates a pivot vector sized
   by the local cuSOLVERMp column ownership, `LOCc(N_A)`.

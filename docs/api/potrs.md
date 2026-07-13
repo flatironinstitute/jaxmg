@@ -14,11 +14,17 @@ The context interface returns `(a_work, x, status)`. The additional `a_work`
 result allows an outer compiled function to preserve input/output aliasing when
 the input matrix is donated.
 
-Both interfaces accept `return_logdet=True`. The high-level interface then
+Both interfaces accept `return_logdet=True`. Since the factorization produces
+$A=LL^H$, the backend computes
+
+$$
+\log\det(A) = 2\sum_i \log |L_{ii}|
+$$
+
+directly from the distributed Cholesky factor. The high-level interface then
 returns `(x, logdet)`, or `(x, logdet, status)` when `return_status=True`. The
-context interface returns `(a_work, x, logdet, status)`. The log determinant is
-a replicated float64 scalar computed from the existing distributed Cholesky
-factor.
+context interface returns `(a_work, x, logdet, status)`. `logdet` is a
+replicated real scalar.
 
 ```python
 from functools import partial

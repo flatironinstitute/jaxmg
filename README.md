@@ -12,7 +12,7 @@
 # JAXMg
 JAXMg provides a jittable C++/CUDA interface between [JAX](https://github.com/jax-ml/jax) and [cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/), NVIDIA's distributed linear algebra runtime. The public API exposes three fused cuSOLVERMp routines:
 
-- [cusolverMpPotrf/Potrs](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): solves symmetric (Hermitian) positive-definite systems on a 2D process grid via `jaxmg.potrs`, with an optional log determinant returned from the distributed Cholesky factor.
+- [cusolverMpPotrf/Potrs](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): solves symmetric (Hermitian) positive-definite systems on a 2D process grid via `jaxmg.potrs`.
 - [cusolverMpGetrf/Getrs](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): solves general nonsingular systems on a 2D process grid via `jaxmg.lu_solve`.
 - [cusolverMpSyevd](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): computes eigenvalues and eigenvectors on a 2D process grid via `jaxmg.syevd`.
 
