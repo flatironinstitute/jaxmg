@@ -46,8 +46,17 @@ print("Local devices:", jax.local_devices())
 print("Global devices:", jax.devices())
 ```
 
-For this example, each process should print one local device and eight global
-devices.
+On rank 0, the output should have the following form:
+
+```text
+Process index: 0
+Process count: 8
+Local devices: [CudaDevice(id=0)]
+Global devices: [CudaDevice(id=0), ..., CudaDevice(id=7)]
+```
+
+The exact `CudaDevice(...)` representation depends on the JAX version and job
+launcher. The important result is one local device and eight global devices.
 
 ## 3. Construct the process grid
 
