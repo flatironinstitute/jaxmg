@@ -31,6 +31,9 @@ def _install_fake_potrs_backend(monkeypatch):
 
         def impl(_a, _b):
             status = jnp.zeros((_CUSOLVERMP_POTRS_STATUS_SIZE,), dtype=jnp.int32)
+            if kwargs.get("return_logdet", False):
+                logdet = jnp.asarray([3.25], dtype=jnp.float64)
+                return _a, _b, logdet, status
             # impl returns the donated A work buffer, the solved RHS, and status.
             return _a, _b, status
 
@@ -95,6 +98,34 @@ def test_potrs_preserves_single_column_rhs_rank(monkeypatch):
     assert out.shape == b.shape
 
 
+@pytest.mark.parametrize("return_status", [False, True])
+def test_potrs_returns_optional_float64_logdet(monkeypatch, return_status):
+    captured = _install_fake_potrs_backend(monkeypatch)
+    a = jnp.eye(4, dtype=jnp.complex64)
+    b = jnp.ones((4, 1), dtype=jnp.complex64)
+
+    result = potrs(
+        a,
+        b,
+        2,
+        mesh=_one_rank_mesh(),
+        matrix_specs=P("pr", "pc"),
+        return_logdet=True,
+        return_status=return_status,
+    )
+
+    if return_status:
+        out, logdet, status = result
+        assert status.shape == (_CUSOLVERMP_POTRS_STATUS_SIZE,)
+    else:
+        out, logdet = result
+    assert out.shape == b.shape
+    assert logdet.shape == ()
+    assert logdet.dtype == jnp.float64
+    assert float(logdet) == pytest.approx(3.25)
+    assert captured["kwargs"]["return_logdet"] is True
+
+
 def test_potrs_public_api_can_be_wrapped_in_external_jit(monkeypatch):
     _install_fake_potrs_backend(monkeypatch)
     mesh = _one_rank_mesh()
@@ -149,6 +180,28 @@ def test_potrs_shardmap_ctx_preserves_vector_rhs_rank(monkeypatch):
     assert out.shape == b.shape
     assert status.shape == (_CUSOLVERMP_POTRS_STATUS_SIZE,)
     assert captured["pipeline_kwargs"]["nrhs"] == 1
+
+
+def test_potrs_shardmap_ctx_returns_optional_logdet(monkeypatch):
+    captured = _install_fake_potrs_backend(monkeypatch)
+    a = jnp.eye(4, dtype=jnp.float32)
+    b = jnp.ones((4, 2), dtype=jnp.float32)
+
+    a_work, out, logdet, status = potrs_shardmap_ctx(
+        a,
+        b,
+        2,
+        mesh=_one_rank_mesh(),
+        matrix_specs=P("pr", "pc"),
+        return_logdet=True,
+    )
+
+    assert a_work.shape == a.shape
+    assert out.shape == b.shape
+    assert logdet.shape == ()
+    assert logdet.dtype == jnp.float64
+    assert status.shape == (_CUSOLVERMP_POTRS_STATUS_SIZE,)
+    assert captured["pipeline_kwargs"]["return_logdet"] is True
 
 
 def test_potrs_shardmap_ctx_can_be_wrapped_in_external_jit(monkeypatch):

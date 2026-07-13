@@ -50,7 +50,7 @@ _CUSOLVERMP_POTRS_STATUS_FIELDS = (
     "a_native_redist",
     "b_native_redist",
     "b_reverse_redist",
-    "residual_scaled_1e6",
+    "logdet_computed",
     "dtype_code",
     "b_local_cols",
     "nrhs",

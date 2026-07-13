@@ -30,6 +30,11 @@ COMPREHENSIVE_CASES = (
     "column_grid_padding",
     "skinny_rhs",
 )
+LOGDET_CASES = (
+    (2, "row_major_no_padding"),
+    (4, "column_major_padding"),
+    (4, "column_grid_padding"),
+)
 
 
 @pytest.mark.parametrize("requested_procs,case_name", SMOKE_CASES)
@@ -42,6 +47,14 @@ def test_potrs_rank_per_gpu_smoke(requested_procs, case_name, dtype_name):
 @pytest.mark.parametrize("requested_procs,case_name,dtype_name", RHS_PLACEMENT_CASES)
 def test_potrs_rhs_placement_modes(requested_procs, case_name, dtype_name):
     """Check supported user-facing sharding choices for the RHS input."""
+    run_mpmd_test(MP_TEST, requested_procs, case_name, dtype_name)
+
+
+@pytest.mark.parametrize("requested_procs,case_name", LOGDET_CASES)
+@pytest.mark.parametrize("dtype_name", DTYPES)
+def test_potrs_logdet(requested_procs, case_name, dtype_name, monkeypatch):
+    """Validate distributed logdet for dtypes, padding, and grid mappings."""
+    monkeypatch.setenv("JAXMG_TEST_POTRS_LOGDET", "1")
     run_mpmd_test(MP_TEST, requested_procs, case_name, dtype_name)
 
 

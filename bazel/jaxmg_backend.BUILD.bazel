@@ -18,6 +18,17 @@ cuda_library(
     ],
 )
 
+cuda_library(
+    name = "potrs_logdet_cuda",
+    srcs = ["cusolvermp_routines/potrs_logdet.cu.cc"],
+    hdrs = ["cusolvermp_routines/potrs_logdet.h"],
+    alwayslink = True,
+    tags = ["cuda-only"],
+    deps = [
+        "@local_config_cuda//cuda:cuda_headers",
+    ],
+)
+
 cc_binary(
     name = "libjaxmg_xla_comm_backend.so",
     srcs = glob(["cusolvermp_include/**/*.h"]) + [
@@ -25,6 +36,7 @@ cc_binary(
         "cusolvermp_routines/cusolvermp_common.h",
         "cusolvermp_routines/cusolvermp_lu_solve.cc",
         "cusolvermp_routines/cusolvermp_potrs.cc",
+        "cusolvermp_routines/potrs_logdet.h",
         "cusolvermp_routines/cusolvermp_routines.h",
         "cusolvermp_routines/cusolvermp_syevd.cc",
         "memory_redist/block_cyclic_2d.cc",
@@ -66,6 +78,7 @@ cc_binary(
     ],
     deps = [
         ":layout_convert_cuda",
+        ":potrs_logdet_cuda",
         "@local_config_cuda//cuda:cuda_headers",
         "@cuda_cudart//:cudart",
         "@cuda_cusolver//:cusolver",

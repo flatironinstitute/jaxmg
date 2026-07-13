@@ -106,6 +106,16 @@ absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
                                              line));
 }
 
+// Converts raw NCCL return codes into FFI-friendly absl::Status values.
+absl::Status NcclToStatus(ncclResult_t err, const char* file, int line) {
+  if (err == ncclSuccess) {
+    return absl::OkStatus();
+  }
+  return absl::InternalError(absl::StrFormat(
+      "NCCL error %d (%s) at %s:%d", static_cast<int>(err),
+      ncclGetErrorString(err), file, line));
+}
+
 // Allocates one XLA-owned scratch buffer for the current FFI invocation.
 absl::StatusOr<void*> AllocateFfiScratch(se::ScratchAllocator& scratch,
                                          size_t bytes, const char* name) {
@@ -207,6 +217,92 @@ absl::Status RequestAllAssignedP2PCommunicator(
   }
   return clique_requests->RequestClique(
       *clique_key, {AllAssignedGlobalDeviceGroup(*collective_params)});
+}
+
+// Borrows the CUDA platform communicator from XLA without taking ownership.
+absl::StatusOr<ncclComm_t> BorrowNcclComm(const char* caller,
+                                          GpuCommunicator* comm) {
+  if (comm == nullptr) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s requires an XLA GPU communicator", caller));
+  }
+  void* handle = comm->platform_comm().handle;
+  if (handle == nullptr) {
+    return absl::FailedPreconditionError(absl::StrFormat(
+        "%s requires an XLA communicator with a platform NCCL handle",
+        caller));
+  }
+  return reinterpret_cast<ncclComm_t>(handle);
+}
+
+// Confirms that XLA and NCCL agree on the current rank and clique size.
+absl::Status ValidateBorrowedNcclComm(const char* caller, ncclComm_t comm,
+                                      int64_t expected_rank,
+                                      int64_t expected_count) {
+  int comm_rank = -1;
+  int comm_count = -1;
+  JAXMG_RETURN_IF_NCCL_ERROR(ncclCommUserRank(comm, &comm_rank));
+  JAXMG_RETURN_IF_NCCL_ERROR(ncclCommCount(comm, &comm_count));
+  if (comm_rank != expected_rank || comm_count != expected_count) {
+    return absl::FailedPreconditionError(absl::StrFormat(
+        "%s borrowed NCCL communicator mismatch: NCCL rank/count=(%d, %d), "
+        "XLA rank/count=(%d, %d)",
+        caller, comm_rank, comm_count, expected_rank, expected_count));
+  }
+  return absl::OkStatus();
+}
+
+// Chooses the stream used by raw NCCL operations issued from native FFI code.
+absl::StatusOr<NcclStreamChoice> ChooseNcclStream(
+    const char* caller, se::Stream* comm_stream, cudaStream_t cuda_stream) {
+  if (comm_stream != nullptr) {
+    void* handle = comm_stream->platform_specific_handle().stream;
+    if (handle != nullptr) {
+      return NcclStreamChoice{
+          /*stream=*/reinterpret_cast<cudaStream_t>(handle),
+          /*uses_comm_stream=*/true};
+    }
+  }
+  if (cuda_stream == nullptr) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("%s requires a CUDA stream for raw NCCL", caller));
+  }
+  return NcclStreamChoice{/*stream=*/cuda_stream,
+                          /*uses_comm_stream=*/false};
+}
+
+// Performs an in-place sum of one float64 scalar across every NCCL rank.
+absl::Status RunRawNcclAllReduceDouble(
+    const char* caller, se::Stream* stream, se::Stream* comm_stream,
+    cudaStream_t cuda_stream, ncclComm_t comm, double* value) {
+  if (stream == nullptr || comm == nullptr || value == nullptr) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s requires non-null XLA stream, NCCL communicator, and value",
+        caller));
+  }
+
+  absl::StatusOr<NcclStreamChoice> nccl_stream =
+      ChooseNcclStream(caller, comm_stream, cuda_stream);
+  if (!nccl_stream.ok()) {
+    return nccl_stream.status();
+  }
+
+  if (nccl_stream->uses_comm_stream) {
+    // The local CUDA reduction produces `value` on the main stream. Make that
+    // write visible before NCCL reads it on XLA's communication stream.
+    JAXMG_RETURN_IF_ERROR(comm_stream->WaitFor(stream));
+  }
+
+  JAXMG_RETURN_IF_NCCL_ERROR(ncclAllReduce(
+      value, value, /*count=*/1, ncclDouble, ncclSum, comm,
+      nccl_stream->stream));
+
+  if (nccl_stream->uses_comm_stream) {
+    // Downstream FFI outputs are consumed on the main stream. Preserve that
+    // ordering without introducing a host-wide stream synchronization.
+    JAXMG_RETURN_IF_ERROR(stream->WaitFor(comm_stream));
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace xla::gpu

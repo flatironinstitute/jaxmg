@@ -34,6 +34,7 @@
 
 #include "cusolvermp_common.h"
 #include "cusolvermp_routines.h"
+#include "potrs_logdet.h"
 
 namespace xla::gpu {
 namespace {
@@ -274,9 +275,9 @@ absl::Status RunCusolverMpPotrsSolver(
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
     ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
+    ffi::Result<ffi::BufferR1<F64>>* logdet_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
-  (void)comm_stream;
   // Stage 1: validate the static FFI contract.  By this point Python/JAX has
   // already padded the user arrays and memory_redist has produced local
   // column-major 2D block-cyclic buffers.  The checks here are deliberately
@@ -350,7 +351,7 @@ absl::Status RunCusolverMpPotrsSolver(
       0,   // A native redistribution reached cuSOLVERMp layout.
       0,   // B native redistribution reached cuSOLVERMp layout.
       0,   // B reverse redistribution completed.
-      -1,  // reserved validation slot.
+      0,   // Cholesky logdet reduction completed.
       -1,  // dtype code.
       static_cast<int32_t>(b.dimensions()[1]),
       static_cast<int32_t>(nrhs),
@@ -374,6 +375,10 @@ absl::Status RunCusolverMpPotrsSolver(
     return CopyPotrsStatusToDevice(stream, status_words, status_out);
   }
   status_words[1] = cuda_device;
+  if (logdet_out != nullptr) {
+    JAXMG_RETURN_IF_CUDA_ERROR(InitializeCholeskyLogdet(
+        cuda_stream, (*logdet_out)->typed_data()));
+  }
 
   // Stage 3: retrieve the communicator that XLA already created for the
   // compiled program.  cuSOLVERMp receives the raw NCCL handle from that
@@ -482,9 +487,11 @@ absl::Status RunCusolverMpPotrsSolver(
 
   // Stage 6: dispatch on the XLA primitive dtype and run POTRF/POTRS.
   absl::Status potrs_status;
+  cudaDataType_t logdet_dtype = CUDA_R_32F;
   switch (a.element_type()) {
     case F32:
       status_words[34] = 1;
+      logdet_dtype = CUDA_R_32F;
       potrs_status = RunCusolverMpDistributedPotrs<float>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
@@ -492,6 +499,7 @@ absl::Status RunCusolverMpPotrsSolver(
       break;
     case F64:
       status_words[34] = 2;
+      logdet_dtype = CUDA_R_64F;
       potrs_status = RunCusolverMpDistributedPotrs<double>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
@@ -499,6 +507,7 @@ absl::Status RunCusolverMpPotrsSolver(
       break;
     case C64:
       status_words[34] = 3;
+      logdet_dtype = CUDA_C_32F;
       potrs_status = RunCusolverMpDistributedPotrs<cuFloatComplex>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
@@ -506,6 +515,7 @@ absl::Status RunCusolverMpPotrsSolver(
       break;
     case C128:
       status_words[34] = 4;
+      logdet_dtype = CUDA_C_64F;
       potrs_status = RunCusolverMpDistributedPotrs<cuDoubleComplex>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
@@ -521,7 +531,23 @@ absl::Status RunCusolverMpPotrsSolver(
     return potrs_status;
   }
 
-  // Stage 7: tear down cuSOLVERMp resources in reverse construction order and
+  // Stage 7: optionally extract the Cholesky log determinant while A remains
+  // in its factorized local 2D block-cyclic layout. Each rank produces one
+  // float64 partial sum; an in-place NCCL all-reduce replicates the global
+  // scalar without gathering or reverse-redistributing the factor matrix.
+  if (logdet_out != nullptr && status_words[0] == kStatusOk) {
+    double* logdet_data = (*logdet_out)->typed_data();
+    JAXMG_RETURN_IF_CUDA_ERROR(AccumulateLocalCholeskyLogdet(
+        cuda_stream, logdet_dtype, a_out->untyped_data(), n, tile_size,
+        process_rows, process_cols, process_row, process_col,
+        a.dimensions()[0], logdet_data));
+    JAXMG_RETURN_IF_ERROR(RunRawNcclAllReduceDouble(
+        "cusolvermp_potrs_logdet", stream, comm_stream, cuda_stream,
+        nccl_comm, logdet_data));
+    status_words[33] = 1;
+  }
+
+  // Stage 8: tear down cuSOLVERMp resources in reverse construction order and
   // return the per-rank status vector to Python.
   if (status_words[0] == kStatusOk) {
     cusolver_status = api.destroy_grid(grid);
@@ -565,13 +591,14 @@ absl::Status XlaCusolverMpPotrsPrepare(
 // edge-padding/block-cyclic redistribution for A and B, call cuSOLVERMp, move
 // the solved B back to the JAX distribution, and restore B's local row-major
 // layout for the user-visible output.
-absl::Status XlaCusolverMpPotrsDispatch(
+absl::Status XlaCusolverMpPotrsDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
     int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
     ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::BufferR1<S32>> status,
+    ffi::Result<ffi::BufferR1<F64>>* logdet,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   // Stage 1: validate the local FFI buffers.  Python has already padded A/B to
@@ -603,6 +630,11 @@ absl::Status XlaCusolverMpPotrsDispatch(
   if (b_distribution_cols < nrhs) {
     return absl::InvalidArgumentError(
         "cusolvermp_potrs requires b_distribution_cols >= nrhs");
+  }
+  if (logdet != nullptr && ((*logdet)->dimensions().size() != 1 ||
+                            (*logdet)->dimensions()[0] != 1)) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_potrs_logdet expects logdet shape (1,)");
   }
 
   // Stage 2: size one reusable scratch allocation for the whole fused call.
@@ -755,7 +787,7 @@ absl::Status XlaCusolverMpPotrsDispatch(
   if (absl::Status solver_call_status = RunCusolverMpPotrsSolver(
           stream, comm_stream, cuda_stream, process_rows, process_cols, n,
           nrhs, tile_size, grid_mapping, rank_map, a_cyclic, b_cyclic, a_work,
-          b_out, status, collective_params, collective_cliques);
+          b_out, status, logdet, collective_params, collective_cliques);
       !solver_call_status.ok()) {
     return return_after_cleanup(solver_call_status);
   }
@@ -791,6 +823,43 @@ absl::Status XlaCusolverMpPotrsDispatch(
     return return_after_cleanup(status);
   }
   return return_after_cleanup(absl::OkStatus());
+}
+
+// Standard POTRS entry point. It keeps the existing ABI and avoids the CUDA
+// diagonal reduction and NCCL scalar collective when logdet is not requested.
+absl::Status XlaCusolverMpPotrsDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
+    int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
+    ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return XlaCusolverMpPotrsDispatchImpl(
+      stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
+      b_distribution_cols, tile_size, grid_mapping, rank_map, a, b, a_work,
+      b_out, status, /*logdet=*/nullptr, collective_params,
+      collective_cliques);
+}
+
+// Logdet-producing POTRS entry point. The matrix and solution outputs retain
+// the standard aliases while the additional replicated scalar is computed
+// directly from the distributed Cholesky factor.
+absl::Status XlaCusolverMpPotrsLogdetDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
+    int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
+    ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
+    ffi::Result<ffi::BufferR1<F64>> logdet,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return XlaCusolverMpPotrsDispatchImpl(
+      stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
+      b_distribution_cols, tile_size, grid_mapping, rank_map, a, b, a_work,
+      b_out, status, &logdet, collective_params, collective_cliques);
 }
 
 }  // namespace xla::gpu
