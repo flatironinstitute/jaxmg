@@ -1,8 +1,8 @@
 # API reference
 
-JAXMg provides three public numerical routines. All support
-`jax.numpy.float32`, `jax.numpy.float64`, `jax.numpy.complex64`, and
-`jax.numpy.complex128`.
+This page highlights the three primary public functions from the jaxmg package.
+Supported datatypes are `jax.numpy.float32`, `jax.numpy.float64`,
+`jax.numpy.complex64`, and `jax.numpy.complex128`.
 
 The routines accept ordinary JAX arrays sharded over a two-dimensional mesh.
 The fused C++/CUDA backend converts those arrays into cuSOLVERMp's column-major,
@@ -13,7 +13,8 @@ The fused C++/CUDA backend converts those arrays into cuSOLVERMp's column-major,
     reduce solver performance. If a local shard dimension is not divisible by
     `T_A`, JAXMg adds tile-aligned capacity before entering native code. Prefer
     `T_A >= 128` and choose a tile size that divides the local shard dimensions
-    when possible.
+    when possible. See [Choosing a Tile Size](../examples/choose_tile_size.md)
+    for further guidance.
 
 ## `potrs`
 
