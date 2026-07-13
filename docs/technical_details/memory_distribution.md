@@ -1,9 +1,10 @@
 # Memory distribution
 
 This page describes how JAXMg moves data between the JAX-facing layout and the
-layout required by cuSOLVERMp.  The key point is that the public JAX arrays keep
-their normal row-major interface, while the native backend converts and
-redistributes the donated GPU buffers inside one fused FFI call.
+layout required by cuSOLVERMp. Public JAX arrays keep their normal row-major
+interface, while the native backend converts and redistributes donated GPU
+buffers inside one fused FFI call. See [Native workflow](index.md) for a shorter
+overview.
 
 At a high level, the path is:
 
@@ -579,9 +580,8 @@ JAX sharding gives each process a large rectangular shard.  Stage 3
 redistributes tile slabs from that layout into cuSOLVERMp's 2D block-cyclic
 layout.
 
-The important change from the old 1D JAXMg redistribution is the unit of
-movement.  Stage 3 moves whole tile slabs, not individual rows or columns.  A
-tile slab may be:
+Stage 3 moves whole tile slabs rather than individual rows or columns. A tile
+slab may be:
 
 - one or more tile columns, moved along a process row;
 - one or more tile rows, moved along a process column.
@@ -886,10 +886,9 @@ $$
 \end{array}
 $$
 
-The implementation is intentionally conservative.  It moves one tile slab or
-cycle per independent process-row or process-column group.  That keeps scratch
-bounded and avoids overlapping writes while still moving much larger units than
-the old single-row or single-column redistribution strategy.
+The implementation moves one tile slab or cycle per independent process-row or
+process-column group. This keeps scratch bounded and avoids overlapping writes
+while preserving parallel execution across independent row or column groups.
 
 For the 2 x 2 example above, the column-owner phase has one dependency wave:
 

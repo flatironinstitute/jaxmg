@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "jaxmg"
 version = "0.0.8"
-description = "JAXMg provides a C++ interface between JAX and cuSolverMg, NVIDIA's multi-GPU linear solver. "
+description = "JAXMg provides a jittable C++/CUDA interface between JAX and NVIDIA cuSOLVERMp."
 authors = [{ name = "Roeland Wiersema" }]
 classifiers = ["Programming Language :: Python :: 3"]
 dependencies = [
@@ -46,7 +46,6 @@ docs = [
     "mkdocs-material==9.6.23",
     "mkdocstrings==0.30.1",
     "mkdocs-exclude==1.0.2",
-    "mkdocs-ipynb==0.1.1",
     "hippogriffe==0.2.2",
 ]
 
@@ -59,7 +58,6 @@ dev = [
     "mkdocs-material==9.6.23",
     "mkdocstrings==0.30.1",
     "mkdocs-exclude==1.0.2",
-    "mkdocs-ipynb==0.1.1",
     "hippogriffe==0.2.2",
 ]
 

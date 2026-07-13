@@ -1,16 +1,16 @@
 <div align="center">
-    <img src="https://raw.githubusercontent.com/therooler/jaxmg/main/docs/_static/logo.png" alt="Jaxmg" width="300">
+    <img src="https://raw.githubusercontent.com/flatironinstitute/jaxmg/main/docs/_static/logo.png" alt="JAXMg" width="300">
 </div>
 
 #  JAXMg: A multi-GPU linear solver in JAX
 
 [![Docs](https://img.shields.io/badge/docs-site-blue?style=flat-square)](https://flatironinstitute.github.io/jaxmg/)
-[![Releases](https://img.shields.io/github/v/release/therooler/jaxmg?style=flat-square)](https://github.com/therooler/jaxmg/releases)
+[![Releases](https://img.shields.io/github/v/release/flatironinstitute/jaxmg?style=flat-square)](https://github.com/flatironinstitute/jaxmg/releases)
 [![Build Status](https://jenkins.flatironinstitute.org/job/jaxmg/job/main/lastBuild/badge/icon)](https://jenkins.flatironinstitute.org/job/jaxmg/job/main/)
 
 
 # JAXMg
-JAXMg provides a jittable C++/CUDA interface between [JAX](https://github.com/google/jax) and [cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/), NVIDIA's distributed linear algebra runtime. The public API exposes three fused cuSOLVERMp routines:
+JAXMg provides a jittable C++/CUDA interface between [JAX](https://github.com/jax-ml/jax) and [cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/), NVIDIA's distributed linear algebra runtime. The public API exposes three fused cuSOLVERMp routines:
 
 - [cusolverMpPotrf/Potrs](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): solves symmetric (Hermitian) positive-definite systems on a 2D process grid via `jaxmg.potrs`.
 - [cusolverMpGetrf/Getrs](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html): solves general nonsingular systems on a 2D process grid via `jaxmg.lu_solve`.
@@ -22,28 +22,27 @@ For more details, see the [API](docs/api/index.md).
 
 ## Installation
 
-The package is available on PyPi and can be installed with
+The package is available on PyPI and can be installed with
 
 ```bash
 pip install jaxmg[cuda12]
 ```
 
-This will install a GPU compatible version of JAX. 
+This installs a GPU-compatible version of JAX.
 
-1. `pip install "jaxmg[cuda12]"`: Use CUDA 12 (only works for `jax>=0.6.2`).
+1. `pip install "jaxmg[cuda12]"`: Install JAX with its CUDA 12 runtime wheels.
 
-2. `pip install "jaxmg[cuda12-local]"`: Use locally available CUDA 12 installation.
+2. `pip install "jaxmg[cuda12-local]"`: Use an existing local CUDA 12 installation.
 
-3. `pip install "jaxmg[cuda13]"`: Use CUDA 13 (only works for `jax>=0.7.2`).
-
-4. `pip install "jaxmg[cuda13-local]"`: Use locally available CUDA 13 installation.
+JAXMg currently distributes a CUDA 12 cuSOLVERMp backend. CUDA 13 packaging
+requires a matching cuSOLVERMp CUDA 13 development distribution and is not
+part of the current release.
 
 The provided binaries are compiled with
 
 |**JAXMg** | **CUDA** | **cuDNN** |
 |---|---|---| 
 | `cuda12`,`cuda12-local` | 12.8.0 | 9.17.1.4|
-| `cuda13`,`cuda13-local` | 13.0.0 | 9.17.1.4|
 
 For large cuSOLVERMp runs close to the GPU memory limit, set JAX's allocator
 policy before launching Python:
@@ -56,9 +55,12 @@ export XLA_PYTHON_CLIENT_MEM_FRACTION=0.99
 These variables are intentionally launch-time settings rather than package
 imports, because they affect JAX's whole GPU allocator for the process.
 
-Details for compiling the from source code can be found in `CONTRIBUTING.md`.
+The wheel contains the Bazel-built `libjaxmg_xla_comm_backend.so` native
+backend. Installing a wheel does not run Bazel. Details for compiling from
+source can be found in `CONTRIBUTING.md`.
 
-> **_Note:_** `pip install jaxmg` will install a CPU-only version of JAX. Since `jaxmg` is a GPU-only package you will receive a warning to install a GPU-compatible version of jax. 
+> **Note:** `pip install jaxmg` installs a CPU-only version of JAX. Since JAXMg
+> is a GPU-only package, install one of the CUDA extras shown above.
 
 ## Example
 
@@ -133,10 +135,8 @@ use `donate_argnums` safely.
 ## cuSOLVERMp
 The cuSOLVERMp backend uses JAX's XLA-owned NCCL communicator through FFI,
 redistributes ordinary 2D JAX-sharded matrices into cuSOLVERMp's 2D
-block-cyclic layout, and calls cuSOLVERMp directly. JAXMg currently supports
-Cholesky solves, LU solves, and symmetric/Hermitian eigensolves. Explicit
-inverse support is intentionally absent: current cuSOLVERMp releases do not
-expose a direct explicit-inverse routine.
+block-cyclic layout, and calls cuSOLVERMp directly. JAXMg supports Cholesky
+solves, LU solves, and symmetric/Hermitian eigensolves.
 
 ## Citations
 ```

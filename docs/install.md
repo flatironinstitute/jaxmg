@@ -1,38 +1,76 @@
 # Installation
-The package is available on PyPi and can be installed with
+
+The package is available on PyPI and can be installed with
 
 ```bash
-pip install jaxmg[cuda12]
+python -m pip install "jaxmg[cuda12]"
 ```
 
-This will install a GPU compatible version of JAX. 
+This installs the CUDA 12 build of JAX, the cuSOLVERMp runtime, and a JAXMg
+wheel containing the compiled native backend.
 
-1. `pip install "jaxmg[cuda12]"`: Use CUDA 12 (only works for `jax>=0.6.2`).
+1. `python -m pip install "jaxmg[cuda12]"` installs the NVIDIA CUDA runtime
+   wheels required by JAX.
 
-2. `pip install "jaxmg[cuda12-local]"`: Use locally available CUDA 12 installation.
+2. `python -m pip install "jaxmg[cuda12-local]"` uses an existing local CUDA
+   12 installation for JAX.
 
-3. `pip install "jaxmg[cuda13]"`: Use CUDA 13 (only works for `jax>=0.7.2`).
+JAXMg currently distributes a CUDA 12 cuSOLVERMp backend. CUDA 13 packaging
+requires a matching cuSOLVERMp CUDA 13 development distribution and is not
+part of the current release.
 
-4. `pip install "jaxmg[cuda13-local]"`: Use locally available CUDA 13 installation.
+!!! note
+    Installing `jaxmg` without a CUDA extra installs CPU-only JAX. JAXMg's
+    numerical routines require NVIDIA GPUs.
 
-The provided binaries are compiled with
+## What the wheel contains
 
-|**JAXMg** | **CUDA** | **cuDNN** |
-|---|---|---| 
-| `cuda12`,`cuda12-local` | 12.8.0 | 9.17.1.4|
-| `cuda13`,`cuda13-local` | 13.0.0 | 9.17.1.4|
+JAXMg's native backend uses internal XLA communicator interfaces. The shared
+library must therefore be built against the XLA revision associated with the
+packaged JAX version. The release build currently uses:
 
-## Runtime memory settings
+| Component | Version or source |
+|---|---|
+| JAX | `0.10.1` |
+| XLA | the revision selected by the `jax-v0.10.1` checkout |
+| cuSOLVERMp | `nvidia-cusolvermp-cu12==0.8.0.3126` |
+| Native library | `libjaxmg_xla_comm_backend.so` |
 
-For large cuSOLVERMp solves close to the GPU memory limit, we recommend setting
-JAX's GPU allocator before Python starts:
+Installing a published wheel does not invoke Bazel. Bazel is used when the
+wheel is produced: it builds the native backend inside the JAX build
+environment, links it against the matching XLA and cuSOLVERMp interfaces, and
+packages the resulting shared library into the wheel.
+
+See [Contributing](https://github.com/flatironinstitute/jaxmg/blob/main/CONTRIBUTING.md#build-from-source)
+for the complete source-build procedure.
+
+## Runtime requirements
+
+Every JAXMg process must see exactly one GPU. Multi-GPU and multi-node jobs must
+be launched with one Python process per GPU and initialized with
+`jax.distributed.initialize()` before the global device mesh is constructed.
+See [Distributed execution](execution.md).
+
+For large solves close to the GPU memory limit, CUDA Virtual Memory Management
+can improve allocator behaviour:
 
 ```bash
 export XLA_PYTHON_CLIENT_ALLOCATOR=vmm
 export XLA_PYTHON_CLIENT_MEM_FRACTION=0.99
 ```
 
-These settings leave the allocator policy explicit in the launch environment,
-where it can be adjusted for local driver and cluster behaviour.
+Set these variables before Python starts. Systems whose driver does not support
+the VMM allocator should use:
 
-> **_Note:_** `pip install jaxmg` will install a CPU-only version of JAX. Since `jaxmg` is a GPU-only package you will receive a warning to install a GPU-compatible version of jax. 
+```bash
+export XLA_PYTHON_CLIENT_ALLOCATOR=platform
+```
+
+Some older driver and container combinations also require:
+
+```bash
+export NCCL_CUMEM_ENABLE=0
+```
+
+This disables NCCL's cuMem-based allocation path; it does not change JAXMg's
+solver or redistribution algorithms.

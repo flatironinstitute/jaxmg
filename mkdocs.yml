@@ -28,12 +28,12 @@ theme:
     favicon: "_static/square.png"
 
 site_name: JAXMg
-site_description: The documentation for the jaxmg software library.
+site_description: Distributed cuSOLVERMp linear algebra for JAX.
 site_author: Roeland Wiersema
-site_url: https://therooler.github.io/jaxmg
+site_url: https://flatironinstitute.github.io/jaxmg
 
-repo_url: https://github.com/therooler/jaxmg
-repo_name: therooler/jaxmg
+repo_url: https://github.com/flatironinstitute/jaxmg
+repo_name: flatironinstitute/jaxmg
 edit_uri: ""
 
 strict: true # Don't allow warnings during the build process
@@ -63,9 +63,6 @@ markdown_extensions:
 plugins:
     - search:
         separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
-        # exclude:
-            # - "examples/.ipynb_checkpoints/"
-    - ipynb
     - hippogriffe:
           extra_public_objects:
               - jax.Array
@@ -94,14 +91,17 @@ nav:
     - Home:
         - "index.md"
         - "install.md"
+        - "execution.md"
     - Examples:
-        - "examples/potrs_example.ipynb"
-        - "examples/block_cyclic_data_layout.ipynb"
-        - "examples/spmd_mpmd.ipynb"
+        - "examples/potrs.md"
+        - "examples/lu_solve.md"
+        - "examples/syevd.md"
+        - "examples/block_cyclic_data_layout.md"
     - API:
         - "api/index.md"
         - "api/potrs.md"
         - "api/lu_solve.md"
         - "api/syevd.md"
     - Technical Details:
+        - "technical_details/index.md"
         - "technical_details/memory_distribution.md"

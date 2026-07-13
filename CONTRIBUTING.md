@@ -9,21 +9,16 @@
 
 ### Large effort
 
-- Change to the CusolverMp API that's available for CUDA 13.
-
-There has been a discussion with the cuSOLVERMp team at NVIDIA who can potentially assist with this. The migration branch now builds a native backend against matching JAX/XLA sources so the fused FFI handlers can borrow the XLA-owned GPU communicator. The production path uses that communicator to redistribute 2D JAX-sharded inputs into cuSOLVERMp's 2D block-cyclic layout and then calls cuSOLVERMp directly.
-
-**Update May 28th:**
-There seems to be a pathway to use the XLA-communicator directly, which is discussed here: 
-https://github.com/openxla/xla/discussions/42689
+- Add a CUDA 13 build when a matching cuSOLVERMp CUDA 13 development
+  distribution is available.
 
 ## Build from source
 
 The native CUDA backend is built as a Bazel target **against XLA as the external
 Bazel repo `@xla`**, from inside the official JAX CI container
-(`tensorflow/ml-build:latest`) using a JAX checkout. We no longer clone a pinned
-OpenXLA tree: the JAX checkout determines the XLA revision that `@xla` resolves
-to, so the build configuration always matches JAX/XLA.
+(`tensorflow/ml-build:latest`) using a JAX checkout. The JAX checkout determines
+the XLA revision that `@xla` resolves to, so the build configuration matches
+JAX and XLA.
 
 ```bash
 # 1. Clone JAX (provides @xla) at a tag compatible with the jax pin in
@@ -77,11 +72,8 @@ For CUDA 12, install JAX with either:
 
 2. `pip install "jax[cuda12-local]==0.10.1"` to rely on a local CUDA installation.
 
-CUDA 13 should use the same JAX pin with the CUDA 13 extras:
-
-1. `pip install "jax[cuda13]==0.10.1"`
-
-2. `pip install "jax[cuda13-local]==0.10.1"`
+The production cuSOLVERMp backend is currently packaged for CUDA 12. A CUDA 13
+build also requires matching cuSOLVERMp headers and libraries.
 
 ## Continuous integration
 
@@ -96,9 +88,6 @@ the resulting shared library into wheels. We test the following configurations:
 2. Python `3.11`, `3.12`, `3.13`, `3.14`
 
 3. For CUDA 12:
-   - JAX `0.10.1`
-
-   For CUDA 13 **currently only building code but no testing due to lack of availibility of CC > 7.0 GPUs. Locally tested on Blackwell.**
    - JAX `0.10.1`
 
 See `.jenkins/Jenkinsfile` for details
