@@ -15,13 +15,14 @@ from typing import List, Tuple, Union
 import jax
 import jax.numpy as jnp
 from jax import Array
-from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
+from jax.sharding import Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
     _pad_local_2d,
     _unpad_local_2d,
     cusolvermp_grid_mapping_attr,
     infer_mesh_and_matrix_specs,
+    place_rhs_for_native_work,
     process_rank_map_from_mesh,
     rhs_distribution_columns,
     standard_grid_rank_map_attr,
@@ -406,7 +407,6 @@ def _lu_solve_pipeline(
         caller="cusolvermp_lu_solve",
     )
     b_distribution_padding = int(b_distribution_cols) - int(nrhs)
-    rhs_work_sharding = NamedSharding(mesh, matrix_specs)
     pad_a = _make_local_pad_fn(mesh, matrix_specs, a_padding)
     pad_b = _make_local_pad_fn(mesh, matrix_specs, b_padding)
     unpad_b = _make_local_unpad_fn(
@@ -471,10 +471,13 @@ def _lu_solve_pipeline(
         else:
             b_distribution = _b
         # The public API permits a replicated RHS-column axis, such as
-        # P("pr", None).  Native redistribution instead consumes a regular
-        # 2D work buffer, so reshard the intermediate before shard-local
-        # tile-capacity padding.
-        b_distribution = jax.reshard(b_distribution, rhs_work_sharding)
+        # P("pr", None). Native redistribution instead consumes a regular
+        # 2D work buffer before shard-local tile-capacity padding.
+        b_distribution = place_rhs_for_native_work(
+            b_distribution,
+            mesh=mesh,
+            matrix_specs=matrix_specs,
+        )
         b_padded = pad_b(b_distribution)
         a_work_padded, b_solved_padded, native_status = lu_solve_shardmap(
             a_padded, b_padded

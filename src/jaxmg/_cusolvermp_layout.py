@@ -23,8 +23,9 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import numpy as np
+import jax
 from jax import Array
-from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
+from jax.sharding import AxisType, Mesh, NamedSharding, PartitionSpec as P
 
 from ._layout_types import (
     ProcessGrid,
@@ -92,6 +93,46 @@ def validate_2d_matrix_specs(
         process_cols=mesh_axis_size(mesh, col_axis),
     )
     return row_axis, col_axis, grid
+
+
+def place_rhs_for_native_work(
+    rhs: Array,
+    *,
+    mesh: Mesh,
+    matrix_specs: P,
+) -> Array:
+    """Place an RHS in the native backend's regular 2D work sharding.
+
+    The public solvers accept a replicated RHS-column axis, for example
+    ``P('pr', None)`` for an ``N x 1`` right-hand side. The shard-local native
+    FFI instead receives a regular ``P('pr', 'pc')`` work buffer. JAX has two
+    different APIs for that placement depending on how the mesh was created:
+    ``jax.make_mesh`` creates explicit axes and requires ``jax.reshard``,
+    while the conventional ``Mesh(...)`` constructor creates auto axes and
+    requires ``with_sharding_constraint`` inside a compiled computation.
+
+    Mixed explicit/auto process-grid axes are rejected. They are not a normal
+    JAX mesh construction for this backend and neither placement primitive can
+    express the mixed target consistently.
+    """
+    axis_types = dict(zip(mesh.axis_names, mesh.axis_types))
+    target_axes = tuple(matrix_specs._partitions)
+    try:
+        target_axis_types = tuple(axis_types[axis] for axis in target_axes)
+    except KeyError as exc:
+        raise ValueError(
+            "matrix specs reference an axis that is absent from the JAX mesh."
+        ) from exc
+
+    target_sharding = NamedSharding(mesh, matrix_specs)
+    if all(axis_type is AxisType.Explicit for axis_type in target_axis_types):
+        return jax.reshard(rhs, target_sharding)
+    if all(axis_type is AxisType.Auto for axis_type in target_axis_types):
+        return jax.lax.with_sharding_constraint(rhs, target_sharding)
+    raise ValueError(
+        "cuSOLVERMp requires matrix mesh axes to be either all Explicit or "
+        "all Auto; mixed Explicit/Auto/Manual mesh axes are unsupported."
+    )
 
 
 def _device_process_index(device) -> int:
