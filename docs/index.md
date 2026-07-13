@@ -27,14 +27,14 @@ routines:
 
 **What this allows you to do**
 
-Pass an ordinary JAX matrix sharded over a two-dimensional device mesh directly
-to JAXMg. JAXMg handles the native local-memory conversion, global
+Pass JAXMg an ordinary JAX matrix sharded over a two-dimensional device mesh.
+JAXMg then handles the native local-memory conversion, global
 redistribution into cuSOLVERMp's 2D block-cyclic layout, distributed solver
-execution, and restoration of the result to its JAX-facing layout.
+execution, and restoration of the result.
 
-This allows a JAX linear algebra calculation to scale across multiple GPUs and
-nodes, supporting matrices beyond the memory and computational limits of
-single-device JAX implementations.
+This allows your JAX linear algebra calculation to scale across multiple GPUs
+and nodes, supporting matrices far beyond the memory and computational limits
+of native JAX implementations.
 
 For more details, see the [API reference](api/index.md) and the accompanying
 [paper](https://arxiv.org/abs/2601.14466).
