@@ -2,19 +2,9 @@
 
 `jaxmg.lu_solve` solves $Ax=B$ for a general nonsingular matrix using pivoted
 LU factorization. Its array, mesh, padding, and tile-size interface matches
-`jaxmg.potrs`. JAXMg provides two interfaces to the same native LU pipeline.
-
-| Interface | Use it when |
-|---|---|
-| `lu_solve` | The solve is called directly from Python and JAXMg should manage the compiled boundary. |
-| `lu_solve_shardmap_ctx` | A caller-owned `jax.jit` receives `a` and `b`, or constructs them internally as part of a larger calculation. |
-
-Both interfaces perform the same validation, padding, shard mapping, fused
-cuSOLVERMp call, and reverse redistribution. The difference is which function
-owns the outer `jax.jit` boundary and the lifetime of the donated matrix buffer.
-The caller does not construct `jax.shard_map` manually;
-`lu_solve_shardmap_ctx` constructs the required shard map but leaves the
-enclosing `jax.jit` to the caller.
+`jaxmg.potrs`. For a normal solve, use `lu_solve`. It provides the high-level
+interface and internally handles JIT compilation, buffer donation,
+input/output aliasing, padding, and distributed execution.
 
 ## Common setup
 
@@ -54,10 +44,9 @@ def make_problem():
     return a, b
 ```
 
-## High-level interface
+## Solve with `lu_solve`
 
-Use `lu_solve` for a standalone solve. It constructs the shard map and uses an
-internally cached `jax.jit`-compiled wrapper:
+Pass the sharded input matrix and right-hand side directly to `lu_solve`:
 
 ```python
 a, b = make_problem()
@@ -78,18 +67,40 @@ if jax.process_index() == 0:
     print(correct)
 ```
 
-The result is `True`. A one-dimensional right-hand side is also accepted. Pass
-`return_status=True` to return the native diagnostic status alongside `x`.
+A one-dimensional `b` is also accepted; in that case `lu_solve` returns a
+one-dimensional solution.
 
-The public wrapper may donate `a` and `b` to the compiled solve. Do not use
-those input arrays after the call. LU factorization stores a distributed pivot
-vector internally; users do not need to construct or manage it.
+!!! Warning
 
-## Caller-owned `jax.jit` interface
+     The public wrapper will donate `a` and `b` to the compiled solve. Do not use
+     those input arrays after the call.
 
-Use `lu_solve_shardmap_ctx` when the solve is embedded in a larger compiled
-calculation. It returns `(a_work, x, status)` so the caller-owned JIT can donate
-`a` into an $A$-sized output:
+LU factorization stores a distributed pivot vector internally; users do not
+need to construct or manage it.
+
+There is no need to apply `jax.jit` or specify `donate_argnums`: `lu_solve`
+uses an internally cached jitted wrapper and manages donation and aliasing
+itself. If the solve must be embedded inside a larger jitted calculation, use
+the advanced interface below instead of wrapping `lu_solve` in another
+`jax.jit`.
+
+## Advanced: control the outer `jax.jit`
+
+`lu_solve_shardmap_ctx` runs the same padding, redistribution, LU
+factorization, solve, and reverse redistribution as `lu_solve`. The difference
+is that it does not create an internal `jax.jit`. This allows the solve to
+become one stage of a larger function compiled by the caller.
+
+The context interface returns `(a_work, x, status)` rather than only `x`.
+`a_work` contains the native LU work data and aliases the input matrix. Whether
+it must be returned from the outer function depends on where the input matrix
+was created.
+
+### Case 1: `a` and `b` are arguments of the jitted function
+
+When existing arrays enter the outer jitted function as arguments, donate them
+with `donate_argnums`. Return `a_work` so the donated input matrix has an
+$A$-sized output alias at the outer compiled boundary:
 
 ```python
 @partial(jax.jit, donate_argnums=(0, 1))
@@ -120,10 +131,10 @@ if jax.process_index() == 0:
 
 Returning `a_work` from the outer jitted function is required when `a` is
 donated. It contains native factorization work data, is not the original
-coefficient matrix, and should remain in the returned pytree until the compiled
+input matrix, and should remain in the returned pytree until the compiled
 computation has completed.
 
-## Constructing the matrix inside `jax.jit`
+### Case 2: `a` and `b` are created inside the jitted function
 
 When the outer compiled function constructs `a` and `b`, those arrays are
 internal temporaries. XLA controls their lifetime, so `a_work` does not need to

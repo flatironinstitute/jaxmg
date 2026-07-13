@@ -62,7 +62,7 @@ def potrs(
         saturate.
 
     Args:
-        a (Array): 2D, symmetric positive-definite coefficient matrix. Expected
+        a (Array): 2D, symmetric positive-definite input matrix. Expected
             to be sharded across a 2D mesh with a matrix ``PartitionSpec`` such
             as ``P(<row_axis>, <col_axis>)``.
         b (Array): 1D or 2D right-hand side. A vector is treated as an
@@ -217,7 +217,7 @@ def potrs_shardmap_ctx(
         saturate.
 
     Args:
-        a (Array): 2D, symmetric positive-definite coefficient matrix. Expected
+        a (Array): 2D, symmetric positive-definite input matrix. Expected
             to be sharded across a 2D mesh with a matrix ``PartitionSpec`` such
             as ``P(<row_axis>, <col_axis>)``.
         b (Array): 1D or 2D right-hand side. A vector is treated as an

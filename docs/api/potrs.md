@@ -4,10 +4,15 @@
 mesh, applies tile-capacity padding when required, runs the internally compiled
 fused backend, and returns the solution in the JAX-facing layout.
 
-Use `potrs_shardmap_ctx` when the solve is part of a larger caller-owned
-`jax.jit` computation. It exposes the donated matrix work buffer as
-`(a_work, x, status)`, allowing the outer compiled function to keep an
-`A`-sized output alive for input/output aliasing.
+Use `potrs` for a direct solve. Use `potrs_shardmap_ctx` only when the solve
+must be embedded inside a larger caller-owned `jax.jit` computation. Both
+interfaces run the same native solver pipeline; `_shardmap_ctx` means that the
+caller owns the surrounding compilation context, not that it selects a
+different solver or CUDA context.
+
+The context interface returns `(a_work, x, status)`. The additional `a_work`
+result allows an outer compiled function to preserve input/output aliasing when
+the input matrix is donated.
 
 ```python
 from functools import partial
@@ -30,7 +35,7 @@ a_work, x, status = solve(a, b)
 ```
 
 `a_work` is an opaque native work result and should not be interpreted as the
-original coefficient matrix. Keep it in the returned pytree when the outer JIT
+original input matrix. Keep it in the returned pytree when the outer JIT
 donates `a`.
 
 ::: jaxmg.potrs

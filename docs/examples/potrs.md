@@ -1,19 +1,9 @@
 # Cholesky solve
 
 `jaxmg.potrs` solves $Ax=B$ for a symmetric or Hermitian positive-definite
-matrix. JAXMg provides two interfaces to the same native Cholesky pipeline.
-
-| Interface | Use it when |
-|---|---|
-| `potrs` | The solve is called directly from Python and JAXMg should manage the compiled boundary. |
-| `potrs_shardmap_ctx` | A caller-owned `jax.jit` receives `a` and `b`, or constructs them internally as part of a larger calculation. |
-
-Both interfaces perform the same validation, padding, shard mapping, fused
-cuSOLVERMp call, and reverse redistribution. The difference is which function
-owns the outer `jax.jit` boundary and the lifetime of the donated matrix buffer.
-The caller does not construct `jax.shard_map` manually;
-`potrs_shardmap_ctx` constructs the required shard map but leaves the enclosing
-`jax.jit` to the caller.
+matrix. For a normal solve, use `potrs`. It provides the high-level interface
+and internally handles JIT compilation, buffer donation, input/output aliasing,
+padding, and distributed execution.
 
 ## Common setup
 
@@ -55,10 +45,9 @@ def make_problem():
 expected = 1.0 / jnp.arange(1, N + 1, dtype=dtype)
 ```
 
-## High-level interface
+## Solve with `potrs`
 
-Use `potrs` for a standalone solve. It constructs the shard map and uses an
-internally cached `jax.jit`-compiled wrapper:
+Pass the sharded input matrix and right-hand side directly to `potrs`:
 
 ```python
 a, b = make_problem()
@@ -79,19 +68,36 @@ if jax.process_index() == 0:
     print(correct)
 ```
 
-The result is `True`. A one-dimensional `b` is also accepted; in that case
-`potrs` returns a one-dimensional solution. Pass `return_status=True` to return
-the native diagnostic status alongside `x`.
+A one-dimensional `b` is also accepted; in that case `potrs` returns a
+one-dimensional solution.
 
-The public wrapper may donate `a` and `b` to the compiled solve. Do not use
-those input arrays after the call.
+!!! Warning
 
-## Caller-owned `jax.jit` interface
+     The public wrapper will donate `a` and `b` to the compiled solve. Do not use
+     those input arrays after the call.
 
-Use `potrs_shardmap_ctx` when the solve is one stage of a larger compiled
-calculation. Unlike `potrs`, this interface does not create an internal
-`jax.jit`. It returns `(a_work, x, status)` so the outer function has an
-$A$-sized output that can alias the donated matrix input:
+There is no need to apply `jax.jit` or specify `donate_argnums`: `potrs` uses
+an internally cached jitted wrapper and manages donation and aliasing itself.
+If the solve must be embedded inside a larger jitted calculation, use the
+advanced interface below instead of wrapping `potrs` in another `jax.jit`.
+
+## Advanced: control the outer `jax.jit`
+
+`potrs_shardmap_ctx` runs the same padding, redistribution, Cholesky
+factorization, solve, and reverse redistribution as `potrs`. The difference is
+that it does not create an internal `jax.jit`. This allows the solve to become
+one stage of a larger function compiled by the caller.
+
+The context interface returns `(a_work, x, status)` rather than only `x`.
+`a_work` is the native work buffer that aliases the input matrix. Whether it
+must be returned from the outer function depends on where the input matrix was
+created.
+
+### Case 1: `a` and `b` are arguments of the jitted function
+
+When existing arrays enter the outer jitted function as arguments, donate them
+with `donate_argnums`. Return `a_work` so the donated input matrix has an
+$A$-sized output alias at the outer compiled boundary:
 
 ```python
 @partial(jax.jit, donate_argnums=(0, 1))
@@ -122,10 +128,10 @@ if jax.process_index() == 0:
 
 Returning `a_work` from the outer jitted function is required when `a` is
 donated. It is an opaque native work buffer and should not be interpreted as
-the original coefficient matrix. The caller should keep it in the returned
+the original input matrix. The caller should keep it in the returned
 pytree until the compiled computation has completed.
 
-## Constructing the matrix inside `jax.jit`
+### Case 2: `a` and `b` are created inside the jitted function
 
 If the outer compiled function constructs `a` and `b` itself, they are internal
 temporaries rather than donated arguments. XLA controls their lifetime and can
@@ -163,9 +169,6 @@ scaled_x.block_until_ready()
 not arguments of `build_and_solve`. Only donate an outer argument such as
 `diagonal` if the caller no longer needs that input after the call.
 
-In both interfaces, local memory conversion, edge-padding alignment, 2D
-block-cyclic redistribution, Cholesky factorization, solve, and reverse
-redistribution occur inside the same fused native backend.
 
 See the [`potrs` API reference](../api/potrs.md) for the complete argument and
 return-value documentation.

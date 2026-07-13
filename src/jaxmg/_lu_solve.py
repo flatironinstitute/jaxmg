@@ -62,7 +62,7 @@ def lu_solve(
         saturate.
 
     Args:
-        a (Array): 2D, nonsingular coefficient matrix. Expected to be sharded
+        a (Array): 2D, nonsingular input matrix. Expected to be sharded
             across a 2D mesh with a matrix ``PartitionSpec`` such as
             ``P(<row_axis>, <col_axis>)``.
         b (Array): 1D or 2D right-hand side. A vector is treated as an
@@ -208,7 +208,7 @@ def lu_solve_shardmap_ctx(
     donate ``a`` into an ``A``-sized output.
 
     Args:
-        a (Array): 2D, nonsingular coefficient matrix. Expected to be sharded
+        a (Array): 2D, nonsingular input matrix. Expected to be sharded
             across a 2D mesh with a matrix ``PartitionSpec`` such as
             ``P(<row_axis>, <col_axis>)``.
         b (Array): 1D or 2D right-hand side. A vector is treated as an
