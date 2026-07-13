@@ -7,7 +7,7 @@ LU factorization. Its array, mesh, padding, and tile-size interface matches
 | Interface | Use it when |
 |---|---|
 | `lu_solve` | The solve is called directly from Python and JAXMg should manage the compiled boundary. |
-| `lu_solve_shardmap_ctx` | The solve is part of a larger caller-owned `jax.jit` computation that controls donation and subsequent operations. |
+| `lu_solve_shardmap_ctx` | A caller-owned `jax.jit` receives `a` and `b`, or constructs them internally as part of a larger calculation. |
 
 Both interfaces perform the same validation, padding, shard mapping, fused
 cuSOLVERMp call, and reverse redistribution. The difference is which function
@@ -34,6 +34,8 @@ from jaxmg import lu_solve, lu_solve_shardmap_ctx
 num_processes = jax.process_count()
 mesh = jax.make_mesh((num_processes, 1), ("pr", "pc"))
 matrix_specs = P("pr", "pc")
+a_sharding = NamedSharding(mesh, matrix_specs)
+b_sharding = NamedSharding(mesh, P("pr", None))
 
 T_A = 64
 N = T_A * num_processes
@@ -47,8 +49,8 @@ def make_problem():
     a = jnp.diag(diagonal)
     a = a + 0.01 * jnp.triu(jnp.ones((N, N), dtype=dtype), k=1)
     b = a @ expected_x
-    a = jax.device_put(a, NamedSharding(mesh, matrix_specs))
-    b = jax.device_put(b, NamedSharding(mesh, P("pr", None)))
+    a = jax.device_put(a, a_sharding)
+    b = jax.device_put(b, b_sharding)
     return a, b
 ```
 
@@ -120,6 +122,45 @@ Returning `a_work` from the outer jitted function is required when `a` is
 donated. It contains native factorization work data, is not the original
 coefficient matrix, and should remain in the returned pytree until the compiled
 computation has completed.
+
+## Constructing the matrix inside `jax.jit`
+
+When the outer compiled function constructs `a` and `b`, those arrays are
+internal temporaries. XLA controls their lifetime, so `a_work` does not need to
+be returned from the outer function:
+
+```python
+@jax.jit
+def build_and_solve(diagonal):
+    a = jnp.diag(diagonal)
+    a = a + 0.01 * jnp.triu(jnp.ones((N, N), dtype=diagonal.dtype), k=1)
+    a = jax.lax.with_sharding_constraint(a, a_sharding)
+
+    expected_x = jnp.ones((N, 1), dtype=diagonal.dtype)
+    b = a @ expected_x
+    b = jax.lax.with_sharding_constraint(b, b_sharding)
+
+    _, x, status = lu_solve_shardmap_ctx(
+        a,
+        b,
+        T_A=T_A,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+    )
+
+    # a_work remains internal because a was created inside this function.
+    return 2.0 * x, status
+
+
+diagonal = jnp.arange(N, dtype=dtype) + 2 * N
+diagonal = jax.device_put(diagonal, NamedSharding(mesh, P("pr")))
+scaled_x, status = build_and_solve(diagonal)
+scaled_x.block_until_ready()
+```
+
+`donate_argnums` is not needed for the internally created `a` and `b`. It only
+applies to arguments of the outer jitted function. Donate an outer argument such
+as `diagonal` only when the caller no longer needs it after the call.
 
 Use `lu_solve` for general matrices. For symmetric or Hermitian
 positive-definite matrices, `potrs` is normally faster and uses less workspace.
