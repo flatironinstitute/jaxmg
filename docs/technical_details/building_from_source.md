@@ -95,7 +95,7 @@ python -m venv .venv
 .venv/bin/python -m pip install -e ".[cuda12]"
 ```
 
-Single-GPU functional check (one process, 1×1 mesh):
+For a single-GPU functional check, save the following as `smoke.py`:
 
 ```python
 import jax
