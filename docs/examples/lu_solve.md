@@ -9,8 +9,6 @@ input/output aliasing, padding, and distributed execution.
 ## Common setup
 
 ```python
-from functools import partial
-
 import jax
 
 jax.config.update("jax_enable_x64", True)
@@ -18,7 +16,7 @@ jax.distributed.initialize()
 
 import jax.numpy as jnp
 from jax.sharding import NamedSharding, PartitionSpec as P
-from jaxmg import lu_solve, lu_solve_shardmap_ctx
+from jaxmg import lu_solve
 
 
 num_processes = jax.process_count()
@@ -99,6 +97,14 @@ The context interface returns `(a_work, x, status)` rather than only `x`.
 `a_work` contains the native LU work data and aliases the input matrix. Whether
 it must be returned from the outer function depends on where the input matrix
 was created.
+
+The advanced examples additionally use:
+
+```python
+from functools import partial
+
+from jaxmg import lu_solve_shardmap_ctx
+```
 
 ### Case 1: `a` and `b` are arguments of the jitted function
 

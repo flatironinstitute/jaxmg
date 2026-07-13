@@ -11,8 +11,6 @@ The following setup uses a degenerate two-dimensional process grid with one
 Python process per GPU:
 
 ```python
-from functools import partial
-
 import jax
 
 jax.config.update("jax_enable_x64", True)
@@ -20,7 +18,7 @@ jax.distributed.initialize()
 
 import jax.numpy as jnp
 from jax.sharding import NamedSharding, PartitionSpec as P
-from jaxmg import potrs, potrs_shardmap_ctx
+from jaxmg import potrs
 
 
 num_processes = jax.process_count()
@@ -92,6 +90,14 @@ The context interface returns `(a_work, x, status)` rather than only `x`.
 `a_work` is the native work buffer that aliases the input matrix. Whether it
 must be returned from the outer function depends on where the input matrix was
 created.
+
+The advanced examples additionally use:
+
+```python
+from functools import partial
+
+from jaxmg import potrs_shardmap_ctx
+```
 
 ### Case 1: `a` and `b` are arguments of the jitted function
 

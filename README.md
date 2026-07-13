@@ -105,9 +105,10 @@ A = jnp.diag(jnp.arange(N, dtype=dtype) + 1)
 b = jnp.ones((N, 1), dtype=dtype)
 
 mesh = jax.make_mesh((num_procs, 1), ("pr", "pc"))
-sharding = NamedSharding(mesh, P("pr", "pc"))
-A = jax.device_put(A, sharding)
-b = jax.device_put(b, sharding)
+a_sharding = NamedSharding(mesh, P("pr", "pc"))
+b_sharding = NamedSharding(mesh, P("pr", None))
+A = jax.device_put(A, a_sharding)
+b = jax.device_put(b, b_sharding)
 
 out, logdet = potrs(A, b, T_A=T_A, return_logdet=True)
 out.block_until_ready()
