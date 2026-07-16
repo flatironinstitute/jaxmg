@@ -1,12 +1,12 @@
 <div align="center">
-    <img src="https://raw.githubusercontent.com/therooler/jaxmg/main/docs/_static/logo.png" alt="Jaxmg" width="300">
+    <img src="https://raw.githubusercontent.com/flatironinstitute/jaxmg/main/docs/_static/logo.png" alt="Jaxmg" width="300">
 </div>
 
 #  JAXMg: A multi-GPU linear solver in JAX
 
 [![Docs](https://img.shields.io/badge/docs-site-blue?style=flat-square)](https://flatironinstitute.github.io/jaxmg/)
-[![Releases](https://img.shields.io/github/v/release/therooler/jaxmg?style=flat-square)](https://github.com/therooler/jaxmg/releases)
-[![Build Status](https://jenkins.flatironinstitute.org/job/jaxmg/job/main/lastBuild/badge/icon)](https://jenkins.flatironinstitute.org/job/jaxmg/job/main/)
+[![Releases](https://img.shields.io/github/v/release/flatironinstitute/jaxmg?style=flat-square)](https://github.com/therooler/jaxmg/releases)
+[![Build Status](https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg/job/main/lastBuild/badge/icon)](https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg/job/main/)
 
 
 # JAXMg

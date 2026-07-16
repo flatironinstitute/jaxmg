@@ -17,9 +17,9 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 
 [project.urls]
-Homepage = "https://github.com/therooler/jaxmg"
-Issues = "https://github.com/therooler/jaxmg/issues"
-Docs = "https://therooler.github.io/jaxmg/"
+Homepage = "https://github.com/flatironinstitute/jaxmg"
+Issues = "https://github.com/flatironinstitute/jaxmg/issues"
+Docs = "https://flatironinstitute.github.io/jaxmg/"
 
 [tool.setuptools.packages.find]
 where = ["src"]
