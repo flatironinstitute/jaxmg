@@ -119,7 +119,7 @@ CUDA_FLAVOR=cuda12-local
 JAX_VERSION=0.8.1
 for PY in 3.11 3.12 3.13 3.14; do
    PYTAG=cp${PY/./}
-   URL="https://jenkins-new.flatironinstitute.org/job/jaxmg/job/main/lastBuild/artifact/${CUDA_FLAVOR}/${PY}/${JAX_VERSION}/dist_repaired/jaxmg-${VERSION}-${PYTAG}-${PYTAG}-manylinux_2_26_x86_64.whl"
+   URL="https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg/job/main/lastBuild/artifact/${CUDA_FLAVOR}/${PY}/${JAX_VERSION}/dist_repaired/jaxmg-${VERSION}-${PYTAG}-${PYTAG}-manylinux_2_26_x86_64.whl"
    echo "Downloading ${URL}"
    wget -q -N --show-progress "${URL}" -P ./dist
 done
