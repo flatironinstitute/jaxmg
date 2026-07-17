@@ -27,9 +27,9 @@ BAZEL="${BAZEL:-bazel}"
 # to build XLA targets in the JAX CI container.
 BAZEL_CONFIGS="${JAXMG_XLA_BAZEL_CONFIGS:-cuda_libraries_from_stubs}"
 BAZEL_JOBS="${JAXMG_XLA_BAZEL_JOBS:-8}"
-# Build for a broad range of GPU architectures (Volta -> Hopper SASS, plus PTX
-# for forward compatibility). Override for a narrower/faster build.
-CUDA_COMPUTE_CAPABILITIES="${JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES:-sm_70,sm_80,sm_90,compute_90}"
+# Build for a broad range of GPU architectures (Volta -> Blackwell SASS, plus
+# PTX for forward compatibility). Override for a narrower/faster build.
+CUDA_COMPUTE_CAPABILITIES="${JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES:-sm_70,sm_80,sm_90,sm_120,compute_90}"
 BACKEND_BUILD_TEMPLATE="${JAXMG_BACKEND_BUILD_TEMPLATE:-${JAXMG_ROOT}/bazel/jaxmg_backend.BUILD.bazel}"
 
 if [[ ! -d "${JAX_SRC}" ]]; then

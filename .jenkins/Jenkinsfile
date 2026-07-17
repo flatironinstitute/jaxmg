@@ -20,8 +20,8 @@ JAX_GIT_TAG        = 'jax-v0.10.1'
 // `tensorflow/ml-build:latest` shorthand resolves to via ci/envs/docker.env).
 // docker.io/tensorflow/ml-build is not publicly pullable.
 ML_BUILD_IMAGE     = 'us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest'
-// Broad arch list (Volta -> Hopper SASS + PTX).
-CUDA12_ARCHS = 'sm_70,sm_80,sm_90,compute_90'
+// Broad arch list (Volta -> Blackwell SASS + PTX fallback).
+CUDA12_ARCHS = 'sm_70,sm_80,sm_90,sm_120,compute_90'
 CUSOLVERMP12 = 'nvidia-cusolvermp-cu12==0.8.0.3126'
 
 // NOTE: CUDA 13 is intentionally not built here. There is no

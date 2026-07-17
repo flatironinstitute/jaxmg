@@ -52,9 +52,10 @@ Key environment variables:
 
 - `JAX_SRC` — the JAX checkout root (default `/jax`); this is where `@xla` is defined.
 - `JAXMG_ROOT` — path to this repo (default: the script's own directory).
-- `JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES` — target GPU archs. Default is a broad
-  list `sm_70,sm_80,sm_90,compute_90` (Volta→Hopper SASS + PTX). CUDA 13 drops
-  Volta, so use e.g. `sm_80,sm_90,compute_90` there.
+- `JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES` — target GPU architectures. The CUDA
+  12 default is `sm_70,sm_80,sm_90,sm_120,compute_90`, which includes native
+  code for Volta, Ampere, Hopper, and RTX Blackwell GPUs plus PTX for forward
+  compatibility. CUDA 13 drops Volta, so omit `sm_70` from CUDA 13 builds.
 - `JAXMG_CUSOLVERMP_INCLUDE_DIR` / `JAXMG_CUSOLVERMP_LIBRARY_DIR` — override the
   cuSOLVERMp wheel auto-discovery.
 

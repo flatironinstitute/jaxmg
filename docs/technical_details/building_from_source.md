@@ -67,14 +67,15 @@ cp -r "$JAXMG"/{src,bazel,build_native_backend.sh,pyproject.toml,setup.py} "$JAX
 
 Inside the container, install cuSOLVERMp (for headers/lib discovery) and run the
 build. The container has no system `nvcc`, so `CUDA_MAJOR` must be set explicitly.
-The arch list builds broadly (Volta→Hopper SASS + PTX); `sm_80` SASS is forward-
-compatible to Ada (sm_89) workstation GPUs.
+The architecture list builds native SASS for Volta, Ampere, Hopper, and RTX
+Blackwell GPUs, with PTX retained for forward compatibility. The `sm_80` SASS
+is also compatible with Ada (`sm_89`) workstation GPUs.
 
 ```bash
 docker exec jax bash -lc '
   python -m pip install nvidia-cusolvermp-cu12==0.8.0.3126 &&
   JAX_SRC=/jax JAXMG_ROOT=/jax/jaxmg CUDA_MAJOR=12 \
-  JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES=sm_70,sm_80,sm_90,compute_90 \
+  JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES=sm_70,sm_80,sm_90,sm_120,compute_90 \
   JAXMG_XLA_BAZEL_JOBS=$(nproc) \
   /jax/jaxmg/build_native_backend.sh'
 ```

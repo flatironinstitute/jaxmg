@@ -66,6 +66,19 @@ release. The provided binaries currently use JAX `0.10.1` and
 [native-backend build guide](https://flatironinstitute.github.io/jaxmg/technical_details/building_from_source/)
 for the complete build procedure.
 
+The CUDA 12 backend contains native code for the following representative GPU
+families:
+
+| GPU family | Compute capability | Build target |
+|---|---:|---:|
+| NVIDIA V100 | 7.0 | `sm_70` |
+| NVIDIA A100 | 8.0 | `sm_80` |
+| NVIDIA H100/H200 | 9.0 | `sm_90` |
+| NVIDIA RTX PRO 6000 Blackwell | 12.0 | `sm_120` |
+
+The wheel also retains `compute_90` PTX for forward compatibility. CUDA 13
+builds do not support Volta GPUs; V100 systems must use the CUDA 12 package.
+
 cuSOLVERMp requires a one-to-one mapping between processes and GPUs. Multi-GPU
 and multi-node jobs must therefore be launched with one Python process per GPU
 and initialized with `jax.distributed.initialize()` before the global device
