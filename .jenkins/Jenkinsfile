@@ -98,6 +98,7 @@ timeout(time: 2, unit: 'HOURS') {
       // src/jaxmg/cu12/ output) so it never shares state with the concurrent
       // aarch64 compile running in this shared job workspace.
       dir('build-x86') {
+        checkout scm
         compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
         // Sanity check: the native lib we are about to stash must be x86_64.
         sh '''#!/bin/bash -ex
@@ -234,6 +235,7 @@ timeout(time: 8, unit: 'HOURS') {
       // Bazel cache and jax-src: the fast native build populates the cache first and
       // the emulated arm64 build links those x86_64 objects, yielding an x86_64 .so.
       dir('build-arm64') {
+        checkout scm
         compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
         // Fail fast (with a clear message) if we did not actually produce an
         // aarch64 binary, rather than failing cryptically later in auditwheel.
