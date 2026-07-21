@@ -1,0 +1,8 @@
+# Thin wrapper around the JAX CI container (ml-build) so it can be rebuilt for a
+# non-native platform via `buildImage(buildArgs: '--platform=linux/arm64')`.
+#
+# The compile stage normally uses this image directly via `runPod(image: ...)`,
+# which offers no hook to attach `--platform`/`emulation`. Building FROM the
+# multi-arch ml-build image with `--platform=linux/arm64` pulls that arch's
+# layers; the resulting image then runs under QEMU with `runPod(emulation: true)`.
+FROM us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest
