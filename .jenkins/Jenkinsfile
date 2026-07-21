@@ -19,7 +19,10 @@ JAX_GIT_TAG        = 'jax-v0.10.1'
 // Full Artifact Registry path for the JAX CI container (the public image the
 // `tensorflow/ml-build:latest` shorthand resolves to via ci/envs/docker.env).
 // docker.io/tensorflow/ml-build is not publicly pullable.
-ML_BUILD_IMAGE     = 'us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest'
+ML_BUILD_x86_IMAGE     = 'us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest'
+// aarch64 counterpart of the JAX CI container. Run it under QEMU (emulation:
+// true) on the x86_64 Jenkins hardware.
+ML_BUILD_ARM64_IMAGE = 'us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build-arm64:latest'
 // Broad arch list (Volta -> Blackwell SASS + PTX fallback).
 CUDA12_ARCHS = 'sm_70,sm_80,sm_90,sm_120,compute_90'
 CUSOLVERMP12 = 'nvidia-cusolvermp-cu12==0.8.0.3126'
@@ -30,7 +33,7 @@ CUSOLVERMP12 = 'nvidia-cusolvermp-cu12==0.8.0.3126'
 // source is available.
 
 // Compile the native backend for one CUDA major version. This runs inside a pod
-// whose image is the JAX CI container (ML_BUILD_IMAGE), so bazel + hermetic CUDA
+// whose image is the JAX CI container (ML_BUILD_x86_IMAGE), so bazel + hermetic CUDA
 // are already present and we invoke the JAX CI scripts and build script
 // directly (no run_docker_container.sh / docker exec).
 def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
@@ -92,7 +95,7 @@ parallel(
 timeout(time: 2, unit: 'HOURS') {
   // Compile the native backend directly inside the JAX CI container image.
   // Bazel building XLA is CPU/memory heavy and needs no GPU.
-  runPod(image: ML_BUILD_IMAGE, cpus: 32, memory: '64Gi') {
+  runPod(image: ML_BUILD_x86_IMAGE, cpus: 32, memory: '64Gi') {
     stage('Compile CUDA 12') {
       // Isolate the build (jax-src/ clone, Bazel output base under HOME=$PWD, and
       // src/jaxmg/cu12/ output) so it never shares state with the concurrent
@@ -213,27 +216,22 @@ timeout(time: 2, unit: 'HOURS') {
   // -------------------------------------------------------------------------
   // aarch64 (arm64) build — emulated, BUILD ONLY. There is no test stage: GPUs
   // are unavailable under QEMU emulation, so we only compile the native backend
-  // and package the wheel. Per SCC: build the image FROM a multi-arch base with
-  // `buildArgs: '--platform=linux/arm64'` and run it with `emulation: true`, and
-  // it is handled transparently. Emulation is slow (especially the Bazel/XLA
-  // compile), hence the longer timeout.
+  // and package the wheel. Both stages run arm64 images under `emulation: true`
+  // on the x86_64 Jenkins hardware: the compile uses the aarch64 JAX CI image
+  // directly, the wheel builds an arm64 manylinux image (Dockerfile12_aarch64)
+  // with `buildArgs: '--platform=linux/arm64'`. Emulation is slow (especially
+  // the Bazel/XLA compile), hence the longer timeout.
   // -------------------------------------------------------------------------
   'aarch64': {
 timeout(time: 8, unit: 'HOURS') {
-  // 1. Compile the native backend for arm64 inside an emulated JAX CI container.
-  //    Dockerfile.mlbuild is a thin FROM-wrapper of ML_BUILD_IMAGE so that
-  //    `--platform=linux/arm64` can pull its arm64 layers (the x86 compile uses
-  //    runPod(image: ...) directly, which has no buildImage to attach it to).
-  buildPod(tag: 'mlbuild-arm64', context: '.jenkins', dockerfile: 'Dockerfile.mlbuild',
-           buildArgs: '--platform=linux/arm64', emulation: true,
-           cpus: 32, memory: '64Gi') {
+  // 1. Compile the native backend for arm64 in the aarch64 JAX CI container,
+  //    run under QEMU emulation on the x86_64 Jenkins hardware. Mirrors the x86
+  //    compile (runPod(image: ...)), just with the arm64 image and emulation.
+  runPod(image: ML_BUILD_ARM64_IMAGE, emulation: true, cpus: 32, memory: '64Gi') {
     stage('Compile CUDA 12 (arm64)') {
-      // Isolate the whole build in a branch-specific directory. compileNativeBackend
-      // sets HOME="$(pwd)" (so Bazel's output base is $PWD/.cache/bazel) and clones
-      // jax-src/ + writes src/jaxmg/cu12/ under $PWD. Running concurrently with the
-      // x86_64 compile in this shared job workspace, both would otherwise share the
-      // Bazel cache and jax-src: the fast native build populates the cache first and
-      // the emulated arm64 build links those x86_64 objects, yielding an x86_64 .so.
+      // Isolate the build in a branch-specific directory so its jax-src/ clone,
+      // Bazel output base (HOME=$PWD), and src/jaxmg/cu12/ output never share
+      // state with the concurrent x86_64 compile in this shared job workspace.
       dir('build-arm64') {
         checkout scm
         compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
