@@ -135,7 +135,7 @@ timeout(time: 2, unit: 'HOURS') {
               // the responsibility of the scheduler-based HPC test suite.
               def pytest_cmd = '''
                 python -m pytest -svv -m 'not mpmd' tests
-                CUDA_VISIBLE_DEVICES=0 JAXMG_MPMD_LAUNCHER=subprocess \
+                JAXMG_MPMD_LAUNCHER=subprocess \
                   python -m pytest -svv -m 'mpmd and not slow' tests/mpmd
               '''
               stage("Build ${c}-${p}-${j}") {
