@@ -40,7 +40,8 @@ timeout(time: 2, unit: 'HOURS') {
 
     runPod(tag: '12',
       devShm: true,
-      gpus: 2) {
+      gpus: 2,
+      gpuType: 'a100') {
         stage('Test CUDA 12') {
                     withEnv([
                         "CUDA_ROOT=/usr/local/cuda",
@@ -146,7 +147,8 @@ timeout(time: 2, unit: 'HOURS') {
 
     runPod(tag: '13',
       devShm: true,
-      gpus: 2) {
+      gpus: 2,
+      gpuType: 'a100') {
           stage('Test CUDA 13') {
                     withEnv([
                         "CUDA_ROOT=/usr/local/cuda",
