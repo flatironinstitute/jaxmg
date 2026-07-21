@@ -94,8 +94,20 @@ timeout(time: 2, unit: 'HOURS') {
   // Bazel building XLA is CPU/memory heavy and needs no GPU.
   runPod(image: ML_BUILD_IMAGE, cpus: 32, memory: '64Gi') {
     stage('Compile CUDA 12') {
-      compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
-      stash name: 'bin12', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
+      // Isolate the build (jax-src/ clone, Bazel output base under HOME=$PWD, and
+      // src/jaxmg/cu12/ output) so it never shares state with the concurrent
+      // aarch64 compile running in this shared job workspace.
+      dir('build-x86') {
+        compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
+        // Sanity check: the native lib we are about to stash must be x86_64.
+        sh '''#!/bin/bash -ex
+          so=src/jaxmg/cu12/libjaxmg_xla_comm_backend.so
+          file "$so"
+          file "$so" | grep -qi x86-64 \
+            || { echo "ERROR: $so is not x86_64" >&2; exit 1; }
+        '''
+        stash name: 'bin12_x86', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
+      }
     }
   }
 
@@ -105,6 +117,11 @@ timeout(time: 2, unit: 'HOURS') {
   // through), so there is no separate runPod here.
   buildPod(tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12', devShm: true, gpus: 2, gpuType: 'a100') {
     stage('Test CUDA 12') {
+      // Isolate the wheel build + test in its own directory with a private source
+      // checkout, so its src/jaxmg/cu12/ (unstashed .so) and src/jaxmg.egg-info/
+      // never collide with the concurrent aarch64 build in this shared workspace.
+      dir('build-x86') {
+      checkout scm
       withEnv([
         "CUDA_ROOT=/usr/local/cuda",
         "CUDNN_ROOT=/usr",
@@ -139,7 +156,7 @@ timeout(time: 2, unit: 'HOURS') {
                   python -m pytest -svv -m 'mpmd and not slow' tests/mpmd
               '''
               stage("Build ${c}-${p}-${j}") {
-                unstash 'bin12'
+                unstash 'bin12_x86'
                 withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}", "CUSOLVERMP_PKG=${CUSOLVERMP12}"]) {
                   sh '''#!/bin/bash -ex
                     mkdir -p "$WORKDIR"
@@ -187,6 +204,7 @@ timeout(time: 2, unit: 'HOURS') {
           }
         }
       }
+      }
     }
   }
 }
@@ -209,8 +227,24 @@ timeout(time: 8, unit: 'HOURS') {
            buildArgs: '--platform=linux/arm64', emulation: true,
            cpus: 32, memory: '64Gi') {
     stage('Compile CUDA 12 (arm64)') {
-      compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
-      stash name: 'bin12_arm64', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
+      // Isolate the whole build in a branch-specific directory. compileNativeBackend
+      // sets HOME="$(pwd)" (so Bazel's output base is $PWD/.cache/bazel) and clones
+      // jax-src/ + writes src/jaxmg/cu12/ under $PWD. Running concurrently with the
+      // x86_64 compile in this shared job workspace, both would otherwise share the
+      // Bazel cache and jax-src: the fast native build populates the cache first and
+      // the emulated arm64 build links those x86_64 objects, yielding an x86_64 .so.
+      dir('build-arm64') {
+        compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
+        // Fail fast (with a clear message) if we did not actually produce an
+        // aarch64 binary, rather than failing cryptically later in auditwheel.
+        sh '''#!/bin/bash -ex
+          so=src/jaxmg/cu12/libjaxmg_xla_comm_backend.so
+          file "$so"
+          file "$so" | grep -qi aarch64 \
+            || { echo "ERROR: $so is not aarch64 -- the emulated build produced the wrong arch" >&2; exit 1; }
+        '''
+        stash name: 'bin12_arm64', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
+      }
     }
   }
 
@@ -218,6 +252,14 @@ timeout(time: 8, unit: 'HOURS') {
   buildPod(tag: '12-arm64', context: '.jenkins', dockerfile: 'Dockerfile12_aarch64',
            buildArgs: '--platform=linux/arm64', emulation: true) {
     stage('Build CUDA 12 (arm64)') {
+      // Fully isolate the arm64 wheel build in its own directory with a private
+      // source checkout. buildPod checks the repo out at the shared job
+      // workspace root; running there, this build's src/jaxmg/cu12/ (the
+      // unstashed .so) and src/jaxmg.egg-info/ would collide with the concurrent
+      // x86_64 wheel build. Inside dir('build-arm64'), unstash/build/archive all
+      // resolve under build-arm64/, so the two branches never share a path.
+      dir('build-arm64') {
+      checkout scm
       def cudaVersions = ['cuda12-local']
       def pyVersions = ['3.11', '3.12', '3.13', '3.14']
       def jaxVersions = ['0.10.1']
@@ -229,6 +271,13 @@ timeout(time: 8, unit: 'HOURS') {
               withEnv(["WORKDIR=arm64/${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}", "CUSOLVERMP_PKG=${CUSOLVERMP12}"]) {
                 sh '''#!/bin/bash -ex
                   mkdir -p "$WORKDIR"
+
+                  # Sanity check: the unstashed native lib we are about to
+                  # package must be aarch64.
+                  so=src/jaxmg/cu12/libjaxmg_xla_comm_backend.so
+                  file "$so"
+                  file "$so" | grep -qi aarch64 \
+                    || { echo "ERROR: $so is not aarch64 before packaging" >&2; exit 1; }
 
                   python"$PYV" -m venv "$WORKDIR/venv"
                   source "$WORKDIR/venv/bin/activate"
@@ -265,6 +314,7 @@ timeout(time: 8, unit: 'HOURS') {
             }
           }
         }
+      }
       }
     }
   }
