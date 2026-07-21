@@ -98,7 +98,7 @@ timeout(time: 2, unit: 'HOURS') {
   // built from .jenkins/Dockerfile12. buildPod builds that image and runs this
   // body in a GPU pod using it (buildPod == buildImage + runPod, args pass
   // through), so there is no separate runPod here.
-  buildPod(tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12', devShm: true, gpus: 2) {
+  buildPod(tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12', devShm: true, gpus: 2, gpuType: 'a100') {
     stage('Test CUDA 12') {
       withEnv([
         "CUDA_ROOT=/usr/local/cuda",
