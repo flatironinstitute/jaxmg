@@ -84,6 +84,11 @@ def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
   }
 }
 
+// x86_64 (build + test) and aarch64 (emulated, build-only) run concurrently.
+// Each branch keeps its own timeout: emulation is far slower, so aarch64 gets a
+// longer budget without holding the native x86 build to it.
+parallel(
+  'x86_64': {
 timeout(time: 2, unit: 'HOURS') {
   // Compile the native backend directly inside the JAX CI container image.
   // Bazel building XLA is CPU/memory heavy and needs no GPU.
@@ -185,3 +190,84 @@ timeout(time: 2, unit: 'HOURS') {
     }
   }
 }
+  },
+  // -------------------------------------------------------------------------
+  // aarch64 (arm64) build — emulated, BUILD ONLY. There is no test stage: GPUs
+  // are unavailable under QEMU emulation, so we only compile the native backend
+  // and package the wheel. Per SCC: build the image FROM a multi-arch base with
+  // `buildArgs: '--platform=linux/arm64'` and run it with `emulation: true`, and
+  // it is handled transparently. Emulation is slow (especially the Bazel/XLA
+  // compile), hence the longer timeout.
+  // -------------------------------------------------------------------------
+  'aarch64': {
+timeout(time: 8, unit: 'HOURS') {
+  // 1. Compile the native backend for arm64 inside an emulated JAX CI container.
+  //    Dockerfile.mlbuild is a thin FROM-wrapper of ML_BUILD_IMAGE so that
+  //    `--platform=linux/arm64` can pull its arm64 layers (the x86 compile uses
+  //    runPod(image: ...) directly, which has no buildImage to attach it to).
+  buildPod(tag: 'mlbuild-arm64', context: '.jenkins', dockerfile: 'Dockerfile.mlbuild',
+           buildArgs: '--platform=linux/arm64', emulation: true,
+           cpus: 32, memory: '64Gi') {
+    stage('Compile CUDA 12 (arm64)') {
+      compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
+      stash name: 'bin12_arm64', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
+    }
+  }
+
+  // 2. Package the wheel for arm64 in an emulated manylinux aarch64 + CUDA image.
+  buildPod(tag: '12-arm64', context: '.jenkins', dockerfile: 'Dockerfile12_aarch64',
+           buildArgs: '--platform=linux/arm64', emulation: true) {
+    stage('Build CUDA 12 (arm64)') {
+      def cudaVersions = ['cuda12-local']
+      def pyVersions = ['3.11', '3.12', '3.13', '3.14']
+      def jaxVersions = ['0.10.1']
+      for (c in cudaVersions) {
+        for (p in pyVersions) {
+          for (j in jaxVersions) {
+            stage("Build ${c}-${p}-${j} (arm64)") {
+              unstash 'bin12_arm64'
+              withEnv(["WORKDIR=arm64/${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}", "CUSOLVERMP_PKG=${CUSOLVERMP12}"]) {
+                sh '''#!/bin/bash -ex
+                  mkdir -p "$WORKDIR"
+
+                  python"$PYV" -m venv "$WORKDIR/venv"
+                  source "$WORKDIR/venv/bin/activate"
+
+                  python -m pip install --upgrade pip build auditwheel
+                  python -m pip install "jax[$CUV]==$JAXV"
+
+                  python -m build --wheel --outdir "$WORKDIR/dist"
+                  auditwheel repair \
+                    --plat manylinux_2_28_aarch64 \
+                    --exclude 'libcuda.so*' \
+                    --exclude 'libcusolver.so*' \
+                    --exclude 'libcusolverMg.so*' \
+                    --exclude 'libcusolverMp.so*' \
+                    --exclude 'libcupti.so*' \
+                    --exclude 'libcusparse.so*' \
+                    --exclude 'libcublasLt.so*' \
+                    --exclude 'libcublas.so*' \
+                    --exclude 'libnvJitLink.so*' \
+                    "$WORKDIR"/dist/jaxmg-*.whl -w "$WORKDIR/dist_repaired"
+
+                  python -m pip install --no-deps "$WORKDIR"/dist_repaired/jaxmg-*.whl
+                  # jaxmg links libcusolverMp.so.0, which is excluded from the
+                  # wheel and ships in nvidia-cusolvermp-cu12. --no-deps skips
+                  # it, so install it explicitly into the build venv.
+                  python -m pip install "$CUSOLVERMP_PKG"
+                  # Build-only: confirm the wheel installs and imports, but do
+                  # NOT `import jaxmg` — that triggers native-backend/GPU init,
+                  # which cannot run under emulation without a GPU.
+                  python -c "import sys, jax, importlib.util; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); assert importlib.util.find_spec('jaxmg'), 'jaxmg not installed'"
+                '''
+                archiveArtifacts artifacts: "${WORKDIR}/dist_repaired/*.whl", onlyIfSuccessful: true
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+  }
+)
