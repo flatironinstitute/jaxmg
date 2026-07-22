@@ -1,0 +1,163 @@
+name: Build aarch64 wheel (native ARM)
+
+# Builds the aarch64 native backend + wheels on GitHub-hosted native ARM
+# runners (ubuntu-24.04-arm). 
+#
+# Build-only: GitHub runners have no GPU, so the
+# wheel is packaged and import-checked but not GPU-tested.
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'bazel/**'
+      - 'build_native_backend.sh'
+      - 'pyproject.toml'
+      - 'setup.py'
+      - '.github/workflows/build-aarch64.yml'
+  workflow_dispatch:
+
+# One in-flight build per ref; a newer push cancels the older run.
+concurrency:
+  group: build-aarch64-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAX_GIT_REPOSITORY: https://github.com/jax-ml/jax.git
+  JAX_GIT_TAG: jax-v0.10.1
+  CUDA_MAJOR: '12'
+  CUDA12_ARCHS: sm_70,sm_80,sm_90,sm_120,compute_90
+  CUSOLVERMP12: nvidia-cusolvermp-cu12==0.8.0.3126
+
+jobs:
+  # Job A: build libjaxmg_xla_comm_backend.so against @xla, inside the same JAX
+  # CI container the Jenkins pod used -- now run natively on ARM (no QEMU).
+  compile:
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build-arm64:latest
+    steps:
+      - name: Checkout jaxmg
+        uses: actions/checkout@v4
+
+      - name: Build native backend (.so)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          WS="$(pwd)"
+          # Bazel's output base and git's --global config need a writable HOME;
+          # point it at the workspace (the large mount).
+          export HOME="$WS"
+
+          # 1. Clone JAX (provides the @xla Bazel external repo).
+          rm -rf jax-src
+          git clone --depth 1 --branch "$JAX_GIT_TAG" "$JAX_GIT_REPOSITORY" jax-src
+
+          # 2. Stage this jaxmg checkout inside the jax tree.
+          mkdir -p jax-src/jaxmg
+          cp -r src bazel build_native_backend.sh pyproject.toml setup.py jax-src/jaxmg/
+
+          # 3. Generate .jax_configure.bazelrc ONLY (skip the full plugin build).
+          cd jax-src
+          source ci/envs/default.env
+          source ci/utilities/setup_build_environment.sh
+          arch="$(uname -m)"
+          python build/build.py build \
+            --wheels=jax-cuda-plugin \
+            --configure_only \
+            --bazel_options=--config="ci_linux_${arch}_cuda${JAXCI_CUDA_VERSION}" \
+            --python_version="${JAXCI_HERMETIC_PYTHON_VERSION}" \
+            --cuda_major_version="${JAXCI_CUDA_VERSION}" \
+            --output_path="${JAXCI_OUTPUT_DIR}"
+
+          # 4. Build the backend against @xla (CUDA is hermetic -> pass CUDA_MAJOR).
+          python -m pip install "$CUSOLVERMP12"
+          JAX_SRC="$PWD" JAXMG_ROOT="$PWD/jaxmg" CUDA_MAJOR="$CUDA_MAJOR" \
+            JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$CUDA12_ARCHS" \
+            JAXMG_XLA_BAZEL_JOBS="$(nproc)" \
+            ./jaxmg/build_native_backend.sh
+
+          # 5. Copy the built library back into the workspace and check its arch.
+          cd "$WS"
+          mkdir -p "src/jaxmg/cu${CUDA_MAJOR}"
+          cp "jax-src/jaxmg/src/jaxmg/cu${CUDA_MAJOR}/libjaxmg_xla_comm_backend.so" \
+            "src/jaxmg/cu${CUDA_MAJOR}/"
+          so="src/jaxmg/cu${CUDA_MAJOR}/libjaxmg_xla_comm_backend.so"
+          file "$so"
+          file "$so" | grep -qi aarch64 \
+            || { echo "ERROR: $so is not aarch64" >&2; exit 1; }
+          ls -la "src/jaxmg/cu${CUDA_MAJOR}"
+
+      - name: Upload native backend (.so)
+        uses: actions/upload-artifact@v4
+        with:
+          name: libjaxmg-aarch64-cu12
+          path: src/jaxmg/cu12/libjaxmg_xla_comm_backend.so
+          if-no-files-found: error
+
+  # Job B: package the .so into cp3.11-cp3.14 manylinux_2_28_aarch64 wheels.
+  # The manylinux image ships every CPython under /opt/python and auditwheel;
+  # neither CUDA nor a GPU is needed to zip the .so + sources and repair.
+  package:
+    needs: compile
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: quay.io/pypa/manylinux_2_28_aarch64
+    strategy:
+      fail-fast: false
+      matrix:
+        # <pip tag>: /opt/python/<cpython dir>
+        python: ['cp311-cp311', 'cp312-cp312', 'cp313-cp313', 'cp314-cp314']
+    steps:
+      - name: Checkout jaxmg
+        uses: actions/checkout@v4
+
+      - name: Download native backend (.so)
+        uses: actions/download-artifact@v4
+        with:
+          name: libjaxmg-aarch64-cu12
+          path: src/jaxmg/cu12
+
+      - name: Build + repair wheel (${{ matrix.python }})
+        shell: bash
+        run: |
+          set -euxo pipefail
+          PY="/opt/python/${{ matrix.python }}/bin/python"
+
+          # Sanity: the .so we are about to package must be aarch64.
+          so="src/jaxmg/cu12/libjaxmg_xla_comm_backend.so"
+          file "$so"
+          file "$so" | grep -qi aarch64 \
+            || { echo "ERROR: $so is not aarch64 before packaging" >&2; exit 1; }
+
+          "$PY" -m pip install --upgrade pip build
+          "$PY" -m build --wheel --outdir dist
+
+          # Bundle deps + apply the manylinux tag. Exclude the CUDA/cuSOLVERMp
+          # libraries (shipped by the nvidia-* wheels at runtime), same as the
+          # old Jenkins arm64 stage.
+          auditwheel repair \
+            --plat manylinux_2_28_aarch64 \
+            --exclude 'libcuda.so*' \
+            --exclude 'libcusolver.so*' \
+            --exclude 'libcusolverMg.so*' \
+            --exclude 'libcusolverMp.so*' \
+            --exclude 'libcupti.so*' \
+            --exclude 'libcusparse.so*' \
+            --exclude 'libcublasLt.so*' \
+            --exclude 'libcublas.so*' \
+            --exclude 'libnvJitLink.so*' \
+            dist/jaxmg-*.whl -w dist_repaired
+
+          # Build-only sanity: the wheel installs and jaxmg is importable as a
+          # spec. Do NOT `import jaxmg` -- that inits the GPU backend, which has
+          # no GPU here.
+          "$PY" -m pip install --no-deps dist_repaired/jaxmg-*.whl
+          "$PY" -c "import importlib.util; assert importlib.util.find_spec('jaxmg'), 'jaxmg not installed'; print('jaxmg spec OK')"
+
+      - name: Upload repaired wheel (${{ matrix.python }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: jaxmg-aarch64-${{ matrix.python }}
+          path: dist_repaired/*.whl
+          if-no-files-found: error

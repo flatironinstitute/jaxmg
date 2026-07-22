@@ -10,9 +10,10 @@ properties([
 // so we run the build *directly* in a pod whose image IS that container.
 JAX_GIT_REPOSITORY = 'https://github.com/jax-ml/jax.git'
 JAX_GIT_TAG        = 'jax-v0.10.1'
-// Full Artifact Registry paths for the JAX CI container
+// Full Artifact Registry path for the JAX CI container.
+// The aarch64 build lives in GitHub Actions (native ARM, no QEMU); see
+// .github/workflows/build-aarch64.yml. Jenkins builds + GPU-tests x86 only.
 ML_BUILD_x86_IMAGE     = 'us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest'
-ML_BUILD_ARM64_IMAGE = 'us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build-arm64:latest'
 // Broad arch list (Volta -> Blackwell SASS + PTX fallback).
 CUDA12_ARCHS = 'sm_70,sm_80,sm_90,sm_120,compute_90'
 CUSOLVERMP12 = 'nvidia-cusolvermp-cu12==0.8.0.3126'
@@ -81,17 +82,15 @@ def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
   }
 }
 
-// x86_64 (build + test) 
-parallel(
-  'x86_64': {
+// x86_64 (build + test). aarch64 is built separately on GitHub Actions
+// (native ARM, no QEMU) -- see .github/workflows/build-aarch64.yml.
 timeout(time: 2, unit: 'HOURS') {
   // Compile the native backend directly inside the JAX CI container image.
   // Bazel building XLA is CPU/memory heavy and needs no GPU.
   runPod(image: ML_BUILD_x86_IMAGE, cpus: 32, memory: '64Gi') {
     stage('Compile CUDA 12') {
-      // Isolate the build (jax-src/ clone, Bazel output base under HOME=$PWD, and
-      // src/jaxmg/cu12/ output) so it never shares state with the concurrent
-      // aarch64 compile running in this shared job workspace.
+      // Build inside a dedicated subdir (jax-src/ clone, Bazel output base under
+      // HOME=$PWD, src/jaxmg/cu12/ output) to keep the job workspace tidy.
       dir('build-x86') {
         checkout scm
         compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
@@ -184,84 +183,3 @@ timeout(time: 2, unit: 'HOURS') {
     }
   }
 }
-  },
-  // aarch64 (arm64) build only under QEMU emulation.
-  'aarch64': {
-timeout(time: 8, unit: 'HOURS') {
-  runPod(image: ML_BUILD_ARM64_IMAGE, emulation: true, cpus: 32, memory: '64Gi') {
-    stage('Compile CUDA 12 (arm64)') {
-      dir('build-arm64') {
-        checkout scm
-        compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
-        stash name: 'bin12_arm64', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
-      }
-    }
-  }
-
-  // Package the wheel for arm64 in an emulated manylinux aarch64 + CUDA image.
-  buildPod(tag: '12-arm64', context: '.jenkins', dockerfile: 'Dockerfile12_aarch64',
-           buildArgs: '--platform=linux/arm64', emulation: true) {
-    stage('Build CUDA 12 (arm64)') {
-      dir('build-arm64') {
-      checkout scm
-      def cudaVersions = ['cuda12-local']
-      def pyVersions = ['3.11', '3.12', '3.13', '3.14']
-      def jaxVersions = ['0.10.1']
-      for (c in cudaVersions) {
-        for (p in pyVersions) {
-          for (j in jaxVersions) {
-            stage("Build ${c}-${p}-${j} (arm64)") {
-              unstash 'bin12_arm64'
-              withEnv(["WORKDIR=arm64/${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}", "CUSOLVERMP_PKG=${CUSOLVERMP12}"]) {
-                sh '''#!/bin/bash -ex
-                  mkdir -p "$WORKDIR"
-
-                  # Sanity check: the unstashed native lib we are about to
-                  # package must be aarch64.
-                  so=src/jaxmg/cu12/libjaxmg_xla_comm_backend.so
-                  file "$so"
-                  file "$so" | grep -qi aarch64 \
-                    || { echo "ERROR: $so is not aarch64 before packaging" >&2; exit 1; }
-
-                  python"$PYV" -m venv "$WORKDIR/venv"
-                  source "$WORKDIR/venv/bin/activate"
-
-                  python -m pip install --upgrade pip build auditwheel
-                  python -m pip install "jax[$CUV]==$JAXV"
-
-                  python -m build --wheel --outdir "$WORKDIR/dist"
-                  auditwheel repair \
-                    --plat manylinux_2_28_aarch64 \
-                    --exclude 'libcuda.so*' \
-                    --exclude 'libcusolver.so*' \
-                    --exclude 'libcusolverMg.so*' \
-                    --exclude 'libcusolverMp.so*' \
-                    --exclude 'libcupti.so*' \
-                    --exclude 'libcusparse.so*' \
-                    --exclude 'libcublasLt.so*' \
-                    --exclude 'libcublas.so*' \
-                    --exclude 'libnvJitLink.so*' \
-                    "$WORKDIR"/dist/jaxmg-*.whl -w "$WORKDIR/dist_repaired"
-
-                  python -m pip install --no-deps "$WORKDIR"/dist_repaired/jaxmg-*.whl
-                  # jaxmg links libcusolverMp.so.0, which is excluded from the
-                  # wheel and ships in nvidia-cusolvermp-cu12. --no-deps skips
-                  # it, so install it explicitly into the build venv.
-                  python -m pip install "$CUSOLVERMP_PKG"
-                  # Build-only: confirm the wheel installs and imports, but do
-                  # NOT `import jaxmg` — that triggers native-backend/GPU init,
-                  # which cannot run under emulation without a GPU.
-                  python -c "import sys, jax, importlib.util; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); assert importlib.util.find_spec('jaxmg'), 'jaxmg not installed'"
-                '''
-                archiveArtifacts artifacts: "${WORKDIR}/dist_repaired/*.whl", onlyIfSuccessful: true
-              }
-            }
-          }
-        }
-      }
-      }
-    }
-  }
-}
-  }
-)
