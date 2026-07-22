@@ -20,14 +20,13 @@ CUSOLVERMP12 = 'nvidia-cusolvermp-cu12==0.8.0.3126'
 // whose image is the JAX CI container (ML_BUILD_x86_IMAGE), so bazel + hermetic CUDA
 // are already present and we invoke the JAX CI scripts and build script
 // directly
-def compileNativeBackend(cudaMajor, archs, cusolvermpPkg, bazelStartup = '') {
+def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
   withEnv([
     "CUDA_MAJOR=${cudaMajor}",
     "ARCHS=${archs}",
     "CUSOLVERMP_PKG=${cusolvermpPkg}",
     "JAX_GIT_REPOSITORY=${JAX_GIT_REPOSITORY}",
-    "JAX_GIT_TAG=${JAX_GIT_TAG}",
-    "BAZEL_STARTUP=${bazelStartup}"
+    "JAX_GIT_TAG=${JAX_GIT_TAG}"
   ]) {
     sh '''#!/bin/bash -ex
       WS="$(pwd)"
@@ -57,8 +56,6 @@ def compileNativeBackend(cudaMajor, archs, cusolvermpPkg, bazelStartup = '') {
         --wheels=jax-cuda-plugin \
         --configure_only \
         --bazel_options=--config="ci_linux_${arch}_cuda${JAXCI_CUDA_VERSION}" \
-        --bazel_options=--config=public_cache \
-        --bazel_options=--config=rbe_cpu_pool \
         --python_version="${JAXCI_HERMETIC_PYTHON_VERSION}" \
         --cuda_major_version="${JAXCI_CUDA_VERSION}" \
         --output_path="${JAXCI_OUTPUT_DIR}"
@@ -71,7 +68,6 @@ def compileNativeBackend(cudaMajor, archs, cusolvermpPkg, bazelStartup = '') {
       JAX_SRC="$PWD" JAXMG_ROOT="$PWD/jaxmg" CUDA_MAJOR="$CUDA_MAJOR" \
         JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$ARCHS" \
         JAXMG_XLA_BAZEL_JOBS="${PARALLEL:-$(nproc)}" \
-        JAXMG_XLA_BAZEL_STARTUP_OPTIONS="$BAZEL_STARTUP" \
         ./jaxmg/build_native_backend.sh
 
       # 5. Copy the built library back into the workspace for stashing.
@@ -196,10 +192,7 @@ timeout(time: 8, unit: 'HOURS') {
     stage('Compile CUDA 12 (arm64)') {
       dir('build-arm64') {
         checkout scm
-        // --batch: run Bazel without the persistent server. Under QEMU emulation
-        // the server JVM hangs on shutdown after the build completes; batch mode
-        // exits cleanly.
-        compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12, '--batch')
+        compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
         stash name: 'bin12_arm64', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
       }
     }
