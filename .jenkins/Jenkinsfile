@@ -26,12 +26,6 @@ ML_BUILD_ARM64_IMAGE = 'us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-c
 // Broad arch list (Volta -> Blackwell SASS + PTX fallback).
 CUDA12_ARCHS = 'sm_70,sm_80,sm_90,sm_120,compute_90'
 CUSOLVERMP12 = 'nvidia-cusolvermp-cu12==0.8.0.3126'
-
-// NOTE: CUDA 13 is intentionally not built here. There is no
-// nvidia-cusolvermp-cu13 wheel for header/lib discovery, so the cu13 native
-// backend cannot be compiled yet. Re-add a cu13 branch once a cu13 cuSOLVERMp
-// source is available.
-
 // Compile the native backend for one CUDA major version. This runs inside a pod
 // whose image is the JAX CI container (ML_BUILD_x86_IMAGE), so bazel + hermetic CUDA
 // are already present and we invoke the JAX CI scripts and build script
@@ -61,10 +55,26 @@ def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
       mkdir -p jax-src/jaxmg
       cp -r src bazel build_native_backend.sh pyproject.toml setup.py jax-src/jaxmg/
 
-      # 3. Generate .jax_configure.bazelrc (CUDA/cuDNN/Bazel config). We are
-      #    already inside the ml-build container, so run the CI script directly.
+      # 3. Generate .jax_configure.bazelrc ONLY (CUDA/cuDNN/Bazel config). This
+      #    is all build_native_backend.sh needs from JAX's CI. `--configure_only`
+      #    writes the bazelrc and skips every Bazel build, so we avoid the full
+      #    (and, under emulation, hours-long) jax-cuda-plugin compile. The flags
+      #    mirror what ci/build_artifacts.sh passes to build.py for a CUDA
+      #    artifact (non-RBE, default type); the ML_WHEEL_* wheel-tag repo_envs
+      #    it adds are omitted since they only affect jax wheel versioning.
       cd jax-src
-      ./ci/build_artifacts.sh jax-cuda-plugin
+      source ci/envs/default.env
+      source ci/utilities/setup_build_environment.sh
+      arch="$(uname -m)"
+      python build/build.py build \
+        --wheels=jax-cuda-plugin \
+        --configure_only \
+        --bazel_options=--config="ci_linux_${arch}_cuda${JAXCI_CUDA_VERSION}" \
+        --bazel_options=--config=public_cache \
+        --bazel_options=--config=rbe_cpu_pool \
+        --python_version="${JAXCI_HERMETIC_PYTHON_VERSION}" \
+        --cuda_major_version="${JAXCI_CUDA_VERSION}" \
+        --output_path="${JAXCI_OUTPUT_DIR}"
 
       # 4. Build the backend against @xla. The ml-build container has no system
       #    nvcc (CUDA is hermetic), so CUDA_MAJOR is passed explicitly.
