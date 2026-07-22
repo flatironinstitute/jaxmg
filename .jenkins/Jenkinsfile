@@ -46,7 +46,10 @@ def compileNativeBackend(cudaMajor, archs, cusolvermpPkg, bazelStartup = '') {
       mkdir -p jax-src/jaxmg
       cp -r src bazel build_native_backend.sh pyproject.toml setup.py jax-src/jaxmg/
 
-      # 3. Generate .jax_configure.bazelrc ONLY (CUDA/cuDNN/Bazel config). 
+      # 3. Generate .jax_configure.bazelrc ONLY (CUDA/cuDNN/Bazel config).
+      #    build.py's --configure_only writes the bazelrc and skips every Bazel
+      #    build, so we avoid the full (emulated: hours-long) plugin compile.
+      cd jax-src
       source ci/envs/default.env
       source ci/utilities/setup_build_environment.sh
       arch="$(uname -m)"
