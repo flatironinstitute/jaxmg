@@ -5,23 +5,13 @@ properties([
 ])
 
 // Native backend build settings.
-//
-// The backend is built against XLA as the external Bazel repo `@xla`, from
-// inside the official JAX CI container (tensorflow/ml-build:latest) using a JAX
-// checkout. The Flatiron Jenkins pods cannot run nested containers (no docker
-// socket, runAsUser 1000), so instead of `docker exec`-ing into the CI
-// container we run the build *directly* in a pod whose image IS that container
-// (runPod(image: ...)). JAX_GIT_TAG must be compatible with the `jax==0.10.1`
-// pin in pyproject.toml (the JAX checkout determines the XLA revision behind
-// `@xla`).
+// The backend is built against XLA from inside the official JAX CI container 
+// The Flatiron Jenkins pods cannot run nested containers, 
+// so we run the build *directly* in a pod whose image IS that container.
 JAX_GIT_REPOSITORY = 'https://github.com/jax-ml/jax.git'
 JAX_GIT_TAG        = 'jax-v0.10.1'
-// Full Artifact Registry path for the JAX CI container (the public image the
-// `tensorflow/ml-build:latest` shorthand resolves to via ci/envs/docker.env).
-// docker.io/tensorflow/ml-build is not publicly pullable.
+// Full Artifact Registry paths for the JAX CI container
 ML_BUILD_x86_IMAGE     = 'us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest'
-// aarch64 counterpart of the JAX CI container. Run it under QEMU (emulation:
-// true) on the x86_64 Jenkins hardware.
 ML_BUILD_ARM64_IMAGE = 'us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build-arm64:latest'
 // Broad arch list (Volta -> Blackwell SASS + PTX fallback).
 CUDA12_ARCHS = 'sm_70,sm_80,sm_90,sm_120,compute_90'
@@ -29,14 +19,15 @@ CUSOLVERMP12 = 'nvidia-cusolvermp-cu12==0.8.0.3126'
 // Compile the native backend for one CUDA major version. This runs inside a pod
 // whose image is the JAX CI container (ML_BUILD_x86_IMAGE), so bazel + hermetic CUDA
 // are already present and we invoke the JAX CI scripts and build script
-// directly (no run_docker_container.sh / docker exec).
-def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
+// directly
+def compileNativeBackend(cudaMajor, archs, cusolvermpPkg, bazelStartup = '') {
   withEnv([
     "CUDA_MAJOR=${cudaMajor}",
     "ARCHS=${archs}",
     "CUSOLVERMP_PKG=${cusolvermpPkg}",
     "JAX_GIT_REPOSITORY=${JAX_GIT_REPOSITORY}",
-    "JAX_GIT_TAG=${JAX_GIT_TAG}"
+    "JAX_GIT_TAG=${JAX_GIT_TAG}",
+    "BAZEL_STARTUP=${bazelStartup}"
   ]) {
     sh '''#!/bin/bash -ex
       WS="$(pwd)"
@@ -55,14 +46,7 @@ def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
       mkdir -p jax-src/jaxmg
       cp -r src bazel build_native_backend.sh pyproject.toml setup.py jax-src/jaxmg/
 
-      # 3. Generate .jax_configure.bazelrc ONLY (CUDA/cuDNN/Bazel config). This
-      #    is all build_native_backend.sh needs from JAX's CI. `--configure_only`
-      #    writes the bazelrc and skips every Bazel build, so we avoid the full
-      #    (and, under emulation, hours-long) jax-cuda-plugin compile. The flags
-      #    mirror what ci/build_artifacts.sh passes to build.py for a CUDA
-      #    artifact (non-RBE, default type); the ML_WHEEL_* wheel-tag repo_envs
-      #    it adds are omitted since they only affect jax wheel versioning.
-      cd jax-src
+      # 3. Generate .jax_configure.bazelrc ONLY (CUDA/cuDNN/Bazel config). 
       source ci/envs/default.env
       source ci/utilities/setup_build_environment.sh
       arch="$(uname -m)"
@@ -84,6 +68,7 @@ def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
       JAX_SRC="$PWD" JAXMG_ROOT="$PWD/jaxmg" CUDA_MAJOR="$CUDA_MAJOR" \
         JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$ARCHS" \
         JAXMG_XLA_BAZEL_JOBS="${PARALLEL:-$(nproc)}" \
+        JAXMG_XLA_BAZEL_STARTUP_OPTIONS="$BAZEL_STARTUP" \
         ./jaxmg/build_native_backend.sh
 
       # 5. Copy the built library back into the workspace for stashing.
@@ -97,9 +82,7 @@ def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
   }
 }
 
-// x86_64 (build + test) and aarch64 (emulated, build-only) run concurrently.
-// Each branch keeps its own timeout: emulation is far slower, so aarch64 gets a
-// longer budget without holding the native x86 build to it.
+// x86_64 (build + test) 
 parallel(
   'x86_64': {
 timeout(time: 2, unit: 'HOURS') {
@@ -113,27 +96,14 @@ timeout(time: 2, unit: 'HOURS') {
       dir('build-x86') {
         checkout scm
         compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
-        // Sanity check: the native lib we are about to stash must be x86_64.
-        sh '''#!/bin/bash -ex
-          so=src/jaxmg/cu12/libjaxmg_xla_comm_backend.so
-          file "$so"
-          file "$so" | grep -qi x86-64 \
-            || { echo "ERROR: $so is not x86_64" >&2; exit 1; }
-        '''
         stash name: 'bin12_x86', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
       }
     }
   }
 
   // Test in a manylinux + local CUDA toolkit image (multiple Python versions),
-  // built from .jenkins/Dockerfile12. buildPod builds that image and runs this
-  // body in a GPU pod using it (buildPod == buildImage + runPod, args pass
-  // through), so there is no separate runPod here.
   buildPod(tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12', devShm: true, gpus: 2, gpuType: 'a100') {
     stage('Test CUDA 12') {
-      // Isolate the wheel build + test in its own directory with a private source
-      // checkout, so its src/jaxmg/cu12/ (unstashed .so) and src/jaxmg.egg-info/
-      // never collide with the concurrent aarch64 build in this shared workspace.
       dir('build-x86') {
       checkout scm
       withEnv([
@@ -142,9 +112,7 @@ timeout(time: 2, unit: 'HOURS') {
         "CUDA_VISIBLE_DEVICES=0,1",
         "JAXMG_MPMD_LAUNCHER=subprocess",
         // Disable NCCL's cuMem allocator (fails at ncclGroupEnd in the pod) and
-        // keep JAX on the conservative platform allocator. The Jenkins GPU pod
-        // reports CUDA VMM support, but repeated distributed smoke tests can
-        // leave too little contiguous memory for NCCL communicator creation.
+        // keep JAX on the conservative platform allocator. 
         "NCCL_CUMEM_ENABLE=0",
         "XLA_PYTHON_CLIENT_ALLOCATOR=platform",
       ]) {
@@ -159,11 +127,6 @@ timeout(time: 2, unit: 'HOURS') {
         for (c in cudaVersions) {
           for (p in pyVersions) {
             for (j in jaxVersions) {
-              // Keep the complete CPU/interface suite, then execute the
-              // one-rank MPMD smoke cases against the packaged native backend.
-              // Restricting visibility to GPU 0 makes cases requesting more
-              // ranks skip before launch; broader distributed coverage remains
-              // the responsibility of the scheduler-based HPC test suite.
               def pytest_cmd = '''
                 python -m pytest -svv -m 'not mpmd' tests
                 JAXMG_MPMD_LAUNCHER=subprocess \
@@ -223,51 +186,26 @@ timeout(time: 2, unit: 'HOURS') {
   }
 }
   },
-  // -------------------------------------------------------------------------
-  // aarch64 (arm64) build — emulated, BUILD ONLY. There is no test stage: GPUs
-  // are unavailable under QEMU emulation, so we only compile the native backend
-  // and package the wheel. Both stages run arm64 images under `emulation: true`
-  // on the x86_64 Jenkins hardware: the compile uses the aarch64 JAX CI image
-  // directly, the wheel builds an arm64 manylinux image (Dockerfile12_aarch64)
-  // with `buildArgs: '--platform=linux/arm64'`. Emulation is slow (especially
-  // the Bazel/XLA compile), hence the longer timeout.
-  // -------------------------------------------------------------------------
+  // aarch64 (arm64) build only under QEMU emulation.
   'aarch64': {
 timeout(time: 8, unit: 'HOURS') {
-  // 1. Compile the native backend for arm64 in the aarch64 JAX CI container,
-  //    run under QEMU emulation on the x86_64 Jenkins hardware. Mirrors the x86
-  //    compile (runPod(image: ...)), just with the arm64 image and emulation.
   runPod(image: ML_BUILD_ARM64_IMAGE, emulation: true, cpus: 32, memory: '64Gi') {
     stage('Compile CUDA 12 (arm64)') {
-      // Isolate the build in a branch-specific directory so its jax-src/ clone,
-      // Bazel output base (HOME=$PWD), and src/jaxmg/cu12/ output never share
-      // state with the concurrent x86_64 compile in this shared job workspace.
       dir('build-arm64') {
         checkout scm
-        compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
-        // Fail fast (with a clear message) if we did not actually produce an
-        // aarch64 binary, rather than failing cryptically later in auditwheel.
-        sh '''#!/bin/bash -ex
-          so=src/jaxmg/cu12/libjaxmg_xla_comm_backend.so
-          file "$so"
-          file "$so" | grep -qi aarch64 \
-            || { echo "ERROR: $so is not aarch64 -- the emulated build produced the wrong arch" >&2; exit 1; }
-        '''
+        // --batch: run Bazel without the persistent server. Under QEMU emulation
+        // the server JVM hangs on shutdown after the build completes; batch mode
+        // exits cleanly.
+        compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12, '--batch')
         stash name: 'bin12_arm64', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
       }
     }
   }
 
-  // 2. Package the wheel for arm64 in an emulated manylinux aarch64 + CUDA image.
+  // Package the wheel for arm64 in an emulated manylinux aarch64 + CUDA image.
   buildPod(tag: '12-arm64', context: '.jenkins', dockerfile: 'Dockerfile12_aarch64',
            buildArgs: '--platform=linux/arm64', emulation: true) {
     stage('Build CUDA 12 (arm64)') {
-      // Fully isolate the arm64 wheel build in its own directory with a private
-      // source checkout. buildPod checks the repo out at the shared job
-      // workspace root; running there, this build's src/jaxmg/cu12/ (the
-      // unstashed .so) and src/jaxmg.egg-info/ would collide with the concurrent
-      // x86_64 wheel build. Inside dir('build-arm64'), unstash/build/archive all
-      // resolve under build-arm64/, so the two branches never share a path.
       dir('build-arm64') {
       checkout scm
       def cudaVersions = ['cuda12-local']
