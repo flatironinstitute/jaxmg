@@ -18,6 +18,14 @@ properties([
 GITHUB_REPO  = 'flatironinstitute/jaxmg'
 CUSOLVERMP12 = 'nvidia-cusolvermp-cu12==0.8.0.3126'
 
+// This job only makes sense when triggered by GitHub Actions (which passes the
+// wheels' GHA_RUN_ID). 
+if (!params.GHA_RUN_ID?.trim()) {
+  echo 'No GHA_RUN_ID parameter: not triggered by GitHub Actions. Nothing to test; skipping.'
+  currentBuild.result = 'NOT_BUILT'
+  return
+}
+
 // Test in a manylinux + local CUDA toolkit image, across Python versions, on 2 A100s.
 buildPod(tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12', devShm: true, gpus: 2, gpuType: 'a100') {
   stage('Test CUDA 12') {
