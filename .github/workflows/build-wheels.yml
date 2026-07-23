@@ -1,0 +1,199 @@
+name: build-wheels (reusable)
+
+# Reusable workflow: build libjaxmg_xla_comm_backend.so against @xla in the JAX
+# CI container (natively, no QEMU), then package cp3.11-cp3.14 manylinux wheels.
+# Parameterized by arch so the same logic serves x86_64 and aarch64.
+#
+# Build-only: no GPU is available on GitHub runners, so wheels are packaged and
+# import-checked but not GPU-tested (that happens on Jenkins, for x86).
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        description: 'x86_64 | aarch64'
+        required: true
+        type: string
+      runner:
+        description: 'ubuntu-24.04 | ubuntu-24.04-arm'
+        required: true
+        type: string
+      compile_image:
+        description: 'JAX CI container (ml-build[/-arm64]) used for the Bazel build'
+        required: true
+        type: string
+      package_image:
+        description: 'manylinux image (ships cp3.11-3.14 + auditwheel) for packaging'
+        required: true
+        type: string
+      manylinux_plat:
+        description: 'auditwheel target platform tag'
+        required: true
+        type: string
+      version:
+        description: 'override the wheel version (release path); empty keeps pyproject value'
+        required: false
+        type: string
+        default: ''
+
+env:
+  JAX_GIT_REPOSITORY: https://github.com/jax-ml/jax.git
+  JAX_GIT_TAG: jax-v0.10.1
+  CUDA_MAJOR: '12'
+  CUDA12_ARCHS: sm_70,sm_80,sm_90,sm_120,compute_90
+  CUSOLVERMP12: nvidia-cusolvermp-cu12==0.8.0.3126
+
+jobs:
+  compile:
+    runs-on: ${{ inputs.runner }}
+    container:
+      image: ${{ inputs.compile_image }}
+    steps:
+      - name: Checkout jaxmg
+        uses: actions/checkout@v4
+
+      - name: Build native backend (.so)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          WS="$(pwd)"
+          # Bazel's output base and git's --global config need a writable HOME.
+          export HOME="$WS"
+
+          # 1. Clone JAX (provides the @xla Bazel external repo).
+          rm -rf jax-src
+          git clone --depth 1 --branch "$JAX_GIT_TAG" "$JAX_GIT_REPOSITORY" jax-src
+
+          # 2. Stage this jaxmg checkout inside the jax tree.
+          mkdir -p jax-src/jaxmg
+          cp -r src bazel build_native_backend.sh pyproject.toml setup.py jax-src/jaxmg/
+
+          # 3. Generate .jax_configure.bazelrc ONLY (skip the full plugin build).
+          cd jax-src
+          source ci/envs/default.env
+          source ci/utilities/setup_build_environment.sh
+          arch="$(uname -m)"
+          python build/build.py build \
+            --wheels=jax-cuda-plugin \
+            --configure_only \
+            --bazel_options=--config="ci_linux_${arch}_cuda${JAXCI_CUDA_VERSION}" \
+            --python_version="${JAXCI_HERMETIC_PYTHON_VERSION}" \
+            --cuda_major_version="${JAXCI_CUDA_VERSION}" \
+            --output_path="${JAXCI_OUTPUT_DIR}"
+
+          # 4. Build the backend against @xla (CUDA is hermetic -> pass CUDA_MAJOR).
+          python -m pip install "$CUSOLVERMP12"
+          JAX_SRC="$PWD" JAXMG_ROOT="$PWD/jaxmg" CUDA_MAJOR="$CUDA_MAJOR" \
+            JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$CUDA12_ARCHS" \
+            JAXMG_XLA_BAZEL_JOBS="$(nproc)" \
+            ./jaxmg/build_native_backend.sh
+
+          # 5. Copy the built library back into the workspace and check its arch.
+          cd "$WS"
+          mkdir -p "src/jaxmg/cu${CUDA_MAJOR}"
+          cp "jax-src/jaxmg/src/jaxmg/cu${CUDA_MAJOR}/libjaxmg_xla_comm_backend.so" \
+            "src/jaxmg/cu${CUDA_MAJOR}/"
+          so="src/jaxmg/cu${CUDA_MAJOR}/libjaxmg_xla_comm_backend.so"
+          file "$so"
+          case "${{ inputs.arch }}" in
+            x86_64)  needle='x86-64' ;;
+            aarch64) needle='aarch64' ;;
+            *) echo "unknown arch ${{ inputs.arch }}" >&2; exit 1 ;;
+          esac
+          file "$so" | grep -qi "$needle" \
+            || { echo "ERROR: $so is not ${{ inputs.arch }}" >&2; exit 1; }
+          ls -la "src/jaxmg/cu${CUDA_MAJOR}"
+
+      - name: Upload native backend (.so)
+        uses: actions/upload-artifact@v4
+        with:
+          name: libjaxmg-${{ inputs.arch }}-cu12
+          path: src/jaxmg/cu12/libjaxmg_xla_comm_backend.so
+          if-no-files-found: error
+
+  package:
+    needs: compile
+    runs-on: ${{ inputs.runner }}
+    container:
+      image: ${{ inputs.package_image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # <pip tag> == /opt/python/<cpython dir> in the manylinux image
+        python: ['cp311-cp311', 'cp312-cp312', 'cp313-cp313', 'cp314-cp314']
+    steps:
+      - name: Checkout jaxmg
+        uses: actions/checkout@v4
+
+      - name: Download native backend (.so)
+        uses: actions/download-artifact@v4
+        with:
+          name: libjaxmg-${{ inputs.arch }}-cu12
+          path: src/jaxmg/cu12
+
+      - name: Build + repair wheel (${{ matrix.python }})
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          PLAT: ${{ inputs.manylinux_plat }}
+          ARCH: ${{ inputs.arch }}
+        run: |
+          set -euxo pipefail
+          PY="/opt/python/${{ matrix.python }}/bin/python"
+
+          # Sanity: the .so we are about to package must match the target arch.
+          so="src/jaxmg/cu12/libjaxmg_xla_comm_backend.so"
+          case "$ARCH" in
+            x86_64)  needle='x86-64' ;;
+            aarch64) needle='aarch64' ;;
+          esac
+          file "$so"
+          file "$so" | grep -qi "$needle" \
+            || { echo "ERROR: $so is not $ARCH before packaging" >&2; exit 1; }
+
+          # Release path: stamp the version from the git tag into pyproject.
+          if [ -n "$VERSION" ]; then
+            sed -i "s/^version = .*/version = \"${VERSION}\"/" pyproject.toml
+            grep -n '^version' pyproject.toml
+          fi
+
+          "$PY" -m pip install --upgrade pip build
+          "$PY" -m build --wheel --outdir dist
+
+          # Bundle deps + apply the manylinux tag. Exclude the CUDA/cuSOLVERMp
+          # runtime libraries -- they are NOT in this packaging image (it has no
+          # CUDA) and are provided at runtime by the nvidia-*-cu12 wheels that
+          # jax[cuda12] pulls in. libcudart is included here: the Jenkins images
+          # shipped a local CUDA toolkit so it was bundled, but the CUDA-less
+          # manylinux image cannot locate it, which is what broke the repair.
+          auditwheel repair \
+            --plat "$PLAT" \
+            --exclude 'libcuda.so*' \
+            --exclude 'libcudart.so*' \
+            --exclude 'libcusolver.so*' \
+            --exclude 'libcusolverMg.so*' \
+            --exclude 'libcusolverMp.so*' \
+            --exclude 'libcupti.so*' \
+            --exclude 'libcusparse.so*' \
+            --exclude 'libcublasLt.so*' \
+            --exclude 'libcublas.so*' \
+            --exclude 'libnvJitLink.so*' \
+            dist/jaxmg-*.whl -w dist_repaired
+
+          # Version guard: the repaired wheel must carry the requested version.
+          if [ -n "$VERSION" ]; then
+            ls dist_repaired/jaxmg-*.whl | grep -q -- "-${VERSION}-" \
+              || { echo "ERROR: wheel version does not match ${VERSION}" >&2; ls dist_repaired; exit 1; }
+          fi
+
+          # Build-only sanity: installs + jaxmg importable as a spec. Do NOT
+          # `import jaxmg` -- that inits the GPU backend, and there is no GPU here.
+          "$PY" -m pip install --no-deps dist_repaired/jaxmg-*.whl
+          "$PY" -c "import importlib.util; assert importlib.util.find_spec('jaxmg'), 'jaxmg not installed'; print('jaxmg spec OK')"
+
+      - name: Upload repaired wheel (${{ inputs.arch }}-${{ matrix.python }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ inputs.arch }}-${{ matrix.python }}
+          path: dist_repaired/*.whl
+          if-no-files-found: error

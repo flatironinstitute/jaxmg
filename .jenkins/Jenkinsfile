@@ -1,267 +1,124 @@
+// GPU test job. Jenkins no longer builds anything: the x86_64 wheels are built
+// on GitHub Actions and this job downloads them (by GHA run id) and runs the
+// A100 test suite. It is triggered by the GHA `jenkins-test` reusable workflow
+// via buildWithParameters. See .github/workflows/{ci,release,jenkins-test}.yml.
 properties([
+  parameters([
+    string(name: 'GHA_RUN_ID', defaultValue: '',
+           description: 'GitHub Actions run id whose wheel artifacts to test'),
+    string(name: 'GIT_SHA', defaultValue: '',
+           description: 'Commit SHA under test (matches the built wheels)'),
+    password(name: 'GH_TOKEN', defaultValue: '',
+             description: 'Short-lived GitHub token (actions:read) to download the wheel artifacts'),
+  ]),
   disableConcurrentBuilds(),
   buildDiscarder(logRotator(numToKeepStr: '8', daysToKeepStr: '30')),
-  pipelineTriggers([cron('@monthly')])
 ])
 
-// Native backend build settings.
-// The backend is built against XLA from inside the official JAX CI container 
-// The Flatiron Jenkins pods cannot run nested containers, 
-// so we run the build *directly* in a pod whose image IS that container.
-JAX_GIT_REPOSITORY = 'https://github.com/jax-ml/jax.git'
-JAX_GIT_TAG        = 'jax-v0.10.1'
-// Full Artifact Registry paths for the JAX CI container
-ML_BUILD_x86_IMAGE     = 'us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest'
-ML_BUILD_ARM64_IMAGE = 'us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build-arm64:latest'
-// Broad arch list (Volta -> Blackwell SASS + PTX fallback).
-CUDA12_ARCHS = 'sm_70,sm_80,sm_90,sm_120,compute_90'
+GITHUB_REPO  = 'flatironinstitute/jaxmg'
 CUSOLVERMP12 = 'nvidia-cusolvermp-cu12==0.8.0.3126'
-// Compile the native backend for one CUDA major version. This runs inside a pod
-// whose image is the JAX CI container (ML_BUILD_x86_IMAGE), so bazel + hermetic CUDA
-// are already present and we invoke the JAX CI scripts and build script
-// directly
-def compileNativeBackend(cudaMajor, archs, cusolvermpPkg) {
-  withEnv([
-    "CUDA_MAJOR=${cudaMajor}",
-    "ARCHS=${archs}",
-    "CUSOLVERMP_PKG=${cusolvermpPkg}",
-    "JAX_GIT_REPOSITORY=${JAX_GIT_REPOSITORY}",
-    "JAX_GIT_TAG=${JAX_GIT_TAG}"
-  ]) {
-    sh '''#!/bin/bash -ex
-      WS="$(pwd)"
 
-      # The pod runs as uid 1000 with no $HOME set, so `git config --global`
-      # (in JAX's setup_build_environment.sh) and Bazel's output base would try
-      # to write to `/`. Point HOME at the writable workspace.
-      export HOME="$WS"
-
-      # 1. Clone the JAX repo (provides the `@xla` Bazel external repo).
-      rm -rf jax-src
-      git clone --depth 1 --branch "$JAX_GIT_TAG" "$JAX_GIT_REPOSITORY" jax-src
-
-      # 2. Stage this jaxmg checkout inside the jax tree so the build sources are
-      #    visible alongside the jax checkout (JAX_SRC).
-      mkdir -p jax-src/jaxmg
-      cp -r src bazel build_native_backend.sh pyproject.toml setup.py jax-src/jaxmg/
-
-      # 3. Generate .jax_configure.bazelrc ONLY (CUDA/cuDNN/Bazel config).
-      #    build.py's --configure_only writes the bazelrc and skips every Bazel
-      #    build, so we avoid the full (emulated: hours-long) plugin compile.
-      cd jax-src
-      source ci/envs/default.env
-      source ci/utilities/setup_build_environment.sh
-      arch="$(uname -m)"
-      python build/build.py build \
-        --wheels=jax-cuda-plugin \
-        --configure_only \
-        --bazel_options=--config="ci_linux_${arch}_cuda${JAXCI_CUDA_VERSION}" \
-        --python_version="${JAXCI_HERMETIC_PYTHON_VERSION}" \
-        --cuda_major_version="${JAXCI_CUDA_VERSION}" \
-        --output_path="${JAXCI_OUTPUT_DIR}"
-
-      # 4. Build the backend against @xla. The ml-build container has no system
-      #    nvcc (CUDA is hermetic), so CUDA_MAJOR is passed explicitly.
-      if [ -n "$CUSOLVERMP_PKG" ]; then
-        python -m pip install "$CUSOLVERMP_PKG"
-      fi
-      JAX_SRC="$PWD" JAXMG_ROOT="$PWD/jaxmg" CUDA_MAJOR="$CUDA_MAJOR" \
-        JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$ARCHS" \
-        JAXMG_XLA_BAZEL_JOBS="${PARALLEL:-$(nproc)}" \
-        ./jaxmg/build_native_backend.sh
-
-      # 5. Copy the built library back into the workspace for stashing.
-      cd "$WS"
-      mkdir -p "src/jaxmg/cu${CUDA_MAJOR}"
-      cp "jax-src/jaxmg/src/jaxmg/cu${CUDA_MAJOR}/libjaxmg_xla_comm_backend.so" \
-        "src/jaxmg/cu${CUDA_MAJOR}/"
-      echo "Built libs at $WS/src/jaxmg/cu${CUDA_MAJOR}:"
-      ls -la "src/jaxmg/cu${CUDA_MAJOR}"
-    '''
-  }
+// This job only makes sense when triggered by GitHub Actions (which passes the
+// wheels' GHA_RUN_ID). 
+if (!params.GHA_RUN_ID?.trim()) {
+  echo 'No GHA_RUN_ID parameter: not triggered by GitHub Actions. Nothing to test; skipping.'
+  currentBuild.result = 'NOT_BUILT'
+  return
 }
 
-// x86_64 (build + test) 
-parallel(
-  'x86_64': {
-timeout(time: 2, unit: 'HOURS') {
-  // Compile the native backend directly inside the JAX CI container image.
-  // Bazel building XLA is CPU/memory heavy and needs no GPU.
-  runPod(image: ML_BUILD_x86_IMAGE, cpus: 32, memory: '64Gi') {
-    stage('Compile CUDA 12') {
-      // Isolate the build (jax-src/ clone, Bazel output base under HOME=$PWD, and
-      // src/jaxmg/cu12/ output) so it never shares state with the concurrent
-      // aarch64 compile running in this shared job workspace.
-      dir('build-x86') {
-        checkout scm
-        compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
-        stash name: 'bin12_x86', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
-      }
+// Test in a manylinux + local CUDA toolkit image, across Python versions, on 2 A100s.
+buildPod(tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12', devShm: true, gpus: 2, gpuType: 'a100') {
+  stage('Test CUDA 12') {
+    checkout scm
+    // Test the exact commit that produced the wheels.
+    if (params.GIT_SHA?.trim()) {
+      sh "git fetch --all --quiet && git checkout --quiet ${params.GIT_SHA}"
     }
-  }
 
-  // Test in a manylinux + local CUDA toolkit image (multiple Python versions),
-  buildPod(tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12', devShm: true, gpus: 2, gpuType: 'a100') {
-    stage('Test CUDA 12') {
-      dir('build-x86') {
-      checkout scm
-      withEnv([
-        "CUDA_ROOT=/usr/local/cuda",
-        "CUDNN_ROOT=/usr",
-        "CUDA_VISIBLE_DEVICES=0,1",
-        "JAXMG_MPMD_LAUNCHER=subprocess",
-        // Disable NCCL's cuMem allocator (fails at ncclGroupEnd in the pod) and
-        // keep JAX on the conservative platform allocator. 
-        "NCCL_CUMEM_ENABLE=0",
-        "XLA_PYTHON_CLIENT_ALLOCATOR=platform",
-      ]) {
-        sh '''#!/bin/bash -ex
-          export PATH="/usr/local/cuda/bin:$PATH"
-          export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
-        '''
+    withEnv([
+      "CUDA_ROOT=/usr/local/cuda",
+      "CUDNN_ROOT=/usr",
+      "CUDA_VISIBLE_DEVICES=0,1",
+      "JAXMG_MPMD_LAUNCHER=subprocess",
+      // Disable NCCL's cuMem allocator (fails at ncclGroupEnd in the pod) and
+      // keep JAX on the conservative platform allocator.
+      "NCCL_CUMEM_ENABLE=0",
+      "XLA_PYTHON_CLIENT_ALLOCATOR=platform",
+      "GHA_RUN_ID=${params.GHA_RUN_ID}",
+      "GITHUB_REPO=${GITHUB_REPO}",
+    ]) {
+      // Download the x86_64 wheels produced by the triggering GHA run, using the
+      // short-lived GH_TOKEN passed by GitHub Actions (no stored credential).
+      stage('Fetch GHA wheels') {
+        // Pass the token via env; do NOT interpolate it into the shell in a way
+        // that could be traced. The script runs without `set -x` for that reason.
+        withEnv(["GH_TOKEN=${params.GH_TOKEN}"]) {
+          sh '''#!/bin/bash
+            set -eo pipefail
+            set +x   # never trace: GH_TOKEN must not reach the log
+            if [ -z "$GHA_RUN_ID" ]; then
+              echo "GHA_RUN_ID parameter is required" >&2; exit 1
+            fi
+            if [ -z "$GH_TOKEN" ]; then
+              echo "GH_TOKEN parameter is required" >&2; exit 1
+            fi
+            rm -rf dist && mkdir -p dist
+            api="https://api.github.com/repos/${GITHUB_REPO}/actions/runs/${GHA_RUN_ID}/artifacts?per_page=100"
+            curl -fsS -H "Authorization: Bearer ${GH_TOKEN}" \
+                 -H "Accept: application/vnd.github+json" "$api" -o artifacts.json
 
-        def cudaVersions = ['cuda12-local']
-        def pyVersions = ['3.11', '3.12', '3.13', '3.14']
-        def jaxVersions = ['0.10.1']
-        for (c in cudaVersions) {
-          for (p in pyVersions) {
-            for (j in jaxVersions) {
-              def pytest_cmd = '''
-                python -m pytest -svv -m 'not mpmd' tests
-                JAXMG_MPMD_LAUNCHER=subprocess \
-                  python -m pytest -svv -m 'mpmd and not slow' tests/mpmd
-              '''
-              stage("Build ${c}-${p}-${j}") {
-                unstash 'bin12_x86'
-                withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}", "CUSOLVERMP_PKG=${CUSOLVERMP12}"]) {
-                  sh '''#!/bin/bash -ex
-                    mkdir -p "$WORKDIR"
-
-                    python"$PYV" -m venv "$WORKDIR/venv"
-                    source "$WORKDIR/venv/bin/activate"
-
-                    python -m pip install --upgrade pip build auditwheel
-                    python -m pip install "jax[$CUV]==$JAXV"
-
-                    python -m build --wheel --outdir "$WORKDIR/dist"
-                    auditwheel repair \
-                      --plat manylinux_2_26_x86_64 \
-                      --exclude 'libcuda.so*' \
-                      --exclude 'libcusolver.so*' \
-                      --exclude 'libcusolverMg.so*' \
-                      --exclude 'libcusolverMp.so*' \
-                      --exclude 'libcupti.so*' \
-                      --exclude 'libcusparse.so*' \
-                      --exclude 'libcublasLt.so*' \
-                      --exclude 'libcublas.so*' \
-                      --exclude 'libnvJitLink.so*' \
-                      "$WORKDIR"/dist/jaxmg-*.whl -w "$WORKDIR/dist_repaired"
-
-                    python -m pip install --no-deps "$WORKDIR"/dist_repaired/jaxmg-*.whl
-                    # jaxmg links libcusolverMp.so.0, which is excluded from the
-                    # wheel and ships in nvidia-cusolvermp-cu12. --no-deps skips
-                    # it, so install it explicitly into the test venv.
-                    python -m pip install "$CUSOLVERMP_PKG"
-                    python -c "import sys, jax; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices()); import jaxmg"
-                  '''
-                  archiveArtifacts artifacts: "${WORKDIR}/dist_repaired/*.whl", onlyIfSuccessful: true
-                }
-              }
-              stage("Test ${c}-${p}-${j}") {
-                withEnv(["WORKDIR=${c}/${p}/${j}"]) {
-                  sh """#!/bin/bash -ex
-                    source "$WORKDIR/venv/bin/activate"
-                    python -m pip install pytest matplotlib
-                    ${pytest_cmd}
-                  """
-                }
-              }
-            }
-          }
+            # Download + unzip every wheels-x86_64-* artifact into dist/.
+            python3 - <<'PY' > urls.txt
+import json
+d = json.load(open("artifacts.json"))
+for a in d["artifacts"]:
+    if a["name"].startswith("wheels-x86_64-"):
+        print(a["id"], a["name"])
+PY
+            [ -s urls.txt ] || { echo "no wheels-x86_64-* artifacts in run $GHA_RUN_ID" >&2; exit 1; }
+            while read -r id name; do
+              curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+                   "https://api.github.com/repos/${GITHUB_REPO}/actions/artifacts/${id}/zip" \
+                   -o "dist/${name}.zip"
+              (cd dist && unzip -o "${name}.zip" && rm -f "${name}.zip")
+            done < urls.txt
+            echo "Fetched wheels:"; ls -la dist/*.whl
+          '''
         }
       }
-      }
-    }
-  }
-}
-  },
-  // aarch64 (arm64) build only under QEMU emulation.
-  'aarch64': {
-timeout(time: 8, unit: 'HOURS') {
-  runPod(image: ML_BUILD_ARM64_IMAGE, emulation: true, cpus: 32, memory: '64Gi') {
-    stage('Compile CUDA 12 (arm64)') {
-      dir('build-arm64') {
-        checkout scm
-        compileNativeBackend('12', CUDA12_ARCHS, CUSOLVERMP12)
-        stash name: 'bin12_arm64', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
-      }
-    }
-  }
 
-  // Package the wheel for arm64 in an emulated manylinux aarch64 + CUDA image.
-  buildPod(tag: '12-arm64', context: '.jenkins', dockerfile: 'Dockerfile12_aarch64',
-           buildArgs: '--platform=linux/arm64', emulation: true) {
-    stage('Build CUDA 12 (arm64)') {
-      dir('build-arm64') {
-      checkout scm
-      def cudaVersions = ['cuda12-local']
       def pyVersions = ['3.11', '3.12', '3.13', '3.14']
-      def jaxVersions = ['0.10.1']
-      for (c in cudaVersions) {
-        for (p in pyVersions) {
-          for (j in jaxVersions) {
-            stage("Build ${c}-${p}-${j} (arm64)") {
-              unstash 'bin12_arm64'
-              withEnv(["WORKDIR=arm64/${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}", "CUSOLVERMP_PKG=${CUSOLVERMP12}"]) {
-                sh '''#!/bin/bash -ex
-                  mkdir -p "$WORKDIR"
+      for (p in pyVersions) {
+        stage("Test py${p}") {
+          withEnv(["PYV=${p}", "CUSOLVERMP_PKG=${CUSOLVERMP12}"]) {
+            sh '''#!/bin/bash -ex
+              export PATH="/usr/local/cuda/bin:$PATH"
+              export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+              PYTAG="cp${PYV/./}"
 
-                  # Sanity check: the unstashed native lib we are about to
-                  # package must be aarch64.
-                  so=src/jaxmg/cu12/libjaxmg_xla_comm_backend.so
-                  file "$so"
-                  file "$so" | grep -qi aarch64 \
-                    || { echo "ERROR: $so is not aarch64 before packaging" >&2; exit 1; }
+              whl=$(ls dist/jaxmg-*-${PYTAG}-${PYTAG}-*.whl | head -1)
+              [ -n "$whl" ] || { echo "no x86_64 wheel for ${PYTAG}" >&2; exit 1; }
 
-                  python"$PYV" -m venv "$WORKDIR/venv"
-                  source "$WORKDIR/venv/bin/activate"
+              python"$PYV" -m venv "venv/$PYV"
+              source "venv/$PYV/bin/activate"
+              python -m pip install --upgrade pip
 
-                  python -m pip install --upgrade pip build auditwheel
-                  python -m pip install "jax[$CUV]==$JAXV"
+              # Install jax (CUDA plugins) first, then the jaxmg wheel with
+              # --no-deps, then the cuSOLVERMp runtime it links, then test deps.
+              python -m pip install "jax[cuda12-local]==0.10.1"
+              python -m pip install --no-deps "$whl"
+              python -m pip install "$CUSOLVERMP_PKG"
+              python -m pip install pytest matplotlib
 
-                  python -m build --wheel --outdir "$WORKDIR/dist"
-                  auditwheel repair \
-                    --plat manylinux_2_28_aarch64 \
-                    --exclude 'libcuda.so*' \
-                    --exclude 'libcusolver.so*' \
-                    --exclude 'libcusolverMg.so*' \
-                    --exclude 'libcusolverMp.so*' \
-                    --exclude 'libcupti.so*' \
-                    --exclude 'libcusparse.so*' \
-                    --exclude 'libcublasLt.so*' \
-                    --exclude 'libcublas.so*' \
-                    --exclude 'libnvJitLink.so*' \
-                    "$WORKDIR"/dist/jaxmg-*.whl -w "$WORKDIR/dist_repaired"
+              python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices())"
 
-                  python -m pip install --no-deps "$WORKDIR"/dist_repaired/jaxmg-*.whl
-                  # jaxmg links libcusolverMp.so.0, which is excluded from the
-                  # wheel and ships in nvidia-cusolvermp-cu12. --no-deps skips
-                  # it, so install it explicitly into the build venv.
-                  python -m pip install "$CUSOLVERMP_PKG"
-                  # Build-only: confirm the wheel installs and imports, but do
-                  # NOT `import jaxmg` — that triggers native-backend/GPU init,
-                  # which cannot run under emulation without a GPU.
-                  python -c "import sys, jax, importlib.util; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); assert importlib.util.find_spec('jaxmg'), 'jaxmg not installed'"
-                '''
-                archiveArtifacts artifacts: "${WORKDIR}/dist_repaired/*.whl", onlyIfSuccessful: true
-              }
-            }
+              python -m pytest -svv -m 'not mpmd' tests
+              JAXMG_MPMD_LAUNCHER=subprocess \
+                python -m pytest -svv -m 'mpmd and not slow' tests/mpmd
+            '''
           }
         }
-      }
       }
     }
   }
 }
-  }
-)
