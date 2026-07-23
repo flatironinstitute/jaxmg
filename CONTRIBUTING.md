@@ -108,29 +108,38 @@ to serve the docs locally. On push to main, the docs are automatically deployed 
 
 ## Publish Package
 
-Get the latest built wheels from Jenkins:
+Releases are fully automated by GitHub Actions (`.github/workflows/release.yml`) — no manual
+`wget`/`twine` steps, and no PyPI tokens on disk (publishing uses PyPI Trusted Publishing / OIDC).
 
-```bash
-mkdir dist
-VERSION=0.0.8
-CUDA_FLAVOR=cuda12-local
-JAX_VERSION=0.10.1
-for PY in 3.11 3.12 3.13 3.14; do
-   PYTAG=cp${PY/./}
-   URL="https://jenkins.flatironinstitute.org/job/jaxmg/job/main/lastBuild/artifact/${CUDA_FLAVOR}/${PY}/${JAX_VERSION}/dist_repaired/jaxmg-${VERSION}-${PYTAG}-${PYTAG}-manylinux_2_26_x86_64.whl"
-   echo "Downloading ${URL}"
-   wget -q -N --show-progress "${URL}" -P ./dist
-done
-```
-Install twine
-```bash
-python -m pip install twine
-```
-Upload to testpypi
-```bash
-python -m twine upload --repository testpypi dist/*
-```
-Test the wheel
-```bash
-pip install -i https://test.pypi.org/simple/ "jaxmg[cuda12]==0.0.8" --extra-index-url https://pypi.org/simple
-```
+The git tag is the single source of truth for the version. To cut a release:
+
+1. Make sure `main` is green (the CI workflow builds the wheels and runs the Jenkins A100 tests).
+2. Push a version tag:
+   ```bash
+   git tag v0.0.10
+   git push origin v0.0.10
+   ```
+3. The release workflow then:
+   - builds the x86_64 **and** aarch64 wheels (cp3.11–cp3.14) with the version taken from the tag,
+   - runs the Jenkins A100 GPU tests on the x86 wheels (release gate),
+   - publishes to **TestPyPI** automatically,
+   - **waits for a manual approval** (the `pypi` GitHub Environment reviewer) before publishing to
+     real **PyPI**, and attaches the wheels to the GitHub Release.
+4. Before approving the PyPI step, sanity-check the TestPyPI upload:
+   ```bash
+   pip install -i https://test.pypi.org/simple/ "jaxmg[cuda12]==0.0.10" --extra-index-url https://pypi.org/simple
+   ```
+
+For a dry run without tagging, use the workflow's **Run workflow** button (`workflow_dispatch`) and
+pass a `version`; it builds + publishes to TestPyPI (the PyPI step still requires approval).
+
+### One-time setup
+
+- GitHub repo **secrets**: `JENKINS_JOB_URL` (the multibranch project URL, e.g.
+  `https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg`), `JENKINS_USER`, `JENKINS_API_TOKEN`
+  (so CI can trigger the Jenkins GPU test).
+- No Jenkins-side GitHub credential is needed: CI passes its own short-lived `GITHUB_TOKEN` to the
+  Jenkins job as the `GH_TOKEN` parameter, which the job uses to download the wheel artifacts.
+- **Trusted Publishers** configured on PyPI and TestPyPI for this repo + `release.yml` (environments
+  `pypi` / `testpypi`).
+- GitHub **Environments** `testpypi` (open) and `pypi` (with a required reviewer = the approval gate).

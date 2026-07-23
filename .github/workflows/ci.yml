@@ -1,0 +1,48 @@
+name: CI
+
+# Push/PR CI. GHA is the sole builder:
+#  - build the x86_64 wheels, then trigger the Jenkins A100 test on them.
+#  - build the aarch64 wheels for validation (build-only; no ARM GPU anywhere).
+# Jenkins no longer builds -- it only tests the wheels this run produced.
+
+on:
+  push:
+    branches: ['**']     # every branch (tags are handled by release.yml)
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-x86:
+    uses: ./.github/workflows/build-wheels.yml
+    with:
+      arch: x86_64
+      runner: ubuntu-24.04
+      compile_image: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest
+      package_image: quay.io/pypa/manylinux_2_28_x86_64
+      manylinux_plat: manylinux_2_28_x86_64
+
+  build-aarch64:
+    uses: ./.github/workflows/build-wheels.yml
+    with:
+      arch: aarch64
+      runner: ubuntu-24.04-arm
+      compile_image: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build-arm64:latest
+      package_image: quay.io/pypa/manylinux_2_28_aarch64
+      manylinux_plat: manylinux_2_28_aarch64
+
+  # GPU-test the x86 wheels on Jenkins. Skipped for fork PRs (no access to the
+  # Jenkins secrets); those simply don't get the GPU gate.
+  test-x86:
+    needs: build-x86
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    permissions:
+      actions: read        # so github.token can download the wheel artifacts
+    uses: ./.github/workflows/jenkins-test.yml
+    with:
+      gha_run_id: ${{ github.run_id }}
+      git_sha: ${{ github.sha }}
+      branch: ${{ github.ref_name }}    # trigger this branch's own Jenkins job
+    secrets: inherit

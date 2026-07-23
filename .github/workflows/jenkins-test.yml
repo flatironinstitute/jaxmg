@@ -1,0 +1,126 @@
+name: jenkins-test (reusable)
+
+# Reusable workflow: trigger the Flatiron Jenkins GPU-test job for a set of
+# GHA-built wheels and wait for its verdict. Jenkins no longer builds anything;
+# it downloads the wheels produced by GHA run `gha_run_id` and runs the A100
+# tests. This job is the check that gates PRs and (in release) the publish step.
+#
+# Required secrets (set on the repo):
+#   JENKINS_JOB_URL   URL of the MULTIBRANCH PROJECT (no branch), e.g.
+#                     https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg
+#                     The per-branch job "/job/<branch>" is appended automatically,
+#                     so each branch keeps its own Jenkins job/history.
+#   JENKINS_USER      Jenkins username
+#   JENKINS_API_TOKEN Jenkins API token for that user
+#
+# The (per-branch) Jenkins job must accept parameters GHA_RUN_ID, GIT_SHA and a
+# password parameter GH_TOKEN, and have "Trigger builds remotely" / API access
+# enabled. GH_TOKEN is this run's short-lived GITHUB_TOKEN (actions:read); Jenkins
+# uses it to download the wheel artifacts, so no long-lived credential is stored
+# in Jenkins. The caller must grant `actions: read` on the job that calls this.
+
+on:
+  workflow_call:
+    inputs:
+      gha_run_id:
+        description: 'GHA run id whose wheel artifacts Jenkins should test'
+        required: true
+        type: string
+      git_sha:
+        description: 'Commit SHA under test'
+        required: true
+        type: string
+      branch:
+        description: 'Jenkins multibranch branch job to trigger (e.g. main, my-feature)'
+        required: true
+        type: string
+    secrets:
+      JENKINS_JOB_URL:
+        required: true
+      JENKINS_USER:
+        required: true
+      JENKINS_API_TOKEN:
+        required: true
+
+jobs:
+  jenkins:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Jenkins and wait for result
+        shell: bash
+        env:
+          PROJECT_URL: ${{ secrets.JENKINS_JOB_URL }}
+          JENKINS_USER: ${{ secrets.JENKINS_USER }}
+          JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
+          GHA_RUN_ID: ${{ inputs.gha_run_id }}
+          GIT_SHA: ${{ inputs.git_sha }}
+          BRANCH: ${{ inputs.branch }}
+          # Short-lived token for THIS run; GitHub auto-masks it in these logs.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PROJECT_URL:-}" ]; then
+            echo "JENKINS_JOB_URL secret is not set" >&2
+            exit 1
+          fi
+          PROJECT_URL="${PROJECT_URL%/}"    # tolerate a trailing slash
+          AUTH="-u ${JENKINS_USER}:${JENKINS_API_TOKEN}"
+
+          # Target the per-branch multibranch job: <project>/job/<url-encoded branch>.
+          # (Multibranch encodes '/' in a branch name as %2F.)
+          BRANCH_ENC=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$BRANCH")
+          JOB_URL="${PROJECT_URL}/job/${BRANCH_ENC}"
+
+          # Jenkins server root (scheme://host), independent of nested job folders.
+          _rest="${PROJECT_URL#*://}"
+          ROOT="${PROJECT_URL%%://*}://${_rest%%/*}"
+
+          # CSRF crumb (harmless if the instance doesn't require it; API-token
+          # auth is exempt, so an empty crumb is fine).
+          CRUMB=$(curl -fsS $AUTH "${ROOT}/crumbIssuer/api/json" 2>/dev/null \
+            | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["crumbRequestField"]+":"+d["crumb"])' 2>/dev/null || true)
+          CRUMB_HDR=()
+          [ -n "$CRUMB" ] && CRUMB_HDR=(-H "$CRUMB")
+
+          echo "Triggering ${JOB_URL} (GHA_RUN_ID=${GHA_RUN_ID}, GIT_SHA=${GIT_SHA})"
+          # buildWithParameters returns 201 with the queue item in Location.
+          QUEUE_URL=$(curl -fsS -D - -o /dev/null -X POST $AUTH "${CRUMB_HDR[@]}" \
+            --data-urlencode "GHA_RUN_ID=${GHA_RUN_ID}" \
+            --data-urlencode "GIT_SHA=${GIT_SHA}" \
+            --data-urlencode "GH_TOKEN=${GH_TOKEN}" \
+            "${JOB_URL}/buildWithParameters" \
+            | tr -d '\r' | awk -F': ' 'tolower($1)=="location"{print $2}')
+          if [ -z "${QUEUE_URL:-}" ]; then
+            echo "No queue Location header returned by Jenkins" >&2
+            exit 1
+          fi
+          echo "Queued: ${QUEUE_URL}"
+
+          # Poll the queue item until it turns into a build (up to ~10 min).
+          BUILD_URL=""
+          for _ in $(seq 1 120); do
+            BUILD_URL=$(curl -fsS $AUTH "${QUEUE_URL%/}/api/json" \
+              | python3 -c 'import sys,json;d=json.load(sys.stdin);print((d.get("executable") or {}).get("url",""))' || true)
+            [ -n "$BUILD_URL" ] && break
+            sleep 5
+          done
+          if [ -z "$BUILD_URL" ]; then
+            echo "Jenkins build never started (still queued)" >&2
+            exit 1
+          fi
+          echo "Building: ${BUILD_URL}"
+          echo "JENKINS_BUILD_URL=${BUILD_URL}" >> "$GITHUB_STEP_SUMMARY"
+
+          # Poll the build until it finishes (up to ~4 h; tests are long).
+          RESULT=""
+          for _ in $(seq 1 2880); do
+            RESULT=$(curl -fsS $AUTH "${BUILD_URL%/}/api/json" \
+              | python3 -c 'import sys,json;print(json.load(sys.stdin).get("result") or "")' || true)
+            [ -n "$RESULT" ] && break
+            sleep 5
+          done
+          echo "Jenkins result: ${RESULT:-<timeout>}"
+          if [ "$RESULT" != "SUCCESS" ]; then
+            echo "Jenkins GPU test did not pass (result=${RESULT:-timeout}). See ${BUILD_URL}" >&2
+            exit 1
+          fi
