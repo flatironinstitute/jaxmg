@@ -1,1 +1,24 @@
+# Native libraries
 src/jaxmg/cu*/lib*.so
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Environments
+.venv/
+venv/
+
+# Build and packaging
+build/
+dist/
+dist_repaired/
+bazel-*
+site/
+
+# Coverage and system files
+.coverage
+htmlcov/
+.DS_Store
