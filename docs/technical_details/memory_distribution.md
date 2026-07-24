@@ -950,8 +950,8 @@ row-major local shards
 JAX-facing result
 ```
 
-For `potrs` and `lu_solve`, a vector right-hand side is represented internally
-as an `N x 1` matrix.  The public wrappers return a vector again, so the output
+For `potrs` and `lu_solve`, a vector solve input is represented internally as
+an `N x 1` matrix.  The public wrappers return a vector again, so the output
 rank matches the input rank.
 
 ## Solver-specific native work

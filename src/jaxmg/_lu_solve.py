@@ -66,8 +66,8 @@ def lu_solve(
         a (Array): 2D, nonsingular input matrix. Expected to be sharded
             across a 2D mesh with a matrix ``PartitionSpec`` such as
             ``P(<row_axis>, <col_axis>)``.
-        b (Array): 1D or 2D right-hand side. A vector is treated as an
-            ``N x 1`` right-hand-side matrix.
+        b (Array): 1D or 2D solve input. A vector is treated as an
+            ``N x 1`` matrix.
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
             dimension must be a multiple of ``T_A`` after padding.
         mesh (Mesh, optional): JAX mesh used for ``jax.shard_map``. If omitted,
@@ -212,8 +212,8 @@ def lu_solve_shardmap_ctx(
         a (Array): 2D, nonsingular input matrix. Expected to be sharded
             across a 2D mesh with a matrix ``PartitionSpec`` such as
             ``P(<row_axis>, <col_axis>)``.
-        b (Array): 1D or 2D right-hand side. A vector is treated as an
-            ``N x 1`` right-hand-side matrix.
+        b (Array): 1D or 2D solve input. A vector is treated as an
+            ``N x 1`` matrix.
         T_A (int): Square tile width used by cuSOLVERMp.
         mesh (Mesh, optional): JAX mesh used for ``jax.shard_map``. If omitted,
             inferred from ``a.sharding.mesh``.

@@ -145,7 +145,7 @@ column_major_mesh = Mesh(
 )
 ```
 
-## 4. Place the matrix and right-hand side
+## 4. Shard the matrix and solve input
 
 `PartitionSpec` describes how each array dimension maps onto the process-grid
 axes. A matrix is normally sharded over both axes:
@@ -164,7 +164,7 @@ a = jax.device_put(a, a_sharding)
 On the $4\times2$ grid, each process initially owns an
 $(N/4)\times(N/2)$ rectangular shard of `a`.
 
-A vector right-hand side can be sharded over process rows and replicated across
+A vector solve input can be sharded over process rows and replicated across
 process columns:
 
 ```python
@@ -172,8 +172,8 @@ b_vector = jnp.ones((N,), dtype=a.dtype)
 b_vector = jax.device_put(b_vector, NamedSharding(mesh, P("pr")))
 ```
 
-For an $N\times\mathrm{NRHS}$ matrix right-hand side, shard the matrix rows and
-leave its columns replicated:
+For a solve input with shape $N\times\mathrm{NRHS}$, shard its rows and leave
+its columns replicated:
 
 ```python
 b_matrix = jnp.ones((N, 1), dtype=a.dtype)
@@ -181,8 +181,8 @@ b_matrix = jax.device_put(b_matrix, NamedSharding(mesh, P("pr", None)))
 ```
 
 The public solver accepts either representation. JAXMg adds any routing or tile
-padding required for a narrow right-hand side and redistributes it internally
-for cuSOLVERMp.
+padding required for a narrow solve input and redistributes it internally for
+cuSOLVERMp.
 
 With distributed execution configured, continue to [Choose a tile size
 $T_A$](choose_tile_size.md) before selecting a solver example.

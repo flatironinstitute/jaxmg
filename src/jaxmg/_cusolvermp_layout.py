@@ -104,7 +104,7 @@ def place_rhs_for_native_work(
     """Place an RHS in the native backend's regular 2D work sharding.
 
     The public solvers accept a replicated RHS-column axis, for example
-    ``P('pr', None)`` for an ``N x 1`` right-hand side. The shard-local native
+    ``P('pr', None)`` for an ``N x 1`` solve input. The shard-local native
     FFI instead receives a regular ``P('pr', 'pc')`` work buffer. JAX has two
     different APIs for that placement depending on how the mesh was created:
     ``jax.make_mesh`` creates explicit axes and requires ``jax.reshard``,
@@ -381,7 +381,7 @@ def _unpad_local_2d(block: Array, *, local_rows: int, local_cols: int) -> Array:
 def rhs_distribution_columns(nrhs: int, *, process_cols: int, pad: bool) -> int:
     """Choose the JAX-visible RHS width used before local tile padding.
 
-    cuSOLVERMp accepts a skinny right-hand side matrix ``B`` with ``NRHS``
+    cuSOLVERMp accepts a skinny solve-input matrix ``B`` with ``NRHS``
     columns, even when ``NRHS`` is smaller than the process-grid column count.
     In that ScaLAPACK-style layout, some process columns simply own zero real
     RHS columns.  The JAX-facing block-sharded input cannot express that zero

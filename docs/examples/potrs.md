@@ -45,7 +45,7 @@ expected = 1.0 / jnp.arange(1, N + 1, dtype=dtype)
 
 ## Solve with `potrs`
 
-Pass the sharded input matrix and right-hand side directly to `potrs`:
+Pass the sharded matrix and solve input directly to `potrs`:
 
 ```python
 a, b = make_problem()

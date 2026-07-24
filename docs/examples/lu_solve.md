@@ -48,7 +48,7 @@ def make_problem():
 
 ## Solve with `lu_solve`
 
-Pass the sharded input matrix and right-hand side directly to `lu_solve`:
+Pass the sharded matrix and solve input directly to `lu_solve`:
 
 ```python
 a, b = make_problem()
