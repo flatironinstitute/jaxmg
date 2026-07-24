@@ -5,36 +5,41 @@
   ![Title](_static/jaxmg_gpu_dark.png#only-dark){ width="600" }
 </figure>
 
-JAXMg provides a C++/CUDA interface between
-[JAX](https://github.com/jax-ml/jax) and
-[cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/), NVIDIA's distributed
-multi-GPU linear algebra library. We provide a jittable API for the following
-routines:
+JAXMg brings distributed dense linear algebra to JAX, allowing calculations to
+scale across multiple GPUs and compute nodes. This enables large-scale matrix
+operations far beyond native JAX routines, approaching the combined memory
+capacity of the available GPU resources while retaining a familiar JAX
+interface.
+
+JAXMg currently provides a jittable API for the following routines:
 
 - [`potrs`](api/potrs.md): Solves the system of linear equations $Ax=B$, where
-  $A$ is an $N\times N$ symmetric (Hermitian) positive-definite matrix, via a
-  Cholesky decomposition
-  ([`cusolverMpPotrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf)
-  and [`cusolverMpPotrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrs)).
+  $A$ is an $N \times N$ symmetric or Hermitian positive-definite matrix, using
+  a Cholesky decomposition. It can also return the log determinant of $A$.
 - [`lu_solve`](api/lu_solve.md): Solves the system of linear equations $Ax=B$,
-  where $A$ is an $N\times N$ general nonsingular matrix, via a pivoted LU
-  decomposition
-  ([`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
-  and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)).
+  where $A$ is an $N \times N$ general nonsingular matrix, using a pivoted LU
+  decomposition.
 - [`syevd`](api/syevd.md): Computes the eigenvalues and eigenvectors of an
-  $N\times N$ symmetric (Hermitian) matrix
-  ([`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)).
+  $N \times N$ symmetric or Hermitian matrix.
 
-**What this allows you to do**
+## How JAXMg works
 
-Pass JAXMg an ordinary JAX matrix sharded over a two-dimensional device mesh.
-JAXMg then handles the native local-memory conversion, global
-redistribution into cuSOLVERMp's 2D block-cyclic layout, distributed solver
-execution, and restoration of the result.
+JAXMg connects JAX to NVIDIA's distributed
+[cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/) routines through a native
+C++/CUDA backend.
 
-This allows your JAX linear algebra calculation to scale across multiple GPUs
-and nodes, supporting matrices far beyond the memory and computational limits
-of native JAX implementations.
+Users supply a JAX matrix sharded over a two-dimensional device mesh. JAXMg
+handles the local memory-layout conversion, redistribution into cuSOLVERMp's 2D
+block-cyclic layout, distributed numerical computation, and restoration of the
+result to its original JAX layout.
+
+The operations are implemented using:
+
+- `potrs`: [`cusolverMpPotrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf)
+  and [`cusolverMpPotrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrs)
+- `lu_solve`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
+  and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)
+- `syevd`: [`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)
 
 For more details, see the [API reference](api/index.md) and the accompanying
 [paper](https://arxiv.org/abs/2601.14466).

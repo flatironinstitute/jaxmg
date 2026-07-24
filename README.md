@@ -2,7 +2,7 @@
     <img src="https://raw.githubusercontent.com/flatironinstitute/jaxmg/main/docs/_static/logo.png" alt="JAXMg" width="300">
 </div>
 
-#  JAXMg: A multi-GPU linear solver in JAX
+# JAXMg: Distributed dense linear algebra for JAX
 
 [![Docs](https://img.shields.io/badge/docs-site-blue?style=flat-square)](https://flatironinstitute.github.io/jaxmg/)
 [![Releases](https://img.shields.io/github/v/release/flatironinstitute/jaxmg?style=flat-square)](https://github.com/flatironinstitute/jaxmg/releases)
@@ -11,73 +11,65 @@
 
 # JAXMg
 
-JAXMg provides a C++/CUDA interface between
-[JAX](https://github.com/jax-ml/jax) and
-[cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/), NVIDIA's distributed
-multi-GPU linear algebra library. We provide a jittable API for the following
-routines:
+JAXMg brings distributed dense linear algebra to JAX, allowing calculations to
+scale across multiple GPUs and compute nodes. This enables large-scale matrix
+operations far beyond native JAX routines, approaching the combined memory
+capacity of the available GPU resources while retaining a familiar JAX
+interface.
+
+JAXMg currently provides a jittable API for the following routines:
 
 - [`potrs`](docs/api/potrs.md): Solves the system of linear equations $Ax=B$,
-  where $A$ is an $N\times N$ symmetric (Hermitian) positive-definite matrix,
-  via a Cholesky decomposition
-  ([`cusolverMpPotrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf)
-  and [`cusolverMpPotrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrs)).
+  where $A$ is an $N \times N$ symmetric or Hermitian positive-definite matrix,
+  using a Cholesky decomposition. It can also return the log determinant of
+  $A$.
 - [`lu_solve`](docs/api/lu_solve.md): Solves the system of linear equations
-  $Ax=B$, where $A$ is an $N\times N$ general nonsingular matrix, via a pivoted
-  LU decomposition
-  ([`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
-  and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)).
+  $Ax=B$, where $A$ is an $N \times N$ general nonsingular matrix, using a
+  pivoted LU decomposition.
 - [`syevd`](docs/api/syevd.md): Computes the eigenvalues and eigenvectors of an
-  $N\times N$ symmetric (Hermitian) matrix
-  ([`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)).
+  $N \times N$ symmetric or Hermitian matrix.
 
-## What this allows you to do
+## How JAXMg works
 
-Pass JAXMg an ordinary JAX matrix sharded over a two-dimensional device mesh.
-JAXMg then handles the native local-memory conversion, global redistribution
-into cuSOLVERMp's 2D block-cyclic layout, distributed solver execution, and
-restoration of the result.
+JAXMg connects JAX to NVIDIA's distributed
+[cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/) routines through a native
+C++/CUDA backend.
 
-This allows your JAX linear algebra calculation to scale across multiple GPUs
-and nodes, supporting matrices far beyond the memory and computational limits
-of native JAX implementations.
+Users supply a JAX matrix sharded over a two-dimensional device mesh. JAXMg
+handles the local memory-layout conversion, redistribution into cuSOLVERMp's 2D
+block-cyclic layout, distributed numerical computation, and restoration of the
+result to its original JAX layout.
+
+The operations are implemented using:
+
+- `potrs`: [`cusolverMpPotrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf)
+  and [`cusolverMpPotrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrs)
+- `lu_solve`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
+  and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)
+- `syevd`: [`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)
 
 For more details, see the [API reference](docs/api/index.md) and the
 [accompanying paper](https://arxiv.org/abs/2601.14466).
 
 ## Installation
 
-The package is available on PyPI. Choose the installation that matches how CUDA
-is provided on your system:
+Install the package with the extra matching your CUDA setup:
 
-1. `pip install "jaxmg[cuda12]"` installs JAX with its NVIDIA CUDA 12 runtime
-   wheels.
+| CUDA setup | Command |
+|---|---|
+| CUDA 12 runtime wheels | `pip install "jaxmg[cuda12]"` |
+| Local CUDA 12 installation | `pip install "jaxmg[cuda12-local]"` |
+| CUDA 13 runtime wheels | `pip install "jaxmg[cuda13]"` |
+| Local CUDA 13 installation | `pip install "jaxmg[cuda13-local]"` |
 
-2. `pip install "jaxmg[cuda12-local]"` installs JAX against an existing local
-   CUDA 12 installation.
+Prebuilt Linux wheels are provided for `x86_64` and `aarch64`. The CUDA 12
+backend supports NVIDIA V100, A100, H100/H200, and RTX PRO 6000 Blackwell GPUs.
+The CUDA 13 backend supports the same families except V100, which requires CUDA
+12. The binaries use JAX `0.10.1` and cuSOLVERMp `0.8.0.3126`.
 
-`pip install jaxmg` installs a CPU-only version of JAX. JAXMg is a GPU-only
-package, so install one of the CUDA extras shown above.
-
-The native backend uses internal XLA communicator interfaces. It is therefore
-built with Bazel against the XLA revision associated with a specific JAX
-release. The provided binaries currently use JAX `0.10.1` and
-`nvidia-cusolvermp-cu12==0.8.0.3126`. See the
-[native-backend build guide](https://flatironinstitute.github.io/jaxmg/technical_details/building_from_source/)
-for the complete build procedure.
-
-The CUDA 12 backend contains native code for the following representative GPU
-families:
-
-| GPU family | Compute capability | Build target |
-|---|---:|---:|
-| NVIDIA V100 | 7.0 | `sm_70` |
-| NVIDIA A100 | 8.0 | `sm_80` |
-| NVIDIA H100/H200 | 9.0 | `sm_90` |
-| NVIDIA RTX PRO 6000 Blackwell | 12.0 | `sm_120` |
-
-The wheel also retains `compute_90` PTX for forward compatibility. CUDA 13
-builds do not support Volta GPUs; V100 systems must use the CUDA 12 package.
+`pip install jaxmg` installs CPU-only JAX, so JAXMg users should select one of
+the CUDA extras above. See [Installation](https://flatironinstitute.github.io/jaxmg/install/)
+for details.
 
 cuSOLVERMp requires a one-to-one mapping between processes and GPUs. Multi-GPU
 and multi-node jobs must therefore be launched with one Python process per GPU
