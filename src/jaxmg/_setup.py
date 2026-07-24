@@ -206,5 +206,5 @@ def ensure_init_jaxmg_backend():
     """
     global _initialized
     if not _initialized:
-        _initialized = True
         _initialize()
+        _initialized = True
