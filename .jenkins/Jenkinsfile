@@ -15,8 +15,7 @@ properties([
   buildDiscarder(logRotator(numToKeepStr: '8', daysToKeepStr: '30')),
 ])
 
-GITHUB_REPO  = 'flatironinstitute/jaxmg'
-CUSOLVERMP12 = 'nvidia-cusolvermp-cu12==0.8.0.3126'
+GITHUB_REPO = 'flatironinstitute/jaxmg'
 
 // This job only makes sense when triggered by GitHub Actions (which passes the
 // wheels' GHA_RUN_ID). 
@@ -90,10 +89,9 @@ PY
       def pyVersions = ['3.11', '3.12', '3.13', '3.14']
       for (p in pyVersions) {
         stage("Test py${p}") {
-          withEnv(["PYV=${p}", "CUSOLVERMP_PKG=${CUSOLVERMP12}"]) {
+          withEnv(["PYV=${p}"]) {
             sh '''#!/bin/bash -ex
               export PATH="/usr/local/cuda/bin:$PATH"
-              export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
               PYTAG="cp${PYV/./}"
 
               whl=$(ls dist/jaxmg-*-${PYTAG}-${PYTAG}-*.whl | head -1)
@@ -103,14 +101,22 @@ PY
               source "venv/$PYV/bin/activate"
               python -m pip install --upgrade pip
 
-              # Install jax (CUDA plugins) first, then the jaxmg wheel with
-              # --no-deps, then the cuSOLVERMp runtime it links, then test deps.
-              python -m pip install "jax[cuda12-local]==0.10.1"
-              python -m pip install --no-deps "$whl"
-              python -m pip install "$CUSOLVERMP_PKG"
+              # Exercise the same CUDA dependency path used by wheel consumers.
+              python -m pip install "${whl}[cuda12]"
               python -m pip install pytest matplotlib
 
-              python -c "import sys, jax, jaxmg; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices())"
+              python - <<'PY'
+import sys
+
+import jax
+import jaxmg
+
+devices = jax.devices("gpu")
+if len(devices) != 2:
+    raise RuntimeError(f"Expected 2 GPUs, found {devices}")
+print(f"Python {sys.version_info[:2]}, JAX {jax.__version__}")
+print(devices)
+PY
 
               python -m pytest -svv -m 'not mpmd' tests
               JAXMG_MPMD_LAUNCHER=subprocess \
