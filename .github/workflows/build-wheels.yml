@@ -215,7 +215,12 @@ jobs:
             exit 1
           fi
           WHEEL="${WHEELS[0]}"
-          [[ "$(basename "$WHEEL")" == *"-${EXPECTED_VERSION}-${PYTAG}-${PLAT}.whl" ]]
+          WHEEL_NAME="$(basename "$WHEEL")"
+          if [[ "$WHEEL_NAME" != "jaxmg-${EXPECTED_VERSION}-${PYTAG}-"*".whl" ||
+                "$WHEEL_NAME" != *"${PLAT}"* ]]; then
+            echo "Unexpected wheel filename: $WHEEL_NAME" >&2
+            exit 1
+          fi
 
           "$PY" - "$WHEEL" <<'PY'
           import sys
