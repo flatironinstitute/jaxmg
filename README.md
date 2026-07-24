@@ -71,23 +71,12 @@ The CUDA 13 backend supports the same families except V100, which requires CUDA
 the CUDA extras above. See [Installation](https://flatironinstitute.github.io/jaxmg/install/)
 for details.
 
-cuSOLVERMp requires a one-to-one mapping between processes and GPUs. Multi-GPU
-and multi-node jobs must therefore be launched with one Python process per GPU
-and initialized with `jax.distributed.initialize()` before the global device
-mesh is constructed. See the
-[distributed execution example](https://flatironinstitute.github.io/jaxmg/examples/execution/).
-
-For large solves close to the GPU memory limit, CUDA Virtual Memory Management
-can improve allocator behaviour. Enable it before Python starts:
-
-```bash
-export XLA_PYTHON_CLIENT_ALLOCATOR=vmm
-export XLA_PYTHON_CLIENT_MEM_FRACTION=0.99
-```
-
 ## Example
 
-A minimal rank-per-GPU Cholesky solve and log-determinant calculation is:
+JAXMg runs with one Python process per GPU. After launching one process for each
+GPU, initialize distributed JAX before constructing the device mesh. See
+[Distributed execution](docs/examples/execution.md) for launch details. A
+minimal Cholesky solve and log-determinant calculation is:
 
 ```python
 import jax
@@ -150,12 +139,9 @@ True
 ```
 as expected.
 
-Use `potrs` or `lu_solve` for a direct solve. When the solve must instead be
-embedded inside a larger function compiled by the application, use
-`potrs_shardmap_ctx` or `lu_solve_shardmap_ctx`. These context interfaces run
-the same native solver pipelines but leave the outer `jax.jit` boundary to the
-caller and expose the donated input-matrix work buffer so `donate_argnums` can
-be used safely.
+Call `potrs` or `lu_solve` directly for standard solves. For use inside a larger
+`jax.jit`-compiled function, see the advanced
+[Cholesky](docs/examples/potrs.md) and [LU](docs/examples/lu_solve.md) examples.
 
 ## Projects that use JAXMg
 
