@@ -7,7 +7,13 @@ name = "jaxmg"
 version = "1.0.0"
 description = "JAXMg provides a jittable C++/CUDA interface between JAX and NVIDIA cuSOLVERMp."
 authors = [{ name = "Roeland Wiersema" }]
-classifiers = ["Programming Language :: Python :: 3"]
+keywords = [
+    "JAX",
+    "CUDA",
+    "distributed computing",
+    "linear algebra",
+    "multi-GPU",
+]
 dependencies = [
     "jax==0.10.1; sys_platform == 'linux'",
 ]
@@ -18,8 +24,9 @@ license-files = ["LICENSE"]
 
 [project.urls]
 Homepage = "https://github.com/flatironinstitute/jaxmg"
+Documentation = "https://flatironinstitute.github.io/jaxmg/"
 Issues = "https://github.com/flatironinstitute/jaxmg/issues"
-Docs = "https://flatironinstitute.github.io/jaxmg/"
+Source = "https://github.com/flatironinstitute/jaxmg"
 
 [tool.setuptools.packages.find]
 where = ["src"]
