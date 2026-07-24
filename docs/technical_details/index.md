@@ -26,7 +26,9 @@ JAX-facing result
 Python calculates static metadata such as the process grid, rank map, logical
 matrix size, tile size, and padded local capacity. C++/CUDA owns the data
 movement, cuSOLVERMp descriptors and workspace, solver calls, and reverse
-redistribution.
+redistribution. Matrix data remains GPU-resident throughout this workflow, and
+the in-place transformations reuse bounded native scratch storage to minimize
+memory overhead.
 
 ## Scratch allocation
 

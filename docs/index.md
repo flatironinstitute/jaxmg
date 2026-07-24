@@ -5,10 +5,10 @@
   ![Title](_static/jaxmg_gpu_dark.png#only-dark){ width="600" }
 </figure>
 
-JAXMg brings distributed matrix solvers to JAX, allowing calculations to
-scale across multiple GPUs and compute nodes. This enables matrix operations to
-reach the memory limits imposed by the available GPU resources, far beyond
-native JAX routines, while retaining a familiar JAX interface.
+JAXMg brings distributed matrix solvers to JAX, allowing calculations to run
+across multiple GPUs and nodes. This enables solvers to scale to matrices near
+the combined memory capacity of the available GPUs, far beyond native JAX
+routines, while retaining a familiar JAX interface.
 
 JAXMg currently provides a jittable API for the following routines:
 
@@ -27,10 +27,12 @@ JAXMg connects JAX to NVIDIA's distributed
 [cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/) routines through a native
 C++/CUDA backend.
 
-Users supply a JAX matrix sharded over a two-dimensional device mesh. JAXMg
+Supply a JAX matrix sharded over a two-dimensional device mesh, and JAXMg
 handles the local memory-layout conversion, redistribution into cuSOLVERMp's 2D
 block-cyclic layout, distributed numerical computation, and restoration of the
-result to its original JAX layout.
+result to its original JAX layout. The matrix data remains GPU-resident
+throughout, with in-place transformations and bounded scratch storage minimizing
+memory overhead.
 
 The operations are implemented using:
 

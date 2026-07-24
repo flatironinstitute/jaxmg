@@ -4,10 +4,10 @@ Install the package with the extra matching your CUDA setup:
 
 | CUDA setup | Command |
 |---|---|
-| CUDA 12 runtime wheels | `pip install "jaxmg[cuda12]"` |
-| Local CUDA 12 installation | `pip install "jaxmg[cuda12-local]"` |
-| CUDA 13 runtime wheels | `pip install "jaxmg[cuda13]"` |
-| Local CUDA 13 installation | `pip install "jaxmg[cuda13-local]"` |
+| CUDA 12 | `pip install "jaxmg[cuda12]"` |
+| Local CUDA 12 | `pip install "jaxmg[cuda12-local]"` |
+| CUDA 13 | `pip install "jaxmg[cuda13]"` |
+| Local CUDA 13 | `pip install "jaxmg[cuda13-local]"` |
 
 !!! note
 
@@ -16,10 +16,13 @@ Install the package with the extra matching your CUDA setup:
 
 ## Supported systems
 
-Prebuilt Linux wheels are provided for `x86_64` and `aarch64`. The CUDA 12
-backend supports NVIDIA V100, A100, H100/H200, and RTX PRO 6000 Blackwell GPUs.
-The CUDA 13 backend supports the same families except V100, which requires CUDA
-12.
+Prebuilt Linux wheels are provided for `x86_64` and `aarch64`. The supported
+NVIDIA GPU families are:
+
+| CUDA setup | Supported GPUs |
+|---|---|
+| CUDA 12 | V100, A100, H100/H200, and Blackwell GPUs |
+| CUDA 13 | A100, H100/H200, and Blackwell GPUs |
 
 The binaries use JAX `0.10.1` and cuSOLVERMp `0.8.0.3126`. See
 [Building from source](technical_details/building_from_source.md) for the native

@@ -11,10 +11,10 @@
 
 # JAXMg
 
-JAXMg brings distributed matrix solvers to JAX, allowing calculations to
-scale across multiple GPUs and compute nodes. This enables matrix operations to
-reach the memory limits imposed by the available GPU resources, far beyond
-native JAX routines, while retaining a familiar JAX interface.
+JAXMg brings distributed matrix solvers to JAX, allowing calculations to run
+across multiple GPUs and nodes. This enables solvers to scale to matrices near
+the combined memory capacity of the available GPUs, far beyond native JAX
+routines, while retaining a familiar JAX interface.
 
 JAXMg currently provides a jittable API for the following routines:
 
@@ -34,10 +34,12 @@ JAXMg connects JAX to NVIDIA's distributed
 [cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/) routines through a native
 C++/CUDA backend.
 
-Users supply a JAX matrix sharded over a two-dimensional device mesh. JAXMg
+Supply a JAX matrix sharded over a two-dimensional device mesh, and JAXMg
 handles the local memory-layout conversion, redistribution into cuSOLVERMp's 2D
 block-cyclic layout, distributed numerical computation, and restoration of the
-result to its original JAX layout.
+result to its original JAX layout. The matrix data remains GPU-resident
+throughout, with in-place transformations and bounded scratch storage minimizing
+memory overhead.
 
 The operations are implemented using:
 
@@ -56,19 +58,23 @@ Install the package with the extra matching your CUDA setup:
 
 | CUDA setup | Command |
 |---|---|
-| CUDA 12 runtime wheels | `pip install "jaxmg[cuda12]"` |
-| Local CUDA 12 installation | `pip install "jaxmg[cuda12-local]"` |
-| CUDA 13 runtime wheels | `pip install "jaxmg[cuda13]"` |
-| Local CUDA 13 installation | `pip install "jaxmg[cuda13-local]"` |
+| CUDA 12 | `pip install "jaxmg[cuda12]"` |
+| Local CUDA 12 | `pip install "jaxmg[cuda12-local]"` |
+| CUDA 13 | `pip install "jaxmg[cuda13]"` |
+| Local CUDA 13 | `pip install "jaxmg[cuda13-local]"` |
 
-Prebuilt Linux wheels are provided for `x86_64` and `aarch64`. The CUDA 12
-backend supports NVIDIA V100, A100, H100/H200, and RTX PRO 6000 Blackwell GPUs.
-The CUDA 13 backend supports the same families except V100, which requires CUDA
-12. The binaries use JAX `0.10.1` and cuSOLVERMp `0.8.0.3126`.
+Prebuilt Linux wheels are provided for `x86_64` and `aarch64`. The supported
+NVIDIA GPU families are:
 
-`pip install jaxmg` installs CPU-only JAX, so JAXMg users should select one of
-the CUDA extras above. See [Installation](https://flatironinstitute.github.io/jaxmg/install/)
-for details.
+| CUDA setup | Supported GPUs |
+|---|---|
+| CUDA 12 | V100, A100, H100/H200, and Blackwell GPUs |
+| CUDA 13 | A100, H100/H200, and Blackwell GPUs |
+
+> **Note:** `pip install jaxmg` installs CPU-only JAX. Select one of the CUDA
+> extras above when installing JAXMg for GPU use. See
+> [Installation](https://flatironinstitute.github.io/jaxmg/install/) for
+> details.
 
 ## Example
 
