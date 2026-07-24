@@ -6,7 +6,8 @@
 
 [![Docs](https://img.shields.io/badge/docs-site-blue?style=flat-square)](https://flatironinstitute.github.io/jaxmg/)
 [![Releases](https://img.shields.io/github/v/release/flatironinstitute/jaxmg?style=flat-square)](https://github.com/flatironinstitute/jaxmg/releases)
-[![Build Status](https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg/job/main/lastBuild/badge/icon)](https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg/job/main/)
+[![Build](https://github.com/flatironinstitute/jaxmg/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/flatironinstitute/jaxmg/actions/workflows/ci.yml)
+[![Tests](https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg/job/main/lastBuild/badge/icon)](https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg/job/main/)
 
 
 # JAXMg

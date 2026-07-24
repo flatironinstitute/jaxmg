@@ -1,52 +1,65 @@
 # Building the Native Backend
 
-These are the steps to compile `libjaxmg_xla_comm_backend.so` against XLA
-(`@xla`) inside the official JAX CI container. One invocation builds either the
-CUDA 12 or CUDA 13 backend.
+Most users should install a prebuilt wheel from the
+[Installation](../install.md) page. Build from source when changing the
+C++/CUDA backend, updating JAX or CUDA, or targeting a platform not covered by
+the release wheels.
 
-`libjaxmg_xla_comm_backend.so` is a C++/CUDA shared library that links against
-XLA's internal C++ API (the FFI bindings, GPU collectives, and communicator
-cliques). That API is **not** shipped as a normal library — it is only available
-as the Bazel external repo `@xla`, which is defined inside a **JAX source
-checkout**.
+## Why a separate native build is needed
 
-To keep JAX and XLA compatible, the build uses the JAX `0.10.1` source checkout
-and the official JAX CI container (`ml-build:latest`), which provides Bazel and
-the hermetic CUDA toolchain. The container bind-mounts the JAX checkout at
-`/jax`, and `@xla` resolves to the XLA revision pinned by that JAX version.
+JAXMg uses internal XLA C++ interfaces for FFI and GPU communicator access.
+These interfaces are available through Bazel's `@xla` repository inside the
+matching JAX source tree; they are not distributed as a standalone library.
 
-For JAXMg, `build_native_backend.sh` orchestrates the build:
+The build therefore combines:
 
-1. **Discover cuSOLVERMp** headers/library from the installed
-   `nvidia-cusolvermp-cuXX` wheel (or from `JAXMG_CUSOLVERMP_*` overrides).
-2. **Stage the sources** as a Bazel package: it copies the C++/CUDA sources
-   (`src/cuda/...`) and the `bazel/jaxmg_backend.BUILD.bazel` template from
-   `JAXMG_ROOT` into `$JAX_SRC/jaxmg_backend/` inside the jax tree, substituting
-   the CUDA major version into the BUILD file. Bazel can only see `@xla` and the
-   hermetic CUDA repos from inside the jax workspace, which is why the sources
-   are copied in rather than built in place.
-3. **Compile** with `bazel build //jaxmg_backend:libjaxmg_xla_comm_backend.so`,
-   linking the hermetic CUDA libs (cudart, cusolver, cuda driver stub) plus the
-   externally provided `libcusolverMp.so`, and building for the selected GPU
-   architectures.
-4. **Install** the resulting `.so` back into `JAXMG_ROOT/src/jaxmg/cuXX/`.
+- the JAXMg C++/CUDA sources;
+- the JAX `0.10.1` checkout and its pinned XLA revision;
+- the selected CUDA and cuSOLVERMp dependencies.
 
-At runtime, the Python layer (`_setup.py`) loads this `.so` with `ctypes`,
-registers its exported XLA FFI targets with JAX, and resolves plain `extern "C"`
-helper symbols (e.g. the VMM-support query) directly.
+The result is `libjaxmg_xla_comm_backend.so`, installed under
+`src/jaxmg/cu12/` or `src/jaxmg/cu13/`.
 
-## 1. JAX CI container
+```text
+JAXMg sources + JAX/XLA checkout + cuSOLVERMp
+                        |
+                        v
+               pinned Bazel/CUDA build
+                        |
+                        v
+        src/jaxmg/cuXX/libjaxmg_xla_comm_backend.so
+```
 
-The build needs a `jax` checkout — that is where `@xla` is defined as a Bazel
-external repo. Clone the tag matching the `jax==0.10.1` pin in
-`pyproject.toml`, start the container, and generate the CUDA/Bazel configuration
-for the backend being built:
+## Requirements
+
+You need Linux on `x86_64` or `aarch64`, Git, a Docker-compatible container
+runtime, and enough storage for the JAX checkout and Bazel cache.
+
+CUDA 12 builds support:
+
+```text
+sm_70,sm_80,sm_90,sm_120,compute_90
+```
+
+CUDA 13 builds omit Volta:
+
+```text
+sm_80,sm_90,sm_120,compute_90
+```
+
+## 1. Start the JAX build container
+
+Clone the JAX version pinned by JAXMg and start its CI container:
 
 ```bash
 git clone --branch jax-v0.10.1 https://github.com/jax-ml/jax.git
 cd jax
 ./ci/utilities/run_docker_container.sh
+```
 
+Configure the workspace for the CUDA major version being built:
+
+```bash
 CUDA_MAJOR=12
 docker exec -e JAXCI_CUDA_VERSION="$CUDA_MAJOR" jax bash -lc '
   source ci/envs/default.env
@@ -61,99 +74,83 @@ docker exec -e JAXCI_CUDA_VERSION="$CUDA_MAJOR" jax bash -lc '
     --output_path="${JAXCI_OUTPUT_DIR}"'
 ```
 
-If a `jax` container is already running, you can reuse it (`docker ps`); skip the
-clone and container-start steps. The configuration command writes
-`/jax/.jax_configure.bazelrc`. Run it again with `CUDA_MAJOR=13` before building
-the CUDA 13 backend.
+Use `CUDA_MAJOR=13` when building the CUDA 13 backend.
 
-## 2. Stage the jaxmg sources into the jax checkout
+## 2. Copy the JAXMg build inputs
 
-`build_native_backend.sh` builds a Bazel package inside the jax tree, so the jaxmg
-sources must be visible under the mounted `/jax`. Copy this repo's build inputs into
-`<jax-checkout>/jaxmg`:
+The container mounts the JAX checkout at `/jax`. Copy JAXMg into that checkout
+so Bazel can compile it alongside `@xla`:
 
 ```bash
-JAXMG=/path/to/jaxmg            # this repo (no relative paths)
-JAXCO=/path/to/jax              # the jax checkout (mounted at /jax)
+JAXMG=/absolute/path/to/jaxmg
+JAXCO=/absolute/path/to/jax
+
 mkdir -p "$JAXCO/jaxmg"
-cp -r "$JAXMG"/{src,bazel,build_native_backend.sh,pyproject.toml,setup.py} "$JAXCO/jaxmg/"
+cp -r \
+  "$JAXMG"/src \
+  "$JAXMG"/bazel \
+  "$JAXMG"/build_native_backend.sh \
+  "$JAXMG"/pyproject.toml \
+  "$JAXMG"/setup.py \
+  "$JAXCO/jaxmg/"
 ```
 
 ## 3. Compile
 
-Inside the container, install cuSOLVERMp (for headers/lib discovery) and run the
-build. The container has no system `nvcc`, so `CUDA_MAJOR` must be set explicitly.
-The CUDA 12 architecture list below builds native code for Volta, Ampere,
-Hopper, and RTX Blackwell GPUs, with Hopper PTX retained for forward
-compatibility.
+Choose the values for the backend:
 
 ```bash
-docker exec jax bash -lc '
-  python -m pip install nvidia-cusolvermp-cu12==0.8.0.3126 &&
-  JAX_SRC=/jax JAXMG_ROOT=/jax/jaxmg CUDA_MAJOR=12 \
-  JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES=sm_70,sm_80,sm_90,sm_120,compute_90 \
-  JAXMG_XLA_BAZEL_JOBS=$(nproc) \
-  /jax/jaxmg/build_native_backend.sh'
+CUDA_MAJOR=12
+CUSOLVERMP_PACKAGE=nvidia-cusolvermp-cu12==0.8.0.3126
+CAPABILITIES=sm_70,sm_80,sm_90,sm_120,compute_90
 ```
 
-This installs the library to `<jax-checkout>/jaxmg/src/jaxmg/cu12/libjaxmg_xla_comm_backend.so`.
-Copy it back into this repo:
+Then run:
 
 ```bash
-cp "$JAXCO/jaxmg/src/jaxmg/cu12/libjaxmg_xla_comm_backend.so" "$JAXMG/src/jaxmg/cu12/"
+docker exec \
+  -e CUDA_MAJOR \
+  -e CUSOLVERMP_PACKAGE \
+  -e CAPABILITIES \
+  jax bash -lc '
+    python -m pip install "$CUSOLVERMP_PACKAGE"
+    JAX_SRC=/jax \
+    JAXMG_ROOT=/jax/jaxmg \
+    CUDA_MAJOR="$CUDA_MAJOR" \
+    JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$CAPABILITIES" \
+    JAXMG_XLA_BAZEL_JOBS=$(nproc) \
+    /jax/jaxmg/build_native_backend.sh'
 ```
 
-For CUDA 13, use the matching package and omit Volta, which CUDA 13 no longer
-supports:
+For CUDA 13, use:
 
 ```bash
-docker exec jax bash -lc '
-  python -m pip install nvidia-cusolvermp-cu13==0.8.0.3126 &&
-  JAX_SRC=/jax JAXMG_ROOT=/jax/jaxmg CUDA_MAJOR=13 \
-  JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES=sm_80,sm_90,sm_120,compute_90 \
-  JAXMG_XLA_BAZEL_JOBS=$(nproc) \
-  /jax/jaxmg/build_native_backend.sh'
+CUDA_MAJOR=13
+CUSOLVERMP_PACKAGE=nvidia-cusolvermp-cu13==0.8.0.3126
+CAPABILITIES=sm_80,sm_90,sm_120,compute_90
 ```
 
-This installs the CUDA 13 library under `src/jaxmg/cu13/`. Release wheels
-contain both CUDA libraries; the selected installation extra provides the
-matching JAX and cuSOLVERMp runtime.
+The script discovers cuSOLVERMp, stages the Bazel package, compiles the shared
+library, and installs it under `/jax/jaxmg/src/jaxmg/cuXX/`.
 
-## 4. Install and smoke-test
+Copy the result back to the original checkout:
 
-From the repository root, install the package:
 ```bash
-cd $JAXMG
+cp \
+  "$JAXCO/jaxmg/src/jaxmg/cu${CUDA_MAJOR}/libjaxmg_xla_comm_backend.so" \
+  "$JAXMG/src/jaxmg/cu${CUDA_MAJOR}/"
+```
+
+## 4. Install and test
+
+Install the source tree with the matching runtime extra:
+
+```bash
+cd "$JAXMG"
 python -m venv .venv
 .venv/bin/python -m pip install -e ".[cuda12]"
 ```
 
-For a single-GPU functional check, save the following as `smoke.py`:
-
-```python
-import jax
-jax.config.update("jax_enable_x64", True)
-import jax.numpy as jnp
-from jax.sharding import PartitionSpec as P, NamedSharding
-from jaxmg import potrs
-
-jax.distributed.initialize(coordinator_address="localhost:12399", num_processes=1, process_id=0)
-
-T_A = 3
-N = T_A * jax.process_count()
-A = jnp.diag(jnp.arange(N, dtype=jnp.float64) + 1)
-b = jnp.ones((N, 1), dtype=jnp.float64)
-mesh = jax.make_mesh((jax.process_count(), 1), ("pr", "pc"))
-sh = NamedSharding(mesh, P("pr", "pc"))
-out = potrs(jax.device_put(A, sh), jax.device_put(b, sh), T_A=T_A)
-print(out.flatten())   # -> [1. 0.5 0.333...]
-```
-
-Run with one GPU visible:
-
-```bash
-CUDA_VISIBLE_DEVICES=0 JAX_PLATFORMS=cuda .venv/bin/python smoke.py
-```
-
-The source installation must contain the backend matching the selected extra
-before this check is run.
+Run the [Cholesky example](../examples/potrs.md) to verify a solver call. Native
+contributors should then run the MPMD smoke suite described in
+[Contributing](contributing.md).

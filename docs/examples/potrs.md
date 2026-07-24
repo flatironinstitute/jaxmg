@@ -5,6 +5,21 @@ matrix. For a normal solve, use `potrs`. It provides the high-level interface
 and internally handles JIT compilation, buffer donation, input/output aliasing,
 padding, and distributed execution.
 
+The same Cholesky factorization can also return the log determinant of the
+input matrix:
+
+$$
+\log\det(A) = 2\sum_i \log |L_{ii}|,
+\qquad A=LL^H.
+$$
+
+This quantity appears alongside the solve in Gaussian log likelihoods. For
+example, Gaussian process regression requires both
+$(K+\sigma^2I)^{-1}y$ and $\log\det(K+\sigma^2I)$, while analytical
+marginalisation introduces equivalent quadratic and log-determinant terms.
+JAXMg computes both from the same distributed factorization, avoiding a second
+factorization or a separate determinant calculation.
+
 ## Common setup
 
 The following setup uses a degenerate two-dimensional process grid with one
@@ -64,6 +79,24 @@ correct.block_until_ready()
 
 if jax.process_index() == 0:
     print(correct)
+```
+
+Set `return_logdet=True` to return the solution and log determinant together:
+
+```python
+a, b = make_problem()
+
+x, logdet = potrs(
+    a,
+    b,
+    T_A=T_A,
+    mesh=mesh,
+    matrix_specs=matrix_specs,
+    return_logdet=True,
+)
+
+if jax.process_index() == 0:
+    print(logdet)
 ```
 
 A one-dimensional `b` is also accepted; in that case `potrs` returns a

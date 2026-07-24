@@ -1,115 +1,160 @@
 # Contributing
 
-## Development priorities
+Please help us improve JAXMg. You can contribute by
+[reporting a bug or suggesting a feature](https://github.com/flatironinstitute/jaxmg/issues),
+improving the documentation, or
+[opening a pull request](https://github.com/flatironinstitute/jaxmg/pulls)
+with a code change. Contributions of any size are welcome.
 
-- **Better error handling**. There are parts of the code that simply throw
-  `std::runtime_error`. We need to make the error handling compatible with XLA
-  FFI error handlers such as `FFI_ASSIGN_OR_RETURN` and
-  `JAX_FFI_RETURN_IF_GPU_ERROR`.
+A typical contribution follows five steps:
 
-## Build from source
+1. pull a clean copy of the repository and create a branch;
+2. set up a development environment;
+3. make a focused change;
+4. run the checks relevant to that change;
+5. open a pull request describing the change and its validation.
 
-The native backend must be compiled against the XLA revision associated with
-the pinned JAX release. It is built with Bazel from a matching JAX source
-checkout inside the official JAX CI container. Separate CUDA 12 and CUDA 13
-libraries are installed under `src/jaxmg/cu12/` and `src/jaxmg/cu13/`.
+## Pull a clean copy
 
-See
+Fork the repository first if you do not have write access. Then clone your fork
+or the main repository, update `main`, and create a branch:
+
+```bash
+git clone https://github.com/flatironinstitute/jaxmg.git
+cd jaxmg
+git switch main
+git pull --ff-only
+git switch -c my-change
+```
+
+## Set up an environment
+
+Create a virtual environment and install the development dependencies:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+```
+
+For documentation-only work on a system without CUDA, install `.[docs]` and
+pytest instead.
+
+## Make your changes
+
+The main areas of the repository are:
+
+- `src/jaxmg/` for the public Python interface and JAX integration;
+- `src/cuda/` for memory redistribution and cuSOLVERMp routines;
+- `tests/` for interface and distributed numerical tests;
+- `docs/` for user guides, examples, and technical documentation;
+- `.github/`, `.jenkins/`, and `pyproject.toml` for building and packaging.
+
+Changes under `src/cuda/`, `bazel/`, or `build_native_backend.sh` require a
+native rebuild. Follow
 [Building the native backend](https://flatironinstitute.github.io/jaxmg/technical_details/building_from_source/)
-for the complete procedure and build configuration.
+before running the GPU tests.
 
-## JAX and CUDA
+Public behavior changes should include corresponding tests and documentation.
 
-The Python package pins `jax==0.10.1` (see `pyproject.toml`). The native backend
-uses internal OpenXLA APIs. Changing JAX therefore requires more than updating
-a Python dependency:
+## Test your changes
 
-1. Audit the `@xla` targets in `bazel/jaxmg_backend.BUILD.bazel` against the XLA
-   revision used by the new JAX release.
-2. Update `JAX_GIT_TAG` in `.github/workflows/build-wheels.yml`.
-3. Rebuild and test both CUDA backends.
+Run the checks relevant to the change:
 
-The `cuda12`, `cuda12-local`, `cuda13`, and `cuda13-local` package extras select
-the matching JAX and cuSOLVERMp runtime dependencies.
+| Change | Check |
+|---|---|
+| Python API, validation, or layout metadata | `python -m pytest -q -m "not mpmd" tests` |
+| Documentation | `python -m mkdocs build --strict` |
+| Native solver or redistribution code | Rebuild the backend and run the MPMD tests |
+| Packaging or dependencies | Build and install a wheel through the matching CUDA extra |
+
+The MPMD smoke suite requires one Python process per GPU. On a workstation with
+two GPUs:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 \
+JAXMG_MPMD_LAUNCHER=subprocess \
+python -m pytest -q -m "mpmd and not slow" tests/mpmd
+```
+
+Tests requiring more GPUs than are visible are skipped. On Slurm systems, the
+test helper can use `srun` across the current allocation.
+
+## Open a pull request
+
+Push your branch and
+[open a pull request](https://github.com/flatironinstitute/jaxmg/compare):
+
+```bash
+git push -u origin my-change
+```
+
+In the pull-request description, explain:
+
+- what changed and why;
+- any user-visible or compatibility effects;
+- which tests were run;
+- any hardware-dependent checks that could not be run locally.
+
+Generated build outputs should not be committed.
 
 ## Continuous integration
 
-The continuous-integration pipeline separates building the package from testing
-it on physical GPUs.
+The release build and GPU tests run on separate systems:
 
-GitHub Actions builds the release artifacts in the official JAX CI
-environments. It compiles the CUDA 12 and CUDA 13 backends natively for
-`x86_64` and `aarch64`, packages `manylinux_2_28` wheels for Python 3.11–3.14,
-and checks that each wheel contains both CUDA backends with valid metadata.
+1. **GitHub Actions builds** CUDA 12 and CUDA 13 backends for `x86_64` and
+   `aarch64`.
+2. **GitHub Actions packages** Python 3.11–3.14 `manylinux_2_28` wheels and
+   checks their metadata and native libraries.
+3. **Jenkins downloads those wheels** and installs the normal
+   `jaxmg[cuda12]` dependency path.
+4. **Jenkins tests them** on two physical A100 GPUs using the interface and
+   MPMD smoke suites.
 
-The completed x86 wheels are then passed to Jenkins, which provides the NVIDIA
-hardware needed for runtime validation. Jenkins installs those exact wheels and
-runs the CUDA 12 test suite on two A100 GPUs for every supported Python version.
-This ensures that the artifacts produced by GitHub Actions are tested without
-being rebuilt in a different environment.
+This ensures that Jenkins tests the wheel produced by GitHub Actions rather
+than rebuilding it. AArch64 and CUDA 13 are currently build-validated but are
+not runtime-tested by Jenkins.
 
-The AArch64 and CUDA 13 wheels currently receive build and packaging validation
-in GitHub Actions, but are not exercised by the Jenkins GPU tests.
+The implementation is in:
 
-See `.github/workflows/build-wheels.yml`, `.github/workflows/ci.yml`, and
-`.jenkins/Jenkinsfile` for the exact configurations.
+- `.github/workflows/build-wheels.yml`;
+- `.github/workflows/ci.yml`;
+- `.github/workflows/jenkins-test.yml`;
+- `.jenkins/Jenkinsfile`.
 
-## Documentation setup
+## Updating JAX or CUDA
 
-Install the documentation dependencies and build the site strictly before
-submitting documentation changes:
+JAXMg pins `jax==0.10.1` and builds against its matching internal XLA revision.
+Updating JAX therefore requires auditing the `@xla` targets, updating the JAX
+source tag and dependencies, and rebuilding both CUDA backends on both
+architectures.
+
+The same care is required when changing CUDA, cuSOLVERMp, or the supported GPU
+architecture list.
+
+## Release process
+
+This section is for maintainers.
+
+Before a final release, run `.github/workflows/release.yml` manually with a
+release candidate such as `1.0.0rc1`. The workflow builds all wheels, runs the
+Jenkins GPU tests, and publishes to TestPyPI.
+
+After checking the TestPyPI installation, create the final tag:
 
 ```bash
-python -m pip install -e ".[docs]"
-python -m mkdocs build --strict
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
-Use `python -m mkdocs serve` for a local preview. Documentation changes are
-validated in pull requests and deployed from `main` by
-`.github/workflows/deploy-docs.yml`.
+The tagged workflow repeats the build and test process, publishes to TestPyPI,
+waits for approval, then publishes to PyPI and creates the GitHub release.
 
-## Publish package
+Publishing requires the Jenkins secrets, PyPI Trusted Publishers, and
+`testpypi` and `pypi` GitHub environments described in
+`.github/workflows/release.yml`.
 
-Releases are automated by `.github/workflows/release.yml`. Publishing uses PyPI
-Trusted Publishing through GitHub's OIDC identity, so no PyPI token is stored in
-the repository.
+## Current development priority
 
-The git tag is the single source of truth for the version. To cut a release:
-
-1. Make sure `main` is green and the intended version is reflected in
-   `pyproject.toml`.
-2. Push a version tag:
-
-   ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-
-3. The release workflow then:
-   - builds x86_64 and AArch64 wheels for Python 3.11–3.14;
-   - runs the Jenkins A100 tests against the x86 wheels;
-   - publishes all wheels to TestPyPI;
-   - waits for approval on the `pypi` environment;
-   - publishes to PyPI and attaches the wheels to the GitHub release.
-4. Before approving the PyPI step, sanity-check the TestPyPI upload:
-
-   ```bash
-   python -m pip install \
-     --index-url https://test.pypi.org/simple/ \
-     --extra-index-url https://pypi.org/simple/ \
-     "jaxmg[cuda12]==1.0.0"
-   ```
-
-For a release candidate, run the release workflow manually with a pre-release
-version such as `1.0.0rc1`. This exercises the same build, test, and TestPyPI
-path. Do not approve the `pypi` environment unless that version should also be
-published to PyPI.
-
-### One-time setup
-
-- Configure the `JENKINS_JOB_URL`, `JENKINS_USER`, and `JENKINS_API_TOKEN`
-  repository secrets.
-- Configure Trusted Publishers on PyPI and TestPyPI for this repository and
-  `.github/workflows/release.yml`.
-- Create GitHub environments named `testpypi` and `pypi`, with a required
-  reviewer on `pypi`.
+Some native failures still use `std::runtime_error`. Contributions that express
+these consistently through XLA FFI error handling are particularly useful.
