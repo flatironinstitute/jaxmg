@@ -1,7 +1,8 @@
 name: build-wheels (reusable)
 
-# Reusable workflow: build libjaxmg_xla_comm_backend.so against @xla in the JAX
-# CI container (natively, no QEMU), then package cp3.11-cp3.14 manylinux wheels.
+# Reusable workflow: build the CUDA 12 and CUDA 13
+# libjaxmg_xla_comm_backend.so libraries against @xla in the JAX CI container
+# (natively, no QEMU), then package both into cp3.11-cp3.14 manylinux wheels.
 # Parameterized by arch so the same logic serves x86_64 and aarch64.
 #
 # Build-only: no GPU is available on GitHub runners, so wheels are packaged and
@@ -39,21 +40,32 @@ on:
 env:
   JAX_GIT_REPOSITORY: https://github.com/jax-ml/jax.git
   JAX_GIT_TAG: jax-v0.10.1
-  CUDA_MAJOR: '12'
-  CUDA12_ARCHS: sm_70,sm_80,sm_90,sm_120,compute_90
-  CUSOLVERMP12: nvidia-cusolvermp-cu12==0.8.0.3126
 
 jobs:
   compile:
     runs-on: ${{ inputs.runner }}
     container:
       image: ${{ inputs.compile_image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cuda_major: '12'
+            cuda_archs: sm_70,sm_80,sm_90,sm_120,compute_90
+            cusolvermp: nvidia-cusolvermp-cu12==0.8.0.3126
+          - cuda_major: '13'
+            cuda_archs: sm_80,sm_90,sm_120,compute_90
+            cusolvermp: nvidia-cusolvermp-cu13==0.8.0.3126
     steps:
       - name: Checkout jaxmg
         uses: actions/checkout@v4
 
-      - name: Build native backend (.so)
+      - name: Build CUDA ${{ matrix.cuda_major }} native backend (.so)
         shell: bash
+        env:
+          CUDA_MAJOR: ${{ matrix.cuda_major }}
+          CUDA_ARCHS: ${{ matrix.cuda_archs }}
+          CUSOLVERMP: ${{ matrix.cusolvermp }}
         run: |
           set -euxo pipefail
           WS="$(pwd)"
@@ -70,6 +82,7 @@ jobs:
 
           # 3. Generate .jax_configure.bazelrc ONLY (skip the full plugin build).
           cd jax-src
+          export JAXCI_CUDA_VERSION="$CUDA_MAJOR"
           source ci/envs/default.env
           source ci/utilities/setup_build_environment.sh
           arch="$(uname -m)"
@@ -82,9 +95,9 @@ jobs:
             --output_path="${JAXCI_OUTPUT_DIR}"
 
           # 4. Build the backend against @xla (CUDA is hermetic -> pass CUDA_MAJOR).
-          python -m pip install "$CUSOLVERMP12"
+          python -m pip install "$CUSOLVERMP"
           JAX_SRC="$PWD" JAXMG_ROOT="$PWD/jaxmg" CUDA_MAJOR="$CUDA_MAJOR" \
-            JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$CUDA12_ARCHS" \
+            JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$CUDA_ARCHS" \
             JAXMG_XLA_BAZEL_JOBS="$(nproc)" \
             ./jaxmg/build_native_backend.sh
 
@@ -104,11 +117,11 @@ jobs:
             || { echo "ERROR: $so is not ${{ inputs.arch }}" >&2; exit 1; }
           ls -la "src/jaxmg/cu${CUDA_MAJOR}"
 
-      - name: Upload native backend (.so)
+      - name: Upload CUDA ${{ matrix.cuda_major }} native backend (.so)
         uses: actions/upload-artifact@v4
         with:
-          name: libjaxmg-${{ inputs.arch }}-cu12
-          path: src/jaxmg/cu12/libjaxmg_xla_comm_backend.so
+          name: libjaxmg-${{ inputs.arch }}-cu${{ matrix.cuda_major }}
+          path: src/jaxmg/cu${{ matrix.cuda_major }}/libjaxmg_xla_comm_backend.so
           if-no-files-found: error
 
   package:
@@ -125,11 +138,17 @@ jobs:
       - name: Checkout jaxmg
         uses: actions/checkout@v4
 
-      - name: Download native backend (.so)
+      - name: Download CUDA 12 native backend (.so)
         uses: actions/download-artifact@v4
         with:
           name: libjaxmg-${{ inputs.arch }}-cu12
           path: src/jaxmg/cu12
+
+      - name: Download CUDA 13 native backend (.so)
+        uses: actions/download-artifact@v4
+        with:
+          name: libjaxmg-${{ inputs.arch }}-cu13
+          path: src/jaxmg/cu13
 
       - name: Build + repair wheel (${{ matrix.python }})
         shell: bash
@@ -141,15 +160,17 @@ jobs:
           set -euxo pipefail
           PY="/opt/python/${{ matrix.python }}/bin/python"
 
-          # Sanity: the .so we are about to package must match the target arch.
-          so="src/jaxmg/cu12/libjaxmg_xla_comm_backend.so"
+          # Sanity: both .so files must be present and match the target arch.
           case "$ARCH" in
             x86_64)  needle='x86-64' ;;
             aarch64) needle='aarch64' ;;
           esac
-          file "$so"
-          file "$so" | grep -qi "$needle" \
-            || { echo "ERROR: $so is not $ARCH before packaging" >&2; exit 1; }
+          for cuda_major in 12 13; do
+            so="src/jaxmg/cu${cuda_major}/libjaxmg_xla_comm_backend.so"
+            file "$so"
+            file "$so" | grep -qi "$needle" \
+              || { echo "ERROR: $so is not $ARCH before packaging" >&2; exit 1; }
+          done
 
           # Release path: stamp the version from the git tag into pyproject.
           if [ -n "$VERSION" ]; then
@@ -162,10 +183,10 @@ jobs:
 
           # Bundle deps + apply the manylinux tag. Exclude the CUDA/cuSOLVERMp
           # runtime libraries -- they are NOT in this packaging image (it has no
-          # CUDA) and are provided at runtime by the nvidia-*-cu12 wheels that
-          # jax[cuda12] pulls in. libcudart is included here: the Jenkins images
-          # shipped a local CUDA toolkit so it was bundled, but the CUDA-less
-          # manylinux image cannot locate it, which is what broke the repair.
+          # CUDA) and are provided at runtime by the NVIDIA wheels selected by
+          # the matching cuda12 or cuda13 installation extra. The Jenkins
+          # images shipped a local CUDA toolkit, but this packaging image does
+          # not, so auditwheel must leave those dependencies external.
           auditwheel repair \
             --plat "$PLAT" \
             --exclude 'libcuda.so*' \

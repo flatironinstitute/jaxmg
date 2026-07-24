@@ -67,7 +67,8 @@ cuda12 = [
 ]
 
 cuda13 = [
-    "jax[cuda13]==0.10.1"
+    "jax[cuda13]==0.10.1",
+    "nvidia-cusolvermp-cu13==0.8.0.3126",
 ]
 
 cuda12-local = [
@@ -76,5 +77,6 @@ cuda12-local = [
 ]
 
 cuda13-local = [
-    "jax[cuda13-local]==0.10.1"
+    "jax[cuda13-local]==0.10.1",
+    "nvidia-cusolvermp-cu13==0.8.0.3126",
 ]
