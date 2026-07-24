@@ -156,6 +156,7 @@ jobs:
           VERSION: ${{ inputs.version }}
           PLAT: ${{ inputs.manylinux_plat }}
           ARCH: ${{ inputs.arch }}
+          PYTAG: ${{ matrix.python }}
         run: |
           set -euxo pipefail
           PY="/opt/python/${{ matrix.python }}/bin/python"
@@ -178,7 +179,7 @@ jobs:
             grep -n '^version' pyproject.toml
           fi
 
-          "$PY" -m pip install --upgrade pip build
+          "$PY" -m pip install --upgrade pip build twine
           "$PY" -m build --wheel --outdir dist
 
           # Bundle deps + apply the manylinux tag. Exclude the CUDA/cuSOLVERMp
@@ -201,15 +202,40 @@ jobs:
             --exclude 'libnvJitLink.so*' \
             dist/jaxmg-*.whl -w dist_repaired
 
-          # Version guard: the repaired wheel must carry the requested version.
-          if [ -n "$VERSION" ]; then
-            ls dist_repaired/jaxmg-*.whl | grep -q -- "-${VERSION}-" \
-              || { echo "ERROR: wheel version does not match ${VERSION}" >&2; ls dist_repaired; exit 1; }
+          # Check the final wheel name and ensure both native backends survived
+          # packaging. Their ELF architectures were checked before the build.
+          EXPECTED_VERSION="$VERSION"
+          if [ -z "$EXPECTED_VERSION" ]; then
+            EXPECTED_VERSION=$("$PY" -c \
+              'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')
           fi
+          WHEELS=(dist_repaired/jaxmg-*.whl)
+          if [ "${#WHEELS[@]}" -ne 1 ] || [ ! -f "${WHEELS[0]}" ]; then
+            echo "Expected one repaired wheel, found: ${WHEELS[*]}" >&2
+            exit 1
+          fi
+          WHEEL="${WHEELS[0]}"
+          [[ "$(basename "$WHEEL")" == *"-${EXPECTED_VERSION}-${PYTAG}-${PLAT}.whl" ]]
+
+          "$PY" - "$WHEEL" <<'PY'
+          import sys
+          import zipfile
+
+          required = {
+              "jaxmg/cu12/libjaxmg_xla_comm_backend.so",
+              "jaxmg/cu13/libjaxmg_xla_comm_backend.so",
+          }
+          with zipfile.ZipFile(sys.argv[1]) as wheel:
+              missing = required.difference(wheel.namelist())
+          if missing:
+              raise SystemExit(f"wheel is missing native backends: {sorted(missing)}")
+          PY
+
+          "$PY" -m twine check --strict "$WHEEL"
 
           # Build-only sanity: installs + jaxmg importable as a spec. Do NOT
           # `import jaxmg` -- that inits the GPU backend, and there is no GPU here.
-          "$PY" -m pip install --no-deps dist_repaired/jaxmg-*.whl
+          "$PY" -m pip install --no-deps "$WHEEL"
           "$PY" -c "import importlib.util; assert importlib.util.find_spec('jaxmg'), 'jaxmg not installed'; print('jaxmg spec OK')"
 
       - name: Upload repaired wheel (${{ inputs.arch }}-${{ matrix.python }})
