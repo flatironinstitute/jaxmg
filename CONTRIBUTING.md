@@ -1,145 +1,115 @@
 # Contributing
-## TODO (last updated: June 6th, 2026)
 
-### Small effort
+## Development priorities
 
-- ~~**Get rid of compiler warnings** There is some unused code that needs to be removed. There are warnings due to things in JAXlib that we probably can't get rid of though.~~ (#10)
-
-- **Better error handling**. There are parts of the code that simply throw `std::runtime_error`. We need to make the error handling compatible with the XLA_FFI error handlers like: `FFI_ASSIGN_OR_RETURN`, `JAX_FFI_RETURN_IF_GPU_ERROR`, etc... 
-
-### Large effort
-
-- Add a CUDA 13 build when a matching cuSOLVERMp CUDA 13 development
-  distribution is available.
+- **Better error handling**. There are parts of the code that simply throw
+  `std::runtime_error`. We need to make the error handling compatible with XLA
+  FFI error handlers such as `FFI_ASSIGN_OR_RETURN` and
+  `JAX_FFI_RETURN_IF_GPU_ERROR`.
 
 ## Build from source
 
-The native CUDA backend is built as a Bazel target **against XLA as the external
-Bazel repo `@xla`**, from inside the official JAX CI container
-(`tensorflow/ml-build:latest`) using a JAX checkout. The JAX checkout determines
-the XLA revision that `@xla` resolves to, so the build configuration matches
-JAX and XLA.
+The native backend must be compiled against the XLA revision associated with
+the pinned JAX release. It is built with Bazel from a matching JAX source
+checkout inside the official JAX CI container. Separate CUDA 12 and CUDA 13
+libraries are installed under `src/jaxmg/cu12/` and `src/jaxmg/cu13/`.
 
-```bash
-# 1. Clone JAX (provides @xla) at a tag compatible with the jax pin in
-#    pyproject.toml, and start the JAX CI container.
-git clone --branch jax-v0.10.1 https://github.com/jax-ml/jax.git
-cd jax
-./ci/utilities/run_docker_container.sh          # starts a container named "jax"
-
-# 2. Generate .jax_configure.bazelrc (CUDA/cuDNN/Bazel config).
-docker exec jax ./ci/build_artifacts.sh jax-cuda-plugin
-
-# 3. Make this jaxmg checkout available inside the container (mounted at /jax),
-#    install cuSOLVERMp, and build the backend against @xla.
-#    Here JAXMG_ROOT is the path to this repo as seen inside the container.
-docker exec jax bash -lc '
-  python -m pip install nvidia-cusolvermp-cu12==0.8.0.3126 &&
-  JAX_SRC=/jax JAXMG_ROOT=/path/to/jaxmg ./path/to/jaxmg/build_native_backend.sh'
-```
-
-This installs `src/jaxmg/cu12/libjaxmg_xla_comm_backend.so`, which registers the
-production `cusolvermp_potrs`, `cusolvermp_lu_solve`, and `cusolvermp_syevd`
-FFI targets. Additional communicator and cuSOLVERMp probe targets may be
-registered when present in the shared library; these are diagnostic targets,
-not public solver APIs.
-
-`build_native_backend.sh` assembles the backend sources into
-`${JAX_SRC}/jaxmg_backend`, substitutes the CUDA major version into
-`bazel/jaxmg_backend.BUILD.bazel`, and runs
-`bazel build --config=cuda_libraries_from_stubs //jaxmg_backend:libjaxmg_xla_comm_backend.so`.
-Key environment variables:
-
-- `JAX_SRC` — the JAX checkout root (default `/jax`); this is where `@xla` is defined.
-- `JAXMG_ROOT` — path to this repo (default: the script's own directory).
-- `JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES` — target GPU architectures. The CUDA
-  12 default is `sm_70,sm_80,sm_90,sm_120,compute_90`, which includes native
-  code for Volta, Ampere, Hopper, and RTX Blackwell GPUs plus PTX for forward
-  compatibility. CUDA 13 drops Volta, so omit `sm_70` from CUDA 13 builds.
-- `JAXMG_CUSOLVERMP_INCLUDE_DIR` / `JAXMG_CUSOLVERMP_LIBRARY_DIR` — override the
-  cuSOLVERMp wheel auto-discovery.
+See
+[Building the native backend](https://flatironinstitute.github.io/jaxmg/technical_details/building_from_source/)
+for the complete procedure and build configuration.
 
 ## JAX and CUDA
 
 The Python package pins `jax==0.10.1` (see `pyproject.toml`). The native backend
-depends on **internal** OpenXLA APIs, so changing the JAX version is not just a
-Python dependency change: the `@xla` targets in `bazel/jaxmg_backend.BUILD.bazel`
-must be audited against the XLA revision behind the new JAX checkout, and
-`JAX_GIT_TAG` in `.jenkins/Jenkinsfile` updated to match.
+uses internal OpenXLA APIs. Changing JAX therefore requires more than updating
+a Python dependency:
 
-For CUDA 12, install JAX with either:
+1. Audit the `@xla` targets in `bazel/jaxmg_backend.BUILD.bazel` against the XLA
+   revision used by the new JAX release.
+2. Update `JAX_GIT_TAG` in `.github/workflows/build-wheels.yml`.
+3. Rebuild and test both CUDA backends.
 
-1. `pip install "jax[cuda12]==0.10.1"` to use NVIDIA Python wheels pulled in by JAX.
-
-2. `pip install "jax[cuda12-local]==0.10.1"` to rely on a local CUDA installation.
-
-The production cuSOLVERMp backend is currently packaged for CUDA 12. A CUDA 13
-build also requires matching cuSOLVERMp headers and libraries.
+The `cuda12`, `cuda12-local`, `cuda13`, and `cuda13-local` package extras select
+the matching JAX and cuSOLVERMp runtime dependencies.
 
 ## Continuous integration
 
-We make use of Jenkins to build and test the code. Jenkins builds the native
-backend by calling `build_native_backend.sh` inside the official JAX CI
-container (`tensorflow/ml-build:latest`) against a JAX checkout, then packages
-the resulting shared library into wheels. We test the following configurations:
+The continuous-integration pipeline separates building the package from testing
+it on physical GPUs.
 
-1. The JAX CI container `tensorflow/ml-build:latest`, building against `@xla`
-   from a `jax` checkout (`JAX_GIT_TAG` in `.jenkins/Jenkinsfile`).
+GitHub Actions builds the release artifacts in the official JAX CI
+environments. It compiles the CUDA 12 and CUDA 13 backends natively for
+`x86_64` and `aarch64`, packages `manylinux_2_28` wheels for Python 3.11–3.14,
+and checks that each wheel contains both CUDA backends with valid metadata.
 
-2. Python `3.11`, `3.12`, `3.13`, `3.14`
+The completed x86 wheels are then passed to Jenkins, which provides the NVIDIA
+hardware needed for runtime validation. Jenkins installs those exact wheels and
+runs the CUDA 12 test suite on two A100 GPUs for every supported Python version.
+This ensures that the artifacts produced by GitHub Actions are tested without
+being rebuilt in a different environment.
 
-3. For CUDA 12:
-   - JAX `0.10.1`
+The AArch64 and CUDA 13 wheels currently receive build and packaging validation
+in GitHub Actions, but are not exercised by the Jenkins GPU tests.
 
-See `.jenkins/Jenkinsfile` for details
+See `.github/workflows/build-wheels.yml`, `.github/workflows/ci.yml`, and
+`.jenkins/Jenkinsfile` for the exact configurations.
 
 ## Documentation setup
 
-See https://olgarithms.github.io/sphinx-tutorial/docs/7-hosting-on-github-pages.html
-
-Make sure you install `jaxmg[docs]` to be able to generate the documentation.
-Run 
+Install the documentation dependencies and build the site strictly before
+submitting documentation changes:
 
 ```bash
-mkdocs serve
+python -m pip install -e ".[docs]"
+python -m mkdocs build --strict
 ```
 
-to serve the docs locally. On push to main, the docs are automatically deployed with the `.github/workflow/deploy-docs.yml` action.
+Use `python -m mkdocs serve` for a local preview. Documentation changes are
+validated in pull requests and deployed from `main` by
+`.github/workflows/deploy-docs.yml`.
 
-## Publish Package
+## Publish package
 
-Releases are fully automated by GitHub Actions (`.github/workflows/release.yml`) — no manual
-`wget`/`twine` steps, and no PyPI tokens on disk (publishing uses PyPI Trusted Publishing / OIDC).
+Releases are automated by `.github/workflows/release.yml`. Publishing uses PyPI
+Trusted Publishing through GitHub's OIDC identity, so no PyPI token is stored in
+the repository.
 
 The git tag is the single source of truth for the version. To cut a release:
 
-1. Make sure `main` is green (the CI workflow builds the wheels and runs the Jenkins A100 tests).
+1. Make sure `main` is green and the intended version is reflected in
+   `pyproject.toml`.
 2. Push a version tag:
+
    ```bash
-   git tag v0.0.10
-   git push origin v0.0.10
-   ```
-3. The release workflow then:
-   - builds the x86_64 **and** aarch64 wheels (cp3.11–cp3.14) with the version taken from the tag,
-   - runs the Jenkins A100 GPU tests on the x86 wheels (release gate),
-   - publishes to **TestPyPI** automatically,
-   - **waits for a manual approval** (the `pypi` GitHub Environment reviewer) before publishing to
-     real **PyPI**, and attaches the wheels to the GitHub Release.
-4. Before approving the PyPI step, sanity-check the TestPyPI upload:
-   ```bash
-   pip install -i https://test.pypi.org/simple/ "jaxmg[cuda12]==0.0.10" --extra-index-url https://pypi.org/simple
+   git tag v1.0.0
+   git push origin v1.0.0
    ```
 
-For a dry run without tagging, use the workflow's **Run workflow** button (`workflow_dispatch`) and
-pass a `version`; it builds + publishes to TestPyPI (the PyPI step still requires approval).
+3. The release workflow then:
+   - builds x86_64 and AArch64 wheels for Python 3.11–3.14;
+   - runs the Jenkins A100 tests against the x86 wheels;
+   - publishes all wheels to TestPyPI;
+   - waits for approval on the `pypi` environment;
+   - publishes to PyPI and attaches the wheels to the GitHub release.
+4. Before approving the PyPI step, sanity-check the TestPyPI upload:
+
+   ```bash
+   python -m pip install \
+     --index-url https://test.pypi.org/simple/ \
+     --extra-index-url https://pypi.org/simple/ \
+     "jaxmg[cuda12]==1.0.0"
+   ```
+
+For a release candidate, run the release workflow manually with a pre-release
+version such as `1.0.0rc1`. This exercises the same build, test, and TestPyPI
+path. Do not approve the `pypi` environment unless that version should also be
+published to PyPI.
 
 ### One-time setup
 
-- GitHub repo **secrets**: `JENKINS_JOB_URL` (the multibranch project URL, e.g.
-  `https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg`), `JENKINS_USER`, `JENKINS_API_TOKEN`
-  (so CI can trigger the Jenkins GPU test).
-- No Jenkins-side GitHub credential is needed: CI passes its own short-lived `GITHUB_TOKEN` to the
-  Jenkins job as the `GH_TOKEN` parameter, which the job uses to download the wheel artifacts.
-- **Trusted Publishers** configured on PyPI and TestPyPI for this repo + `release.yml` (environments
-  `pypi` / `testpypi`).
-- GitHub **Environments** `testpypi` (open) and `pypi` (with a required reviewer = the approval gate).
+- Configure the `JENKINS_JOB_URL`, `JENKINS_USER`, and `JENKINS_API_TOKEN`
+  repository secrets.
+- Configure Trusted Publishers on PyPI and TestPyPI for this repository and
+  `.github/workflows/release.yml`.
+- Create GitHub environments named `testpypi` and `pypi`, with a required
+  reviewer on `pypi`.

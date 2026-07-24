@@ -1,7 +1,8 @@
 # Building the Native Backend
 
-These are the steps to compile `libjaxmg_xla_comm_backend.so` against XLA (`@xla`)
-inside the official JAX CI container (`tensorflow/ml-build:latest`).
+These are the steps to compile `libjaxmg_xla_comm_backend.so` against XLA
+(`@xla`) inside the official JAX CI container. One invocation builds either the
+CUDA 12 or CUDA 13 backend.
 
 `libjaxmg_xla_comm_backend.so` is a C++/CUDA shared library that links against
 XLA's internal C++ API (the FFI bindings, GPU collectives, and communicator
@@ -9,10 +10,10 @@ cliques). That API is **not** shipped as a normal library — it is only availab
 as the Bazel external repo `@xla`, which is defined inside a **JAX source
 checkout**.
 
-To ensure maximum compatibility with the current state of JAX, the build runs inside the official JAX CI Docker container
-(`ml-build:latest`), which provides Bazel and the hermetic CUDA toolchain. The
-container bind-mounts a jax checkout at `/jax`, and `@xla` resolves to the XLA
-revision pinned by that jax version.
+To keep JAX and XLA compatible, the build uses the JAX `0.10.1` source checkout
+and the official JAX CI container (`ml-build:latest`), which provides Bazel and
+the hermetic CUDA toolchain. The container bind-mounts the JAX checkout at
+`/jax`, and `@xla` resolves to the XLA revision pinned by that JAX version.
 
 For JAXMg, `build_native_backend.sh` orchestrates the build:
 
@@ -26,7 +27,7 @@ For JAXMg, `build_native_backend.sh` orchestrates the build:
    are copied in rather than built in place.
 3. **Compile** with `bazel build //jaxmg_backend:libjaxmg_xla_comm_backend.so`,
    linking the hermetic CUDA libs (cudart, cusolver, cuda driver stub) plus the
-   externally-provided `libcusolverMp.so`, and building for a range of GPU
+   externally provided `libcusolverMp.so`, and building for the selected GPU
    architectures.
 4. **Install** the resulting `.so` back into `JAXMG_ROOT/src/jaxmg/cuXX/`.
 
@@ -37,18 +38,33 @@ helper symbols (e.g. the VMM-support query) directly.
 ## 1. JAX CI container
 
 The build needs a `jax` checkout — that is where `@xla` is defined as a Bazel
-external repo. Clone it (at a tag compatible with the `jax==0.10.1` pin in
-`pyproject.toml`), start the container, and generate the CUDA/Bazel config:
+external repo. Clone the tag matching the `jax==0.10.1` pin in
+`pyproject.toml`, start the container, and generate the CUDA/Bazel configuration
+for the backend being built:
 
 ```bash
 git clone --branch jax-v0.10.1 https://github.com/jax-ml/jax.git
 cd jax
-./ci/utilities/run_docker_container.sh                  # starts a container named "jax", mounts this dir at /jax
-docker exec jax ./ci/build_artifacts.sh jax-cuda-plugin # writes /jax/.jax_configure.bazelrc
+./ci/utilities/run_docker_container.sh
+
+CUDA_MAJOR=12
+docker exec -e JAXCI_CUDA_VERSION="$CUDA_MAJOR" jax bash -lc '
+  source ci/envs/default.env
+  source ci/utilities/setup_build_environment.sh
+  arch=$(uname -m)
+  python build/build.py build \
+    --wheels=jax-cuda-plugin \
+    --configure_only \
+    --bazel_options=--config="ci_linux_${arch}_cuda${JAXCI_CUDA_VERSION}" \
+    --python_version="${JAXCI_HERMETIC_PYTHON_VERSION}" \
+    --cuda_major_version="${JAXCI_CUDA_VERSION}" \
+    --output_path="${JAXCI_OUTPUT_DIR}"'
 ```
 
 If a `jax` container is already running, you can reuse it (`docker ps`); skip the
-clone/run/build_artifacts steps as long as `/jax/.jax_configure.bazelrc` exists.
+clone and container-start steps. The configuration command writes
+`/jax/.jax_configure.bazelrc`. Run it again with `CUDA_MAJOR=13` before building
+the CUDA 13 backend.
 
 ## 2. Stage the jaxmg sources into the jax checkout
 
@@ -67,9 +83,9 @@ cp -r "$JAXMG"/{src,bazel,build_native_backend.sh,pyproject.toml,setup.py} "$JAX
 
 Inside the container, install cuSOLVERMp (for headers/lib discovery) and run the
 build. The container has no system `nvcc`, so `CUDA_MAJOR` must be set explicitly.
-The architecture list builds native SASS for Volta, Ampere, Hopper, and RTX
-Blackwell GPUs, with PTX retained for forward compatibility. The `sm_80` SASS
-is also compatible with Ada (`sm_89`) workstation GPUs.
+The CUDA 12 architecture list below builds native code for Volta, Ampere,
+Hopper, and RTX Blackwell GPUs, with Hopper PTX retained for forward
+compatibility.
 
 ```bash
 docker exec jax bash -lc '
@@ -87,9 +103,25 @@ Copy it back into this repo:
 cp "$JAXCO/jaxmg/src/jaxmg/cu12/libjaxmg_xla_comm_backend.so" "$JAXMG/src/jaxmg/cu12/"
 ```
 
+For CUDA 13, use the matching package and omit Volta, which CUDA 13 no longer
+supports:
+
+```bash
+docker exec jax bash -lc '
+  python -m pip install nvidia-cusolvermp-cu13==0.8.0.3126 &&
+  JAX_SRC=/jax JAXMG_ROOT=/jax/jaxmg CUDA_MAJOR=13 \
+  JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES=sm_80,sm_90,sm_120,compute_90 \
+  JAXMG_XLA_BAZEL_JOBS=$(nproc) \
+  /jax/jaxmg/build_native_backend.sh'
+```
+
+This installs the CUDA 13 library under `src/jaxmg/cu13/`. Release wheels
+contain both CUDA libraries; the selected installation extra provides the
+matching JAX and cuSOLVERMp runtime.
+
 ## 4. Install and smoke-test
 
-From the root, install the package
+From the repository root, install the package:
 ```bash
 cd $JAXMG
 python -m venv .venv
@@ -123,5 +155,5 @@ Run with one GPU visible:
 CUDA_VISIBLE_DEVICES=0 JAX_PLATFORMS=cuda .venv/bin/python smoke.py
 ```
 
-A trailing `WatchTasks ... CANCELLED` gRPC message and a "donated buffers were not
-usable" warning at exit are harmless.
+The source installation must contain the backend matching the selected extra
+before this check is run.

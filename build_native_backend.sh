@@ -4,16 +4,16 @@ set -euo pipefail
 # Builds libjaxmg_xla_comm_backend.so against XLA as the external Bazel repo
 # `@xla`, from inside a JAX repo checkout (the JAX CI container workflow).
 #
-# Expected usage (see CONTRIBUTING.md):
+# Expected usage (see docs/technical_details/building_from_source.md):
 #   1. Clone jax and start the JAX CI container:
 #        git clone https://github.com/jax-ml/jax.git && cd jax
 #        ./ci/utilities/run_docker_container.sh
-#   2. Generate .jax_configure.bazelrc (CUDA/cuDNN/Bazel config):
-#        docker exec jax ./ci/build_artifacts.sh jax-cuda-plugin
+#   2. Generate .jax_configure.bazelrc for the required CUDA major version as
+#      described in docs/technical_details/building_from_source.md.
 #   3. Run this script inside the container with JAX_SRC pointing at the jax
 #      checkout (default /jax) and JAXMG_ROOT pointing at this repo:
 #        docker exec jax bash -lc 'JAX_SRC=/jax JAXMG_ROOT=/path/to/jaxmg \
-#          /path/to/jaxmg/build_native_backend.sh'
+#          CUDA_MAJOR=12 /path/to/jaxmg/build_native_backend.sh'
 #
 # The script no longer clones a pinned OpenXLA tree and no longer inspects the
 # locally installed JAX version: both are determined by the container/jax repo.
@@ -40,7 +40,7 @@ fi
 
 if ! command -v "${BAZEL}" >/dev/null 2>&1; then
   echo "Unable to find Bazel executable: ${BAZEL}" >&2
-  echo "Run inside the JAX CI container (tensorflow/ml-build:latest), which ships Bazel." >&2
+  echo "Run inside the official JAX CI container, which ships Bazel." >&2
   exit 1
 fi
 
