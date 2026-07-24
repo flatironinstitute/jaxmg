@@ -2,7 +2,7 @@
     <img src="https://raw.githubusercontent.com/flatironinstitute/jaxmg/main/docs/_static/logo.png" alt="JAXMg" width="300">
 </div>
 
-# JAXMg: Distributed dense linear algebra for JAX
+# JAXMg: A multi-GPU linear solver in JAX
 
 [![Docs](https://img.shields.io/badge/docs-site-blue?style=flat-square)](https://flatironinstitute.github.io/jaxmg/)
 [![Releases](https://img.shields.io/github/v/release/flatironinstitute/jaxmg?style=flat-square)](https://github.com/flatironinstitute/jaxmg/releases)
@@ -11,11 +11,10 @@
 
 # JAXMg
 
-JAXMg brings distributed dense linear algebra to JAX, allowing calculations to
+JAXMg brings distributed matrix solvers to JAX, allowing calculations to
 scale across multiple GPUs and compute nodes. This enables matrix operations to
-scale to the limits imposed by the memory capacity of the available GPU
-resources, far beyond native JAX routines, while retaining a familiar JAX
-interface.
+reach the memory limits imposed by the available GPU resources, far beyond
+native JAX routines, while retaining a familiar JAX interface.
 
 JAXMg currently provides a jittable API for the following routines:
 

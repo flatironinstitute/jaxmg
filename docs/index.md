@@ -5,11 +5,10 @@
   ![Title](_static/jaxmg_gpu_dark.png#only-dark){ width="600" }
 </figure>
 
-JAXMg brings distributed dense linear algebra to JAX, allowing calculations to
+JAXMg brings distributed matrix solvers to JAX, allowing calculations to
 scale across multiple GPUs and compute nodes. This enables matrix operations to
-scale to the limits imposed by the memory capacity of the available GPU
-resources, far beyond native JAX routines, while retaining a familiar JAX
-interface.
+reach the memory limits imposed by the available GPU resources, far beyond
+native JAX routines, while retaining a familiar JAX interface.
 
 JAXMg currently provides a jittable API for the following routines:
 
