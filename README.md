@@ -82,8 +82,32 @@ NVIDIA GPU families are:
 JAXMg runs with one Python process per GPU. After launching one process for each
 GPU, initialize distributed JAX before constructing the device mesh. See
 [Distributed execution](https://flatironinstitute.github.io/jaxmg/examples/execution/)
-for launch details. A
-minimal Cholesky solve and log-determinant calculation is:
+for launch details.
+
+For JAX arrays `A` and `b`, a Cholesky solve and log-determinant calculation
+requires only the distributed mesh, array placement, and solver call:
+
+```python
+import jax
+from jax.sharding import NamedSharding, PartitionSpec as P
+from jaxmg import potrs
+
+
+jax.distributed.initialize()
+
+mesh = jax.make_mesh((jax.process_count(), 1), ("pr", "pc"))
+
+A = jax.device_put(A, NamedSharding(mesh, P("pr", "pc")))
+b = jax.device_put(b, NamedSharding(mesh, P("pr", None)))
+
+x, logdet = potrs(A, b, T_A=256, return_logdet=True)
+```
+
+<details>
+<summary>Complete distributed example with validation</summary>
+
+The following example constructs a diagonal system, distributes it over the
+available GPUs, solves it, and checks the result:
 
 ```python
 import jax
@@ -145,6 +169,8 @@ On four ranks, this gives
 True
 ```
 as expected.
+
+</details>
 
 Call `potrs` or `lu_solve` directly for standard solves. For use inside a larger
 `jax.jit`-compiled function, see the advanced

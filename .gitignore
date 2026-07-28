@@ -18,6 +18,18 @@ dist_repaired/
 bazel-*
 site/
 
+# Paper build
+paper/build.sh
+paper/*.pdf
+paper/*.tex
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.jats
+paper/*.xml
+paper/_build/
+paper/jats/
+
 # Coverage and system files
 .coverage
 htmlcov/
