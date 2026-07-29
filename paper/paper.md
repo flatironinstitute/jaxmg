@@ -43,7 +43,8 @@ and full physics simulation environments [@brax2021github]. These workflows ofte
 solving linear systems or computing eigenvalue decompositions, either as part of a larger simulation
 loop or inside differentiable optimization.
 
-Despite this growth, the JAX ecosystem lacks distributed dense linear
+Despite this growth, and the availability of packages such as Lineax for composable linear solves
+within JAX [@lineax2023], the ecosystem still lacks distributed dense linear
 solver routines that scale across multiple GPUs while remaining usable
 from idiomatic JAX programs. This gap makes it challenging to take
 existing JAX-based scientific applications to problem sizes that exceed
@@ -101,11 +102,11 @@ performance; larger tiles typically improve throughput once the problem is suffi
 
 ## Memory-efficient data redistribution
 
-Parallelized linear algebra algorithms require a distributed data layout to ensure proper load balancing of the available computational power [@dongarra1994]. For JAXMg, the central challenge is constructing this layout without reducing the matrix sizes that can be held in aggregate GPU memory. JAXMg therefore transforms the donated matrix buffers in place and reuses a single bounded scratch allocation across all stages. Minimizing memory overhead alone, however, is not sufficient: the redistribution must also use the available interconnect bandwidth efficiently. Although arbitrary permutations can be decomposed into fine-grained cycles, repeated small transfers introduce synchronization and transfer overheads, leading to poor utilization of the bandwidth available from modern GPU interconnects [@li2020interconnect]. JAXMg addresses both requirements through a three-stage redistribution. Each stage moves the largest contiguous regions that fit within a shared scratch allocation and performs independent transfers concurrently wherever dependencies allow.. The size of this allocation is determined by the tile slabs used in the final 2D block-cyclic stage, described in Section \ref{sec:block-cyclic}, and is reused throughout. The following sections describe the forward path used to prepare the matrix for distributed solver execution. Below, we outline the three forward redistribution stages applied before the distributed solver routines; after solver execution, these stages are reversed to restore the original JAX layout.
+Parallelized linear algebra algorithms require a distributed data layout to ensure proper load balancing of the available computational power [@dongarra1994]. For JAXMg, the central challenge is constructing this layout without reducing the matrix sizes that can be held in aggregate GPU memory. JAXMg therefore transforms the donated matrix buffers in place and reuses a single bounded scratch allocation across all stages. Minimizing memory overhead alone, however, is not sufficient: the redistribution must also use the available interconnect bandwidth efficiently. Although arbitrary permutations can be decomposed into fine-grained cycles, repeated small transfers introduce synchronization and transfer overheads, leading to poor utilization of the bandwidth available from modern GPU interconnects [@li2020interconnect]. JAXMg addresses both requirements through a three-stage redistribution. Each stage moves the largest contiguous regions that fit within a shared scratch allocation and performs independent transfers concurrently wherever dependencies allow. The size of this allocation is determined by the tile slabs used in the final 2D block-cyclic stage, described in Section \ref{sec:block-cyclic}, and is reused throughout. The following sections describe the three forward redistribution stages used to prepare the matrix for distributed solver execution; after the solver completes, these stages are reversed to restore the original JAX layout.
 
 ### Local memory-layout conversion
 
-The first stage reconciles the physical memory layouts used by JAX and cuSOLVERMp. JAX stores each local matrix shard in row-major order, whereas cuSOLVERMp requires column-major local buffers. While XLA can materialize a column-major FFI input, doing so requires a second full-sized local matrix allocation, defeating the low-memory design. JAXMg instead converts each donated buffer in place using a parallel implementation of the rectangular permutation decomposition introduced by @catanzaro2014transpose. This decomposes the conversion into modular column and row permutations, with each operation processed in batches bounded by the shared scratch allocation. The logical matrix remains unchanged and, because the conversion is entirely local, this stage runs concurrently on every GPU without inter-device communication.
+The first stage reconciles the physical memory layouts used by JAX and cuSOLVERMp. JAX stores each local matrix shard in row-major order, whereas cuSOLVERMp requires column-major local buffers. While XLA can materialize a column-major FFI input, doing so requires a second full-sized local matrix allocation, defeating the low-memory design. JAXMg instead applies a parallel implementation of the rectangular permutation decomposition introduced by @catanzaro2014transpose directly to each donated buffer. The method expresses the layout change as modular column and row permutations, processed in batches bounded by the shared scratch allocation. The logical matrix remains unchanged and, because the conversion is entirely local, this stage runs concurrently on every GPU without inter-device communication.
 
 
 ### Edge-padding alignment
@@ -117,7 +118,7 @@ The compaction proceeds in two passes. Column slabs are first shifted left withi
 
 ![Arrays are row-wise sharded and put into the round-robin 1D cyclic form illustrated here.\label{fig:jaxmg_cyclic}](jaxmg_cyclic.png){ width=100% }
 
-Unlike the redistribution handled in place by the native backend, this initial capacity padding must be performed by JAX because an existing donated allocation cannot be expanded in place. Materializing the padded array thus temporarily requires both the original and padded buffers, reducing the matrix size that fits in available GPU memory. Padding should therefore be avoided where possible by choosing a tile size that divides both dimensions of every local matrix shard.
+Unlike the in-place redistribution handled by the native backend, this initial capacity padding must be performed by JAX because an existing donated allocation cannot be expanded once assigned. Materializing the padded array thus temporarily requires both the original and padded buffers, reducing the matrix size that fits in available GPU memory. Padding should therefore be avoided where possible by choosing a tile size that divides both dimensions of every local matrix shard.
 
 ### 2D block-cyclic redistribution {#sec:block-cyclic}
 
@@ -134,7 +135,7 @@ JAXMg constructs an explicit mapping from every source tile to its destination a
 ![Arrays are row-wise sharded and put into the round-robin 1D cyclic form illustrated here.\label{fig:jaxmg_cyclic}](jaxmg_cyclic.png){ width=100% }
 
 
-During each cycle, a slab is packed into a contiguous send slot, transferred into a receive slot, and unpacked into its destination, while a third saved slot preserves data that would otherwise be overwritten before it is forwarded. Let $N_r$ and $N_c$ denote the local row and column capacities, and let $T_r$ and $T_c$ denote the tile dimensions. Since a tile-column slab contains at most $T_cN_r$ elements and a tile-row slab contains at most $T_rN_c$ elements, the bounded scratch allocation is
+During each cycle, a slab is packed into the send scratch slot, transferred into the receive scratch slot, and unpacked into its destination, while a third saved slot preserves data that would otherwise be overwritten before it is forwarded. Let $N_r$ and $N_c$ denote the local row and column capacities, and let $T_r$ and $T_c$ denote the tile dimensions. Since a tile-column slab contains at most $T_cN_r$ elements and a tile-row slab contains at most $T_rN_c$ elements, the bounded scratch allocation is
 
 $$
 S_{\mathrm{scratch}}
