@@ -45,7 +45,7 @@ namespace {
 // block-cyclic storage. The input is copied/aliased into work_out because
 // cuSOLVERMp overwrites d_A, while vectors_out is passed as the separate d_Z
 // eigenvector output. This helper owns descriptors, workspace allocation, the
-// installed-runtime compz selector, and info/status reporting.
+// installed-runtime jobz selector, and info/status reporting.
 template <typename DataType>
 absl::Status RunCusolverMpSyevd(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
@@ -132,19 +132,17 @@ absl::Status RunCusolverMpSyevd(
 
   size_t workspace_device = 0;
   size_t workspace_host = 0;
-  // cuSOLVERMp 0.7.x exposes this selector as `compz` and NVIDIA's
-  // distributed SYEVD sample uses 'Z' for the eigenvector-producing path. Keep
-  // this aligned with the installed header/runtime rather than the newer
-  // `jobz='V'` wording in some versions of the public documentation.
-  char compz[] = {'Z', '\0'};
+  // cuSOLVERMp 0.9 uses jobz='V' to request eigenvalues and eigenvectors.
+  // JAXMg currently exposes only this vector-producing SYEVD path.
+  char jobz[] = {'V', '\0'};
   void* z_data = vectors_out->untyped_data();
   CusolverMpDebug(
       debug_rank,
-      "syevd_buffer_size begin compz=%c a=%p evals=%p z=%p desc_a=%p desc_q=%p",
-      compz[0], work_out->untyped_data(), eigenvalues_out->untyped_data(),
+      "syevd_buffer_size begin jobz=%c a=%p evals=%p z=%p desc_a=%p desc_q=%p",
+      jobz[0], work_out->untyped_data(), eigenvalues_out->untyped_data(),
       z_data, desc_a, desc_q);
   status = api.syevd_buffer_size(
-      handle, compz, CUBLAS_FILL_MODE_LOWER, n, work_out->untyped_data(),
+      handle, jobz, CUBLAS_FILL_MODE_LOWER, n, work_out->untyped_data(),
       /*IA=*/1, /*JA=*/1, desc_a, eigenvalues_out->untyped_data(),
       z_data, /*IQ=*/1, /*JQ=*/1, desc_q,
       SolverTraits<DataType>::cuda_data_type, &workspace_device,
@@ -199,7 +197,7 @@ absl::Status RunCusolverMpSyevd(
   JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
   CusolverMpDebug(debug_rank, "syevd begin");
-  status = api.syevd(handle, compz, CUBLAS_FILL_MODE_LOWER, n,
+  status = api.syevd(handle, jobz, CUBLAS_FILL_MODE_LOWER, n,
                      work_out->untyped_data(), /*IA=*/1, /*JA=*/1, desc_a,
                      eigenvalues_out->untyped_data(), z_data, /*IQ=*/1,
                      /*JQ=*/1, desc_q,

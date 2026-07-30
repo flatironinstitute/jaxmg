@@ -20,9 +20,10 @@ A typical contribution follows five steps:
    express these consistently through XLA FFI error handling are particularly
    useful.
 2. Support for computing eigenvalues without eigenvectors would also be a useful
-   addition. Initial development encountered issues with cuSOLVERMp's documented
-   eigenvalues-only `compz='N'` mode. This requires further investigation and may
-   need discussion with the cuSOLVERMp developers.
+   addition. Initial development with earlier cuSOLVERMp releases encountered
+   issues with the eigenvalues-only mode. The cuSOLVERMp 0.9 interface documents
+   this as `jobz='N'`, but it still requires separate implementation and
+   validation in JAXMg.
 
 ## Pull a clean copy
 

@@ -52,10 +52,10 @@ jobs:
         include:
           - cuda_major: '12'
             cuda_archs: sm_70,sm_80,sm_90,sm_120,compute_90
-            cusolvermp: nvidia-cusolvermp-cu12==0.8.0.3126
+            cusolvermp: nvidia-cusolvermp-cu12==0.9.0.6427
           - cuda_major: '13'
             cuda_archs: sm_80,sm_90,sm_120,compute_90
-            cusolvermp: nvidia-cusolvermp-cu13==0.8.0.3126
+            cusolvermp: nvidia-cusolvermp-cu13==0.9.0.6427
     steps:
       - name: Checkout jaxmg
         uses: actions/checkout@v4
@@ -195,6 +195,7 @@ jobs:
             --exclude 'libcusolver.so*' \
             --exclude 'libcusolverMg.so*' \
             --exclude 'libcusolverMp.so*' \
+            --exclude 'libcublasmp.so*' \
             --exclude 'libcupti.so*' \
             --exclude 'libcusparse.so*' \
             --exclude 'libcublasLt.so*' \
