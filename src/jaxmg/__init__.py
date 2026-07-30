@@ -15,7 +15,7 @@ from importlib.metadata import version
 
 from ._lu_solve import lu_solve, lu_solve_shardmap_ctx
 from ._potrs import potrs, potrs_shardmap_ctx
-from ._syevd import syevd
+from ._syevd import syevd, syevd_shardmap_ctx
 from ._device import device_supports_vmm
 
 __version__ = version("jaxmg")
@@ -27,5 +27,6 @@ __all__ = [
     "potrs",
     "potrs_shardmap_ctx",
     "syevd",
+    "syevd_shardmap_ctx",
     "device_supports_vmm",
 ]

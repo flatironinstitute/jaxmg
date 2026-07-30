@@ -1,3 +1,5 @@
+from functools import partial
+
 import numpy as np
 import pytest
 
@@ -9,7 +11,7 @@ import jax.numpy as jnp
 from jax.sharding import Mesh, PartitionSpec as P
 
 import jaxmg._syevd as syevd_module
-from jaxmg import syevd
+from jaxmg import syevd, syevd_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_SYEVD_STATUS_SIZE
 
 
@@ -23,13 +25,18 @@ def _install_fake_syevd_backend(monkeypatch):
     """Replace native backend entry points with a small Python stand-in."""
     captured = {}
 
-    def fake_compiled(*args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
+    def fake_pipeline(*args, **kwargs):
+        captured["pipeline_args"] = args
+        captured["pipeline_kwargs"] = kwargs
 
         def impl(_a):
             n = int(kwargs["n"])
-            eigenvalues = jnp.arange(n, dtype=jnp.float32)
+            eigenvalue_dtype = (
+                jnp.float32
+                if _a.dtype in (jnp.float32, jnp.complex64)
+                else jnp.float64
+            )
+            eigenvalues = jnp.arange(n, dtype=eigenvalue_dtype)
             status = jnp.zeros((_CUSOLVERMP_SYEVD_STATUS_SIZE,), dtype=jnp.int32)
             # impl returns eigenvalues, the donated work buffer, eigenvectors,
             # and status.
@@ -37,7 +44,13 @@ def _install_fake_syevd_backend(monkeypatch):
 
         return impl
 
+    def fake_compiled(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return fake_pipeline(*args, **kwargs)
+
     monkeypatch.setattr(syevd_module, "ensure_init_jaxmg_backend", lambda: None)
+    monkeypatch.setattr(syevd_module, "_syevd_pipeline", fake_pipeline)
     monkeypatch.setattr(syevd_module, "_syevd_compiled", fake_compiled)
     return captured
 
@@ -72,6 +85,68 @@ def test_syevd_can_return_native_status(monkeypatch):
     )
 
     assert status.shape == (_CUSOLVERMP_SYEVD_STATUS_SIZE,)
+
+
+def test_syevd_shardmap_ctx_returns_work_eigensystem_and_status(monkeypatch):
+    captured = _install_fake_syevd_backend(monkeypatch)
+    a = jnp.eye(4, dtype=jnp.float32)
+
+    a_work, eigenvalues, eigenvectors, status = syevd_shardmap_ctx(
+        a,
+        2,
+        mesh=_one_rank_mesh(),
+        matrix_specs=P("pr", "pc"),
+    )
+
+    assert a_work.shape == a.shape
+    assert eigenvalues.shape == (4,)
+    assert eigenvectors.shape == a.shape
+    assert status.shape == (_CUSOLVERMP_SYEVD_STATUS_SIZE,)
+    assert captured["pipeline_kwargs"]["n"] == 4
+    assert captured["pipeline_kwargs"]["tile_size"] == 2
+
+
+def test_syevd_shardmap_ctx_can_be_wrapped_in_external_jit(monkeypatch):
+    _install_fake_syevd_backend(monkeypatch)
+    mesh = _one_rank_mesh()
+    eigensolve = jax.jit(
+        partial(
+            syevd_shardmap_ctx,
+            T_A=2,
+            mesh=mesh,
+            matrix_specs=P("pr", "pc"),
+        ),
+        donate_argnums=(0,),
+    )
+
+    a_work, eigenvalues, eigenvectors, status = eigensolve(
+        jnp.eye(4, dtype=jnp.float32)
+    )
+
+    assert a_work.shape == (4, 4)
+    assert eigenvalues.shape == (4,)
+    assert eigenvectors.shape == (4, 4)
+    assert status.shape == (_CUSOLVERMP_SYEVD_STATUS_SIZE,)
+
+
+def test_syevd_external_jit_can_lower_from_shape_specs(monkeypatch):
+    _install_fake_syevd_backend(monkeypatch)
+    mesh = _one_rank_mesh()
+    eigensolve = jax.jit(
+        partial(
+            syevd_shardmap_ctx,
+            T_A=2,
+            mesh=mesh,
+            matrix_specs=P("pr", "pc"),
+        ),
+        donate_argnums=(0,),
+    )
+
+    compiled = eigensolve.lower(
+        jax.ShapeDtypeStruct((4, 4), jnp.float32)
+    ).compile()
+
+    assert compiled.memory_analysis() is not None
 
 
 def test_syevd_rejects_non_matrix_a():
@@ -118,6 +193,19 @@ def test_syevd_rejects_1d_matrix_specs():
 def test_syevd_rejects_required_padding_when_disabled():
     with pytest.raises(ValueError, match="syevd requires tile-aligned"):
         syevd(
+            jnp.eye(3),
+            2,
+            mesh=_one_rank_mesh(),
+            matrix_specs=P("pr", "pc"),
+            pad=False,
+        )
+
+
+def test_syevd_shardmap_ctx_rejects_required_padding_when_disabled():
+    with pytest.raises(
+        ValueError, match="syevd_shardmap_ctx requires tile-aligned"
+    ):
+        syevd_shardmap_ctx(
             jnp.eye(3),
             2,
             mesh=_one_rank_mesh(),

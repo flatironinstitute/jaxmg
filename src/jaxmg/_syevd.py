@@ -155,6 +155,134 @@ def syevd(
     return eigenvalues, vectors
 
 
+def syevd_shardmap_ctx(
+    a: Array,
+    T_A: int,
+    mesh: Mesh | None = None,
+    matrix_specs: P | Tuple[P] | List[P] | None = None,
+    *,
+    in_specs: P | Tuple[P] | List[P] | None = None,
+    pad: bool = True,
+) -> Tuple[Array, Array, Array, Array]:
+    """Compute eigenvalues and eigenvectors while exposing the donated work buffer.
+
+    This helper is the lower-level variant of :func:`jaxmg.syevd` intended for
+    contexts where the caller controls the outer ``jax.jit`` boundary. It
+    performs the same validation, local padding, shard-map construction, and
+    fused cuSOLVERMp FFI call as the public eigensolver, but does not introduce
+    an internal ``jax.jit``. Instead, it returns the native matrix work buffer
+    so an outer JIT can donate ``a`` into an ``A``-sized output.
+
+    cuSOLVERMp uses separate distributed matrices for its overwritten input
+    ``d_A`` and eigenvector output ``d_Z``. The context interface therefore
+    returns ``a_work`` to provide the outer compiled function with an
+    ``A``-sized alias target for the donated input. The returned eigenvectors
+    occupy a separate matrix-sized allocation.
+
+    Tip:
+        If the shards of the matrix cannot be padded with tiles of size `T_A`
+        we have to add padding to fit the last tile. This requires copying the
+        matrix, which we want to avoid at all costs for large ``N``. Make sure
+        you pick ``T_A`` large enough (>=128) and such that it can evenly cover
+        the shards. In principle, increasing ``T_A`` will increase performance
+        at the cost of memory, but depending on ``N``, the performance will
+        saturate.
+
+    Args:
+        a (Array): A 2D symmetric/Hermitian matrix. Expected to be sharded
+            across a 2D mesh with a matrix ``PartitionSpec`` such as
+            ``P(<row_axis>, <col_axis>)``.
+        T_A (int): Square tile width used by cuSOLVERMp. Each local shard
+            dimension must be a multiple of ``T_A`` after padding.
+        mesh (Mesh, optional): JAX mesh used for ``jax.shard_map``. If omitted,
+            inferred from ``a.sharding.mesh``.
+        matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
+            PartitionSpec describing the matrix sharding. If omitted, inferred
+            from ``a.sharding.spec``.
+        in_specs: Backwards-compatible alias for ``matrix_specs``.
+        pad (bool, optional): If True (default) apply per-device padding to
+            meet ``T_A`` requirements; if False the caller must supply already
+            correct shapes.
+
+    Returns:
+        tuple: ``(a_work, eigenvalues, eigenvectors, status)``. ``a_work`` is
+        the native matrix work output returned to preserve the donated input
+        alias and includes any padding applied by the normal pipeline.
+        ``eigenvalues`` is replicated and real-valued, ``eigenvectors`` has the
+        original logical matrix shape and sharding, and ``status`` is the
+        native per-rank diagnostic vector.
+
+    Raises:
+        TypeError: If dtypes or ``PartitionSpec`` inputs are unsupported.
+        ValueError: If shapes, tile sizes, or mesh layouts are incompatible.
+
+    Notes:
+        - Callers using ``jax.jit(..., donate_argnums=(0,))`` must keep
+          ``a_work`` in the outer function's returned pytree so the donated
+          matrix has an ``A``-sized output alias.
+        - Returning ``a_work`` does not remove cuSOLVERMp's separate
+          eigenvector allocation.
+        - Native code converts row-major JAX local storage to cuSOLVERMp's
+          column-major local layout, redistributes to 2D block-cyclic layout,
+          calls ``cusolverMpSyevd``, and redistributes the eigenvectors back.
+    """
+    if a.ndim != 2:
+        raise ValueError("syevd_shardmap_ctx expects a rank-2 matrix A.")
+    _check_supported_syevd_dtype(a.dtype)
+    if a.shape[0] != a.shape[1]:
+        raise ValueError("syevd_shardmap_ctx expects A to be square.")
+    if int(T_A) <= 0:
+        raise ValueError("T_A must be positive.")
+
+    mesh, matrix_specs = infer_mesh_and_matrix_specs(
+        a,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+        in_specs=in_specs,
+    )
+    row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
+    rank_map = process_rank_map_from_mesh(
+        mesh,
+        row_axis=row_axis,
+        col_axis=col_axis,
+        grid=grid,
+        caller="syevd_shardmap_ctx",
+    )
+    native_status_specs = status_specs(row_axis, col_axis, grid)
+    tile_shape = TileShape(rows=int(T_A), cols=int(T_A))
+    validate_nonempty_block_cyclic_ownership(
+        logical_rows=a.shape[0],
+        logical_cols=a.shape[1],
+        grid=grid,
+        tile_shape=tile_shape,
+        caller="syevd_shardmap_ctx(A)",
+    )
+    a_padding = calculate_2d_padding(
+        logical_rows=a.shape[0],
+        logical_cols=a.shape[1],
+        grid=grid,
+        tile_shape=tile_shape,
+    )
+    _check_padding_allowed(a_padding, pad=pad, caller="syevd_shardmap_ctx")
+
+    ensure_init_jaxmg_backend()
+
+    impl = _syevd_pipeline(
+        mesh,
+        matrix_specs,
+        native_status_specs,
+        grid,
+        rank_map,
+        rank_map.cusolvermp_grid_mapping,
+        a_padding,
+        n=a.shape[0],
+        tile_size=tile_shape.rows,
+        dtype=a.dtype,
+    )
+    eigenvalues, a_work, eigenvectors, native_status = impl(a)
+    return a_work, eigenvalues, eigenvectors, native_status
+
+
 _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
@@ -254,7 +382,7 @@ def _make_local_unpad_fn(
 
 
 @lru_cache(maxsize=None)
-def _syevd_compiled(
+def _syevd_pipeline(
     mesh: Mesh,
     matrix_specs: P,
     native_status_specs: P,
@@ -267,13 +395,13 @@ def _syevd_compiled(
     tile_size: int,
     dtype,
 ):
-    """Build and cache the full JAX-visible SYEVD execution pipeline.
+    """Build and cache the unjitted JAX-visible SYEVD execution pipeline.
 
     The cache key is the static solver configuration: mesh, sharding spec,
     process-grid shape, rank mapping, padded local shape, matrix size, tile
-    size, and dtype.  Reusing this factory avoids rebuilding the same
-    ``jax.shard_map`` and ``jax.jit`` wrapper for repeated eigensolves with the
-    same layout metadata.
+    size, and dtype. Reusing this factory avoids rebuilding the same
+    ``jax.shard_map`` structure for repeated eigensolves with identical layout
+    metadata.
     """
     process_rows = grid.process_rows
     process_cols = grid.process_cols
@@ -346,14 +474,49 @@ def _syevd_compiled(
         check_vma=False,
     )
 
-    @partial(jax.jit, donate_argnums=(0,))
     def impl(_a: Array) -> tuple[Array, Array, Array, Array]:
-        """Run padding, fused native SYEVD, and unpadding as one compiled path."""
+        """Run padding, fused native SYEVD, and eigenvector unpadding."""
         a_padded = pad_a(_a)
         eigenvalues, work_padded, vectors_padded, native_status = syevd_shardmap(
             a_padded
         )
         vectors = unpad_vectors(vectors_padded)
         return eigenvalues, work_padded, vectors, native_status
+
+    return impl
+
+
+@lru_cache(maxsize=None)
+def _syevd_compiled(
+    mesh: Mesh,
+    matrix_specs: P,
+    native_status_specs: P,
+    grid: ProcessGrid,
+    rank_map: ProcessRankMap,
+    grid_mapping: int,
+    a_padding: MatrixPadding2D,
+    *,
+    n: int,
+    tile_size: int,
+    dtype,
+):
+    """Build and cache the internally jitted public SYEVD pipeline."""
+    pipeline = _syevd_pipeline(
+        mesh,
+        matrix_specs,
+        native_status_specs,
+        grid,
+        rank_map,
+        grid_mapping,
+        a_padding,
+        n=n,
+        tile_size=tile_size,
+        dtype=dtype,
+    )
+
+    @partial(jax.jit, donate_argnums=(0,))
+    def impl(_a: Array) -> tuple[Array, Array, Array, Array]:
+        """Run the cached SYEVD pipeline behind the public convenience API."""
+        return pipeline(_a)
 
     return impl
