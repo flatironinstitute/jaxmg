@@ -14,6 +14,16 @@ A typical contribution follows five steps:
 4. run the checks relevant to that change;
 5. open a pull request describing the change and its validation.
 
+## Current development priority
+
+1. Some native failures still use `std::runtime_error`. Contributions that
+   express these consistently through XLA FFI error handling are particularly
+   useful.
+2. Support for computing eigenvalues without eigenvectors would also be a useful
+   addition. Initial development encountered issues with cuSOLVERMp's documented
+   eigenvalues-only `compz='N'` mode. This requires further investigation and may
+   need discussion with the cuSOLVERMp developers.
+
 ## Pull a clean copy
 
 Fork the repository first if you do not have write access. Then clone your fork
@@ -153,8 +163,3 @@ waits for approval, then publishes to PyPI and creates the GitHub release.
 Publishing requires the Jenkins secrets, PyPI Trusted Publishers, and
 `testpypi` and `pypi` GitHub environments described in
 `.github/workflows/release.yml`.
-
-## Current development priority
-
-Some native failures still use `std::runtime_error`. Contributions that express
-these consistently through XLA FFI error handling are particularly useful.
