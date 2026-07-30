@@ -98,6 +98,19 @@ absl::Status XlaCusolverMpSyevdDispatch(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 
+// Runtime eigenvalues-only SYEVD hook. It shares the forward redistribution
+// and cuSOLVERMp setup with vector-producing SYEVD, but omits the eigenvector
+// output and its reverse redistribution.
+absl::Status XlaCusolverMpSyevdValuesDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
+    int64_t grid_mapping, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> eigenvalues,
+    ffi::Result<ffi::AnyBuffer> work,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
 }  // namespace xla::gpu
 
 #endif  // JAXMG_CUSOLVERMP_ROUTINES_H_

@@ -30,6 +30,10 @@ redistribution. Matrix data remains GPU-resident throughout this workflow, and
 the in-place transformations reuse bounded native scratch storage to minimize
 memory overhead.
 
+Matrix-valued solver outputs follow the reverse path shown above. The
+eigenvalues-only SYEVD mode returns the replicated eigenvalue array directly
+after solver execution.
+
 ## Scratch allocation
 
 The redistribution path uses one native scratch allocation per FFI call. Its
@@ -90,8 +94,8 @@ The redistribution stages are shared by all public routines:
   all-reduce to return `log(det(A))`.
 - `lu_solve` calls `cusolverMpGetrf` followed by `cusolverMpGetrs` and manages
   the distributed pivot allocation.
-- `syevd` calls `cusolverMpSyevd` and materializes distributed eigenvalues and
-  eigenvectors.
+- `syevd` calls `cusolverMpSyevd` and materializes distributed eigenvalues plus
+  eigenvectors when requested.
 
 Each Python process owns one GPU and contributes one rank to the XLA/NCCL and
 cuSOLVERMp communicators. See [Distributed execution](../examples/execution.md)
