@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Redirecting…</title>
+<!--
+  Compatibility shim for links written before the docs were versioned with mike.
+  Unversioned deep links such as /jaxmg/api/potrs/ used to resolve at the site
+  root; they now live under /jaxmg/latest/. Pages that only ever existed in
+  0.0.9 (the cuSolverMg release) are sent to /jaxmg/0.0.9/ instead -- notably
+  examples/spmd_mpmd/, which jaxmg 0.0.9 prints in a runtime warning.
+
+  This file is not managed by mike, which only writes the version directories,
+  versions.json, .nojekyll and the root index.html redirect. It therefore
+  survives every future deploy. Delete it once legacy links no longer matter.
+-->
+<script>
+(function () {
+  var ONLY_IN_009 = [
+    "api/cyclic_1d",
+    "api/potri",
+    "examples/block_cyclic_data_layout",
+    "examples/potrs_example",
+    "examples/spmd_mpmd",
+    "technical_details/col_maj",
+    "technical_details/mpmd",
+    "technical_details/spmd"
+  ];
+
+  var path = location.pathname.replace(/^\/jaxmg\/?/, "");
+  // Already versioned, or the site root: nothing sensible to guess at.
+  if (!path || /^(latest|dev|\d+\.\d+\.\d+)/.test(path)) return;
+
+  var bare = path.replace(/\/?(index\.html)?$/, "");
+  var target = ONLY_IN_009.indexOf(bare) === -1 ? "latest" : "0.0.9";
+  location.replace("/jaxmg/" + target + "/" + path + location.search + location.hash);
+})();
+</script>
+</head>
+<body>
+<p>Page not found. The documentation is now published per release.</p>
+<p><a href="/jaxmg/latest/">Go to the latest documentation</a> &middot;
+   <a href="/jaxmg/0.0.9/">0.0.9 (cuSolverMg) documentation</a></p>
+</body>
+</html>
