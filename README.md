@@ -19,14 +19,14 @@ routines, while retaining a familiar JAX interface.
 
 JAXMg currently provides a jittable API for the following routines:
 
-- [`potrs`](https://flatironinstitute.github.io/jaxmg/api/potrs/): Solves the system of linear equations $Ax=B$,
+- [`potrs`](https://flatironinstitute.github.io/jaxmg/latest/api/potrs/): Solves the system of linear equations $Ax=B$,
   where $A$ is an $N \times N$ symmetric or Hermitian positive-definite matrix,
   using a Cholesky decomposition. It can also return the log determinant of
   $A$.
-- [`lu_solve`](https://flatironinstitute.github.io/jaxmg/api/lu_solve/): Solves the system of linear equations
+- [`lu_solve`](https://flatironinstitute.github.io/jaxmg/latest/api/lu_solve/): Solves the system of linear equations
   $Ax=B$, where $A$ is an $N \times N$ general nonsingular matrix, using a
   pivoted LU decomposition.
-- [`syevd`](https://flatironinstitute.github.io/jaxmg/api/syevd/): Computes the eigenvalues and eigenvectors of an
+- [`syevd`](https://flatironinstitute.github.io/jaxmg/latest/api/syevd/): Computes the eigenvalues and eigenvectors of an
   $N \times N$ symmetric or Hermitian matrix.
 
 ## How JAXMg works
@@ -50,7 +50,7 @@ The operations are implemented using:
   and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)
 - `syevd`: [`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)
 
-For more details, see the [API reference](https://flatironinstitute.github.io/jaxmg/api/) and the
+For more details, see the [API reference](https://flatironinstitute.github.io/jaxmg/latest/api/) and the
 [accompanying paper](https://arxiv.org/abs/2601.14466).
 
 > **Deprecation notice:** JAXMg 0.x, based on NVIDIA's deprecated cuSOLVERMg
@@ -80,14 +80,14 @@ NVIDIA GPU families are:
 
 > **Note:** `pip install jaxmg` installs CPU-only JAX. Select one of the CUDA
 > extras above when installing JAXMg for GPU use. See
-> [Installation](https://flatironinstitute.github.io/jaxmg/install/) for
+> [Installation](https://flatironinstitute.github.io/jaxmg/latest/install/) for
 > details.
 
 ## Example
 
 JAXMg runs with one Python process per GPU. After launching one process for each
 GPU, initialize distributed JAX before constructing the device mesh. See
-[Distributed execution](https://flatironinstitute.github.io/jaxmg/examples/execution/)
+[Distributed execution](https://flatironinstitute.github.io/jaxmg/latest/examples/execution/)
 for launch details.
 
 For JAX arrays `A` and `b`, a Cholesky solve and log-determinant calculation
@@ -180,8 +180,8 @@ as expected.
 
 Call `potrs` or `lu_solve` directly for standard solves. For use inside a larger
 `jax.jit`-compiled function, see the advanced
-[Cholesky](https://flatironinstitute.github.io/jaxmg/examples/potrs/) and
-[LU](https://flatironinstitute.github.io/jaxmg/examples/lu_solve/) examples.
+[Cholesky](https://flatironinstitute.github.io/jaxmg/latest/examples/potrs/) and
+[LU](https://flatironinstitute.github.io/jaxmg/latest/examples/lu_solve/) examples.
 
 ## Projects that use JAXMg
 
