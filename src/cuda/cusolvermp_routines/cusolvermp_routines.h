@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Production cuSOLVERMp FFI declarations.
+// cuSOLVERMp FFI declarations.
 //
-// This header is the exported native ABI used by xla_ffi/handlers.cc.  It
-// deliberately exposes only the user-facing fused solver entry points; shared
-// cuSOLVERMp implementation details live in cusolvermp_common.h, and the full
-// solver workflows live in cusolvermp_potrs.cc, cusolvermp_lu_solve.cc, and
-// cusolvermp_syevd.cc.
+// This header defines the fused solver ABI exported to xla_ffi/handlers.cc.
+// Each dispatch covers local layout conversion, distributed redistribution,
+// cuSOLVERMp execution, and result restoration. Shared runtime declarations
+// live in cusolvermp_common.h.
 
 #ifndef JAXMG_CUSOLVERMP_ROUTINES_H_
 #define JAXMG_CUSOLVERMP_ROUTINES_H_

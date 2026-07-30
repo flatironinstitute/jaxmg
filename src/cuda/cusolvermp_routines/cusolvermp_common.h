@@ -14,12 +14,11 @@
 //
 // Shared cuSOLVERMp runtime helpers.
 //
-// This header is the private boundary between the fused POTRS/LU/SYEVD FFI
-// handlers and NVIDIA's cuSOLVERMp runtime. It deliberately contains only
-// production concerns: status-vector schema, grid/rank validation, direct
-// cuSOLVERMp symbol access, and small CUDA/XLA utility helpers. Solver-specific
-// orchestration stays in cusolvermp_potrs.cc, cusolvermp_lu_solve.cc, and
-// cusolvermp_syevd.cc.
+// This header defines the shared boundary between the fused POTRS, LU, and
+// SYEVD handlers and the cuSOLVERMp runtime. It contains the status schemas,
+// process-grid validation, typed cuSOLVERMp entry points, and CUDA/XLA utility
+// declarations used by each solver. Solver orchestration remains in the
+// corresponding solver source file.
 
 #ifndef JAXMG_CUSOLVERMP_COMMON_H_
 #define JAXMG_CUSOLVERMP_COMMON_H_
@@ -36,11 +35,9 @@
 
 namespace xla::gpu {
 
-// Direct cuSOLVERMp API table used by the solver wrappers.
-//
-// Keeping these symbols grouped makes the solver call sites easy to audit and
-// gives tests one place to inspect which cuSOLVERMp entry points the native
-// backend depends on.
+// Typed table of the cuSOLVERMp entry points used by the native solver handlers.
+// Grouping the functions here keeps runtime invocation consistent across POTRS,
+// LU solve, and SYEVD.
 struct CusolverMpApi {
   decltype(&cusolverMpCreate) create = &cusolverMpCreate;
   decltype(&cusolverMpDestroy) destroy = &cusolverMpDestroy;
@@ -135,8 +132,8 @@ cusolverMpGridMapping_t ToCusolverMpGridMapping(int64_t grid_mapping);
 absl::Status ValidateCusolverMpGridMapping(const char* caller,
                                            int64_t grid_mapping);
 
-// Validates that a JAX mesh rank map can be represented directly by the chosen
-// cuSOLVERMp grid mapping, rejecting exotic device orders for now.
+// Validates that a JAX mesh rank map matches the selected dense row-major or
+// column-major cuSOLVERMp process-grid mapping.
 absl::Status ValidateStandardRankMapForGridMapping(
     const char* caller, absl::Span<const int64_t> rank_map,
     int64_t process_rows, int64_t process_cols, int64_t grid_mapping);

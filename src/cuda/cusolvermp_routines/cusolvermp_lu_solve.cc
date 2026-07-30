@@ -12,22 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Production cuSOLVERMp LU solve FFI handler.
+// cuSOLVERMp LU solve FFI handler.
 //
-// This file owns the full fused LU solve native path. It starts from padded JAX
-// local shards, converts their local storage to cuSOLVERMp's column-major view,
-// performs edge-padding compaction and 2D block-cyclic redistribution, calls
-// cuSOLVERMp GETRF/GETRS through the borrowed XLA-owned NCCL communicator, and
-// redistributes the solved right-hand side back to the original JAX layout.
+// This file implements the fused LU solve path. It converts padded JAX shards
+// to column-major storage, redistributes them into cuSOLVERMp's 2D block-cyclic
+// layout, runs GETRF/GETRS through the XLA-owned NCCL communicator, and restores
+// the solution to its original JAX layout.
 //
 // File workflow:
-//   1. Validate padded local JAX buffers and output aliases.
-//   2. Allocate one scratch buffer through the native memory_redist formula.
-//   3. Convert A and B locally from JAX row-major to cuSOLVERMp column-major.
-//   4. Redistribute A and B into local 2D block-cyclic cuSOLVERMp storage.
-//   5. Borrow the XLA communicator's raw NCCL handle and run GETRF/GETRS.
-//   6. Reverse-redistribute solved B back to the JAX-facing distribution.
-//   7. Restore solved B from column-major local storage to JAX row-major.
+//   1. Validate the padded matrix, solve input, and output-buffer contracts.
+//   2. Allocate one scratch buffer shared by every redistribution stage.
+//   3. Convert the local matrix and solve input from row-major to column-major.
+//   4. Compact edge padding and redistribute both buffers into 2D block-cyclic
+//      cuSOLVERMp storage.
+//   5. Borrow the XLA communicator's NCCL handle and run GETRF/GETRS.
+//   6. Reverse the redistribution for the solved input.
+//   7. Restore its local row-major JAX storage.
 
 #include <array>
 #include <cstdlib>
@@ -42,10 +42,8 @@ namespace {
 //
 // Inputs have already been converted into cuSOLVERMp local 2D block-cyclic
 // storage by memory_redist. This helper owns the solver descriptors,
-// workspaces, info buffers, and GETRF/GETRS calls. It intentionally does not
-// gather a residual on the host; production correctness is reported through the
-// cuSOLVERMp info/status vector, while numerical checks belong in validation
-// jobs.
+// workspaces, info buffers, and GETRF/GETRS calls. It returns cuSOLVERMp
+// execution and factorization status without computing a numerical residual.
 template <typename DataType>
 absl::Status RunCusolverMpDistributedLuSolve(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
@@ -120,11 +118,9 @@ absl::Status RunCusolverMpDistributedLuSolve(
     api.destroy_matrix_desc(desc_a);
   };
 
-  // cuSOLVERMp GETRF writes one local pivot entry per locally owned matrix
-  // column.  Older documentation has described this as a local-row quantity,
-  // but NVIDIA's sample code and forum clarification use LOCc(N_A).  This is
-  // especially important for degenerate P x 1 grids, where every rank owns all
-  // columns and a row-sized pivot buffer can be much too small.
+  // cuSOLVERMp GETRF writes one pivot entry per locally owned matrix column,
+  // LOCc(N_A). On a P x 1 grid every rank owns all columns, so sizing this from
+  // local rows would underallocate the pivot buffer.
   const int64_t ipiv_len = local_cols_a;
   const size_t ipiv_bytes =
       static_cast<size_t>(ipiv_len) * sizeof(int64_t);
@@ -297,11 +293,10 @@ absl::Status RunCusolverMpLuSolveSolver(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   (void)comm_stream;
-  // Stage 1: validate the static FFI contract.  By this point Python/JAX has
-  // already padded the user arrays and memory_redist has produced local
-  // column-major 2D block-cyclic buffers.  The checks here are deliberately
-  // about local capacities and dtype consistency, not global mathematical
-  // correctness.
+  // Stage 1: validate the static FFI contract. Python/JAX has already padded
+  // the user arrays and memory_redist has produced local column-major 2D
+  // block-cyclic buffers, so these checks cover local capacity and dtype
+  // consistency.
   if (stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         "cusolvermp_lu_solve requires XLA and CUDA streams");
@@ -569,9 +564,8 @@ absl::Status RunCusolverMpLuSolveSolver(
 
 }  // namespace
 
-// Prepare is intentionally limited to communicator setup.  XLA constructs the
-// all-assigned P2P clique during compilation; dispatch later retrieves the
-// communicator and uses it for both redistribution and cuSOLVERMp.
+// Requests the all-assigned P2P clique during compilation. Dispatch reuses the
+// resulting communicator for redistribution and cuSOLVERMp.
 absl::Status XlaCusolverMpLuSolvePrepare(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests) {
@@ -579,13 +573,9 @@ absl::Status XlaCusolverMpLuSolvePrepare(
       collective_params, clique_requests, "cusolvermp_lu_solve");
 }
 
-// Fused LU solve FFI entry point.
-//
-// This is the production native workflow called from Python: allocate one XLA
-// scratch window, convert local JAX layout to cuSOLVERMp layout, run forward
-// edge-padding/block-cyclic redistribution for A and B, call cuSOLVERMp, move
-// the solved B back to the JAX distribution, and restore B's local row-major
-// layout for the user-visible output.
+// Executes the complete LU workflow in one FFI dispatch. The matrix work output
+// preserves the factorized storage required for input/output aliasing; the
+// solved input is reverse-redistributed and restored for JAX.
 absl::Status XlaCusolverMpLuSolveDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     se::OwningScratchAllocator<> scratch, int64_t process_rows,
@@ -758,11 +748,8 @@ absl::Status XlaCusolverMpLuSolveDispatch(
     return return_after_cleanup(status);
   }
 
-  // The previous production prototype ran redistribution and cuSOLVERMp as
-  // separate FFI calls, which gave XLA a hard sequencing boundary.  The fused
-  // handler must provide the same safety explicitly before the host-side
-  // cuSOLVERMp call reads the redistributed buffers.  This can be relaxed to an
-  // event dependency after the correctness matrix is stable.
+  // Complete pack, transfer, and unpack work before the host-side cuSOLVERMp
+  // call reads the redistributed buffers.
   if (absl::Status status = cuda_status_after_cleanup(
           cudaStreamSynchronize(cuda_stream),
           "cusolvermp_lu_solve forward stream synchronize");
@@ -782,9 +769,7 @@ absl::Status XlaCusolverMpLuSolveDispatch(
     return return_after_cleanup(solver_call_status);
   }
 
-  // cuSOLVERMp is issued on the same stream, but keep the fused reverse
-  // redistribution boundary explicit for the same reason as the forward solve
-  // boundary above.
+  // Complete the solver call before reverse redistribution reads its outputs.
   if (absl::Status status = cuda_status_after_cleanup(
           cudaStreamSynchronize(cuda_stream),
           "cusolvermp_lu_solve solver stream synchronize");

@@ -14,11 +14,10 @@
 //
 // Shared cuSOLVERMp grid, status, and CUDA utility implementation.
 //
-// The routines here intentionally avoid solver-specific behavior. They provide
-// the common mechanics needed by POTRS, LU solve, and SYEVD: validate that a
-// JAX mesh can be represented by cuSOLVERMp, compute local NUMROC capacities,
-// copy private status vectors back to device memory, and bind CUDA work to the
-// device that owns each donated JAX buffer.
+// This file implements the common mechanics required by POTRS, LU solve, and
+// SYEVD. These include process-grid validation, local NUMROC capacity
+// calculations, device status copies, and CUDA device selection for donated JAX
+// buffers.
 
 #include "cusolvermp_common.h"
 

@@ -14,9 +14,9 @@
 //
 // Shared XLA FFI runtime helpers for the cuSOLVERMp backend.
 //
-// This file owns process-local synchronization state, common CUDA/cuSolver
-// status conversion, scratch allocation, all-assigned clique construction, and
-// small communicator utilities used by the solver-specific translation units.
+// This file implements process-local synchronization state, CUDA/cuSOLVER status
+// conversion, scratch allocation, all-assigned clique construction, and
+// communicator utilities shared by the solver handlers.
 //
 // File workflow:
 //   1. Translate CUDA/cuSOLVER return codes into absl::Status for FFI.
@@ -81,9 +81,7 @@ std::vector<AssignedDeviceEntry> AssignedDevices(
 
 // Converts CUDA runtime failures into FFI-friendly absl::Status values.
 absl::Status CudaToStatus(cudaError_t err, const char* file, int line) {
-  // Keep CUDA failures precise at the FFI boundary.  Returning the source file
-  // and line has been much more useful than generic failed-precondition errors
-  // when debugging remote Slurm runs.
+  // Preserve the CUDA call site in errors crossing the FFI boundary.
   if (err == cudaSuccess) {
     return absl::OkStatus();
   }
@@ -208,8 +206,7 @@ absl::Status RequestAllAssignedP2PCommunicator(
         "%s requires XLA collective prepare contexts", caller));
   }
 
-  // Production prepare path: ask XLA to build the communicator before runtime
-  // dispatch. Dispatch cannot create this communicator lazily.
+  // Request the communicator during prepare; dispatch cannot create it lazily.
   absl::StatusOr<GpuCliqueKey> clique_key =
       AllAssignedDevicesP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {

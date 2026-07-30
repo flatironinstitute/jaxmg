@@ -14,11 +14,11 @@
 //
 // Exported XLA FFI symbols for the cuSOLVERMp backend.
 //
-// Keeping the bindings in one translation unit makes Python registration names
-// easy to audit and keeps solver implementation files focused on execution
-// logic.
+// This file defines the native ABI used by Python registration in _setup.py.
+// The prepare and execute symbol names must remain synchronized with those
+// registrations.
 //
-// File workflow:
+// Registration workflow:
 //   1. Python loads libjaxmg_xla_comm_backend.so with ctypes.
 //   2. Python registers each FFI target by name and points JAX at the prepare
 //      and execute symbols defined here.
@@ -27,17 +27,13 @@
 //   4. XLA calls the execute symbol at runtime with streams, buffers,
 //      attributes, scratch allocators, and collective contexts.
 //
-// The names in this file are therefore the ABI between Python registration and
-// the native implementation. Renaming one requires the matching _setup.py entry
-// to change as well.
-
 #include "runtime.h"
 #include "../cusolvermp_routines/cusolvermp_routines.h"
 
 namespace xla::gpu {
 
 // ---------------------------------------------------------------------------
-// Production fused solver handlers.
+// Fused solver handlers.
 // ---------------------------------------------------------------------------
 //
 // Python-facing `potrs`, `lu_solve`, and `syevd` register here. Each call

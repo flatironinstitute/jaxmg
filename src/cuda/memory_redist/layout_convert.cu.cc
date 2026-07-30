@@ -16,10 +16,9 @@
 //
 // cuSOLVERMp assumes each local distributed matrix shard is physically stored
 // in column-major order. JAX normally materializes rank-2 buffers in row-major
-// physical order. The public cuSOLVERMp path deliberately keeps the FFI
-// boundary row-major and performs the local layout conversion here, inside the
-// fused native call, so XLA does not need to materialize a second full local
-// matrix shard just to satisfy cuSOLVERMp's local-storage convention:
+// physical order. The FFI boundary remains row-major and performs the local
+// layout conversion inside the fused native call, avoiding a second full local
+// matrix allocation:
 //
 //   input physical address:  data[row * cols + col]
 //   output physical address: data[col * rows + row]
@@ -33,11 +32,9 @@
 //   * The input and output pointer are the same donated local shard.
 //   * Scratch is supplied by the fused FFI handler, sharing the same XLA
 //     scratch allocation as redistribution.  The minimum requirement is
-//     O(max(rows, cols)) elements, but production solver calls usually have a
-//     much larger redistribution scratch buffer available.  The kernels below
-//     use the full scratch span to process many independent rows/columns per
-//     launch, which preserves the low-memory decomposition while avoiding one
-//     kernel launch per row or column.
+//     O(max(rows, cols)) elements. The kernels use the full available scratch
+//     span to process multiple independent rows or columns per launch while
+//     preserving the low-memory decomposition.
 //   * The same exported launcher is used for the inverse conversion. A
 //     column-major (rows, cols) address grid is a row-major (cols, rows)
 //     address grid, so calling this decomposition with swapped dimensions

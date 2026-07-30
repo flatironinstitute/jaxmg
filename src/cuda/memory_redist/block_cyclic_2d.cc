@@ -14,7 +14,7 @@
 //
 // Native 2D block-cyclic redistribution for cuSOLVERMp.
 //
-// This file owns the tile/slab ownership permutation that converts a
+// This file implements the tile/slab ownership permutation that converts a
 // tile-aligned, edge-padded JAX block-sharded matrix into the 2D block-cyclic
 // layout expected by cuSOLVERMp. It composes the edge-padding phase from
 // edge_padding_2d.cc with the low-level rectangle transport in rectangle_pack.cc.
@@ -25,12 +25,12 @@
 //      slabs to the process column required by tile_col % process_cols.
 //   3. Build the row-owner phase: within each process column, move tile-row slabs
 //      to the process row required by tile_row % process_rows.
-//   4. Decompose each phase into closed permutation cycles, using the same
-//      one-slab scratch policy as JAXMg's original 1D reshuffler.
+//   4. Decompose each phase into closed permutation cycles that preserve one live
+//      slab in scratch while rotating the remaining slabs.
 //   5. Batch only independent same-sequence moves across different process rows
-//      or columns, preserving a conservative fixed scratch bound.
-//   6. Expose the public padded forward/reverse redistribution FFI target used by
-//      the Python cuSOLVERMp wrapper.
+//      or columns while maintaining the fixed scratch bound.
+//   6. Execute forward or reverse padding and block-cyclic schedules through the
+//      XLA-owned communicator.
 
 #include <algorithm>
 #include <functional>
@@ -45,7 +45,7 @@ namespace xla::gpu {
 namespace {
 
 // Verifies that the Python-provided rank map is dense and matches one of the
-// two cuSOLVERMp process-grid orders supported by the production backend.
+// two cuSOLVERMp process-grid orders supported by the backend.
 absl::Status ValidateStandardGridRankMap(const char* caller,
                                          absl::Span<const int64_t> rank_map,
                                          int64_t process_rows,
@@ -79,27 +79,21 @@ absl::Status ValidateStandardGridRankMap(const char* caller,
   return absl::OkStatus();
 }
 
-// The optimized native redistribution is the 2D analogue of JAXMg's 1D
-// cyclic reshuffler. It does not move individual MB_A x NB_A tiles. Instead it
-// performs two coarser, separable permutations:
+// Redistribution uses two coarse, separable slab permutations rather than
+// moving individual tile payloads:
 //
 //   phase 0: within every process row, cyclically permute column slabs of
 //            shape local_rows x tile_cols into their target process column.
 //   phase 1: within every process column, cyclically permute row slabs of
 //            shape tile_rows x local_cols into their target process row.
 //
-// Each phase is still an in-place permutation, so we decompose it into the same
-// closed cycles used by the 1D code. Closed cycles save one live slab in
-// scratch, rotate the remaining slabs tail-to-head, then restore the saved
-// slab. The important low-memory invariant is the same as the original 1D
-// JAXMg reshuffler: within one process row/column group, only one tile slab is
-// in flight at a time. Different cycles in that same group are therefore
-// serialized by assigning increasing dependency sequence numbers. Parallelism
-// comes only from applying the same sequence step across independent process
-// rows or columns. For example, one global tile-column move is represented as
-// matching local column-slab moves in every process row, and those
-// same-sequence moves are batched into one raw-NCCL send/recv round when their
-// ranks do not conflict.
+// Each in-place phase is decomposed into closed cycles. A cycle saves one live
+// slab in scratch, rotates the remaining slabs tail-to-head, and restores the
+// saved slab. Within each process-row or process-column group, one slab advances
+// at a time and dependent cycle steps are serialized by increasing sequence
+// numbers. Matching steps across independent groups execute in the same NCCL
+// round when their ranks do not conflict. For example, one global tile-column
+// transition becomes matching local column-slab moves across every process row.
 
 // Describes one full-height tile-column slab in rank-local coordinates.
 NativeLocalRect ColumnSlabRect(int64_t local_rows, int64_t tile_cols,
@@ -345,8 +339,7 @@ absl::StatusOr<std::map<int64_t, std::vector<int64_t>>> BuildNative2DCycles(
 
 using SlotDecoder = std::function<Native2DSlot(int64_t)>;
 
-// Emits save/move/restore Native2DStep records for one closed cycle using the
-// same one-slab scratch policy as the original 1D JAXMg reshuffler.
+// Emits save/move/restore records for one closed cycle using one saved slab.
 absl::StatusOr<int64_t> AppendCycleSteps(int64_t phase,
                                          const SlotDecoder& decode_slot,
                                          const std::vector<int64_t>& slots,
@@ -550,10 +543,9 @@ absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
 // rounds that can be passed to the rectangle/NCCL executor.
 std::vector<Native2DStepBatch> BatchNative2DSteps(
     const std::vector<Native2DStep>& steps) {
-  // Group by phase, dependency sequence, and operation kind. This deliberately
-  // batches only the same step of the same cycle shape across independent
-  // process rows/columns. It does not combine different sequence numbers, since
-  // those represent dependent moves inside a cycle.
+  // Group by phase, dependency sequence, and operation kind. Only matching
+  // cycle steps across independent process rows or columns share a batch;
+  // different sequence numbers represent dependent moves and remain separate.
   std::map<std::tuple<int64_t, int64_t, int64_t>, std::vector<Native2DStep>>
       steps_by_round;
   for (const Native2DStep& step : steps) {
@@ -651,10 +643,8 @@ absl::StatusOr<int64_t> RequiredPadded2DNativePlanScratchElements(
 
 namespace {
 
-// Implementation for the production raw executor. It resolves the XLA
-// communicator, builds forward/reverse schedules, copies into the work buffer
-// when needed, and then runs edge-padding plus slab redistribution in the right
-// order for input or output movement.
+// Resolves the XLA communicator and executes edge-padding plus block-cyclic
+// schedules in forward or reverse order.
 absl::Status ExecutePadded2DNativePlanRawImpl(
     const char* caller, se::Stream* stream, se::Stream* comm_stream,
     cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,
@@ -678,9 +668,8 @@ absl::Status ExecutePadded2DNativePlanRawImpl(
         absl::StrFormat("%s expects a rank-2 matrix buffer", caller));
   }
 
-  // Production fused solvers enter through this raw executor after local
-  // layout conversion. Resolve the all-assigned communicator once and use it
-  // for both edge-padding and 2D block-cyclic movement.
+  // Resolve the all-assigned communicator once and use it for both edge-padding
+  // and 2D block-cyclic movement.
   absl::StatusOr<GpuCliqueKey> clique_key =
       AllAssignedDevicesP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {

@@ -14,10 +14,8 @@
 //
 // CUDA launcher for local row-major <-> column-major layout conversion.
 //
-// The implementation lives in layout_convert.cu.cc and is linked directly into
-// libjaxmg_xla_comm_backend.so by Bazel.  Keeping this declaration in a small
-// C-compatible header lets ordinary C++ redistribution code call the launcher
-// without loading a second helper shared library at runtime.
+// Defines the C ABI used by the C++ redistribution layer to launch the CUDA
+// implementation in layout_convert.cu.cc.
 
 #ifndef JAXMG_MEMORY_REDIST_LAYOUT_CONVERT_H_
 #define JAXMG_MEMORY_REDIST_LAYOUT_CONVERT_H_

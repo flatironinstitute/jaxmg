@@ -14,10 +14,10 @@
 //
 // Public internal interface for native 2D memory redistribution.
 //
-// This header owns the small value types and entry points used to convert padded
-// JAX local shards into cuSOLVERMp's local 2D block-cyclic storage and back. The
-// implementation is split across edge-padding planning, block-cyclic planning,
-// scratch sizing, and rectangle transport.
+// Declares the value types and entry points used to convert padded JAX shards
+// into cuSOLVERMp's local 2D block-cyclic storage and back. Implementations are
+// split across edge-padding planning, block-cyclic planning, scratch sizing, and
+// rectangle transport.
 
 #ifndef JAXMG_MEMORY_REDIST_H_
 #define JAXMG_MEMORY_REDIST_H_
@@ -70,16 +70,13 @@ struct Native2DStepBatch {
   std::vector<Native2DStep> steps;
 };
 
-// Lightweight copy helpers used by production wrappers when XLA could not
-// alias an input buffer with the requested output/work buffer.
-// Copies a matrix into its work/output buffer only when the two buffers do not
-// already alias the same device allocation.
+// Copies a matrix into its work/output buffer only when XLA did not alias both
+// values to the same device allocation.
 absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream,
                                 ffi::AnyBuffer matrix,
                                 ffi::Result<ffi::AnyBuffer> matrix_out);
 
-// Copies an explicit scratch output buffer only when diagnostic/test paths
-// request a distinct result buffer.
+// Copies scratch only when the requested output is a distinct allocation.
 absl::Status CopyScratchIfNeeded(cudaStream_t cuda_stream,
                                  ffi::AnyBuffer scratch,
                                  ffi::Result<ffi::AnyBuffer> scratch_out);
@@ -96,9 +93,7 @@ absl::Status ConvertColumnMajorToRowMajorInPlace(
     cudaStream_t cuda_stream, const char* caller, ffi::AnyBuffer matrix,
     se::DeviceAddressBase scratch_base, int64_t scratch_elements);
 
-// Low-level rectangle transport helpers. These remain exposed only inside the
-// native backend so tests can use the exact production pack/unpack/NCCL path
-// without duplicating transport logic.
+// Low-level rectangle validation, packing, and transport operations.
 // Checks that a logical local rectangle lies inside a rank-local matrix.
 absl::Status ValidateRect(const char* caller, int64_t row_start,
                           int64_t col_start, int64_t row_count,
@@ -129,9 +124,9 @@ absl::Status RunRawNcclSendRecv(
     se::DeviceAddressBase recv_buffer, uint64_t byte_count,
     std::optional<RankId> source_rank, absl::Span<const RankId> target_ranks);
 
-// Planning and execution entry points for the tile-aligned slab reshuffler.
-// Build* functions produce an abstract schedule; Batch* groups independent
-// steps; Execute* performs the pack/NCCL/unpack work against real buffers.
+// Planning and execution entry points for tile-aligned slab redistribution.
+// Build* functions produce schedules, Batch* groups independent steps, and
+// Execute* performs pack/NCCL/unpack operations against device buffers.
 // Returns the largest rectangle payload in a planned 2D movement schedule.
 int64_t MaxStepElementCount(const std::vector<Native2DStep>& steps);
 
@@ -159,9 +154,6 @@ absl::Status ExecuteEdgePaddingBatches(
     se::DeviceAddressBase matrix_out_base,
     se::DeviceAddressBase scratch_base, GpuCommunicator* comm);
 
-// Edge-padding compaction planners.  The forward planner moves real data to
-// the global top-left edge-padded layout.  ReverseEdgePaddingSteps builds the
-// inverse schedule for solver outputs.
 // Builds the forward top-left edge-padding compaction schedule for one padded
 // JAX-sharded matrix.
 absl::StatusOr<std::vector<Native2DStep>> BuildEdgePaddingNative2DSteps(
@@ -175,11 +167,9 @@ absl::StatusOr<std::vector<Native2DStep>> BuildEdgePaddingNative2DSteps(
 std::vector<Native2DStep> ReverseEdgePaddingSteps(
     const std::vector<Native2DStep>& forward_steps);
 
-// Tile-slab 2D block-cyclic planners.  The schedule is separable: a column
-// owner phase followed by a row owner phase for forward redistribution, with
-// the order inverted for reverse redistribution.
 // Builds the tile-slab 2D block-cyclic ownership permutation, or its inverse
-// when reverse=true.
+// when reverse=true. The forward schedule applies a column-owner phase followed
+// by a row-owner phase; the inverse applies them in reverse order.
 absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
     int64_t process_rows, int64_t process_cols, int64_t tile_rows,
     int64_t tile_cols, int64_t local_rows, int64_t local_cols,
@@ -193,13 +183,9 @@ absl::StatusOr<int64_t> RequiredPadded2DNativePlanScratchElements(
     int64_t local_rows, int64_t local_cols,
     absl::Span<const int64_t> rank_map);
 
-// Scratch sizing for the padded 2D redistribution pipeline.
-//
-// The memory_redist layer owns this calculation because it is an implementation
-// detail of the native layout conversion, edge-padding compaction, and 2D
-// block-cyclic scheduler. Solver files should describe the redistribution
-// requests they need, then receive one CUDA scratch allocation that is large
-// enough for all phases in the fused FFI call.
+// Describes one matrix's redistribution geometry for shared scratch sizing.
+// The largest request in a fused solver call determines the single allocation
+// reused by layout conversion, edge-padding compaction, and cyclic movement.
 struct Padded2DRedistScratchRequest {
   int64_t process_rows;
   int64_t process_cols;
@@ -236,11 +222,9 @@ absl::Status FreePadded2DRedistScratch(cudaStream_t cuda_stream,
                                        Padded2DRedistScratch scratch,
                                        const char* caller);
 
-// Production raw executor used inside fused solver handlers.  It assumes the
-// caller already copied/aliased into the work buffer and supplied one scratch
-// allocation sized by AllocatePadded2DRedistScratch.
 // Runs forward or reverse edge-padding plus 2D block-cyclic redistribution on
-// a real matrix buffer using the XLA-owned communicator and caller scratch.
+// a matrix buffer using the XLA-owned communicator. The caller supplies a work
+// buffer and scratch allocation sized by AllocatePadded2DRedistScratch.
 absl::Status ExecutePadded2DNativePlanRaw(
     const char* caller, se::Stream* stream, se::Stream* comm_stream,
     cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,

@@ -1,10 +1,9 @@
-"""Small runtime layout types for the cuSOLVERMp Python wrappers.
+"""Runtime layout types for the cuSOLVERMp Python wrappers.
 
-The full block-cyclic reference planner lives in the test tree.  Production
-Python only needs a compact description of the process grid, the supported
-cuSOLVERMp rank mappings, the square tile size, and the local shard padding
-rule.  Keeping those definitions here prevents the installed package from
-carrying the large CPU reference planner used for redistribution tests.
+This module describes process-grid dimensions, supported cuSOLVERMp rank
+mappings, tile geometry, and the local capacity required for tile-aligned
+padding. The solver wrappers use these values to establish the static layout
+contract passed to the native backend.
 """
 
 from __future__ import annotations
@@ -250,7 +249,7 @@ def calculate_2d_padding(
         logical_rows: Total number of logical rows in the global matrix.
         logical_cols: Total number of logical columns in the global matrix.
         grid: The 2D process grid dimensions (rows x cols).
-        tile_shape: The square tile shape used by cuSOLVERMp.
+        tile_shape: The 2D tile shape used by cuSOLVERMp.
 
     Returns:
         A ``MatrixPadding2D`` object containing the calculated local and

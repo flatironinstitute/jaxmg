@@ -25,12 +25,10 @@
 //
 //   3 * max(tile_cols * local_rows, tile_rows * local_cols)
 //
-// The factor of three is the same saved/send/receive slot policy used by the
-// original JAXMg in-place cyclic reshuffler. Edge-padding is an open-chain move
-// and can use the whole allocation as a single payload; layout conversion only
-// requires a one-row or one-column minimum, which is already covered whenever
-// tile sizes and local dimensions are positive. Keeping this calculation in
-// memory_redist makes the solver files independent of redistribution internals.
+// The factor of three provides saved, send, and receive slots for a closed
+// permutation cycle. Edge-padding is an open-chain move and uses the allocation
+// as one larger payload. Layout conversion requires only a one-row or one-column
+// minimum, which is covered when tile sizes and local dimensions are positive.
 
 #include <algorithm>
 #include <cstddef>
@@ -44,9 +42,8 @@ namespace xla::gpu {
 // layout conversion, edge-padding compaction, and 2D block-cyclic redistribution.
 absl::StatusOr<int64_t> RequiredPadded2DRedistScratchElements(
     const Padded2DRedistScratchRequest& request) {
-  // Delegate geometry validation to the same planner used by execution.  That
-  // keeps the scratch calculator honest: if a shape cannot be redistributed,
-  // scratch sizing fails before any solver code allocates memory.
+  // Reuse execution-plan validation so invalid redistribution geometry fails
+  // before scratch allocation.
   absl::StatusOr<int64_t> elements =
       RequiredPadded2DNativePlanScratchElements(
           request.process_rows, request.process_cols, request.tile_rows,

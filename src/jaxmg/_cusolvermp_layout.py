@@ -1,11 +1,7 @@
 """Shared Python layout helpers for the cuSOLVERMp backend.
 
-The public solvers in :mod:`jaxmg._potrs`, :mod:`jaxmg._lu_solve`, and
-:mod:`jaxmg._syevd` should read like user-facing numerical routines. This
-module holds the common JAX mesh, right-hand-side placement, process-grid, and
-local-padding mechanics required before entering the fused native FFI calls.
-
-The module covers four parts of the Python-to-native layout contract:
+This module defines four parts of the Python-to-native layout contract shared
+by the POTRS, LU-solve, and SYEVD wrappers:
 
 1. infer and validate the JAX ``Mesh`` and matrix ``PartitionSpec``;
 2. place solve inputs in the regular native work layout and restore outputs to
@@ -41,14 +37,25 @@ def normalize_matrix_specs(
     *,
     in_specs: P | tuple[P, ...] | list[P] | None = None,
 ) -> P | None:
-    """Normalize legacy ``in_specs`` and current ``matrix_specs`` inputs.
+    """Normalize the accepted matrix-sharding specification forms.
 
-    Older JAXMg entry points accepted ``in_specs`` as either a single
-    ``PartitionSpec`` or a one-element tuple/list.  The cuSOLVERMp backend uses
-    the clearer name ``matrix_specs`` because the same 2D sharding contract is
-    applied to all matrix-like arguments.  Keeping this tiny compatibility
-    bridge avoids spreading argument-normalization code across the public
-    wrappers.
+    ``in_specs`` is retained as an alias for ``matrix_specs``. Either argument
+    accepts a ``PartitionSpec`` directly or inside a one-element tuple/list,
+    but they cannot be supplied together.
+
+    Args:
+        matrix_specs: Matrix sharding specification used by the cuSOLVERMp
+            wrappers, or ``None`` when it should be inferred from the input.
+        in_specs: Alias for ``matrix_specs`` retained for API compatibility.
+
+    Returns:
+        The normalized ``PartitionSpec``, or ``None`` when neither argument was
+        provided.
+
+    Raises:
+        ValueError: If both arguments are supplied or a sequence does not
+            contain exactly one specification.
+        TypeError: If the normalized value is not a ``PartitionSpec``.
     """
     if matrix_specs is not None and in_specs is not None:
         raise ValueError("Specify only one of matrix_specs=... or in_specs=...")
@@ -69,7 +76,18 @@ def normalize_matrix_specs(
 
 
 def mesh_axis_size(mesh: Mesh, axis_name: str) -> int:
-    """Return the size of one named JAX mesh axis."""
+    """Return the number of devices along a named JAX mesh axis.
+
+    Args:
+        mesh: JAX device mesh containing the requested axis.
+        axis_name: Name of the axis whose extent is required.
+
+    Returns:
+        The positive integer extent recorded in ``mesh.shape``.
+
+    Raises:
+        ValueError: If ``axis_name`` is absent from the mesh.
+    """
     try:
         return int(mesh.shape[axis_name])
     except KeyError as exc:
@@ -80,7 +98,25 @@ def validate_2d_matrix_specs(
     mesh: Mesh,
     matrix_specs: P,
 ) -> tuple[str, str, ProcessGrid]:
-    """Validate that a matrix is sharded over two named mesh axes."""
+    """Validate and describe a two-dimensional matrix sharding.
+
+    cuSOLVERMp requires both logical matrix dimensions to map to named JAX mesh
+    axes. The first ``PartitionSpec`` entry defines the process-row axis and the
+    second defines the process-column axis.
+
+    Args:
+        mesh: JAX mesh used to shard the matrix.
+        matrix_specs: Rank-2 matrix ``PartitionSpec``.
+
+    Returns:
+        ``(row_axis, col_axis, grid)``, where ``grid`` contains the extents of
+        the two selected mesh axes.
+
+    Raises:
+        TypeError: If ``matrix_specs`` is not a ``PartitionSpec``.
+        ValueError: If the specification is not rank two, either matrix
+            dimension is unsharded, or a referenced axis is absent.
+    """
     if not isinstance(matrix_specs, P):
         raise TypeError("matrix_specs must be a PartitionSpec.")
     if len(matrix_specs._partitions) != 2:
@@ -119,6 +155,20 @@ def rhs_distribution_columns(nrhs: int, *, process_cols: int, pad: bool) -> int:
     Native code still receives the original ``NRHS`` and passes that logical
     value to cuSOLVERMp; the extra columns provide only routing capacity and
     are removed after the solved RHS is restored to its user-facing sharding.
+
+    Args:
+        nrhs: Logical number of solve-input columns.
+        process_cols: Number of process columns in the cuSOLVERMp grid.
+        pad: Whether routing columns may be added when ``nrhs`` is not evenly
+            divisible by ``process_cols``.
+
+    Returns:
+        The smallest JAX-visible width greater than or equal to ``nrhs`` that
+        is divisible by ``process_cols``.
+
+    Raises:
+        ValueError: If either size is non-positive, or padding is required while
+            ``pad`` is ``False``.
     """
     nrhs = int(nrhs)
     process_cols = int(process_cols)
@@ -146,7 +196,27 @@ def _place_for_matrix_axis_mode(
     matrix_specs: P,
     target_specs: P,
 ) -> Array:
-    """Place an array using the primitive required by the matrix mesh axes."""
+    """Place an array according to the matrix mesh-axis mode.
+
+    Explicit JAX mesh axes require ``jax.reshard`` because their sharding is
+    fixed by the caller. Auto axes instead require
+    ``jax.lax.with_sharding_constraint`` inside the compiled computation.
+
+    Args:
+        value: Array to place in the target sharding.
+        mesh: JAX mesh that owns the matrix axes.
+        matrix_specs: Matrix ``PartitionSpec`` used to identify the relevant
+            mesh-axis modes.
+        target_specs: ``PartitionSpec`` required for ``value``.
+
+    Returns:
+        ``value`` constrained or resharded to ``NamedSharding(mesh,
+        target_specs)``.
+
+    Raises:
+        ValueError: If a matrix axis is absent from ``mesh`` or the two matrix
+            axes do not share a supported Explicit or Auto mode.
+    """
     axis_types = dict(zip(mesh.axis_names, mesh.axis_types))
     matrix_axes = tuple(matrix_specs._partitions)
     try:
@@ -183,9 +253,20 @@ def place_rhs_for_native_work(
     while the conventional ``Mesh(...)`` constructor creates auto axes and
     requires ``with_sharding_constraint`` inside a compiled computation.
 
-    Mixed explicit/auto process-grid axes are rejected. They are not a normal
-    JAX mesh construction for this backend and neither placement primitive can
-    express the mixed target consistently.
+    Mixed explicit/auto process-grid axes are rejected because neither
+    placement primitive can represent the mixed target consistently.
+
+    Args:
+        rhs: Solve input in its user-facing sharding.
+        mesh: JAX mesh used by the matrix and native work buffers.
+        matrix_specs: Regular 2D matrix sharding required by the native FFI.
+
+    Returns:
+        The solve input placed in ``NamedSharding(mesh, matrix_specs)``.
+
+    Raises:
+        ValueError: If the matrix axes are absent or use an unsupported mixture
+            of mesh-axis modes.
     """
     return _place_for_matrix_axis_mode(
         rhs,
@@ -210,6 +291,21 @@ def restore_rhs_from_native_work(
     dimension that is not divisible by the process-column count. Restore the
     input RHS ``PartitionSpec`` first so the logical-width slice is valid and
     the solver returns the same JAX-facing layout it received.
+
+    Args:
+        rhs: Solved native work buffer before removal of routing columns.
+        reference_rhs: Original solve input whose sharding should be restored.
+        mesh: JAX mesh used by the matrix and solve input.
+        matrix_specs: Regular 2D sharding used by the native work buffer.
+
+    Returns:
+        The solved input restored to the original named sharding. If the
+        reference has no ``NamedSharding``, the row axis remains sharded and
+        the column axis is replicated.
+
+    Raises:
+        ValueError: If the matrix axes are absent or use an unsupported mixture
+            of mesh-axis modes.
     """
     reference_sharding = getattr(jax.typeof(reference_rhs), "sharding", None)
     if isinstance(reference_sharding, NamedSharding):
@@ -232,7 +328,14 @@ def restore_rhs_from_native_work(
 
 
 def _device_process_index(device) -> int:
-    """Return the host-process index that owns a JAX device."""
+    """Return the host-process index that owns a JAX device.
+
+    JAX versions expose ``process_index`` either as an integer property or a
+    zero-argument method, so both forms are accepted.
+
+    Raises:
+        AttributeError: If the device exposes no process index.
+    """
     value = getattr(device, "process_index", None)
     if callable(value):
         return int(value())
@@ -242,7 +345,11 @@ def _device_process_index(device) -> int:
 
 
 def _device_id(device) -> int:
-    """Return JAX's stable integer device id for communicator ordering."""
+    """Return JAX's stable integer device id for communicator ordering.
+
+    Raises:
+        AttributeError: If the device exposes no integer ``id``.
+    """
     value = getattr(device, "id", None)
     if value is None:
         raise AttributeError(f"device {device!r} has no id")
@@ -250,7 +357,11 @@ def _device_id(device) -> int:
 
 
 def _device_local_hardware_id(device) -> int:
-    """Return the local GPU hardware id when JAX exposes one."""
+    """Return the local GPU hardware id used to disambiguate device order.
+
+    JAX does not expose ``local_hardware_id`` on every backend. In that case,
+    the globally stable device id provides the fallback ordering key.
+    """
     value = getattr(device, "local_hardware_id", None)
     if value is None:
         return _device_id(device)
@@ -258,7 +369,12 @@ def _device_local_hardware_id(device) -> int:
 
 
 def _device_rank_key(device) -> tuple[int, int, int]:
-    """Best available Python-side model of XLA communicator rank order."""
+    """Return the device ordering key used to model XLA communicator ranks.
+
+    Devices are ordered first by host process, then by JAX device id, and
+    finally by local hardware id. This matches the regular rank layouts accepted
+    by the native cuSOLVERMp process grid.
+    """
     return (
         _device_process_index(device),
         _device_id(device),
@@ -281,6 +397,22 @@ def process_rank_map_from_mesh(
     cuSOLVERMp-supported row-major or column-major rank mapping.  Arbitrary
     mesh permutations are rejected before native code runs, because cuSOLVERMp
     cannot represent those permutations in its grid descriptor.
+
+    Args:
+        mesh: JAX mesh containing the process-grid devices.
+        row_axis: Mesh axis mapped to cuSOLVERMp process rows.
+        col_axis: Mesh axis mapped to cuSOLVERMp process columns.
+        grid: Expected two-dimensional process-grid shape.
+        caller: Routine name included in validation errors.
+
+    Returns:
+        A process-grid-slot to communicator-rank mapping in row-major slot
+        order.
+
+    Raises:
+        ValueError: If the matrix axes are invalid, the mesh shape differs from
+            ``grid``, devices are duplicated, or device order is not one of
+            cuSOLVERMp's supported grid mappings.
     """
     axis_names = tuple(mesh.axis_names)
     if row_axis not in axis_names or col_axis not in axis_names:
@@ -341,7 +473,24 @@ def standard_grid_rank_map_attr(
     process_cols: int,
     caller: str,
 ) -> np.ndarray:
-    """Return a dense cuSOLVERMp-compatible process-slot -> rank map."""
+    """Validate and encode a process-slot to communicator-rank mapping.
+
+    Args:
+        rank_map: ``ProcessRankMap``, one-dimensional rank sequence, or ``None``
+            for row-major identity order.
+        process_rows: Number of process-grid rows.
+        process_cols: Number of process-grid columns.
+        caller: Routine name included in validation errors.
+
+    Returns:
+        A contiguous ``int64`` array indexed by row-major process-grid slot.
+
+    Raises:
+        ValueError: If the map has the wrong shape or is not a permutation of
+            all communicator ranks.
+        NotImplementedError: If the permutation is neither cuSOLVERMp row-major
+            nor column-major order.
+    """
     process_rows = int(process_rows)
     process_cols = int(process_cols)
     num_ranks = process_rows * process_cols
@@ -388,7 +537,25 @@ def cusolvermp_grid_mapping_attr(
     process_cols: int,
     caller: str,
 ) -> int:
-    """Return cuSOLVERMp's grid-mapping enum for the validated rank map."""
+    """Resolve cuSOLVERMp's grid-mapping enum for a validated rank map.
+
+    NVIDIA defines column-major mapping as ``0`` and row-major mapping as ``1``.
+    When ``grid_mapping`` is omitted, the value is inferred from ``rank_map``.
+
+    Args:
+        rank_map: Process-slot to communicator-rank mapping.
+        grid_mapping: Explicit cuSOLVERMp enum value, or ``None`` to infer it.
+        process_rows: Number of process-grid rows.
+        process_cols: Number of process-grid columns.
+        caller: Routine name included in validation errors.
+
+    Returns:
+        ``0`` for column-major rank order or ``1`` for row-major rank order.
+
+    Raises:
+        ValueError: If the enum is unsupported or disagrees with ``rank_map``.
+        NotImplementedError: If ``rank_map`` is not a supported dense order.
+    """
     rank_array = standard_grid_rank_map_attr(
         rank_map,
         process_rows=process_rows,
@@ -433,7 +600,26 @@ def infer_mesh_and_matrix_specs(
     matrix_specs: P | tuple[P, ...] | list[P] | None,
     in_specs: P | tuple[P, ...] | list[P] | None = None,
 ) -> tuple[Mesh, P]:
-    """Infer the cuSOLVERMp mesh contract from an input JAX array."""
+    """Resolve the JAX mesh and matrix sharding used by a solver call.
+
+    Explicit ``mesh`` and ``matrix_specs`` values take precedence. Any missing
+    value is inferred from the input matrix when it carries ``NamedSharding``.
+
+    Args:
+        a: Input matrix whose named sharding may provide the mesh contract.
+        mesh: Explicit JAX mesh, or ``None`` to infer it from ``a``.
+        matrix_specs: Explicit matrix ``PartitionSpec``, or ``None`` to infer
+            it from ``a``.
+        in_specs: Alias for ``matrix_specs``.
+
+    Returns:
+        The resolved ``(mesh, matrix_specs)`` pair.
+
+    Raises:
+        ValueError: If inference is required but ``a`` has no
+            ``NamedSharding``, or both sharding-specification aliases are set.
+        TypeError: If the supplied matrix specification has an invalid type.
+    """
     matrix_specs = normalize_matrix_specs(matrix_specs, in_specs=in_specs)
     if mesh is not None and matrix_specs is not None:
         return mesh, matrix_specs
@@ -459,7 +645,20 @@ def infer_mesh_and_matrix_specs(
 
 
 def status_specs(row_axis: str, col_axis: str, grid: ProcessGrid) -> P:
-    """Choose a sharding for one small per-rank native status vector."""
+    """Choose the sharding for a per-rank native status vector.
+
+    The status vector has one logical axis but must retain one distinct shard per
+    process rank. A degenerate process grid uses its non-trivial mesh axis; a
+    two-dimensional grid maps the vector axis over the product of both axes.
+
+    Args:
+        row_axis: Name of the process-row mesh axis.
+        col_axis: Name of the process-column mesh axis.
+        grid: Shape of the cuSOLVERMp process grid.
+
+    Returns:
+        A rank-1 ``PartitionSpec`` covering every process rank exactly once.
+    """
     if grid.process_rows == 1:
         return P(col_axis)
     if grid.process_cols == 1:
@@ -468,12 +667,31 @@ def status_specs(row_axis: str, col_axis: str, grid: ProcessGrid) -> P:
 
 
 def _pad_local_2d(block: Array, *, row_padding: int, col_padding: int) -> Array:
-    """Pad a single local shard on its bottom and right edges."""
+    """Pad one local shard on its bottom and right edges.
+
+    Args:
+        block: Rank-2 local matrix shard.
+        row_padding: Number of zero rows appended to the shard.
+        col_padding: Number of zero columns appended to the shard.
+
+    Returns:
+        The original block when no padding is needed, otherwise a zero-padded
+        block with shape increased by the requested amounts.
+    """
     if row_padding == 0 and col_padding == 0:
         return block
     return jnp.pad(block, ((0, row_padding), (0, col_padding)))
 
 
 def _unpad_local_2d(block: Array, *, local_rows: int, local_cols: int) -> Array:
-    """Slice a local shard back to its unpadded logical shape."""
+    """Slice one local shard back to its logical unpadded shape.
+
+    Args:
+        block: Rank-2 local matrix shard containing optional edge padding.
+        local_rows: Number of logical rows retained from the top edge.
+        local_cols: Number of logical columns retained from the left edge.
+
+    Returns:
+        The leading ``(local_rows, local_cols)`` logical region.
+    """
     return block[:local_rows, :local_cols]

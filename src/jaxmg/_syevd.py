@@ -52,14 +52,12 @@ def syevd(
     eigenvalues together with eigenvectors in the same JAX-facing matrix layout
     as the input.
 
-    Tip:
-        If the shards of the matrix cannot be padded with tiles of size `T_A`
-        we have to add padding to fit the last tile. This requires copying the
-        matrix, which we want to avoid at all costs for large ``N``. Make sure
-        you pick ``T_A`` large enough (>=128) and such that it can evenly cover
-        the shards. In principle, increasing ``T_A`` will increase performance
-        at the cost of memory, but depending on ``N``, the performance will
-        saturate.
+    Note:
+        If a local shard dimension is not divisible by ``T_A``, ``pad=True``
+        allocates additional tile-aligned capacity before the native call.
+        Choosing a tile size that divides the local dimensions avoids this
+        allocation. Performance depends on the matrix size, process grid, and
+        tile size.
 
     Args:
         a (Array): A 2D symmetric/Hermitian matrix. Expected to be sharded
@@ -179,14 +177,12 @@ def syevd_shardmap_ctx(
     ``A``-sized alias target for the donated input. The returned eigenvectors
     occupy a separate matrix-sized allocation.
 
-    Tip:
-        If the shards of the matrix cannot be padded with tiles of size `T_A`
-        we have to add padding to fit the last tile. This requires copying the
-        matrix, which we want to avoid at all costs for large ``N``. Make sure
-        you pick ``T_A`` large enough (>=128) and such that it can evenly cover
-        the shards. In principle, increasing ``T_A`` will increase performance
-        at the cost of memory, but depending on ``N``, the performance will
-        saturate.
+    Note:
+        If a local shard dimension is not divisible by ``T_A``, ``pad=True``
+        allocates additional tile-aligned capacity before the native call.
+        Choosing a tile size that divides the local dimensions avoids this
+        allocation. Performance depends on the matrix size, process grid, and
+        tile size.
 
     Args:
         a (Array): A 2D symmetric/Hermitian matrix. Expected to be sharded
@@ -301,9 +297,8 @@ def _check_supported_syevd_dtype(dtype) -> None:
 def _real_dtype_for_eigenvalues(dtype):
     """Return the real dtype used by cuSOLVERMp for eigenvalue outputs.
 
-    Complex Hermitian eigensolvers still produce real eigenvalues.  This helper
-    keeps the output ``ShapeDtypeStruct`` construction consistent with the
-    native dispatch table.
+    Complex Hermitian inputs produce real eigenvalues in the corresponding
+    component precision.
     """
     if dtype == jnp.float32 or dtype == jnp.complex64:
         return jnp.float32

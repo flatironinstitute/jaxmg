@@ -12,21 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Production cuSOLVERMp symmetric/Hermitian eigensolver FFI handler.
+// cuSOLVERMp symmetric/Hermitian eigensolver FFI handler.
 //
-// This file owns the full fused vector-producing SYEVD native path. JAXMg does
-// not expose a no-eigenvector mode: the production contract is to compute and
-// return eigenvalues plus eigenvectors, matching the workflows this backend is
-// designed to support.
+// This file implements the fused vector-producing SYEVD path. It converts a
+// padded JAX shard to column-major storage, redistributes it into cuSOLVERMp's
+// 2D block-cyclic layout, runs SYEVD through the XLA-owned NCCL communicator,
+// and restores the eigenvectors to their original JAX layout.
 //
 // File workflow:
-//   1. Validate padded local JAX buffers and output aliases.
-//   2. Allocate one scratch buffer through the native memory_redist formula.
-//   3. Convert A locally from JAX row-major to cuSOLVERMp column-major.
-//   4. Redistribute A into local 2D block-cyclic cuSOLVERMp storage.
-//   5. Borrow the XLA communicator's raw NCCL handle and run SYEVD.
-//   6. Reverse-redistribute eigenvectors to the JAX-facing distribution.
-//   7. Restore eigenvectors from column-major local storage to JAX row-major.
+//   1. Validate the padded matrix and output-buffer contracts.
+//   2. Allocate one scratch buffer shared by every redistribution stage.
+//   3. Convert the local matrix from row-major to column-major.
+//   4. Compact edge padding and redistribute the matrix into 2D block-cyclic
+//      cuSOLVERMp storage.
+//   5. Borrow the XLA communicator's NCCL handle and compute eigenvalues and
+//      eigenvectors with SYEVD.
+//   6. Reverse the redistribution for the eigenvectors.
+//   7. Restore their local row-major JAX storage.
 
 #include <array>
 #include <cstdlib>
@@ -326,8 +328,7 @@ absl::Status RunCusolverMpSyevdSolver(
   };
 
   // Stage 2: bind cuSOLVERMp to the CUDA device that owns this rank's local
-  // matrix shard.  This mirrors POTRS and avoids stale current-device state in
-  // multi-device JAX callbacks.
+  // matrix shard, independent of the process's current-device state.
   absl::StatusOr<int> buffer_device = DeviceForCudaPointer(a.untyped_data());
   if (!buffer_device.ok()) {
     status_words[0] = kCudaDeviceFailed;
@@ -389,9 +390,7 @@ absl::Status RunCusolverMpSyevdSolver(
   CusolverMpDebug(nccl_rank, "nccl communicator rank=%d count=%d",
                   nccl_rank, nccl_count);
 
-  // Stage 4: validate the grid metadata.  cuSOLVERMp is a direct native
-  // dependency now, so missing symbols fail during build/import rather than
-  // inside this runtime path.
+  // Stage 4: validate grid and rank metadata before creating cuSOLVERMp objects.
   if (process_rows <= 0 || process_cols <= 0 ||
       process_rows * process_cols != nccl_count || n <= 0 ||
       tile_size <= 0) {
@@ -540,13 +539,9 @@ absl::Status XlaCusolverMpSyevdPrepare(
       collective_params, clique_requests, "cusolvermp_syevd");
 }
 
-// Fused SYEVD FFI entry point.
-//
-// This is the production native workflow called from Python: allocate one CUDA
-// scratch window, convert the local JAX shard to cuSOLVERMp column-major
-// storage, run forward edge-padding/block-cyclic redistribution, call
-// vector-producing cuSOLVERMp SYEVD, reverse-redistribute eigenvectors, and
-// restore row-major local storage for the user-visible eigenvector output.
+// Executes the complete vector-producing SYEVD workflow in one FFI dispatch.
+// The overwritten matrix work buffer remains distinct from the eigenvector
+// output required by the cuSOLVERMp API.
 absl::Status XlaCusolverMpSyevdDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
@@ -666,9 +661,8 @@ absl::Status XlaCusolverMpSyevdDispatch(
     return return_after_cleanup(status);
   }
 
-  // Preserve the old split-call sequencing semantics inside the fused handler:
-  // the host-side cuSOLVERMp call must not observe the work buffer until all
-  // pack/NCCL/unpack redistribution work is complete.
+  // Complete pack, transfer, and unpack work before the host-side cuSOLVERMp
+  // call reads the redistributed matrix.
   if (absl::Status status = cuda_status_after_cleanup(
           cudaStreamSynchronize(cuda_stream),
           "cusolvermp_syevd forward stream synchronize");
@@ -687,9 +681,7 @@ absl::Status XlaCusolverMpSyevdDispatch(
     return return_after_cleanup(solver_call_status);
   }
 
-  // SYEVD writes the eigenvectors in cuSOLVERMp layout.  Keep the reverse
-  // redistribution after a completed solver call, mirroring the old separate
-  // FFI-call pipeline.
+  // Complete the solver call before reverse redistribution reads eigenvectors.
   if (absl::Status status = cuda_status_after_cleanup(
           cudaStreamSynchronize(cuda_stream),
           "cusolvermp_syevd solver stream synchronize");

@@ -11,11 +11,11 @@ from jax.experimental import multihost_utils as mh
 
 def random_psd(n, dtype, seed):
     """
-    Generate a random n x n positive semidefinite matrix.
+    Generate a random regularized positive-definite matrix.
     """
     key = jax.random.key(seed)
     A = jax.random.normal(key, (n, n), dtype=dtype) / jnp.sqrt(n)
-    return A @ A.T.conj() + jnp.eye(n, dtype=dtype) * 1e-5  # symmetric PSD
+    return A @ A.T.conj() + jnp.eye(n, dtype=dtype) * 1e-5
 
 
 def get_mesh_and_spec_from_array(a: Array):

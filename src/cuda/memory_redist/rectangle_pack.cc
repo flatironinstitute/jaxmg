@@ -14,12 +14,11 @@
 //
 // Low-level rectangle packing and NCCL movement for 2D redistribution.
 //
-// This file is the transport layer shared by the cuSOLVERMp 2D redistribution
-// code. It deliberately does not decide which rectangles need to move. That
-// planning lives in edge_padding_2d.cc and block_cyclic_2d.cc. This file only
-// knows how to copy rectangular column-major regions into bounded scratch, move
-// those packed payloads through the borrowed XLA/NCCL communicator, and unpack
-// the payloads at their destination.
+// This file implements the transport layer shared by edge-padding compaction
+// and 2D block-cyclic redistribution. Movement schedules are produced by
+// edge_padding_2d.cc and block_cyclic_2d.cc; this layer packs column-major
+// rectangles into bounded scratch, transfers remote payloads through the
+// XLA-owned NCCL communicator, and unpacks them at their destination.
 //
 // The public cuSOLVERMp wrappers enter native code with ordinary row-major JAX
 // local shards. Before those shards reach the rectangle packer, the fused
@@ -41,10 +40,9 @@
 //   5. Execute an already-planned sequence of Native2DStepBatch rounds with one
 //      saved slab, one send slab, and one receive slab per rank.
 //
-// The public cuSOLVERMp path calls this file through the higher-level phase
-// files rather than constructing rectangle moves directly. Keeping that
-// boundary explicit makes the transport code reusable without exposing
-// standalone validation FFI targets in the production backend.
+// Higher-level phases provide conflict-free Native2DStepBatch schedules. The
+// transport layer executes those schedules without interpreting global tile
+// ownership.
 
 #include <algorithm>
 #include <cstdint>
@@ -180,9 +178,8 @@ RectCopySpec BuildRectCopySpec(int64_t local_rows, int64_t row_start,
 // the buffers for the fused call.
 absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream, ffi::AnyBuffer matrix,
                                 ffi::Result<ffi::AnyBuffer> matrix_out) {
-  // Production solvers ask XLA to alias work/output buffers where possible.
-  // This helper makes the fallback explicit: if XLA had to allocate a distinct
-  // output, copy the input once before the in-place native pipeline begins.
+  // Aliased buffers need no copy. A distinct output receives the input once
+  // before the in-place redistribution begins.
   se::DeviceAddressBase matrix_base = matrix.device_memory();
   se::DeviceAddressBase matrix_out_base = matrix_out->device_memory();
   if (matrix_base.opaque() == matrix_out_base.opaque()) {
@@ -194,8 +191,7 @@ absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream, ffi::AnyBuffer matrix,
   return absl::OkStatus();
 }
 
-// Copies scratch to a distinct scratch output only for diagnostic/test paths
-// that request one; production fused solvers use XLA scratch directly.
+// Copies scratch when the requested output does not alias the input allocation.
 absl::Status CopyScratchIfNeeded(cudaStream_t cuda_stream,
                                  ffi::AnyBuffer scratch,
                                  ffi::Result<ffi::AnyBuffer> scratch_out) {

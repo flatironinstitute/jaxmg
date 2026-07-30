@@ -5,10 +5,8 @@ participating rank.  These vectors are diagnostic backend detail rather than
 public JAXMg API, but Python must still declare their fixed lengths when it
 builds the corresponding ``jax.ffi.ffi_call`` result types.
 
-Keeping the schemas in this separate module avoids distracting the public
-``potrs`` and ``syevd`` wrappers with long lists of native bookkeeping fields.
-If the C++ status layout changes, update this file and the matching C++ status
-writers together.
+The field order and vector lengths must match the corresponding POTRS,
+LU-solve, and SYEVD status writers in ``src/cuda/cusolvermp_routines``.
 """
 
 from __future__ import annotations

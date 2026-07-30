@@ -162,9 +162,8 @@ struct SolverTraits<cuDoubleComplex> {
 absl::StatusOr<void*> AllocateFfiScratch(se::ScratchAllocator& scratch,
                                          size_t bytes, const char* name);
 
-// Build the XLA collective groups used by this backend. Production cuSOLVERMp
-// solvers use the all-assigned helpers so the borrowed NCCL communicator spans
-// every rank in the process grid.
+// Builds all-assigned XLA collective groups so the borrowed NCCL communicator
+// spans every rank in the process grid.
 ReplicaGroup AllAssignedDevicesReplicaGroup(const CollectiveParams& params);
 std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
     const CollectiveParams& params);
@@ -188,9 +187,9 @@ absl::Status ValidateBorrowedNcclComm(const char* caller, ncclComm_t comm,
                                       int64_t expected_rank,
                                       int64_t expected_count);
 
-// Records the CUDA stream selected for raw NCCL work. Production calls prefer
-// XLA's communication stream and fall back to the ordinary platform stream in
-// contexts where XLA does not expose a separate communication stream.
+// Records the CUDA stream selected for raw NCCL work. XLA's communication
+// stream is preferred; the platform stream is used when no separate
+// communication stream is available.
 struct NcclStreamChoice {
   cudaStream_t stream;
   bool uses_comm_stream;

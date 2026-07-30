@@ -130,7 +130,7 @@ def _register_cuda_target_bundle(bin_dir, library_name, ffi_name, symbols):
     if not os.path.exists(path):
         raise OSError(
             f"Required JAXMg CUDA library is missing: {path}. "
-            "Build the XLA communicator backend before using the CUDA package."
+            "Reinstall JAXMg from a wheel containing the matching CUDA backend."
         )
     cuda_major = bin_dir.removeprefix("cu")
     _preload_cusolvermp_runtime(cuda_major)
@@ -145,11 +145,10 @@ def _register_cuda_target_bundle(bin_dir, library_name, ffi_name, symbols):
 def _validate_rank_per_gpu_runtime():
     """Validate that the current JAX process owns exactly one local GPU.
 
-    cuSOLVERMp is a distributed runtime: every participating GPU is represented
-    by one process/rank.  JAXMg therefore rejects the old single-process,
-    multi-device regime before native FFI targets are registered.  Users remain
-    responsible for calling ``jax.distributed.initialize(...)`` before device
-    discovery in multi-node programs.
+    cuSOLVERMp represents every participating GPU with one process rank, so a
+    single process controlling multiple local GPUs is unsupported. Multi-node
+    programs must call ``jax.distributed.initialize(...)`` before device
+    discovery.
     """
     local_device_count = jax.local_device_count()
     if local_device_count != 1:
@@ -165,7 +164,6 @@ def _validate_rank_per_gpu_runtime():
 def _initialize():
     """Initialize native CUDA FFI targets for the active JAX runtime."""
     if any("gpu" == d.platform for d in jax.devices()):
-        # Determine CUDA backend
         backend = jax.extend.backend.get_backend()
         m = re.search(r"cuda[^0-9]*([0-9]+(?:\.[0-9]+)*)", backend.platform_version, re.I)
         if m:
@@ -194,15 +192,14 @@ def _initialize():
 
 
 def ensure_init_jaxmg_backend():
-    """Ensure that the JAXMg native backend and FFI targets are initialized.
+    """Lazily initialize the JAXMg native backend and FFI targets.
 
-    This function should be called by every public JAXMg entry point before
-    executing any native FFI calls. It performs one-time initialization:
+    One-time initialization:
 
     1. identifies the CUDA version from the JAX backend;
     2. verifies that the process owns exactly one local GPU;
     3. loads the packaged native backend library; and
-    4. registers production JAX FFI targets such as ``cusolvermp_potrs``.
+    4. registers JAX FFI targets such as ``cusolvermp_potrs``.
     """
     global _initialized
     if not _initialized:

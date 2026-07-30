@@ -54,14 +54,12 @@ def lu_solve(
     a block-sharded JAX array for cuSOLVERMp, calls the fused native backend,
     and returns the solution in the same JAX-facing layout as ``b``.
 
-    Tip:
-        If the shards of the matrix cannot be padded with tiles of size `T_A`
-        we have to add padding to fit the last tile. This requires copying the
-        matrix, which we want to avoid at all costs for large ``N``. Make sure
-        you pick ``T_A`` large enough (>=128) and such that it can evenly cover
-        the shards. In principle, increasing ``T_A`` will increase performance
-        at the cost of memory, but depending on ``N``, the performance will
-        saturate.
+    Note:
+        If a local shard dimension is not divisible by ``T_A``, ``pad=True``
+        allocates additional tile-aligned capacity before the native call.
+        Choosing a tile size that divides the local dimensions avoids this
+        allocation. Performance depends on the matrix size, process grid, and
+        tile size.
 
     Args:
         a (Array): 2D, nonsingular input matrix. Expected to be sharded
