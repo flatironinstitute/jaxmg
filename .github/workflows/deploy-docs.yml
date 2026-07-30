@@ -92,5 +92,5 @@ jobs:
         run: |
           mike deploy --push --allow-empty --alias-type=copy \
             --branch gh-pages \
-            --title 'dev (main)' \
+            --title 'dev' \
             dev

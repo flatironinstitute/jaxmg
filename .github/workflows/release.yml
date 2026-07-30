@@ -177,9 +177,5 @@ jobs:
             # Final release: takes over the `latest` alias, which the root
             # redirect written by `mike set-default latest` follows.
             mike deploy --push --update-aliases --allow-empty --alias-type=copy \
-              --branch gh-pages --title "$V (latest)" "$V" latest
-          else
-            # Pre-release (aN/bN/rcN): published, but must not move `latest`.
-            mike deploy --push --allow-empty --alias-type=copy \
-              --branch gh-pages --title "$V (pre-release)" "$V"
+              --branch gh-pages --title "$V" "$V" latest
           fi
