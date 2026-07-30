@@ -143,7 +143,6 @@ the wheel that shipped it:
 | Pull request | nothing — `mkdocs build --strict` runs as a check only |
 | Push to `main` | `dev`, a mutable build of the development tree |
 | Release tag `vX.Y.Z` | `X.Y.Z`, and takes over the `latest` alias |
-| Pre-release tag (`rc`, `a`, `b`) | `X.Y.Zrc1`, without moving `latest` |
 
 The bare site URL redirects to whatever `latest` points at, so links in the
 README and in `pyproject.toml` should use `/latest/…` rather than a version
