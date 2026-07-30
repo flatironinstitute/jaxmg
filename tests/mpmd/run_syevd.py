@@ -1,3 +1,4 @@
+import os
 import sys
 import traceback
 from functools import partial
@@ -30,6 +31,7 @@ proc_id = int(sys.argv[2])
 num_procs = int(sys.argv[3])
 case_name = sys.argv[4]
 dtype_name = sys.argv[5]
+interface = os.environ.get("JAXMG_TEST_INTERFACE", "public")
 
 # Choose the GPU allocator (vmm vs platform) before the backend is created.
 select_gpu_allocator(proc_id)
@@ -42,7 +44,7 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import syevd
+from jaxmg import syevd, syevd_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_SYEVD_STATUS_SIZE
 
 
@@ -58,18 +60,42 @@ def run_case() -> None:
 
     a_dev = jax.device_put(a, NamedSharding(mesh, matrix_specs))
 
-    @partial(jax.jit, static_argnames=("tile_size",))
-    def eigensolve(_a, *, tile_size):
-        return syevd(
-            _a,
-            tile_size,
-            mesh=mesh,
-            matrix_specs=matrix_specs,
-            return_status=True,
-            pad=True,
-        )
+    if interface == "context":
 
-    eigenvalues, vectors, status = eigensolve(a_dev, tile_size=case.tile_size)
+        @partial(
+            jax.jit,
+            donate_argnums=(0,),
+            static_argnames=("tile_size",),
+        )
+        def eigensolve(_a, *, tile_size):
+            return syevd_shardmap_ctx(
+                _a,
+                tile_size,
+                mesh=mesh,
+                matrix_specs=matrix_specs,
+                pad=True,
+            )
+
+        a_work, eigenvalues, vectors, status = eigensolve(
+            a_dev, tile_size=case.tile_size
+        )
+        a_work.block_until_ready()
+    else:
+
+        @partial(jax.jit, static_argnames=("tile_size",))
+        def eigensolve(_a, *, tile_size):
+            return syevd(
+                _a,
+                tile_size,
+                mesh=mesh,
+                matrix_specs=matrix_specs,
+                return_status=True,
+                pad=True,
+            )
+
+        eigenvalues, vectors, status = eigensolve(
+            a_dev, tile_size=case.tile_size
+        )
     eigenvalues.block_until_ready()
     vectors.block_until_ready()
     status.block_until_ready()
@@ -101,6 +127,7 @@ def run_case() -> None:
             "name": case_name,
             "dtype": dtype_name,
             "status": "ok",
+            "interface": interface,
             "params": {
                 "n": case.n,
                 "tile_size": case.tile_size,

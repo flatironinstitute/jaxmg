@@ -128,6 +128,11 @@ def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCa
     elif case_name == "column_grid_padding":
         rows, cols, tile, padded, nrhs = num_processes, 1, 96, True, 1
         grid_order = "row_major"
+    elif case_name == "column_grid_no_padding":
+        rows, cols, tile, padded, nrhs = num_processes, 1, 64, False, 1
+        grid_order = "row_major"
+        if has_rhs:
+            rhs_mode = "matrix_row_sharded"
     elif case_name == "skinny_rhs":
         if not has_rhs:
             raise ValueError("skinny_rhs is only meaningful for solve routines")

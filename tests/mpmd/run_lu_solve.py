@@ -1,3 +1,4 @@
+import os
 import sys
 import traceback
 from functools import partial
@@ -31,6 +32,7 @@ proc_id = int(sys.argv[2])
 num_procs = int(sys.argv[3])
 case_name = sys.argv[4]
 dtype_name = sys.argv[5]
+interface = os.environ.get("JAXMG_TEST_INTERFACE", "public")
 
 # Choose the GPU allocator (vmm vs platform) before the backend is created.
 select_gpu_allocator(proc_id)
@@ -43,7 +45,7 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import lu_solve
+from jaxmg import lu_solve, lu_solve_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_LU_SOLVE_STATUS_SIZE
 
 
@@ -88,19 +90,40 @@ def run_case() -> None:
         raise ValueError(f"unknown RHS placement mode {case.rhs_mode!r}")
     b_dev = jax.device_put(b, NamedSharding(mesh, rhs_specs))
 
-    @partial(jax.jit, static_argnames=("tile_size",))
-    def solve(_a, _b, *, tile_size):
-        return lu_solve(
-            _a,
-            _b,
-            tile_size,
-            mesh=mesh,
-            matrix_specs=matrix_specs,
-            return_status=True,
-            pad=True,
-        )
+    if interface == "context":
 
-    out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
+        @partial(
+            jax.jit,
+            donate_argnums=(0, 1),
+            static_argnames=("tile_size",),
+        )
+        def solve(_a, _b, *, tile_size):
+            return lu_solve_shardmap_ctx(
+                _a,
+                _b,
+                tile_size,
+                mesh=mesh,
+                matrix_specs=matrix_specs,
+                pad=True,
+            )
+
+        a_work, out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
+        a_work.block_until_ready()
+    else:
+
+        @partial(jax.jit, static_argnames=("tile_size",))
+        def solve(_a, _b, *, tile_size):
+            return lu_solve(
+                _a,
+                _b,
+                tile_size,
+                mesh=mesh,
+                matrix_specs=matrix_specs,
+                return_status=True,
+                pad=True,
+            )
+
+        out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
     out.block_until_ready()
     status.block_until_ready()
 
@@ -122,6 +145,7 @@ def run_case() -> None:
             "name": case_name,
             "dtype": dtype_name,
             "status": "ok",
+            "interface": interface,
             "params": {
                 "n": case.n,
                 "nrhs": case.nrhs,

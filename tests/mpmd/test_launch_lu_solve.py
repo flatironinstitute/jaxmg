@@ -46,6 +46,17 @@ def test_lu_solve_rhs_placement_modes(requested_procs, case_name, dtype_name):
     run_mpmd_test(MP_TEST, requested_procs, case_name, dtype_name)
 
 
+def test_lu_solve_shardmap_ctx_two_gpu():
+    """Run the caller-jitted LU context interface on two GPUs."""
+    run_mpmd_test(
+        MP_TEST,
+        2,
+        "column_grid_no_padding",
+        "float32",
+        interface="context",
+    )
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("requested_procs", COMPREHENSIVE_PROCESS_COUNTS)
 @pytest.mark.parametrize("case_name", COMPREHENSIVE_CASES)

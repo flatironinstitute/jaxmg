@@ -128,6 +128,7 @@ def _check_results(
     requested_procs: int,
     name: str,
     dtype_name: str,
+    interface: str,
 ) -> None:
     """Parse runner JSON records and fail the pytest case on any bad rank."""
     parsed = []
@@ -170,6 +171,15 @@ def _check_results(
         for i, l in enumerate(logs):
             summary_lines.append(f"===== log {i} =====\n{l}")
         pytest.fail("\n".join(summary_lines))
+
+    wrong_interfaces = [
+        r
+        for r in parsed
+        if r.get("status") == "ok" and r.get("interface") != interface
+    ]
+    assert not wrong_interfaces, (
+        f"Expected interface={interface!r}, received results={wrong_interfaces}"
+    )
 
     ok_count = sum(1 for r in parsed if r.get("status") == "ok")
     assert ok_count > 0, (
@@ -307,7 +317,14 @@ def _run_with_local_subprocesses(
     return logs
 
 
-def run_mpmd_test(mp_test: Path, requested_procs: int, name: str, dtype_name: str) -> None:
+def run_mpmd_test(
+    mp_test: Path,
+    requested_procs: int,
+    name: str,
+    dtype_name: str,
+    *,
+    interface: str = "public",
+) -> None:
     """Run one rank-per-GPU solver case and assert success.
 
     Pytest executes cases sequentially.  A single case still has to start
@@ -315,8 +332,11 @@ def run_mpmd_test(mp_test: Path, requested_procs: int, name: str, dtype_name: st
     cuSOLVERMp require one live Python process per participating GPU.  Under
     Slurm, use ``srun`` so that process-to-GPU binding matches the production
     launch model.  Outside Slurm, fall back to local subprocesses with one
-    visible GPU per rank.
+    visible GPU per rank. ``interface`` selects either the internally jitted
+    public wrapper or the caller-jitted context interface.
     """
+    if interface not in ("public", "context"):
+        raise ValueError(f"unknown solver interface {interface!r}")
 
     launcher = os.environ.get("JAXMG_MPMD_LAUNCHER")
     if launcher is None:
@@ -345,7 +365,11 @@ def run_mpmd_test(mp_test: Path, requested_procs: int, name: str, dtype_name: st
     coord = _srun_coordinator(port) if launcher == "srun" else f"127.0.0.1:{port}"
 
     env = _launcher_env(name, dtype_name, requested_procs)
-    print(f"[launcher] starting task {name}: dtype={dtype_name}, procs={requested_procs}")
+    env["JAXMG_TEST_INTERFACE"] = interface
+    print(
+        f"[launcher] starting task {name}: dtype={dtype_name}, "
+        f"procs={requested_procs}, interface={interface}"
+    )
 
     if launcher == "srun":
         assert srun_nodes is not None
@@ -363,5 +387,14 @@ def run_mpmd_test(mp_test: Path, requested_procs: int, name: str, dtype_name: st
             mp_test, requested_procs, name, dtype_name, coord, env
         )
 
-    _check_results(logs, requested_procs=requested_procs, name=name, dtype_name=dtype_name)
-    print(f"[launcher] task {name} dtype={dtype_name} completed successfully")
+    _check_results(
+        logs,
+        requested_procs=requested_procs,
+        name=name,
+        dtype_name=dtype_name,
+        interface=interface,
+    )
+    print(
+        f"[launcher] task {name} dtype={dtype_name} "
+        f"interface={interface} completed successfully"
+    )

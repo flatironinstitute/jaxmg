@@ -33,6 +33,7 @@ num_procs = int(sys.argv[3])
 case_name = sys.argv[4]
 dtype_name = sys.argv[5]
 return_logdet = os.environ.get("JAXMG_TEST_POTRS_LOGDET") == "1"
+interface = os.environ.get("JAXMG_TEST_INTERFACE", "public")
 
 # Choose the GPU allocator (vmm vs platform) before the backend is created.
 select_gpu_allocator(proc_id)
@@ -45,7 +46,7 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import potrs
+from jaxmg import potrs, potrs_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_POTRS_STATUS_SIZE
 
 
@@ -75,25 +76,47 @@ def run_case() -> None:
         raise ValueError(f"unknown RHS placement mode {case.rhs_mode!r}")
     b_dev = jax.device_put(b, NamedSharding(mesh, rhs_specs))
 
-    @partial(jax.jit, static_argnames=("tile_size",))
-    def solve(_a, _b, *, tile_size):
-        return potrs(
-            _a,
-            _b,
-            tile_size,
-            mesh=mesh,
-            matrix_specs=matrix_specs,
-            return_status=True,
-            return_logdet=return_logdet,
-            pad=True,
-        )
+    if interface == "context":
+        if return_logdet:
+            raise ValueError("the context smoke test does not request logdet")
 
-    result = solve(a_dev, b_dev, tile_size=case.tile_size)
-    if return_logdet:
-        out, logdet, status = result
-        logdet.block_until_ready()
+        @partial(
+            jax.jit,
+            donate_argnums=(0, 1),
+            static_argnames=("tile_size",),
+        )
+        def solve(_a, _b, *, tile_size):
+            return potrs_shardmap_ctx(
+                _a,
+                _b,
+                tile_size,
+                mesh=mesh,
+                matrix_specs=matrix_specs,
+                pad=True,
+            )
+
+        a_work, out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
+        a_work.block_until_ready()
     else:
-        out, status = result
+        @partial(jax.jit, static_argnames=("tile_size",))
+        def solve(_a, _b, *, tile_size):
+            return potrs(
+                _a,
+                _b,
+                tile_size,
+                mesh=mesh,
+                matrix_specs=matrix_specs,
+                return_status=True,
+                return_logdet=return_logdet,
+                pad=True,
+            )
+
+        result = solve(a_dev, b_dev, tile_size=case.tile_size)
+        if return_logdet:
+            out, logdet, status = result
+            logdet.block_until_ready()
+        else:
+            out, status = result
     out.block_until_ready()
     status.block_until_ready()
 
@@ -127,6 +150,7 @@ def run_case() -> None:
             "name": case_name,
             "dtype": dtype_name,
             "status": "ok",
+            "interface": interface,
             "return_logdet": return_logdet,
             "params": {
                 "n": case.n,
