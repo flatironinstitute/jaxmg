@@ -1,19 +1,17 @@
 """Shared Python layout helpers for the cuSOLVERMp backend.
 
-The public solvers in :mod:`jaxmg._potrs` and :mod:`jaxmg._syevd` should read
-like user-facing numerical routines.  This module holds the common JAX mesh,
-rank-map, and local-padding mechanics that both solvers need before entering
-the fused native FFI call.
+The public solvers in :mod:`jaxmg._potrs`, :mod:`jaxmg._lu_solve`, and
+:mod:`jaxmg._syevd` should read like user-facing numerical routines. This
+module holds the common JAX mesh, right-hand-side placement, process-grid, and
+local-padding mechanics required before entering the fused native FFI calls.
 
-The boundary is deliberately narrow:
+The module covers four parts of the Python-to-native layout contract:
 
-1. infer the ordinary JAX ``Mesh`` and ``PartitionSpec`` from a sharded input;
-2. check that the mesh can be represented by cuSOLVERMp's row-major or
-   column-major process-grid mapping;
-3. pad each local JAX shard so its row and column capacities are tile-aligned;
-   and
-4. undo that local padding after native code has returned to the original
-   JAX-facing layout.
+1. infer and validate the JAX ``Mesh`` and matrix ``PartitionSpec``;
+2. place solve inputs in the regular native work layout and restore outputs to
+   their user-facing sharding;
+3. map JAX devices onto a cuSOLVERMp-supported process grid; and
+4. describe status-buffer sharding and local tile-capacity padding.
 
 All GPU-to-GPU redistribution and all cuSOLVERMp calls are implemented in
 C++/CUDA.  The helpers here only describe shapes and sharding to JAX.
@@ -31,6 +29,11 @@ from ._layout_types import (
     ProcessGrid,
     ProcessRankMap,
 )
+
+
+# -----------------------------------------------------------------------------
+# Matrix mesh contract
+# -----------------------------------------------------------------------------
 
 
 def normalize_matrix_specs(
@@ -95,6 +98,75 @@ def validate_2d_matrix_specs(
     return row_axis, col_axis, grid
 
 
+# -----------------------------------------------------------------------------
+# Right-hand-side layout
+# -----------------------------------------------------------------------------
+
+
+def rhs_distribution_columns(nrhs: int, *, process_cols: int, pad: bool) -> int:
+    """Choose the JAX-visible RHS width used before local tile padding.
+
+    cuSOLVERMp accepts a skinny solve-input matrix ``B`` with ``NRHS``
+    columns, even when ``NRHS`` is smaller than the process-grid column count.
+    In that ScaLAPACK-style layout, some process columns simply own zero real
+    RHS columns. The JAX-facing block-sharded input cannot express that zero
+    ownership with the simple ``PartitionSpec(row_axis, col_axis)`` contract
+    used by this backend, because the global column dimension must first be
+    splittable over ``process_cols``.
+
+    To bridge the two models, JAXMg pads the JAX-visible RHS width to the next
+    multiple of the process-column count before applying local tile padding.
+    Native code still receives the original ``NRHS`` and passes that logical
+    value to cuSOLVERMp; the extra columns provide only routing capacity and
+    are removed after the solved RHS is restored to its user-facing sharding.
+    """
+    nrhs = int(nrhs)
+    process_cols = int(process_cols)
+    if nrhs <= 0:
+        raise ValueError("nrhs must be positive.")
+    if process_cols <= 0:
+        raise ValueError("process_cols must be positive.")
+
+    remainder = nrhs % process_cols
+    if remainder == 0:
+        return nrhs
+    if not pad:
+        raise ValueError(
+            "pad=False requires the RHS column count to be divisible by the "
+            "process-grid column count. Set pad=True to add routing columns "
+            "for skinny RHS matrices."
+        )
+    return nrhs + (process_cols - remainder)
+
+
+def _place_for_matrix_axis_mode(
+    value: Array,
+    *,
+    mesh: Mesh,
+    matrix_specs: P,
+    target_specs: P,
+) -> Array:
+    """Place an array using the primitive required by the matrix mesh axes."""
+    axis_types = dict(zip(mesh.axis_names, mesh.axis_types))
+    matrix_axes = tuple(matrix_specs._partitions)
+    try:
+        matrix_axis_types = tuple(axis_types[axis] for axis in matrix_axes)
+    except KeyError as exc:
+        raise ValueError(
+            "matrix specs reference an axis that is absent from the JAX mesh."
+        ) from exc
+
+    target_sharding = NamedSharding(mesh, target_specs)
+    if all(axis_type is AxisType.Explicit for axis_type in matrix_axis_types):
+        return jax.reshard(value, target_sharding)
+    if all(axis_type is AxisType.Auto for axis_type in matrix_axis_types):
+        return jax.lax.with_sharding_constraint(value, target_sharding)
+    raise ValueError(
+        "cuSOLVERMp requires matrix mesh axes to be either all Explicit or "
+        "all Auto; mixed Explicit/Auto/Manual mesh axes are unsupported."
+    )
+
+
 def place_rhs_for_native_work(
     rhs: Array,
     *,
@@ -115,24 +187,48 @@ def place_rhs_for_native_work(
     JAX mesh construction for this backend and neither placement primitive can
     express the mixed target consistently.
     """
-    axis_types = dict(zip(mesh.axis_names, mesh.axis_types))
-    target_axes = tuple(matrix_specs._partitions)
-    try:
-        target_axis_types = tuple(axis_types[axis] for axis in target_axes)
-    except KeyError as exc:
-        raise ValueError(
-            "matrix specs reference an axis that is absent from the JAX mesh."
-        ) from exc
-
-    target_sharding = NamedSharding(mesh, matrix_specs)
-    if all(axis_type is AxisType.Explicit for axis_type in target_axis_types):
-        return jax.reshard(rhs, target_sharding)
-    if all(axis_type is AxisType.Auto for axis_type in target_axis_types):
-        return jax.lax.with_sharding_constraint(rhs, target_sharding)
-    raise ValueError(
-        "cuSOLVERMp requires matrix mesh axes to be either all Explicit or "
-        "all Auto; mixed Explicit/Auto/Manual mesh axes are unsupported."
+    return _place_for_matrix_axis_mode(
+        rhs,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+        target_specs=matrix_specs,
     )
+
+
+def restore_rhs_from_native_work(
+    rhs: Array,
+    *,
+    reference_rhs: Array,
+    mesh: Mesh,
+    matrix_specs: P,
+) -> Array:
+    """Restore a solved RHS to its user-facing sharding before shape slicing.
+
+    Native work buffers use the matrix's regular 2D sharding and may contain
+    extra columns so every process column owns data. On explicit mesh axes,
+    slicing those columns away while they remain partitioned can produce a
+    dimension that is not divisible by the process-column count. Restore the
+    input RHS ``PartitionSpec`` first so the logical-width slice is valid and
+    the solver returns the same JAX-facing layout it received.
+    """
+    reference_sharding = getattr(jax.typeof(reference_rhs), "sharding", None)
+    if isinstance(reference_sharding, NamedSharding):
+        target_specs = reference_sharding.spec
+    else:
+        row_axis, _ = matrix_specs._partitions
+        target_specs = P(row_axis, None)
+
+    return _place_for_matrix_axis_mode(
+        rhs,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+        target_specs=target_specs,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Process-grid rank mapping
+# -----------------------------------------------------------------------------
 
 
 def _device_process_index(device) -> int:
@@ -357,6 +453,11 @@ def infer_mesh_and_matrix_specs(
     return mesh, matrix_specs
 
 
+# -----------------------------------------------------------------------------
+# JAX-visible status and local padding layouts
+# -----------------------------------------------------------------------------
+
+
 def status_specs(row_axis: str, col_axis: str, grid: ProcessGrid) -> P:
     """Choose a sharding for one small per-rank native status vector."""
     if grid.process_rows == 1:
@@ -376,39 +477,3 @@ def _pad_local_2d(block: Array, *, row_padding: int, col_padding: int) -> Array:
 def _unpad_local_2d(block: Array, *, local_rows: int, local_cols: int) -> Array:
     """Slice a local shard back to its unpadded logical shape."""
     return block[:local_rows, :local_cols]
-
-
-def rhs_distribution_columns(nrhs: int, *, process_cols: int, pad: bool) -> int:
-    """Choose the JAX-visible RHS width used before local tile padding.
-
-    cuSOLVERMp accepts a skinny solve-input matrix ``B`` with ``NRHS``
-    columns, even when ``NRHS`` is smaller than the process-grid column count.
-    In that ScaLAPACK-style layout, some process columns simply own zero real
-    RHS columns.  The JAX-facing block-sharded input cannot express that zero
-    ownership with the simple ``PartitionSpec(row_axis, col_axis)`` contract
-    used by this backend, because the global column dimension must first be
-    splittable over ``process_cols``.
-
-    To bridge the two models, JAXMg pads the *JAX-visible* RHS width to the
-    next multiple of the process-column count before applying the ordinary
-    local tile padding.  Native code still receives the original ``NRHS`` and
-    passes that logical value to cuSOLVERMp; the extra columns are only routing
-    capacity for redistribution and are sliced away after the solve.
-    """
-    nrhs = int(nrhs)
-    process_cols = int(process_cols)
-    if nrhs <= 0:
-        raise ValueError("nrhs must be positive.")
-    if process_cols <= 0:
-        raise ValueError("process_cols must be positive.")
-
-    remainder = nrhs % process_cols
-    if remainder == 0:
-        return nrhs
-    if not pad:
-        raise ValueError(
-            "potrs with pad=False requires the RHS column count to be "
-            "divisible by the process-grid column count. Set pad=True to add "
-            "routing columns for skinny RHS matrices."
-        )
-    return nrhs + (process_cols - remainder)

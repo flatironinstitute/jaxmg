@@ -24,6 +24,7 @@ from ._cusolvermp_layout import (
     infer_mesh_and_matrix_specs,
     place_rhs_for_native_work,
     process_rank_map_from_mesh,
+    restore_rhs_from_native_work,
     rhs_distribution_columns,
     standard_grid_rank_map_attr,
     status_specs,
@@ -601,6 +602,12 @@ def _potrs_pipeline(
         else:
             a_work_padded, b_solved_padded, native_status = native_result
         out = unpad_b(b_solved_padded)
+        out = restore_rhs_from_native_work(
+            out,
+            reference_rhs=_b,
+            mesh=mesh,
+            matrix_specs=matrix_specs,
+        )
         if return_logdet:
             return a_work_padded, out[:, :nrhs], logdet, native_status
         return a_work_padded, out[:, :nrhs], native_status

@@ -18,6 +18,7 @@ SMOKE_CASES = (
     (4, "skinny_rhs"),
 )
 RHS_PLACEMENT_CASES = (
+    (2, "skinny_rhs_explicit_mesh", "float32"),
     (4, "vector_rhs_replicated", "float32"),
     (4, "single_column_rhs_replicated", "float32"),
     (4, "single_column_rhs_row_sharded", "float32"),
