@@ -10,7 +10,7 @@ if not jax.config.jax_enable_x64:
 import jax.numpy as jnp
 import numpy as np
 from jax.experimental import multihost_utils
-from jax.sharding import Mesh
+from jax.sharding import AxisType, Mesh
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,7 @@ class SolverCase:
     tile_size: int
     nrhs: int = 1
     rhs_mode: str = "matrix_2d_sharded"
+    axis_types: str = "auto"
 
 
 def emit(prefix: str, payload: dict) -> None:
@@ -109,6 +110,7 @@ def _first_valid_n(process_rows: int, process_cols: int, tile: int, *, padded: b
 def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCase:
     """Build a named test case for POTRS, LU solve, or SYEVD MPMD runners."""
     rhs_mode = "matrix_2d_sharded"
+    axis_types = "auto"
     has_rhs = routine in ("potrs", "lu_solve")
     if case_name == "row_major_no_padding":
         if has_rhs:
@@ -132,6 +134,15 @@ def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCa
         rows, cols, tile, padded, nrhs = 1, num_processes, 64, False, 1
         grid_order = "row_major"
         rhs_mode = "matrix_row_sharded"
+    elif case_name == "skinny_rhs_explicit_mesh":
+        if not has_rhs:
+            raise ValueError(
+                "skinny_rhs_explicit_mesh is only meaningful for solve routines"
+            )
+        rows, cols, tile, padded, nrhs = 1, num_processes, 64, False, 1
+        grid_order = "row_major"
+        rhs_mode = "matrix_row_sharded"
+        axis_types = "explicit"
     elif case_name == "vector_rhs_replicated":
         if not has_rhs:
             raise ValueError(
@@ -180,6 +191,7 @@ def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCa
         tile_size=tile,
         nrhs=nrhs,
         rhs_mode=rhs_mode,
+        axis_types=axis_types,
     )
 
 
@@ -204,6 +216,17 @@ def make_process_mesh(case: SolverCase) -> Mesh:
                 ]
     else:
         raise ValueError(f"unknown grid order {case.grid_order!r}")
+
+    if case.axis_types == "explicit":
+        # Equivalent to jax.make_mesh, but keeps the device permutation built
+        # above so column-major grid mappings stay intact.
+        return Mesh(
+            process_grid,
+            ("pr", "pc"),
+            axis_types=(AxisType.Explicit, AxisType.Explicit),
+        )
+    if case.axis_types != "auto":
+        raise ValueError(f"unknown mesh axis types {case.axis_types!r}")
     return Mesh(process_grid, ("pr", "pc"))
 
 
