@@ -8,6 +8,13 @@ name: CI
 on:
   push:
     branches: ['**']     # every branch (tags are handled by release.yml)
+    paths-ignore:
+      - 'docs/**'
+      - 'paper/**'
+      - 'mkdocs.yml'
+      - '*.md'
+      - 'LICENSE'
+      - '.gitignore'
   workflow_dispatch:
 
 concurrency:
