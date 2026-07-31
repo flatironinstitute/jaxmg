@@ -58,7 +58,7 @@ The main areas of the repository are:
 
 Changes under `src/cuda/`, `bazel/`, or `build_native_backend.sh` require a
 native rebuild. Follow
-[Building the native backend](https://flatironinstitute.github.io/jaxmg/technical_details/building_from_source/)
+[Building the native backend](https://flatironinstitute.github.io/jaxmg/latest/technical_details/building_from_source/)
 before running the GPU tests.
 
 Public behavior changes should include corresponding tests and documentation.
@@ -130,6 +130,27 @@ The implementation is in:
 - `.github/workflows/ci.yml`;
 - `.github/workflows/jenkins-test.yml`;
 - `.jenkins/Jenkinsfile`.
+
+## Versioned documentation
+
+The site is published per release with [mike](https://github.com/jimporter/mike)
+on the `gh-pages` branch, so documentation for an older release keeps matching
+the wheel that shipped it:
+
+| Trigger | Published as |
+|---|---|
+| Pull request | nothing — `mkdocs build --strict` runs as a check only |
+| Push to `main` | `dev`, a mutable build of the development tree |
+| Release tag `vX.Y.Z` | `X.Y.Z`, and takes over the `latest` alias |
+
+The bare site URL redirects to whatever `latest` points at, so links in the
+README and in `pyproject.toml` should use `/latest/…` rather than a version
+number. `0.0.9` is archived because it wrapped the older single-node cuSolverMg
+API; do not redeploy it.
+
+Numbered versions are written only by `release.yml`. Never run
+`mike deploy X.Y.Z` by hand for a version that has already shipped — that would
+silently replace the documentation for a released wheel.
 
 ## Updating JAX or CUDA
 

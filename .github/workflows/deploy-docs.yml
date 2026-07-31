@@ -1,11 +1,9 @@
-name: Build and deploy MkDocs site
+name: Docs
 
-# Allow the workflow to push the generated site using the GITHUB_TOKEN.
-# If this repo is a fork or the run originates from a forked PR, GITHUB_TOKEN
-# won't have push permissions and you'll need to use a PAT stored in secrets.
-permissions:
-  contents: write
-  pages: write
+# Versioned docs, managed by mike (https://github.com/jimporter/mike) on the
+# gh-pages branch. This workflow only ever publishes the mutable `dev` version
+# built from main; numbered versions and the `latest` alias are published by
+# release.yml from a tag, so a published version always matches a real wheel.
 
 on:
   push:
@@ -14,7 +12,7 @@ on:
       - 'docs/**'
       - 'src/jaxmg/**'
       - 'mkdocs.yml'
-      - 'pyproject.toml'         # optional, if docs dependencies live here
+      - 'pyproject.toml'
   pull_request:
     paths:
       - 'docs/**'
@@ -23,47 +21,76 @@ on:
       - 'pyproject.toml'
   workflow_dispatch:
 
+# release.yml also pushes gh-pages. Share one concurrency group so two mike
+# deploys can never race into a rejected non-fast-forward push.
+concurrency:
+  group: gh-pages-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
-  build-and-deploy:
-    name: Build MkDocs and deploy to gh-pages
+  build:
+    name: Build docs
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          # ensure the action runner keeps credentials so subsequent git push
-          # operations using ${{ secrets.GITHUB_TOKEN }} work
-          persist-credentials: true
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install docs dependencies
         run: |
           python -m pip install --upgrade pip
-          # Basic MkDocs and Material theme (add or change to match your project)
-          pip install mkdocs mkdocs-material
-          # If the project exposes a docs extras group or has docs requirements in pyproject.toml, try to install them.
-          if [ -f pyproject.toml ]; then
-            python -m pip install -e '.[docs]' || true
-          fi
+          python -m pip install -e '.[docs]'
 
       - name: Build MkDocs site
-        run: mkdocs build --clean
+        run: mkdocs build --strict --clean --site-dir site-check
 
-      - name: Deploy to GitHub Pages (gh-pages branch)
-        # Only publish from main. PRs and branch dispatches still build above as a
-        # validation check, but must never overwrite the live gh-pages site.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: peaceiris/actions-gh-pages@v3
+  deploy-dev:
+    name: Publish 'dev' docs to gh-pages
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./site
-          publish_branch: gh-pages
-          user_name: 'github-actions[bot]'
-          user_email: 'github-actions[bot]@users.noreply.github.com'
-          allow_empty_commit: true
+          fetch-depth: 0            # mike needs the gh-pages history
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install docs dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[docs]'
+
+      - name: Configure git identity for mike
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Ensure the deployment branch is present locally
+        run: git fetch origin gh-pages --depth=1 || echo "gh-pages does not exist yet"
+
+      - name: Publish dev docs
+        # --allow-empty so a re-run or a no-op main push doesn't fail the job.
+        # No --update-aliases: `dev` carries no aliases. No set-default either --
+        # the root redirect points at the `latest` alias, which only releases move.
+        run: |
+          mike deploy --push --allow-empty --alias-type=copy \
+            --branch gh-pages \
+            --title 'dev' \
+            dev

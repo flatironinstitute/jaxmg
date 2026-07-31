@@ -14,6 +14,17 @@ Install the package with the extra matching your CUDA setup:
     `pip install jaxmg` installs a CPU-only version of JAX. JAXMg is a GPU-only
     package, so it will warn you to install a GPU-compatible version of JAX.
 
+## Older releases
+
+Use the version selector next to the site title to switch between releases.
+
+Documentation for JAXMg `0.0.9` is archived at
+<https://flatironinstitute.github.io/jaxmg/0.0.9/>. That was the last release
+built on NVIDIA's single-node [cuSolverMg](https://docs.nvidia.com/cuda/cusolver/index.html#using-the-cuSolverMg-api)
+API, so its interface differs substantially from this one: it provides `potri`
+and the `cyclic_1d` layout helpers, has no `lu_solve`, and distributes matrices
+over a 1D device mesh rather than a 2D process grid.
+
 ## Supported systems
 
 Prebuilt Linux wheels are provided for `x86_64` and `aarch64`. The supported

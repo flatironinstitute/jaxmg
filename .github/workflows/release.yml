@@ -127,3 +127,55 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.whl
+
+  publish-docs:
+    # Versioned docs for this release. Gated on publish-pypi so the site never
+    # advertises a version that isn't installable. Numbered versions are only
+    # ever written here, from the tagged tree, which is what keeps /X.Y.Z/ docs
+    # matching the /X.Y.Z/ wheel. main pushes publish `dev` (deploy-docs.yml).
+    needs: [version, publish-pypi]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    # Same group as deploy-docs.yml: only one mike deploy at a time.
+    concurrency:
+      group: gh-pages-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Checkout the tagged tree
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0            # mike needs the gh-pages history
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install docs dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[docs]'
+
+      - name: Configure git identity for mike
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Ensure the deployment branch is present locally
+        run: git fetch origin gh-pages --depth=1 || echo "gh-pages does not exist yet"
+
+      - name: Publish versioned docs
+        env:
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            # Final release: takes over the `latest` alias, which the root
+            # redirect written by `mike set-default latest` follows.
+            mike deploy --push --update-aliases --allow-empty --alias-type=copy \
+              --branch gh-pages --title "$V" "$V" latest
+          fi
