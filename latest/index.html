@@ -9,7 +9,7 @@
         <meta name="description" content="Distributed cuSOLVERMp linear algebra for JAX.">
       
       
-        <meta name="author" content="Roeland Wiersema">
+        <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
         <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/">
@@ -1042,8 +1042,8 @@ routines, while retaining a familiar JAX interface.</p>
 <li><a href="api/lu_solve/"><code>lu_solve</code></a>: Solves the system of linear equations <span class="arithmatex">\(Ax=B\)</span>,
   where <span class="arithmatex">\(A\)</span> is an <span class="arithmatex">\(N \times N\)</span> general nonsingular matrix, using a pivoted LU
   decomposition.</li>
-<li><a href="api/syevd/"><code>syevd</code></a>: Computes the eigenvalues and eigenvectors of an
-  <span class="arithmatex">\(N \times N\)</span> symmetric or Hermitian matrix.</li>
+<li><a href="api/syevd/"><code>syevd</code></a>: Computes the eigenvalues and optional eigenvectors of
+  an <span class="arithmatex">\(N \times N\)</span> symmetric or Hermitian matrix.</li>
 </ul>
 <h2 id="how-jaxmg-works">How JAXMg works<a class="headerlink" href="#how-jaxmg-works" title="Permanent link">¤</a></h2>
 <p>JAXMg connects JAX to NVIDIA's distributed
@@ -1065,6 +1065,13 @@ memory overhead.</p>
 </ul>
 <p>For more details, see the <a href="api/">API reference</a> and the accompanying
 <a href="https://arxiv.org/abs/2601.14466">paper</a>.</p>
+<blockquote>
+<p><strong>Deprecation notice:</strong> JAXMg 0.x, based on NVIDIA's deprecated cuSOLVERMg
+backend, has been superseded by JAXMg 1.0. Version 1.0 requires one Python
+process per GPU and removes <code>potri</code>; the previous API remains available with
+<code>pip install "jaxmg&lt;1"</code> and in the
+<a href="https://github.com/flatironinstitute/jaxmg/releases/tag/v0.0.9">0.0.9 release</a>.</p>
+</blockquote>
 
 
 

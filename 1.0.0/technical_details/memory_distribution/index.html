@@ -9,7 +9,7 @@
         <meta name="description" content="Distributed cuSOLVERMp linear algebra for JAX.">
       
       
-        <meta name="author" content="Roeland Wiersema">
+        <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
         <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/memory_distribution/">
@@ -1434,6 +1434,8 @@ reverse Stage 3 -&gt; reverse Stage 2 -&gt; reverse Stage 1
         v
 JAX-facing row-major result
 </code></pre></div>
+<p>The reverse stages apply to matrix-valued solver outputs. Eigenvalues-only
+SYEVD returns its replicated eigenvalue array directly after solver execution.</p>
 <p>The native path is designed around a single scratch allocation.  The scratch
 size is set by Stage 3, the 2D block-cyclic redistribution:</p>
 <div class="highlight"><pre><span></span><code>scratch_elements =
@@ -2172,8 +2174,8 @@ sequential with respect to the next wave, while the independent row or column
 groups inside that wave can run together.</p>
 <h2 id="reverse-path">Reverse path<a class="headerlink" href="#reverse-path" title="Permanent link">¤</a></h2>
 <p>The native solver outputs data in cuSOLVERMp's local column-major block-cyclic
-layout.  The fused call reverses the memory movement stages before returning to
-JAX:</p>
+layout. For matrix-valued outputs, the fused call reverses the memory movement
+stages before returning to JAX:</p>
 <div class="highlight"><pre><span></span><code>cuSOLVERMp block-cyclic output
         |
         | reverse Stage 3
@@ -2208,8 +2210,10 @@ requested by that sequence:</p>
 <li><code>lu_solve</code> uses <code>cusolverMpGetrf</code> followed by <code>cusolverMpGetrs</code>.  It is
   intended for general nonsingular matrices and allocates a pivot vector sized
   by the local cuSOLVERMp column ownership, <code>LOCc(N_A)</code>.</li>
-<li><code>syevd</code> uses <code>cusolverMpSyevd</code> and has different output and workspace
-  pressure because eigenvectors are materialized as a full distributed matrix.</li>
+<li><code>syevd</code> uses <code>cusolverMpSyevd</code>. Its vector-producing mode has additional
+  output and workspace pressure because eigenvectors are materialized as a
+  full distributed matrix; the eigenvalues-only mode omits that matrix and its
+  reverse redistribution.</li>
 </ul>
 <h2 id="python-and-native-responsibilities">Python and native responsibilities<a class="headerlink" href="#python-and-native-responsibilities" title="Permanent link">¤</a></h2>
 <p>Python is responsible for:</p>
@@ -2226,7 +2230,7 @@ requested by that sequence:</p>
 <li>top-left / edge-padding alignment;</li>
 <li>2D block-cyclic redistribution;</li>
 <li>cuSOLVERMp handle, descriptor, workspace, and solver calls;</li>
-<li>reverse redistribution and layout conversion.</li>
+<li>reverse redistribution and layout conversion for matrix-valued outputs.</li>
 </ul>
 <h2 id="code-map">Code map<a class="headerlink" href="#code-map" title="Permanent link">¤</a></h2>
 <p>The memory distribution implementation is split across:</p>

@@ -2,66 +2,66 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/install/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/api/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/api/lu_solve/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/api/potrs/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/api/syevd/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/examples/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/examples/choose_tile_size/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/examples/execution/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/examples/lu_solve/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/examples/potrs/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/examples/syevd/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/technical_details/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/technical_details/building_from_source/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/technical_details/contributing/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
     <url>
          <loc>https://flatironinstitute.github.io/jaxmg/latest/technical_details/memory_distribution/</loc>
-         <lastmod>2026-07-30</lastmod>
+         <lastmod>2026-07-31</lastmod>
     </url>
 </urlset>

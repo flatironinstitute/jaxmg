@@ -9,7 +9,7 @@
         <meta name="description" content="Distributed cuSOLVERMp linear algebra for JAX.">
       
       
-        <meta name="author" content="Roeland Wiersema">
+        <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
         <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/contributing/">
@@ -1206,10 +1206,6 @@ with a code change. Contributions of any size are welcome.</p>
 <li>Some native failures still use <code>std::runtime_error</code>. Contributions that
    express these consistently through XLA FFI error handling are particularly
    useful.</li>
-<li>Support for computing eigenvalues without eigenvectors would also be a useful
-   addition. Initial development encountered issues with cuSOLVERMp's documented
-   eigenvalues-only <code>compz='N'</code> mode. This requires further investigation and may
-   need discussion with the cuSOLVERMp developers.</li>
 </ol>
 <h2 id="pull-a-clean-copy">Pull a clean copy<a class="headerlink" href="#pull-a-clean-copy" title="Permanent link">¤</a></h2>
 <p>Fork the repository first if you do not have write access. Then clone your fork
@@ -1254,7 +1250,7 @@ before running the GPU tests.</p>
 <tbody>
 <tr>
 <td>Python API, validation, or layout metadata</td>
-<td><code>python -m pytest -q -m "not mpmd" tests</code></td>
+<td><code>python -m pytest -q -m "not gpu" tests</code></td>
 </tr>
 <tr>
 <td>Documentation</td>
@@ -1262,7 +1258,7 @@ before running the GPU tests.</p>
 </tr>
 <tr>
 <td>Native solver or redistribution code</td>
-<td>Rebuild the backend and run the MPMD tests</td>
+<td>Rebuild the backend and run the GPU tests</td>
 </tr>
 <tr>
 <td>Packaging or dependencies</td>
@@ -1270,14 +1266,17 @@ before running the GPU tests.</p>
 </tr>
 </tbody>
 </table>
-<p>The MPMD smoke suite requires one Python process per GPU. On a workstation with
-two GPUs:</p>
+<p>The GPU suite distinguishes between <code>single_gpu</code> and <code>multi_gpu</code> tests. The
+multi-GPU tests launch one Python process per GPU. On a workstation with two
+GPUs, run the complete smoke suite with:</p>
 <div class="highlight"><pre><span></span><code><span class="nv">CUDA_VISIBLE_DEVICES</span><span class="o">=</span><span class="m">0</span>,1<span class="w"> </span><span class="se">\</span>
-<span class="nv">JAXMG_MPMD_LAUNCHER</span><span class="o">=</span>subprocess<span class="w"> </span><span class="se">\</span>
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;mpmd and not slow&quot;</span><span class="w"> </span>tests/mpmd
+<span class="nv">JAXMG_GPU_TEST_LAUNCHER</span><span class="o">=</span>subprocess<span class="w"> </span><span class="se">\</span>
+python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;gpu and not slow&quot;</span><span class="w"> </span>tests/gpu
 </code></pre></div>
-<p>Tests requiring more GPUs than are visible are skipped. On Slurm systems, the
-test helper can use <code>srun</code> across the current allocation.</p>
+<p>The two smoke groups can also be selected independently with
+<code>-m "single_gpu and not slow"</code> or <code>-m "multi_gpu and not slow"</code>. Tests
+requiring more GPUs than are visible are skipped. On Slurm systems, the test
+helper can use <code>srun</code> across the current allocation.</p>
 <h2 id="open-a-pull-request">Open a pull request<a class="headerlink" href="#open-a-pull-request" title="Permanent link">¤</a></h2>
 <p>Push your branch and
 <a href="https://github.com/flatironinstitute/jaxmg/compare">open a pull request</a>:</p>
@@ -1300,8 +1299,8 @@ test helper can use <code>srun</code> across the current allocation.</p>
    checks their metadata and native libraries.</li>
 <li><strong>Jenkins downloads those wheels</strong> and installs the normal
    <code>jaxmg[cuda12]</code> dependency path.</li>
-<li><strong>Jenkins tests them</strong> on two physical A100 GPUs using the interface and
-   MPMD smoke suites.</li>
+<li><strong>Jenkins tests them</strong> on two physical A100 GPUs using the interface and GPU
+   smoke suites.</li>
 </ol>
 <p>This ensures that Jenkins tests the wheel produced by GitHub Actions rather
 than rebuilding it. AArch64 and CUDA 13 are currently build-validated but are
@@ -1336,10 +1335,6 @@ the wheel that shipped it:</p>
 <tr>
 <td>Release tag <code>vX.Y.Z</code></td>
 <td><code>X.Y.Z</code>, and takes over the <code>latest</code> alias</td>
-</tr>
-<tr>
-<td>Pre-release tag (<code>rc</code>, <code>a</code>, <code>b</code>)</td>
-<td><code>X.Y.Zrc1</code>, without moving <code>latest</code></td>
 </tr>
 </tbody>
 </table>

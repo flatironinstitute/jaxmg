@@ -9,7 +9,7 @@
         <meta name="description" content="Distributed cuSOLVERMp linear algebra for JAX.">
       
       
-        <meta name="author" content="Roeland Wiersema">
+        <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
         <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/examples/syevd/">
@@ -1112,10 +1112,11 @@
 
 
 <h1 id="symmetric-or-hermitian-eigensolve">Symmetric or Hermitian eigensolve<a class="headerlink" href="#symmetric-or-hermitian-eigensolve" title="Permanent link">¤</a></h1>
-<p><code>jaxmg.syevd</code> computes the eigenvalues and eigenvectors of a symmetric real
-matrix or Hermitian complex matrix. For a normal eigensolve, use <code>syevd</code>. It
-provides the high-level interface and internally handles JIT compilation,
-buffer donation, input/output aliasing, padding, and distributed execution.</p>
+<p><code>jaxmg.syevd</code> computes the eigenvalues and, optionally, eigenvectors of a
+symmetric real matrix or Hermitian complex matrix. For a normal eigensolve, use
+<code>syevd</code>. It provides the high-level interface and internally handles JIT
+compilation, buffer donation, input/output aliasing, padding, and distributed
+execution.</p>
 <h2 id="common-setup">Common setup<a class="headerlink" href="#common-setup" title="Permanent link">¤</a></h2>
 <p>The following setup uses a degenerate two-dimensional process grid with one
 Python process per GPU:</p>
@@ -1131,6 +1132,7 @@ Python process per GPU:</p>
 
 <span class="n">num_processes</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_count</span><span class="p">()</span>
 <span class="n">mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="n">num_processes</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">))</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">set_mesh</span><span class="p">(</span><span class="n">mesh</span><span class="p">)</span>
 <span class="n">matrix_specs</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">)</span>
 <span class="n">a_sharding</span> <span class="o">=</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="p">)</span>
 
@@ -1165,6 +1167,20 @@ Python process per GPU:</p>
 </code></pre></div>
 <p>The eigenvalues are returned as a real array. The eigenvectors have the input
 dtype and are returned in the same JAX-facing matrix layout as <code>a</code>.</p>
+<p>When eigenvectors are not required, select the shorter values-only workflow:</p>
+<div class="highlight"><pre><span></span><code><span class="n">a</span><span class="p">,</span> <span class="n">expected_eigenvalues</span> <span class="o">=</span> <span class="n">make_problem</span><span class="p">()</span>
+
+<span class="n">eigenvalues</span> <span class="o">=</span> <span class="n">syevd</span><span class="p">(</span>
+    <span class="n">a</span><span class="p">,</span>
+    <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
+    <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
+    <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
+    <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">eigenvalues</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+</code></pre></div>
+<p>This mode does not allocate, reverse-redistribute, or restore a matrix-sized
+eigenvector result.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p>The public wrapper donates <code>a</code> to the compiled eigensolve. Do not use the
@@ -1174,20 +1190,22 @@ dtype and are returned in the same JAX-facing matrix layout as <code>a</code>.</
 an internally cached jitted wrapper and manages donation and aliasing itself.
 If the eigensolve must be embedded inside a larger jitted calculation, use the
 advanced interface below instead of wrapping <code>syevd</code> in another <code>jax.jit</code>.</p>
-<p>SYEVD materializes the full distributed eigenvector matrix and uses
-solver-specific workspace. It therefore reaches the GPU memory limit at a
-smaller matrix size than <code>potrs</code> or <code>lu_solve</code> on the same process grid.</p>
+<p>When eigenvectors are requested, SYEVD materializes the full distributed
+eigenvector matrix and uses solver-specific workspace. It therefore reaches
+the GPU memory limit at a smaller matrix size than <code>potrs</code> or <code>lu_solve</code> on the
+same process grid.</p>
 <h2 id="advanced-control-the-outer-jaxjit">Advanced: control the outer <code>jax.jit</code><a class="headerlink" href="#advanced-control-the-outer-jaxjit" title="Permanent link">¤</a></h2>
-<p><code>syevd_shardmap_ctx</code> runs the same padding, redistribution, eigensolve, and
-reverse redistribution as <code>syevd</code>. The difference is that it does not create
-an internal <code>jax.jit</code>, allowing the eigensolve to become one stage of a larger
-function compiled by the caller.</p>
+<p><code>syevd_shardmap_ctx</code> runs the same selected eigensolver workflow as <code>syevd</code>.
+The difference is that it does not create an internal <code>jax.jit</code>, allowing the
+eigensolve to become one stage of a larger function compiled by the caller.</p>
 <p>The context interface returns
 <code>(a_work, eigenvalues, eigenvectors, status)</code>. cuSOLVERMp uses separate
 distributed buffers for its overwritten input matrix and eigenvector output,
 so <code>a_work</code> is returned to give the outer compiled function an <span class="arithmatex">\(A\)</span>-sized alias
 target for the donated input. The eigenvectors still require a separate
 matrix-sized allocation.</p>
+<p>With <code>return_eigenvectors=False</code>, the context interface instead returns
+<code>(a_work, eigenvalues, status)</code>.</p>
 <p>The advanced examples additionally use:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>
 

@@ -9,7 +9,7 @@
         <meta name="description" content="Distributed cuSOLVERMp linear algebra for JAX.">
       
       
-        <meta name="author" content="Roeland Wiersema">
+        <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
         <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/">
@@ -1108,6 +1108,9 @@ movement, cuSOLVERMp descriptors and workspace, solver calls, and reverse
 redistribution. Matrix data remains GPU-resident throughout this workflow, and
 the in-place transformations reuse bounded native scratch storage to minimize
 memory overhead.</p>
+<p>Matrix-valued solver outputs follow the reverse path shown above. The
+eigenvalues-only SYEVD mode returns the replicated eigenvalue array directly
+after solver execution.</p>
 <h2 id="scratch-allocation">Scratch allocation<a class="headerlink" href="#scratch-allocation" title="Permanent link">¤</a></h2>
 <p>The redistribution path uses one native scratch allocation per FFI call. Its
 size is determined by the largest tile slab used by the 2D block-cyclic stage:</p>
@@ -1160,8 +1163,8 @@ the <code>ncclComm_t</code> used by cuSOLVERMp.</p>
   all-reduce to return <code>log(det(A))</code>.</li>
 <li><code>lu_solve</code> calls <code>cusolverMpGetrf</code> followed by <code>cusolverMpGetrs</code> and manages
   the distributed pivot allocation.</li>
-<li><code>syevd</code> calls <code>cusolverMpSyevd</code> and materializes distributed eigenvalues and
-  eigenvectors.</li>
+<li><code>syevd</code> calls <code>cusolverMpSyevd</code> and materializes distributed eigenvalues plus
+  eigenvectors when requested.</li>
 </ul>
 <p>Each Python process owns one GPU and contributes one rank to the XLA/NCCL and
 cuSOLVERMp communicators. See <a href="../examples/execution/">Distributed execution</a>

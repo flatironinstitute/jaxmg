@@ -9,7 +9,7 @@
         <meta name="description" content="Distributed cuSOLVERMp linear algebra for JAX.">
       
       
-        <meta name="author" content="Roeland Wiersema">
+        <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
         <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/examples/">
@@ -1066,6 +1066,8 @@
 <h1 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">¤</a></h1>
 <p>We provide a complete walkthrough of the JAXMg workflow, from
 launching a distributed JAX program to running a cuSOLVERMp routine.</p>
+<p>Ready-to-run scripts are provided in the repository's
+<a href="https://github.com/flatironinstitute/jaxmg/tree/main/examples">examples directory</a>.</p>
 <h2 id="1-configure-distributed-execution">1. Configure Distributed Execution<a class="headerlink" href="#1-configure-distributed-execution" title="Permanent link">¤</a></h2>
 <p>Start by initializing distributed JAX,
 assigning one GPU to each process, and constructing the two-dimensional device
@@ -1083,7 +1085,7 @@ reduce memory use.</p>
 <li><a href="lu_solve/">LU solve</a> solves a general nonsingular linear system with
   <code>lu_solve</code>.</li>
 <li><a href="syevd/">Symmetric or Hermitian eigensolve</a> computes eigenvalues and
-  eigenvectors with <code>syevd</code>.</li>
+  optional eigenvectors with <code>syevd</code>.</li>
 </ul>
 
 

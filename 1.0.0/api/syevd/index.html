@@ -9,7 +9,7 @@
         <meta name="description" content="Distributed cuSOLVERMp linear algebra for JAX.">
       
       
-        <meta name="author" content="Roeland Wiersema">
+        <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
         <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/api/syevd/">
@@ -1046,40 +1046,40 @@
 
 
 <h1 id="jaxmgsyevd">jaxmg.syevd<a class="headerlink" href="#jaxmgsyevd" title="Permanent link">¤</a></h1>
-<p><code>syevd</code> computes both eigenvalues and eigenvectors. The input matrix is
-symmetric for real dtypes and Hermitian for complex dtypes. Eigenvalues are
-real, while eigenvectors use the input dtype and are returned in the original
-JAX-facing matrix layout.</p>
-<p>SYEVD materializes a distributed eigenvector matrix and requests
-solver-specific cuSOLVERMp workspace. Its peak memory requirement can therefore
-be substantially larger than a linear solve at the same matrix size.</p>
-<p>The eigenvalues are returned as a real array. The eigenvectors use the input
-dtype and are returned with the same JAX-facing matrix layout as <code>a</code>.</p>
+<p><code>syevd</code> computes the eigenvalues and, by default, eigenvectors of a symmetric
+real matrix or Hermitian complex matrix. Eigenvalues are real, while
+eigenvectors use the input dtype and are returned in the original JAX-facing
+matrix layout.</p>
+<p>Set <code>return_eigenvectors=False</code> when only the spectrum is required. This selects
+the eigenvalues-only mode and reduces memory use by avoiding the full
+distributed eigenvector matrix.</p>
 <p>Use <code>syevd</code> for a direct eigensolve. Use <code>syevd_shardmap_ctx</code> when the
 eigensolve is part of a larger caller-owned <code>jax.jit</code>. The context interface
 returns the native input-matrix work buffer so the outer compiled function can
 preserve the donated input alias. cuSOLVERMp stores the overwritten input
 matrix and eigenvectors in separate distributed buffers, so <code>a_work</code> is the
-alias target rather than the eigenvector output.</p>
+alias target rather than the eigenvector output when vectors are requested.</p>
 
 
 <div class="doc doc-object doc-function">
 
 
 <h4 id="jaxmg.syevd" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
 <a href="#jaxmg.syevd" class="headerlink" title="Permanent link">¤</a></h4>
 
 
     <div class="doc doc-contents first">
 
-        <p>Compute eigenvalues and eigenvectors using the multi-GPU syevd kernel.</p>
+        <p>Compute eigenvalues and optionally eigenvectors using multi-GPU SYEVD.</p>
 <p>This is the high-level JAXMg symmetric/Hermitian eigensolver entry point.
 It accepts a block-sharded JAX matrix, prepares the tile-aligned local
-capacity required by cuSOLVERMp, calls the fused native backend, and returns
-eigenvalues together with eigenvectors in the same JAX-facing matrix layout
-as the input.</p>
+capacity required by cuSOLVERMp, and calls the fused native backend. By
+default it returns eigenvalues together with eigenvectors in the same
+JAX-facing matrix layout as the input. Setting <code>return_eigenvectors=False</code>
+selects cuSOLVERMp's eigenvalues-only mode and avoids allocating or
+restoring a matrix-sized eigenvector result.</p>
 
 
 <details class="note" open>
@@ -1185,6 +1185,25 @@ from <code>a.sharding.spec</code>.</p>
             </td>
             <td>
                   <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>return_eigenvectors</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True (default), compute and
+return eigenvectors as well as eigenvalues. If False, return only
+eigenvalues and use the shorter native values-only workflow. This
+must be a Python <code>bool</code> fixed while tracing.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
             </td>
           </tr>
           <tr class="doc-section-item">
@@ -1237,11 +1256,31 @@ correct shapes.</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span> | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(eigenvalues, eigenvectors) or (eigenvalues, eigenvectors, status).</p>
+                <p>If <code>return_eigenvectors=True</code>, <code>(eigenvalues, eigenvectors)</code> or</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span> | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(eigenvalues, eigenvectors, status)</code>. If False, <code>eigenvalues</code> or</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span> | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(eigenvalues, status)</code>.</p>
               </div>
             </td>
           </tr>
@@ -1285,12 +1324,12 @@ correct shapes.</p>
 <details class="notes" open>
   <summary>Notes</summary>
   <ul>
-<li>Only the eigenvector-producing mode is currently exposed.</li>
 <li>The FFI call can donate the input buffer to enable zero-copy
   interaction with the native library.</li>
 <li>Native code converts row-major JAX local storage to cuSOLVERMp's
-  column-major local layout, redistributes to 2D block-cyclic layout,
-  calls <code>cusolverMpSyevd</code>, and redistributes the eigenvectors back.</li>
+  column-major local layout and redistributes to 2D block-cyclic
+  layout. The eigenvector mode also redistributes its matrix result
+  back to the original JAX layout.</li>
 <li>If the native solver fails the outputs may contain NaNs and the
   status, when requested, will be non-zero.</li>
 </ul>
@@ -1305,14 +1344,14 @@ correct shapes.</p>
 
 
 <h4 id="jaxmg.syevd_shardmap_ctx" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
 <a href="#jaxmg.syevd_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
 
 
     <div class="doc doc-contents first">
 
-        <p>Compute eigenvalues and eigenvectors while exposing the donated work buffer.</p>
+        <p>Compute eigenvalues and optional eigenvectors while exposing work storage.</p>
 <p>This helper is the lower-level variant of :func:<code>jaxmg.syevd</code> intended for
 contexts where the caller controls the outer <code>jax.jit</code> boundary. It
 performs the same validation, local padding, shard-map construction, and
@@ -1320,10 +1359,11 @@ fused cuSOLVERMp FFI call as the public eigensolver, but does not introduce
 an internal <code>jax.jit</code>. Instead, it returns the native matrix work buffer
 so an outer JIT can donate <code>a</code> into an <code>A</code>-sized output.</p>
 <p>cuSOLVERMp uses separate distributed matrices for its overwritten input
-<code>d_A</code> and eigenvector output <code>d_Z</code>. The context interface therefore
+<code>d_A</code> and eigenvector output <code>d_Q</code>. The context interface therefore
 returns <code>a_work</code> to provide the outer compiled function with an
-<code>A</code>-sized alias target for the donated input. The returned eigenvectors
-occupy a separate matrix-sized allocation.</p>
+<code>A</code>-sized alias target for the donated input. When eigenvectors are
+requested, they occupy a separate matrix-sized allocation. Values-only
+execution omits that allocation and the associated reverse redistribution.</p>
 
 
 <details class="note" open>
@@ -1433,6 +1473,25 @@ from <code>a.sharding.spec</code>.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
+                <code>return_eigenvectors</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True (default), compute and
+return eigenvectors as well as eigenvalues. If False, use the
+eigenvalues-only native workflow. This must be a Python <code>bool</code>
+fixed while tracing.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
                 <code>pad</code>
             </td>
             <td>
@@ -1464,57 +1523,57 @@ correct shapes.</p>
       <tbody>
           <tr class="doc-section-item">
 <td><code>tuple</code></td>            <td>
-                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
+                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p><code>(a_work, eigenvalues, eigenvectors, status)</code>. <code>a_work</code> is</p>
+                <p><code>(a_work, eigenvalues, eigenvectors, status)</code> when</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
 <td></td>            <td>
-                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
+                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>the native matrix work output returned to preserve the donated input</p>
+                <p><code>return_eigenvectors=True</code>, otherwise</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
 <td></td>            <td>
-                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
+                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>alias and includes any padding applied by the normal pipeline.</p>
+                <p><code>(a_work, eigenvalues, status)</code>. <code>a_work</code> preserves the donated</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
 <td></td>            <td>
-                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
+                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p><code>eigenvalues</code> is replicated and real-valued, <code>eigenvectors</code> has the</p>
+                <p>input alias and includes any padding applied by the normal pipeline.</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
 <td></td>            <td>
-                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
+                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>original logical matrix shape and sharding, and <code>status</code> is the</p>
+                <p><code>eigenvalues</code> is replicated and real-valued, and <code>status</code> is the</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
 <td></td>            <td>
-                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
+                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -1566,10 +1625,11 @@ correct shapes.</p>
   <code>a_work</code> in the outer function's returned pytree so the donated
   matrix has an <code>A</code>-sized output alias.</li>
 <li>Returning <code>a_work</code> does not remove cuSOLVERMp's separate
-  eigenvector allocation.</li>
+  eigenvector allocation when eigenvectors are requested.</li>
 <li>Native code converts row-major JAX local storage to cuSOLVERMp's
   column-major local layout, redistributes to 2D block-cyclic layout,
-  calls <code>cusolverMpSyevd</code>, and redistributes the eigenvectors back.</li>
+  calls <code>cusolverMpSyevd</code>, and redistributes eigenvectors back when
+  requested.</li>
 </ul>
 </details>
 

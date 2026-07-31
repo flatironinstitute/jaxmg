@@ -9,7 +9,7 @@
         <meta name="description" content="Distributed cuSOLVERMp linear algebra for JAX.">
       
       
-        <meta name="author" content="Roeland Wiersema">
+        <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
         <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/examples/execution/">
@@ -1103,9 +1103,9 @@ before constructing the mesh or performing any JAX computation:</p>
 <p>While JAX supports automatic detection of the distributed configuration, the user can provide the configuration explicitly:</p>
 <div class="highlight"><pre><span></span><code><span class="n">jax</span><span class="o">.</span><span class="n">distributed</span><span class="o">.</span><span class="n">initialize</span><span class="p">(</span>
     <span class="n">coordinator_address</span><span class="o">=</span><span class="s2">&quot;node-0-hostname:12345&quot;</span><span class="p">,</span>  <span class="c1"># Rank 0 host and shared port.</span>
-    <span class="n">num_processes</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>  <span class="c1"># Total process count.</span>
-    <span class="n">process_id</span><span class="o">=</span><span class="n">process_id</span><span class="p">,</span>  <span class="c1"># This process&#39;s global rank.</span>
-    <span class="n">local_device_ids</span><span class="o">=</span><span class="p">[</span><span class="n">local_device_id</span><span class="p">],</span>  <span class="c1"># This process&#39;s local GPU.</span>
+    <span class="n">num_processes</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>  <span class="c1"># Total number of Python processes.</span>
+    <span class="n">process_id</span><span class="o">=</span><span class="n">process_id</span><span class="p">,</span>  <span class="c1"># Unique global rank of this process.</span>
+    <span class="n">local_device_ids</span><span class="o">=</span><span class="p">[</span><span class="n">local_device_id</span><span class="p">],</span>  <span class="c1"># Local GPU assigned to this process.</span>
 <span class="p">)</span>
 </code></pre></div>
 <h2 id="2-check-the-process-and-device-view">2. Check the process and device view<a class="headerlink" href="#2-check-the-process-and-device-view" title="Permanent link">¤</a></h2>
@@ -1131,10 +1131,13 @@ constructs a <span class="arithmatex">\(4\times2\)</span> grid:</p>
 <span class="n">process_rows</span> <span class="o">=</span> <span class="mi">4</span>
 <span class="n">process_cols</span> <span class="o">=</span> <span class="mi">2</span>
 <span class="n">mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="n">process_rows</span><span class="p">,</span> <span class="n">process_cols</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">))</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">set_mesh</span><span class="p">(</span><span class="n">mesh</span><span class="p">)</span>
 <span class="n">matrix_specs</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>These JAX mesh dimensions are used throughout the backend and hence are inherited by cuSOLVERMp process-grid. The first
-axis, <code>pr</code>, identifies process rows; the second, <code>pc</code>, identifies process columns.</p>
+axis, <code>pr</code>, identifies process rows; the second, <code>pc</code>, identifies process columns.
+Calling <code>jax.set_mesh(mesh)</code> makes this concrete mesh available while JAX traces
+the explicitly sharded computation.</p>
 <p>You can inspect the resultant process-rank mapping selected by JAX:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
@@ -1190,6 +1193,9 @@ sorted by process rank:</p>
     <span class="n">devices</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">process_rows</span><span class="p">,</span> <span class="n">process_cols</span><span class="p">),</span> <span class="n">order</span><span class="o">=</span><span class="s2">&quot;F&quot;</span><span class="p">),</span>
     <span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">),</span>
 <span class="p">)</span>
+
+<span class="n">mesh</span> <span class="o">=</span> <span class="n">row_major_mesh</span>  <span class="c1"># Or select column_major_mesh.</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">set_mesh</span><span class="p">(</span><span class="n">mesh</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="4-shard-the-matrix-and-solve-input">4. Shard the matrix and solve input<a class="headerlink" href="#4-shard-the-matrix-and-solve-input" title="Permanent link">¤</a></h2>
 <p><code>PartitionSpec</code> describes how each array dimension maps onto the process-grid

@@ -9,7 +9,7 @@
         <meta name="description" content="Distributed cuSOLVERMp linear algebra for JAX.">
       
       
-        <meta name="author" content="Roeland Wiersema">
+        <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
         <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/building_from_source/">
@@ -1190,7 +1190,7 @@ cp<span class="w"> </span>-r<span class="w"> </span><span class="se">\</span>
 <h2 id="3-compile">3. Compile<a class="headerlink" href="#3-compile" title="Permanent link">¤</a></h2>
 <p>Choose the values for the backend:</p>
 <div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">12</span>
-<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu12<span class="o">==</span><span class="m">0</span>.8.0.3126
+<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu12<span class="o">==</span><span class="m">0</span>.9.0.6427
 <span class="nv">CAPABILITIES</span><span class="o">=</span>sm_70,sm_80,sm_90,sm_120,compute_90
 </code></pre></div>
 <p>Then run:</p>
@@ -1209,7 +1209,7 @@ cp<span class="w"> </span>-r<span class="w"> </span><span class="se">\</span>
 </code></pre></div>
 <p>For CUDA 13, use:</p>
 <div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">13</span>
-<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu13<span class="o">==</span><span class="m">0</span>.8.0.3126
+<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu13<span class="o">==</span><span class="m">0</span>.9.0.6427
 <span class="nv">CAPABILITIES</span><span class="o">=</span>sm_80,sm_90,sm_120,compute_90
 </code></pre></div>
 <p>The script discovers cuSOLVERMp, stages the Bazel package, compiles the shared
@@ -1226,7 +1226,7 @@ python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </s
 .venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[cuda12]&quot;</span>
 </code></pre></div>
 <p>Run the <a href="../../examples/potrs/">Cholesky example</a> to verify a solver call. Native
-contributors should then run the MPMD smoke suite described in
+contributors should then run the GPU smoke suite described in
 <a href="../contributing/">Contributing</a>.</p>
 
 
