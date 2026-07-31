@@ -69,22 +69,25 @@ Run the checks relevant to the change:
 
 | Change | Check |
 |---|---|
-| Python API, validation, or layout metadata | `python -m pytest -q -m "not mpmd" tests` |
+| Python API, validation, or layout metadata | `python -m pytest -q -m "not gpu" tests` |
 | Documentation | `python -m mkdocs build --strict` |
-| Native solver or redistribution code | Rebuild the backend and run the MPMD tests |
+| Native solver or redistribution code | Rebuild the backend and run the GPU tests |
 | Packaging or dependencies | Build and install a wheel through the matching CUDA extra |
 
-The MPMD smoke suite requires one Python process per GPU. On a workstation with
-two GPUs:
+The GPU suite distinguishes between `single_gpu` and `multi_gpu` tests. The
+multi-GPU tests launch one Python process per GPU. On a workstation with two
+GPUs, run the complete smoke suite with:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 \
-JAXMG_MPMD_LAUNCHER=subprocess \
-python -m pytest -q -m "mpmd and not slow" tests/mpmd
+JAXMG_GPU_TEST_LAUNCHER=subprocess \
+python -m pytest -q -m "gpu and not slow" tests/gpu
 ```
 
-Tests requiring more GPUs than are visible are skipped. On Slurm systems, the
-test helper can use `srun` across the current allocation.
+The two smoke groups can also be selected independently with
+`-m "single_gpu and not slow"` or `-m "multi_gpu and not slow"`. Tests
+requiring more GPUs than are visible are skipped. On Slurm systems, the test
+helper can use `srun` across the current allocation.
 
 ## Open a pull request
 
@@ -114,8 +117,8 @@ The release build and GPU tests run on separate systems:
    checks their metadata and native libraries.
 3. **Jenkins downloads those wheels** and installs the normal
    `jaxmg[cuda12]` dependency path.
-4. **Jenkins tests them** on two physical A100 GPUs using the interface and
-   MPMD smoke suites.
+4. **Jenkins tests them** on two physical A100 GPUs using the interface and GPU
+   smoke suites.
 
 This ensures that Jenkins tests the wheel produced by GitHub Actions rather
 than rebuilding it. AArch64 and CUDA 13 are currently build-validated but are

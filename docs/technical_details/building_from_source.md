@@ -152,5 +152,5 @@ python -m venv .venv
 ```
 
 Run the [Cholesky example](../examples/potrs.md) to verify a solver call. Native
-contributors should then run the MPMD smoke suite described in
+contributors should then run the GPU smoke suite described in
 [Contributing](contributing.md).

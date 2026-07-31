@@ -41,7 +41,8 @@ jaxmg = [
 markers = [
     "cpu_only: tests that do not require GPUs",
     "gpu: tests that require at least one GPU",
-    "mpmd: multi-process multi-device GPU tests",
+    "single_gpu: tests that require one GPU",
+    "multi_gpu: rank-per-GPU tests that require multiple GPUs",
     "slow: longer validation sweeps",
 ]
 

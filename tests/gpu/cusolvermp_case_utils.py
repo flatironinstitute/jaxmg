@@ -15,7 +15,7 @@ from jax.sharding import AxisType, Mesh
 
 @dataclass(frozen=True)
 class SolverCase:
-    """Static matrix, mesh, and tile configuration for one MPMD test."""
+    """Static matrix, mesh, and tile configuration for one GPU test."""
 
     process_rows: int
     process_cols: int
@@ -108,7 +108,7 @@ def _first_valid_n(process_rows: int, process_cols: int, tile: int, *, padded: b
 
 
 def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCase:
-    """Build a named test case for POTRS, LU solve, or SYEVD MPMD runners."""
+    """Build a named test case for the POTRS, LU solve, or SYEVD GPU runners."""
     rhs_mode = "matrix_2d_sharded"
     axis_types = "auto"
     has_rhs = routine in ("potrs", "lu_solve")
@@ -185,7 +185,7 @@ def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCa
         grid_order = "row_major"
         rhs_mode = "matrix_row_sharded"
     else:
-        raise ValueError(f"unknown MPMD solver case {case_name!r}")
+        raise ValueError(f"unknown GPU solver case {case_name!r}")
 
     n = _first_valid_n(rows, cols, tile, padded=padded)
     return SolverCase(

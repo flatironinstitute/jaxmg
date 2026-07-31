@@ -3,19 +3,19 @@ from pathlib import Path
 
 import pytest
 
-from mpmd_helper import run_mpmd_test
+from gpu_test_helper import run_gpu_test
 
 
-pytestmark = pytest.mark.mpmd
+pytestmark = pytest.mark.gpu
 
 HERE = Path(__file__).resolve().parent
-MP_TEST = HERE / "run_potrs.py"
+GPU_TEST = HERE / "run_potrs.py"
 DTYPES = ("float32", "float64", "complex64", "complex128")
 SMOKE_CASES = (
-    (1, "row_major_no_padding"),
-    (2, "row_major_no_padding"),
-    (2, "column_major_padding"),
-    (4, "skinny_rhs"),
+    pytest.param(1, "row_major_no_padding", marks=pytest.mark.single_gpu),
+    pytest.param(2, "row_major_no_padding", marks=pytest.mark.multi_gpu),
+    pytest.param(2, "column_major_padding", marks=pytest.mark.multi_gpu),
+    pytest.param(4, "skinny_rhs", marks=pytest.mark.multi_gpu),
 )
 RHS_PLACEMENT_CASES = (
     (2, "skinny_rhs_explicit_mesh", "float32"),
@@ -25,7 +25,13 @@ RHS_PLACEMENT_CASES = (
     (4, "documented_degenerate_rhs", "float32"),
     (4, "row_major_no_padding", "float32"),
 )
-COMPREHENSIVE_PROCESS_COUNTS = (1, 2, 3, 4, 5, 6, 7, 8)
+COMPREHENSIVE_PROCESS_COUNTS = (
+    pytest.param(1, marks=pytest.mark.single_gpu),
+    *(
+        pytest.param(count, marks=pytest.mark.multi_gpu)
+        for count in range(2, 9)
+    ),
+)
 COMPREHENSIVE_CASES = (
     "row_major_no_padding",
     "column_major_padding",
@@ -33,10 +39,10 @@ COMPREHENSIVE_CASES = (
     "skinny_rhs",
 )
 LOGDET_CASES = (
-    (1, "row_major_no_padding"),
-    (2, "row_major_no_padding"),
-    (4, "column_major_padding"),
-    (4, "column_grid_padding"),
+    pytest.param(1, "row_major_no_padding", marks=pytest.mark.single_gpu),
+    pytest.param(2, "row_major_no_padding", marks=pytest.mark.multi_gpu),
+    pytest.param(4, "column_major_padding", marks=pytest.mark.multi_gpu),
+    pytest.param(4, "column_grid_padding", marks=pytest.mark.multi_gpu),
 )
 
 
@@ -44,13 +50,14 @@ LOGDET_CASES = (
 @pytest.mark.parametrize("dtype_name", DTYPES)
 def test_potrs_rank_per_gpu_smoke(requested_procs, case_name, dtype_name):
     """Run representative POTRS rank-per-GPU cases through public API only."""
-    run_mpmd_test(MP_TEST, requested_procs, case_name, dtype_name)
+    run_gpu_test(GPU_TEST, requested_procs, case_name, dtype_name)
 
 
+@pytest.mark.multi_gpu
 @pytest.mark.parametrize("requested_procs,case_name,dtype_name", RHS_PLACEMENT_CASES)
 def test_potrs_rhs_placement_modes(requested_procs, case_name, dtype_name):
     """Check supported user-facing sharding choices for the RHS input."""
-    run_mpmd_test(MP_TEST, requested_procs, case_name, dtype_name)
+    run_gpu_test(GPU_TEST, requested_procs, case_name, dtype_name)
 
 
 @pytest.mark.parametrize("requested_procs,case_name", LOGDET_CASES)
@@ -58,13 +65,14 @@ def test_potrs_rhs_placement_modes(requested_procs, case_name, dtype_name):
 def test_potrs_logdet(requested_procs, case_name, dtype_name, monkeypatch):
     """Validate distributed logdet for dtypes, padding, and grid mappings."""
     monkeypatch.setenv("JAXMG_TEST_POTRS_LOGDET", "1")
-    run_mpmd_test(MP_TEST, requested_procs, case_name, dtype_name)
+    run_gpu_test(GPU_TEST, requested_procs, case_name, dtype_name)
 
 
+@pytest.mark.multi_gpu
 def test_potrs_shardmap_ctx_two_gpu():
     """Run the caller-jitted POTRS context interface on two GPUs."""
-    run_mpmd_test(
-        MP_TEST,
+    run_gpu_test(
+        GPU_TEST,
         2,
         "column_grid_no_padding",
         "float32",
@@ -78,6 +86,8 @@ def test_potrs_shardmap_ctx_two_gpu():
 @pytest.mark.parametrize("dtype_name", DTYPES)
 def test_potrs_rank_per_gpu_comprehensive(requested_procs, case_name, dtype_name):
     """Exercise many process-grid shapes when explicitly requested."""
-    if os.environ.get("JAXMG_RUN_COMPREHENSIVE_MPMD") != "1":
-        pytest.skip("set JAXMG_RUN_COMPREHENSIVE_MPMD=1 for the full MPMD suite")
-    run_mpmd_test(MP_TEST, requested_procs, case_name, dtype_name)
+    if os.environ.get("JAXMG_RUN_COMPREHENSIVE_GPU_TESTS") != "1":
+        pytest.skip(
+            "set JAXMG_RUN_COMPREHENSIVE_GPU_TESTS=1 for the full GPU suite"
+        )
+    run_gpu_test(GPU_TEST, requested_procs, case_name, dtype_name)
