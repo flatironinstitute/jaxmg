@@ -21,6 +21,7 @@ from jaxmg import lu_solve
 
 num_processes = jax.process_count()
 mesh = jax.make_mesh((num_processes, 1), ("pr", "pc"))
+jax.set_mesh(mesh)
 matrix_specs = P("pr", "pc")
 a_sharding = NamedSharding(mesh, matrix_specs)
 b_sharding = NamedSharding(mesh, P("pr", None))

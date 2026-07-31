@@ -3,6 +3,9 @@
 We provide a complete walkthrough of the JAXMg workflow, from
 launching a distributed JAX program to running a cuSOLVERMp routine.
 
+Ready-to-run scripts are provided in the repository's
+[examples directory](https://github.com/flatironinstitute/jaxmg/tree/main/examples).
+
 ## 1. Configure Distributed Execution
 
 Start by initializing distributed JAX,
