@@ -26,4 +26,4 @@ reduce memory use.
 - [LU solve](lu_solve.md) solves a general nonsingular linear system with
   `lu_solve`.
 - [Symmetric or Hermitian eigensolve](syevd.md) computes eigenvalues and
-  eigenvectors with `syevd`.
+  optional eigenvectors with `syevd`.

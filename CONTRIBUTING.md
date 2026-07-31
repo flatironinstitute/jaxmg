@@ -19,10 +19,6 @@ A typical contribution follows five steps:
 1. Some native failures still use `std::runtime_error`. Contributions that
    express these consistently through XLA FFI error handling are particularly
    useful.
-2. Support for computing eigenvalues without eigenvectors would also be a useful
-   addition. Initial development encountered issues with cuSOLVERMp's documented
-   eigenvalues-only `compz='N'` mode. This requires further investigation and may
-   need discussion with the cuSOLVERMp developers.
 
 ## Pull a clean copy
 

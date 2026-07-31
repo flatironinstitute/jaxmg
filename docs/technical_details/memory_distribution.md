@@ -38,6 +38,9 @@ reverse Stage 3 -> reverse Stage 2 -> reverse Stage 1
 JAX-facing row-major result
 ```
 
+The reverse stages apply to matrix-valued solver outputs. Eigenvalues-only
+SYEVD returns its replicated eigenvalue array directly after solver execution.
+
 The native path is designed around a single scratch allocation.  The scratch
 size is set by Stage 3, the 2D block-cyclic redistribution:
 
@@ -927,8 +930,8 @@ groups inside that wave can run together.
 ## Reverse path
 
 The native solver outputs data in cuSOLVERMp's local column-major block-cyclic
-layout.  The fused call reverses the memory movement stages before returning to
-JAX:
+layout. For matrix-valued outputs, the fused call reverses the memory movement
+stages before returning to JAX:
 
 ```text
 cuSOLVERMp block-cyclic output
@@ -968,8 +971,10 @@ requested by that sequence:
 - `lu_solve` uses `cusolverMpGetrf` followed by `cusolverMpGetrs`.  It is
   intended for general nonsingular matrices and allocates a pivot vector sized
   by the local cuSOLVERMp column ownership, `LOCc(N_A)`.
-- `syevd` uses `cusolverMpSyevd` and has different output and workspace
-  pressure because eigenvectors are materialized as a full distributed matrix.
+- `syevd` uses `cusolverMpSyevd`. Its vector-producing mode has additional
+  output and workspace pressure because eigenvectors are materialized as a
+  full distributed matrix; the eigenvalues-only mode omits that matrix and its
+  reverse redistribution.
 
 ## Python and native responsibilities
 
@@ -987,7 +992,7 @@ Native CUDA/C++ is responsible for:
 - top-left / edge-padding alignment;
 - 2D block-cyclic redistribution;
 - cuSOLVERMp handle, descriptor, workspace, and solver calls;
-- reverse redistribution and layout conversion.
+- reverse redistribution and layout conversion for matrix-valued outputs.
 
 ## Code map
 

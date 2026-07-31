@@ -38,8 +38,8 @@ def _install_fake_syevd_backend(monkeypatch):
             )
             eigenvalues = jnp.arange(n, dtype=eigenvalue_dtype)
             status = jnp.zeros((_CUSOLVERMP_SYEVD_STATUS_SIZE,), dtype=jnp.int32)
-            # impl returns eigenvalues, the donated work buffer, eigenvectors,
-            # and status.
+            if not kwargs["return_eigenvectors"]:
+                return eigenvalues, _a, status
             return eigenvalues, _a, _a, status
 
         return impl
@@ -70,6 +70,40 @@ def test_syevd_accepts_current_2d_mesh_contract(monkeypatch):
     assert vectors.shape == a.shape
     assert captured["kwargs"]["n"] == 4
     assert captured["kwargs"]["tile_size"] == 2
+    assert captured["kwargs"]["return_eigenvectors"] is True
+
+
+def test_syevd_can_return_eigenvalues_only(monkeypatch):
+    captured = _install_fake_syevd_backend(monkeypatch)
+    a = jnp.eye(4, dtype=jnp.float32)
+
+    eigenvalues = syevd(
+        a,
+        2,
+        mesh=_one_rank_mesh(),
+        matrix_specs=P("pr", "pc"),
+        return_eigenvectors=False,
+    )
+
+    assert eigenvalues.shape == (4,)
+    assert captured["kwargs"]["return_eigenvectors"] is False
+
+
+def test_syevd_values_only_can_return_native_status(monkeypatch):
+    _install_fake_syevd_backend(monkeypatch)
+    a = jnp.eye(4, dtype=jnp.float64)
+
+    eigenvalues, status = syevd(
+        a,
+        2,
+        mesh=_one_rank_mesh(),
+        matrix_specs=P("pr", "pc"),
+        return_eigenvectors=False,
+        return_status=True,
+    )
+
+    assert eigenvalues.shape == (4,)
+    assert status.shape == (_CUSOLVERMP_SYEVD_STATUS_SIZE,)
 
 
 def test_syevd_can_return_native_status(monkeypatch):
@@ -104,6 +138,25 @@ def test_syevd_shardmap_ctx_returns_work_eigensystem_and_status(monkeypatch):
     assert status.shape == (_CUSOLVERMP_SYEVD_STATUS_SIZE,)
     assert captured["pipeline_kwargs"]["n"] == 4
     assert captured["pipeline_kwargs"]["tile_size"] == 2
+    assert captured["pipeline_kwargs"]["return_eigenvectors"] is True
+
+
+def test_syevd_shardmap_ctx_returns_values_only_work_and_status(monkeypatch):
+    captured = _install_fake_syevd_backend(monkeypatch)
+    a = jnp.eye(4, dtype=jnp.float32)
+
+    a_work, eigenvalues, status = syevd_shardmap_ctx(
+        a,
+        2,
+        mesh=_one_rank_mesh(),
+        matrix_specs=P("pr", "pc"),
+        return_eigenvectors=False,
+    )
+
+    assert a_work.shape == a.shape
+    assert eigenvalues.shape == (4,)
+    assert status.shape == (_CUSOLVERMP_SYEVD_STATUS_SIZE,)
+    assert captured["pipeline_kwargs"]["return_eigenvectors"] is False
 
 
 def test_syevd_shardmap_ctx_can_be_wrapped_in_external_jit(monkeypatch):
@@ -147,6 +200,33 @@ def test_syevd_external_jit_can_lower_from_shape_specs(monkeypatch):
     ).compile()
 
     assert compiled.memory_analysis() is not None
+
+
+def test_syevd_values_only_external_jit_can_lower(monkeypatch):
+    _install_fake_syevd_backend(monkeypatch)
+    mesh = _one_rank_mesh()
+    eigensolve = jax.jit(
+        partial(
+            syevd_shardmap_ctx,
+            T_A=2,
+            mesh=mesh,
+            matrix_specs=P("pr", "pc"),
+            return_eigenvectors=False,
+        ),
+        donate_argnums=(0,),
+    )
+
+    compiled = eigensolve.lower(
+        jax.ShapeDtypeStruct((4, 4), jnp.float32)
+    ).compile()
+
+    assert compiled.memory_analysis() is not None
+
+
+@pytest.mark.parametrize("value", [0, 1, "N", None])
+def test_syevd_rejects_non_boolean_return_eigenvectors(value):
+    with pytest.raises(TypeError, match="return_eigenvectors must be a Python bool"):
+        syevd(jnp.eye(4), 2, return_eigenvectors=value)
 
 
 def test_syevd_rejects_non_matrix_a():

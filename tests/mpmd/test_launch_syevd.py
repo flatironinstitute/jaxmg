@@ -42,6 +42,30 @@ def test_syevd_shardmap_ctx_two_gpu():
     )
 
 
+@pytest.mark.parametrize("dtype_name", DTYPES)
+def test_syevd_values_only_two_gpu(monkeypatch, dtype_name):
+    """Run the values-only native workflow on a two-GPU process grid."""
+    monkeypatch.setenv("JAXMG_SYEVD_RETURN_EIGENVECTORS", "0")
+    run_mpmd_test(
+        MP_TEST,
+        2,
+        "column_major_padding",
+        dtype_name,
+    )
+
+
+def test_syevd_values_only_shardmap_ctx_two_gpu(monkeypatch):
+    """Run caller-jitted values-only SYEVD through the context interface."""
+    monkeypatch.setenv("JAXMG_SYEVD_RETURN_EIGENVECTORS", "0")
+    run_mpmd_test(
+        MP_TEST,
+        2,
+        "column_major_padding",
+        "float32",
+        interface="context",
+    )
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("requested_procs", COMPREHENSIVE_PROCESS_COUNTS)
 @pytest.mark.parametrize("case_name", COMPREHENSIVE_CASES)

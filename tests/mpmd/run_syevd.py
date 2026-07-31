@@ -32,6 +32,9 @@ num_procs = int(sys.argv[3])
 case_name = sys.argv[4]
 dtype_name = sys.argv[5]
 interface = os.environ.get("JAXMG_TEST_INTERFACE", "public")
+return_eigenvectors = (
+    os.environ.get("JAXMG_SYEVD_RETURN_EIGENVECTORS", "1") == "1"
+)
 
 # Choose the GPU allocator (vmm vs platform) before the backend is created.
 select_gpu_allocator(proc_id)
@@ -73,12 +76,16 @@ def run_case() -> None:
                 tile_size,
                 mesh=mesh,
                 matrix_specs=matrix_specs,
+                return_eigenvectors=return_eigenvectors,
                 pad=True,
             )
 
-        a_work, eigenvalues, vectors, status = eigensolve(
-            a_dev, tile_size=case.tile_size
-        )
+        outputs = eigensolve(a_dev, tile_size=case.tile_size)
+        if return_eigenvectors:
+            a_work, eigenvalues, vectors, status = outputs
+        else:
+            a_work, eigenvalues, status = outputs
+            vectors = None
         a_work.block_until_ready()
     else:
 
@@ -89,36 +96,52 @@ def run_case() -> None:
                 tile_size,
                 mesh=mesh,
                 matrix_specs=matrix_specs,
+                return_eigenvectors=return_eigenvectors,
                 return_status=True,
                 pad=True,
             )
 
-        eigenvalues, vectors, status = eigensolve(
-            a_dev, tile_size=case.tile_size
-        )
+        outputs = eigensolve(a_dev, tile_size=case.tile_size)
+        if return_eigenvectors:
+            eigenvalues, vectors, status = outputs
+        else:
+            eigenvalues, status = outputs
+            vectors = None
     eigenvalues.block_until_ready()
-    vectors.block_until_ready()
+    if vectors is not None:
+        vectors.block_until_ready()
     status.block_until_ready()
 
     status_words = native_status_words(status)
     assert status_words.size % _CUSOLVERMP_SYEVD_STATUS_SIZE == 0, status_words
     assert np.all(status_words[::_CUSOLVERMP_SYEVD_STATUS_SIZE] == 0), status_words
+    assert np.all(
+        status_words[20::_CUSOLVERMP_SYEVD_STATUS_SIZE]
+        == int(return_eigenvectors)
+    ), status_words
+    assert np.all(
+        status_words[27::_CUSOLVERMP_SYEVD_STATUS_SIZE]
+        == int(return_eigenvectors)
+    ), status_words
 
     assert_close_scaled(eigenvalues, expected_eigenvalues, atol=1e-3, rtol=1e-3)
 
-    a_host = np.asarray(a)
-    eigenvalues_host = global_array_to_numpy(eigenvalues)
-    vectors_host = global_array_to_numpy(vectors)
-    residual = np.linalg.norm(
-        a_host @ vectors_host - vectors_host * eigenvalues_host[None, :]
-    )
-    residual = residual / np.linalg.norm(a_host)
-    assert float(residual) < 5e-3
+    if vectors is not None:
+        a_host = np.asarray(a)
+        eigenvalues_host = global_array_to_numpy(eigenvalues)
+        vectors_host = global_array_to_numpy(vectors)
+        residual = np.linalg.norm(
+            a_host @ vectors_host - vectors_host * eigenvalues_host[None, :]
+        )
+        residual = residual / np.linalg.norm(a_host)
+        assert float(residual) < 5e-3
 
-    identity = np.eye(case.n, dtype=vectors_host.dtype)
-    orthogonality = np.linalg.norm(vectors_host.conj().T @ vectors_host - identity)
-    orthogonality = orthogonality / np.sqrt(case.n)
-    assert float(orthogonality) < 5e-3
+        identity = np.eye(case.n, dtype=vectors_host.dtype)
+        orthogonality = np.linalg.norm(
+            vectors_host.conj().T @ vectors_host - identity
+        )
+        orthogonality = orthogonality / np.sqrt(case.n)
+        assert float(orthogonality) < 5e-3
 
     emit(
         "MPTEST_RESULT",
@@ -128,6 +151,7 @@ def run_case() -> None:
             "dtype": dtype_name,
             "status": "ok",
             "interface": interface,
+            "return_eigenvectors": return_eigenvectors,
             "params": {
                 "n": case.n,
                 "tile_size": case.tile_size,
