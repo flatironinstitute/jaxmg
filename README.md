@@ -197,7 +197,7 @@ Call `potrs` or `lu_solve` directly for standard solves. For use inside a larger
 ## Citations
 ```
 @misc{2601.14466,
-Author = {Roeland Wiersema},
+Author = {Jacob Tutt and Roeland Wiersema},
 Title = {JAXMg: A multi-GPU linear solver in JAX},
 Year = {2026},
 Eprint = {arXiv:2601.14466},

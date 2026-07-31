@@ -29,7 +29,7 @@ theme:
 
 site_name: JAXMg
 site_description: Distributed cuSOLVERMp linear algebra for JAX.
-site_author: Roeland Wiersema
+site_author: Jacob Tutt & Roeland Wiersema
 site_url: https://flatironinstitute.github.io/jaxmg
 
 repo_url: https://github.com/flatironinstitute/jaxmg
