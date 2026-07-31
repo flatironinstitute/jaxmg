@@ -1,9 +1,10 @@
 # Symmetric or Hermitian eigensolve
 
-`jaxmg.syevd` computes the eigenvalues and eigenvectors of a symmetric real
-matrix or Hermitian complex matrix. For a normal eigensolve, use `syevd`. It
-provides the high-level interface and internally handles JIT compilation,
-buffer donation, input/output aliasing, padding, and distributed execution.
+`jaxmg.syevd` computes the eigenvalues and, optionally, eigenvectors of a
+symmetric real matrix or Hermitian complex matrix. For a normal eigensolve, use
+`syevd`. It provides the high-level interface and internally handles JIT
+compilation, buffer donation, input/output aliasing, padding, and distributed
+execution.
 
 ## Common setup
 
@@ -23,6 +24,7 @@ from jaxmg import syevd
 
 num_processes = jax.process_count()
 mesh = jax.make_mesh((num_processes, 1), ("pr", "pc"))
+jax.set_mesh(mesh)
 matrix_specs = P("pr", "pc")
 a_sharding = NamedSharding(mesh, matrix_specs)
 
@@ -63,6 +65,24 @@ if jax.process_index() == 0:
 The eigenvalues are returned as a real array. The eigenvectors have the input
 dtype and are returned in the same JAX-facing matrix layout as `a`.
 
+When eigenvectors are not required, select the shorter values-only workflow:
+
+```python
+a, expected_eigenvalues = make_problem()
+
+eigenvalues = syevd(
+    a,
+    T_A=T_A,
+    mesh=mesh,
+    matrix_specs=matrix_specs,
+    return_eigenvectors=False,
+)
+eigenvalues.block_until_ready()
+```
+
+This mode does not allocate, reverse-redistribute, or restore a matrix-sized
+eigenvector result.
+
 !!! Warning
 
      The public wrapper donates `a` to the compiled eigensolve. Do not use the
@@ -73,16 +93,16 @@ an internally cached jitted wrapper and manages donation and aliasing itself.
 If the eigensolve must be embedded inside a larger jitted calculation, use the
 advanced interface below instead of wrapping `syevd` in another `jax.jit`.
 
-SYEVD materializes the full distributed eigenvector matrix and uses
-solver-specific workspace. It therefore reaches the GPU memory limit at a
-smaller matrix size than `potrs` or `lu_solve` on the same process grid.
+When eigenvectors are requested, SYEVD materializes the full distributed
+eigenvector matrix and uses solver-specific workspace. It therefore reaches
+the GPU memory limit at a smaller matrix size than `potrs` or `lu_solve` on the
+same process grid.
 
 ## Advanced: control the outer `jax.jit`
 
-`syevd_shardmap_ctx` runs the same padding, redistribution, eigensolve, and
-reverse redistribution as `syevd`. The difference is that it does not create
-an internal `jax.jit`, allowing the eigensolve to become one stage of a larger
-function compiled by the caller.
+`syevd_shardmap_ctx` runs the same selected eigensolver workflow as `syevd`.
+The difference is that it does not create an internal `jax.jit`, allowing the
+eigensolve to become one stage of a larger function compiled by the caller.
 
 The context interface returns
 `(a_work, eigenvalues, eigenvectors, status)`. cuSOLVERMp uses separate
@@ -90,6 +110,9 @@ distributed buffers for its overwritten input matrix and eigenvector output,
 so `a_work` is returned to give the outer compiled function an $A$-sized alias
 target for the donated input. The eigenvectors still require a separate
 matrix-sized allocation.
+
+With `return_eigenvectors=False`, the context interface instead returns
+`(a_work, eigenvalues, status)`.
 
 The advanced examples additionally use:
 

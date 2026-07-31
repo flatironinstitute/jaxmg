@@ -50,7 +50,7 @@ $$
 A v = \lambda v \quad\Rightarrow\quad A = V \Lambda V^{\top} \;\text{(real)}\quad\text{or}\quad A = V \Lambda V^{\dagger} \;\text{(complex)}
 $$
 
-Compute eigenvalues $\Lambda$ and eigenvectors $V$ of a symmetric or Hermitian
-matrix.
+Compute eigenvalues $\Lambda$ and optionally eigenvectors $V$ of a symmetric or
+Hermitian matrix.
 
 [`syevd` API and usage](syevd.md)

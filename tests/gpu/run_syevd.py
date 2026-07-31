@@ -4,7 +4,6 @@ import traceback
 from functools import partial
 
 import jax
-
 if not jax.config.jax_enable_x64:
     jax.config.update("jax_enable_x64", True)
 
@@ -19,8 +18,8 @@ from cusolvermp_case_utils import (
     emit,
     global_array_to_numpy,
     local_device_id_for_process,
+    make_hermitian_positive_definite,
     make_process_mesh,
-    make_rhs,
     native_status_words,
     select_gpu_allocator,
     solver_case,
@@ -33,6 +32,9 @@ num_procs = int(sys.argv[3])
 case_name = sys.argv[4]
 dtype_name = sys.argv[5]
 interface = os.environ.get("JAXMG_TEST_INTERFACE", "public")
+return_eigenvectors = (
+    os.environ.get("JAXMG_SYEVD_RETURN_EIGENVECTORS", "1") == "1"
+)
 
 # Choose the GPU allocator (vmm vs platform) before the backend is created.
 select_gpu_allocator(proc_id)
@@ -45,120 +47,122 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import lu_solve, lu_solve_shardmap_ctx
-from jaxmg._cusolvermp_status import _CUSOLVERMP_LU_SOLVE_STATUS_SIZE
-
-
-def make_nonsingular_matrix(n: int, dtype, *, seed: int):
-    """Create a deterministic, diagonally dominant general matrix."""
-    rng = np.random.default_rng(seed)
-    real_dtype = (
-        np.float32
-        if np.dtype(dtype) in (np.dtype(np.float32), np.dtype(np.complex64))
-        else np.float64
-    )
-    a = rng.normal(size=(n, n)).astype(real_dtype)
-    if np.issubdtype(np.dtype(dtype), np.complexfloating):
-        a = a + 0.25j * rng.normal(size=(n, n)).astype(real_dtype)
-    a += (2.0 * n) * np.eye(n, dtype=a.dtype)
-    return jnp.asarray(a, dtype=dtype)
+from jaxmg import syevd, syevd_shardmap_ctx
+from jaxmg._cusolvermp_status import _CUSOLVERMP_SYEVD_STATUS_SIZE
 
 
 def run_case() -> None:
-    """Run one rank-per-GPU LU solve case and emit parser-friendly results."""
+    """Run one rank-per-GPU SYEVD case and emit parser-friendly results."""
     dtype = dtype_from_name(dtype_name)
-    case = solver_case(case_name, num_procs, routine="lu_solve")
+    case = solver_case(case_name, num_procs, routine="syevd")
     mesh = make_process_mesh(case)
     matrix_specs = P("pr", "pc")
 
-    a = make_nonsingular_matrix(case.n, dtype, seed=4321)
-    b = make_rhs(case.n, case.nrhs, dtype)
-    if case.rhs_mode == "vector_replicated":
-        b = b[:, 0]
-    expected = jnp.linalg.solve(a, b)
+    a = make_hermitian_positive_definite(case.n, dtype, seed=5678)
+    expected_eigenvalues, _ = jnp.linalg.eigh(a)
 
     a_dev = jax.device_put(a, NamedSharding(mesh, matrix_specs))
-    if case.rhs_mode == "vector_replicated":
-        rhs_specs = P(None)
-    elif case.rhs_mode == "matrix_replicated":
-        rhs_specs = P(None, None)
-    elif case.rhs_mode == "matrix_row_sharded":
-        rhs_specs = P("pr", None)
-    elif case.rhs_mode == "matrix_2d_sharded":
-        rhs_specs = matrix_specs
-    else:
-        raise ValueError(f"unknown RHS placement mode {case.rhs_mode!r}")
-    b_dev = jax.device_put(b, NamedSharding(mesh, rhs_specs))
 
     if interface == "context":
 
         @partial(
             jax.jit,
-            donate_argnums=(0, 1),
+            donate_argnums=(0,),
             static_argnames=("tile_size",),
         )
-        def solve(_a, _b, *, tile_size):
-            return lu_solve_shardmap_ctx(
+        def eigensolve(_a, *, tile_size):
+            return syevd_shardmap_ctx(
                 _a,
-                _b,
                 tile_size,
                 mesh=mesh,
                 matrix_specs=matrix_specs,
+                return_eigenvectors=return_eigenvectors,
                 pad=True,
             )
 
-        a_work, out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
+        outputs = eigensolve(a_dev, tile_size=case.tile_size)
+        if return_eigenvectors:
+            a_work, eigenvalues, vectors, status = outputs
+        else:
+            a_work, eigenvalues, status = outputs
+            vectors = None
         a_work.block_until_ready()
     else:
 
         @partial(jax.jit, static_argnames=("tile_size",))
-        def solve(_a, _b, *, tile_size):
-            return lu_solve(
+        def eigensolve(_a, *, tile_size):
+            return syevd(
                 _a,
-                _b,
                 tile_size,
                 mesh=mesh,
                 matrix_specs=matrix_specs,
+                return_eigenvectors=return_eigenvectors,
                 return_status=True,
                 pad=True,
             )
 
-        out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
-    out.block_until_ready()
+        outputs = eigensolve(a_dev, tile_size=case.tile_size)
+        if return_eigenvectors:
+            eigenvalues, vectors, status = outputs
+        else:
+            eigenvalues, status = outputs
+            vectors = None
+    eigenvalues.block_until_ready()
+    if vectors is not None:
+        vectors.block_until_ready()
     status.block_until_ready()
 
     status_words = native_status_words(status)
-    assert status_words.size % _CUSOLVERMP_LU_SOLVE_STATUS_SIZE == 0, status_words
-    assert np.all(status_words[::_CUSOLVERMP_LU_SOLVE_STATUS_SIZE] == 0), status_words
-    assert_close_scaled(out, expected)
+    assert status_words.size % _CUSOLVERMP_SYEVD_STATUS_SIZE == 0, status_words
+    assert np.all(status_words[::_CUSOLVERMP_SYEVD_STATUS_SIZE] == 0), status_words
+    assert np.all(
+        status_words[20::_CUSOLVERMP_SYEVD_STATUS_SIZE]
+        == int(return_eigenvectors)
+    ), status_words
+    assert np.all(
+        status_words[27::_CUSOLVERMP_SYEVD_STATUS_SIZE]
+        == int(return_eigenvectors)
+    ), status_words
 
-    out_host = global_array_to_numpy(out)
-    a_host = np.asarray(a)
-    b_host = np.asarray(b)
-    residual = np.linalg.norm(a_host @ out_host - b_host) / np.linalg.norm(b_host)
-    assert float(residual) < 1e-3
+    assert_close_scaled(eigenvalues, expected_eigenvalues, atol=1e-3, rtol=1e-3)
+
+    if vectors is not None:
+        a_host = np.asarray(a)
+        eigenvalues_host = global_array_to_numpy(eigenvalues)
+        vectors_host = global_array_to_numpy(vectors)
+        residual = np.linalg.norm(
+            a_host @ vectors_host - vectors_host * eigenvalues_host[None, :]
+        )
+        residual = residual / np.linalg.norm(a_host)
+        assert float(residual) < 5e-3
+
+        identity = np.eye(case.n, dtype=vectors_host.dtype)
+        orthogonality = np.linalg.norm(
+            vectors_host.conj().T @ vectors_host - identity
+        )
+        orthogonality = orthogonality / np.sqrt(case.n)
+        assert float(orthogonality) < 5e-3
 
     emit(
-        "MPTEST_RESULT",
+        "GPU_TEST_RESULT",
         {
             "proc": proc_id,
             "name": case_name,
             "dtype": dtype_name,
             "status": "ok",
             "interface": interface,
+            "return_eigenvectors": return_eigenvectors,
             "params": {
                 "n": case.n,
-                "nrhs": case.nrhs,
                 "tile_size": case.tile_size,
                 "process_rows": case.process_rows,
                 "process_cols": case.process_cols,
                 "grid_order": case.grid_order,
-                "rhs_mode": case.rhs_mode,
             },
         },
     )
     multihost_utils.sync_global_devices(
-        f"lu_solve_{case_name}_{dtype_name}_{num_procs}_complete"
+        f"syevd_{case_name}_{dtype_name}_{num_procs}_complete"
     )
 
 
@@ -167,7 +171,7 @@ def main() -> None:
         run_case()
     except Exception:
         emit(
-            "MPTEST_RESULT",
+            "GPU_TEST_RESULT",
             {
                 "proc": proc_id,
                 "name": case_name,
@@ -178,7 +182,7 @@ def main() -> None:
         )
     finally:
         emit(
-            "MPTEST_SUMMARY",
+        "GPU_TEST_SUMMARY",
             {
                 "proc": proc_id,
                 "name": case_name,

@@ -57,6 +57,13 @@ _PRODUCTION_FFI_TARGETS = (
             "execute": "XlaCusolverMpSyevdFFI",
         },
     ),
+    (
+        "cusolvermp_syevd_values",
+        {
+            "prepare": "XlaCusolverMpSyevdPrepareFFI",
+            "execute": "XlaCusolverMpSyevdValuesFFI",
+        },
+    ),
 )
 
 if not sys.platform.startswith("linux"):

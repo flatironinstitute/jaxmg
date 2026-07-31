@@ -58,9 +58,9 @@ def _slurm_hostnames() -> list[str]:
 
 def _slurm_node_count(hostnames: list[str]) -> int:
     """Return the available Slurm node count for nested ``srun`` launches."""
-    override = _positive_int_from_env("JAXMG_MPMD_SRUN_MAX_NODES")
+    override = _positive_int_from_env("JAXMG_GPU_TEST_SRUN_MAX_NODES")
     if override is None:
-        override = _positive_int_from_env("JAXMG_MPMD_SRUN_NODES")
+        override = _positive_int_from_env("JAXMG_GPU_TEST_SRUN_NODES")
     if override is not None:
         return override
     for name in ("SLURM_NNODES", "SLURM_JOB_NUM_NODES"):
@@ -72,7 +72,7 @@ def _slurm_node_count(hostnames: list[str]) -> int:
 
 def _gpus_per_node(local_gpu_count: int) -> int:
     """Return the expected GPUs per node in the Slurm allocation."""
-    override = _positive_int_from_env("JAXMG_MPMD_GPUS_PER_NODE")
+    override = _positive_int_from_env("JAXMG_GPU_TEST_GPUS_PER_NODE")
     if override is not None:
         return override
     for name in ("SLURM_GPUS_ON_NODE", "SLURM_GPUS_PER_NODE"):
@@ -105,7 +105,7 @@ def _srun_coordinator(port: int) -> str:
 
 def _srun_gpu_args() -> list[str]:
     """Return optional Slurm GPU binding arguments for nested ``srun``."""
-    value = os.environ.get("JAXMG_MPMD_SRUN_GPU_ARGS", "")
+    value = os.environ.get("JAXMG_GPU_TEST_SRUN_GPU_ARGS", "")
     return shlex.split(value) if value else []
 
 
@@ -136,11 +136,11 @@ def _check_results(
     for log in logs:
         for line in log.splitlines():
             try:
-                if line.startswith("MPTEST_RESULT "):
+                if line.startswith("GPU_TEST_RESULT "):
                     payload = json.loads(line.split(" ", 1)[1])
                     parsed.append(payload)
                     per_proc_seen.add(payload.get("proc"))
-                elif line.startswith("MPTEST_SUMMARY "):
+                elif line.startswith("GPU_TEST_SUMMARY "):
                     payload = json.loads(line.split(" ", 1)[1])
                     per_proc_seen.add(payload.get("proc"))
             except json.JSONDecodeError:
@@ -189,7 +189,7 @@ def _check_results(
 
 
 def _run_with_srun(
-    mp_test: Path,
+    gpu_test: Path,
     requested_procs: int,
     nodes: int,
     name: str,
@@ -204,7 +204,7 @@ def _run_with_srun(
     instead of starting several distributed JAX ranks as unmanaged subprocesses
     inside one Slurm task.
     """
-    timeout = int(os.environ.get("JAXMG_MPMD_TEST_TIMEOUT", "300"))
+    timeout = int(os.environ.get("JAXMG_GPU_TEST_TIMEOUT", "300"))
     gpu_args = _srun_gpu_args()
     env.update(
         {
@@ -212,8 +212,8 @@ def _run_with_srun(
             "JAXMG_NUM_PROCS": str(requested_procs),
             "JAXMG_CASE_NAME": name,
             "JAXMG_DTYPE_NAME": dtype_name,
-            "JAXMG_RUNNER": mp_test.name,
-            "JAXMG_RUNNER_DIR": str(mp_test.parent),
+            "JAXMG_RUNNER": gpu_test.name,
+            "JAXMG_RUNNER_DIR": str(gpu_test.parent),
             "JAXMG_PYTHON": sys.executable,
         }
     )
@@ -259,7 +259,7 @@ def _run_with_srun(
 
 
 def _run_with_local_subprocesses(
-    mp_test: Path,
+    gpu_test: Path,
     requested_procs: int,
     name: str,
     dtype_name: str,
@@ -267,14 +267,14 @@ def _run_with_local_subprocesses(
     env: dict[str, str],
 ) -> List[str]:
     """Run one distributed case with local subprocesses for developer machines."""
-    here = mp_test.parent
+    here = gpu_test.parent
     procs: List[subprocess.Popen] = []
     logs: List[str] = []
     for i in range(requested_procs):
         cmd = [
             sys.executable,
             "-u",
-            str(mp_test),
+            str(gpu_test),
             coord,
             str(i),
             str(requested_procs),
@@ -295,7 +295,7 @@ def _run_with_local_subprocesses(
         )
         procs.append(p)
 
-    deadline = time.time() + int(os.environ.get("JAXMG_MPMD_TEST_TIMEOUT", "300"))
+    deadline = time.time() + int(os.environ.get("JAXMG_GPU_TEST_TIMEOUT", "300"))
     for p in procs:
         out_chunks: List[str] = []
         while p.poll() is None and time.time() < deadline:
@@ -311,14 +311,14 @@ def _run_with_local_subprocesses(
     exits = [p.wait(timeout=5) for p in procs]
     for idx, code in enumerate(exits):
         if code != 0:
-            print(f"===== mp_test proc {idx} combined output =====")
+            print(f"===== GPU test process {idx} combined output =====")
             print(logs[idx])
-        assert code == 0, f"mp_test process {idx} failed with exit code {code}"
+        assert code == 0, f"GPU test process {idx} failed with exit code {code}"
     return logs
 
 
-def run_mpmd_test(
-    mp_test: Path,
+def run_gpu_test(
+    gpu_test: Path,
     requested_procs: int,
     name: str,
     dtype_name: str,
@@ -338,7 +338,7 @@ def run_mpmd_test(
     if interface not in ("public", "context"):
         raise ValueError(f"unknown solver interface {interface!r}")
 
-    launcher = os.environ.get("JAXMG_MPMD_LAUNCHER")
+    launcher = os.environ.get("JAXMG_GPU_TEST_LAUNCHER")
     if launcher is None:
         launcher = "srun" if "SLURM_JOB_ID" in os.environ else "subprocess"
 
@@ -359,7 +359,7 @@ def run_mpmd_test(
             f"to run this test (have {gpu_count})"
         )
     elif launcher not in ("srun", "subprocess"):
-        raise ValueError(f"unknown JAXMG_MPMD_LAUNCHER={launcher!r}")
+        raise ValueError(f"unknown JAXMG_GPU_TEST_LAUNCHER={launcher!r}")
 
     port = _find_free_port()
     coord = _srun_coordinator(port) if launcher == "srun" else f"127.0.0.1:{port}"
@@ -374,7 +374,7 @@ def run_mpmd_test(
     if launcher == "srun":
         assert srun_nodes is not None
         logs = _run_with_srun(
-            mp_test,
+            gpu_test,
             requested_procs,
             srun_nodes,
             name,
@@ -384,7 +384,7 @@ def run_mpmd_test(
         )
     else:
         logs = _run_with_local_subprocesses(
-            mp_test, requested_procs, name, dtype_name, coord, env
+            gpu_test, requested_procs, name, dtype_name, coord, env
         )
 
     _check_results(

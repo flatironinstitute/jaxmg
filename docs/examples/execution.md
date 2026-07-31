@@ -31,9 +31,9 @@ While JAX supports automatic detection of the distributed configuration, the use
 ```python
 jax.distributed.initialize(
     coordinator_address="node-0-hostname:12345",  # Rank 0 host and shared port.
-    num_processes=8,  # Total process count.
-    process_id=process_id,  # This process's global rank.
-    local_device_ids=[local_device_id],  # This process's local GPU.
+    num_processes=8,  # Total number of Python processes.
+    process_id=process_id,  # Unique global rank of this process.
+    local_device_ids=[local_device_id],  # Local GPU assigned to this process.
 )
 ```
 
@@ -70,11 +70,14 @@ from jax.sharding import PartitionSpec as P
 process_rows = 4
 process_cols = 2
 mesh = jax.make_mesh((process_rows, process_cols), ("pr", "pc"))
+jax.set_mesh(mesh)
 matrix_specs = P("pr", "pc")
 ```
 
 These JAX mesh dimensions are used throughout the backend and hence are inherited by cuSOLVERMp process-grid. The first
 axis, `pr`, identifies process rows; the second, `pc`, identifies process columns.
+Calling `jax.set_mesh(mesh)` makes this concrete mesh available while JAX traces
+the explicitly sharded computation.
 
 You can inspect the resultant process-rank mapping selected by JAX:
 
@@ -143,6 +146,9 @@ column_major_mesh = Mesh(
     devices.reshape((process_rows, process_cols), order="F"),
     ("pr", "pc"),
 )
+
+mesh = row_major_mesh  # Or select column_major_mesh.
+jax.set_mesh(mesh)
 ```
 
 ## 4. Shard the matrix and solve input

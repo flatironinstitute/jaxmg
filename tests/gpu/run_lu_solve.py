@@ -4,6 +4,7 @@ import traceback
 from functools import partial
 
 import jax
+
 if not jax.config.jax_enable_x64:
     jax.config.update("jax_enable_x64", True)
 
@@ -18,7 +19,6 @@ from cusolvermp_case_utils import (
     emit,
     global_array_to_numpy,
     local_device_id_for_process,
-    make_hermitian_positive_definite,
     make_process_mesh,
     make_rhs,
     native_status_words,
@@ -32,7 +32,6 @@ proc_id = int(sys.argv[2])
 num_procs = int(sys.argv[3])
 case_name = sys.argv[4]
 dtype_name = sys.argv[5]
-return_logdet = os.environ.get("JAXMG_TEST_POTRS_LOGDET") == "1"
 interface = os.environ.get("JAXMG_TEST_INTERFACE", "public")
 
 # Choose the GPU allocator (vmm vs platform) before the backend is created.
@@ -46,18 +45,33 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import potrs, potrs_shardmap_ctx
-from jaxmg._cusolvermp_status import _CUSOLVERMP_POTRS_STATUS_SIZE
+from jaxmg import lu_solve, lu_solve_shardmap_ctx
+from jaxmg._cusolvermp_status import _CUSOLVERMP_LU_SOLVE_STATUS_SIZE
+
+
+def make_nonsingular_matrix(n: int, dtype, *, seed: int):
+    """Create a deterministic, diagonally dominant general matrix."""
+    rng = np.random.default_rng(seed)
+    real_dtype = (
+        np.float32
+        if np.dtype(dtype) in (np.dtype(np.float32), np.dtype(np.complex64))
+        else np.float64
+    )
+    a = rng.normal(size=(n, n)).astype(real_dtype)
+    if np.issubdtype(np.dtype(dtype), np.complexfloating):
+        a = a + 0.25j * rng.normal(size=(n, n)).astype(real_dtype)
+    a += (2.0 * n) * np.eye(n, dtype=a.dtype)
+    return jnp.asarray(a, dtype=dtype)
 
 
 def run_case() -> None:
-    """Run one rank-per-GPU POTRS case and emit parser-friendly results."""
+    """Run one rank-per-GPU LU solve case and emit parser-friendly results."""
     dtype = dtype_from_name(dtype_name)
-    case = solver_case(case_name, num_procs, routine="potrs")
+    case = solver_case(case_name, num_procs, routine="lu_solve")
     mesh = make_process_mesh(case)
     matrix_specs = P("pr", "pc")
 
-    a = make_hermitian_positive_definite(case.n, dtype, seed=1234)
+    a = make_nonsingular_matrix(case.n, dtype, seed=4321)
     b = make_rhs(case.n, case.nrhs, dtype)
     if case.rhs_mode == "vector_replicated":
         b = b[:, 0]
@@ -77,8 +91,6 @@ def run_case() -> None:
     b_dev = jax.device_put(b, NamedSharding(mesh, rhs_specs))
 
     if interface == "context":
-        if return_logdet:
-            raise ValueError("the context smoke test does not request logdet")
 
         @partial(
             jax.jit,
@@ -86,7 +98,7 @@ def run_case() -> None:
             static_argnames=("tile_size",),
         )
         def solve(_a, _b, *, tile_size):
-            return potrs_shardmap_ctx(
+            return lu_solve_shardmap_ctx(
                 _a,
                 _b,
                 tile_size,
@@ -98,31 +110,26 @@ def run_case() -> None:
         a_work, out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
         a_work.block_until_ready()
     else:
+
         @partial(jax.jit, static_argnames=("tile_size",))
         def solve(_a, _b, *, tile_size):
-            return potrs(
+            return lu_solve(
                 _a,
                 _b,
                 tile_size,
                 mesh=mesh,
                 matrix_specs=matrix_specs,
                 return_status=True,
-                return_logdet=return_logdet,
                 pad=True,
             )
 
-        result = solve(a_dev, b_dev, tile_size=case.tile_size)
-        if return_logdet:
-            out, logdet, status = result
-            logdet.block_until_ready()
-        else:
-            out, status = result
+        out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
     out.block_until_ready()
     status.block_until_ready()
 
     status_words = native_status_words(status)
-    assert status_words.size % _CUSOLVERMP_POTRS_STATUS_SIZE == 0, status_words
-    assert np.all(status_words[::_CUSOLVERMP_POTRS_STATUS_SIZE] == 0), status_words
+    assert status_words.size % _CUSOLVERMP_LU_SOLVE_STATUS_SIZE == 0, status_words
+    assert np.all(status_words[::_CUSOLVERMP_LU_SOLVE_STATUS_SIZE] == 0), status_words
     assert_close_scaled(out, expected)
 
     out_host = global_array_to_numpy(out)
@@ -130,28 +137,15 @@ def run_case() -> None:
     b_host = np.asarray(b)
     residual = np.linalg.norm(a_host @ out_host - b_host) / np.linalg.norm(b_host)
     assert float(residual) < 1e-3
-    if return_logdet:
-        expected_logdet_dtype = (
-            jnp.float32 if dtype in (jnp.float32, jnp.complex64) else jnp.float64
-        )
-        assert logdet.dtype == expected_logdet_dtype
-        expected_sign, expected_logdet = np.linalg.slogdet(a_host)
-        assert float(np.real(expected_sign)) > 0.0
-        tolerance = 5e-4 if dtype in (jnp.float32, jnp.complex64) else 1e-10
-        assert np.allclose(
-            float(logdet), float(expected_logdet), rtol=tolerance, atol=tolerance
-        )
-        assert np.all(status_words[33::_CUSOLVERMP_POTRS_STATUS_SIZE] == 1)
 
     emit(
-        "MPTEST_RESULT",
+        "GPU_TEST_RESULT",
         {
             "proc": proc_id,
             "name": case_name,
             "dtype": dtype_name,
             "status": "ok",
             "interface": interface,
-            "return_logdet": return_logdet,
             "params": {
                 "n": case.n,
                 "nrhs": case.nrhs,
@@ -164,7 +158,7 @@ def run_case() -> None:
         },
     )
     multihost_utils.sync_global_devices(
-        f"potrs_{case_name}_{dtype_name}_{num_procs}_complete"
+        f"lu_solve_{case_name}_{dtype_name}_{num_procs}_complete"
     )
 
 
@@ -173,7 +167,7 @@ def main() -> None:
         run_case()
     except Exception:
         emit(
-            "MPTEST_RESULT",
+            "GPU_TEST_RESULT",
             {
                 "proc": proc_id,
                 "name": case_name,
@@ -184,7 +178,7 @@ def main() -> None:
         )
     finally:
         emit(
-            "MPTEST_SUMMARY",
+        "GPU_TEST_SUMMARY",
             {
                 "proc": proc_id,
                 "name": case_name,

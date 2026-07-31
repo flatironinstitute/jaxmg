@@ -41,7 +41,8 @@ jaxmg = [
 markers = [
     "cpu_only: tests that do not require GPUs",
     "gpu: tests that require at least one GPU",
-    "mpmd: multi-process multi-device GPU tests",
+    "single_gpu: tests that require one GPU",
+    "multi_gpu: rank-per-GPU tests that require multiple GPUs",
     "slow: longer validation sweeps",
 ]
 
@@ -60,7 +61,7 @@ docs = [
 dev = [
     "matplotlib>=3.10.3",
     "jax[cuda12]==0.10.1",
-    "nvidia-cusolvermp-cu12==0.8.0.3126",
+    "nvidia-cusolvermp-cu12==0.9.0.6427",
     "pytest==8.2.1",
     "mkdocs==1.6.1",
     "mkdocs-material==9.6.23",
@@ -72,20 +73,20 @@ dev = [
 
 cuda12 = [
     "jax[cuda12]==0.10.1",
-    "nvidia-cusolvermp-cu12==0.8.0.3126",
+    "nvidia-cusolvermp-cu12==0.9.0.6427",
 ]
 
 cuda13 = [
     "jax[cuda13]==0.10.1",
-    "nvidia-cusolvermp-cu13==0.8.0.3126",
+    "nvidia-cusolvermp-cu13==0.9.0.6427",
 ]
 
 cuda12-local = [
     "jax[cuda12-local]==0.10.1",
-    "nvidia-cusolvermp-cu12==0.8.0.3126",
+    "nvidia-cusolvermp-cu12==0.9.0.6427",
 ]
 
 cuda13-local = [
     "jax[cuda13-local]==0.10.1",
-    "nvidia-cusolvermp-cu13==0.8.0.3126",
+    "nvidia-cusolvermp-cu13==0.9.0.6427",
 ]

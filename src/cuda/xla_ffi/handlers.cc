@@ -148,8 +148,8 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliqueRequests>());
 
-// Registers the runtime SYEVD target that returns eigenvalues, eigenvectors,
-// solver work storage, and a status vector.
+// Registers the runtime SYEVD target that returns eigenvalues, solver work
+// storage, eigenvectors, and a status vector.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpSyevdFFI, XlaCusolverMpSyevdDispatch,
     ffi::Ffi::Bind()
@@ -164,6 +164,27 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<absl::Span<const int64_t>>("rank_map")
         .Arg<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+// Registers the eigenvalues-only SYEVD target. Omitting the eigenvector result
+// prevents XLA from allocating an unused matrix-sized output.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpSyevdValuesFFI, XlaCusolverMpSyevdValuesDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::CommunicationStream<1>>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("n")
+        .Attr<int64_t>("tile_size")
+        .Attr<int64_t>("grid_mapping")
+        .Attr<absl::Span<const int64_t>>("rank_map")
+        .Arg<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
         .Ret<ffi::BufferR1<S32>>()

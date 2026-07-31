@@ -8,7 +8,7 @@ native FFI to achieve scalable performance on distributed GPU clusters.
 Main Entry Points:
     - :func:`jaxmg.potrs`: Solve ``A x = B`` for positive-definite ``A``.
     - :func:`jaxmg.lu_solve`: Solve ``A x = B`` for general nonsingular ``A``.
-    - :func:`jaxmg.syevd`: Compute eigenvalues and eigenvectors.
+    - :func:`jaxmg.syevd`: Compute eigenvalues and optional eigenvectors.
 """
 
 from importlib.metadata import version

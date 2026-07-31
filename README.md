@@ -26,8 +26,9 @@ JAXMg currently provides a jittable API for the following routines:
 - [`lu_solve`](https://flatironinstitute.github.io/jaxmg/latest/api/lu_solve/): Solves the system of linear equations
   $Ax=B$, where $A$ is an $N \times N$ general nonsingular matrix, using a
   pivoted LU decomposition.
-- [`syevd`](https://flatironinstitute.github.io/jaxmg/latest/api/syevd/): Computes the eigenvalues and eigenvectors of an
-  $N \times N$ symmetric or Hermitian matrix.
+- [`syevd`](https://flatironinstitute.github.io/jaxmg/api/syevd/): Computes the
+  eigenvalues and optional eigenvectors of an $N \times N$ symmetric or
+  Hermitian matrix.
 
 ## How JAXMg works
 
@@ -102,6 +103,7 @@ from jaxmg import potrs
 jax.distributed.initialize()
 
 mesh = jax.make_mesh((jax.process_count(), 1), ("pr", "pc"))
+jax.set_mesh(mesh)
 
 A = jax.device_put(A, NamedSharding(mesh, P("pr", "pc")))
 b = jax.device_put(b, NamedSharding(mesh, P("pr", None)))
@@ -136,6 +138,7 @@ A = jnp.diag(jnp.arange(N, dtype=dtype) + 1)
 b = jnp.ones((N, 1), dtype=dtype)
 
 mesh = jax.make_mesh((num_procs, 1), ("pr", "pc"))
+jax.set_mesh(mesh)
 a_sharding = NamedSharding(mesh, P("pr", "pc"))
 b_sharding = NamedSharding(mesh, P("pr", None))
 A = jax.device_put(A, a_sharding)

@@ -38,7 +38,7 @@ buildPod(tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12', devShm: tru
       "CUDA_ROOT=/usr/local/cuda",
       "CUDNN_ROOT=/usr",
       "CUDA_VISIBLE_DEVICES=0,1",
-      "JAXMG_MPMD_LAUNCHER=subprocess",
+      "JAXMG_GPU_TEST_LAUNCHER=subprocess",
       // Disable NCCL's cuMem allocator (fails at ncclGroupEnd in the pod) and
       // keep JAX on the conservative platform allocator.
       "NCCL_CUMEM_ENABLE=0",
@@ -118,9 +118,9 @@ print(f"Python {sys.version_info[:2]}, JAX {jax.__version__}")
 print(devices)
 PY
 
-              python -m pytest -svv -m 'not mpmd' tests
-              JAXMG_MPMD_LAUNCHER=subprocess \
-                python -m pytest -svv -m 'mpmd and not slow' tests/mpmd
+              python -m pytest -svv -m 'not gpu' tests
+              JAXMG_GPU_TEST_LAUNCHER=subprocess \
+                python -m pytest -svv -m 'gpu and not slow' tests/gpu
             '''
           }
         }
