@@ -7,21 +7,22 @@ tags:
   - distributed linear algebra
 authors:
   - name: Jacob Tutt
+    orcid: 0009-0002-5358-4292
+    equal-contrib: true
     corresponding: true # (This is how to denote the corresponding author)
     affiliation: "1, 2" # (Multiple affiliations must be quoted)
   - name: Roeland Wiersema
     orcid: 0000-0002-0839-4265
+    equal-contrib: true
     corresponding: true # (This is how to denote the corresponding author)
     affiliation: 3 # (Multiple affiliations must be quoted)
 affiliations:
  - name: Cavendish Astrophysics, University of Cambridge, Cambridge CB30HE, UK
    index: 1
    ror: 0247acz73
-affiliations:
  - name: Kavli Institute for Cosmology, University of Cambridge, Cambridge CB30HA, UK
    index: 2
    ror: 00pwqz914
-affiliations:
  - name: Center for Computational Quantum Physics, Flatiron Institute, 162 Fifth Avenue, New York, NY 10010, USA
    index: 3
    ror: 00sekdz59
