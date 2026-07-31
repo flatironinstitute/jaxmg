@@ -96,16 +96,16 @@ jobs:
           fi
           echo "Queued: ${QUEUE_URL}"
 
-          # Poll the queue item until it turns into a build (up to ~10 min).
+          # Poll the queue item until it turns into a build
           BUILD_URL=""
-          for _ in $(seq 1 120); do
+          for _ in $(seq 1 360); do
             BUILD_URL=$(curl -fsS $AUTH "${QUEUE_URL%/}/api/json" \
               | python3 -c 'import sys,json;d=json.load(sys.stdin);print((d.get("executable") or {}).get("url",""))' || true)
             [ -n "$BUILD_URL" ] && break
-            sleep 5
+            sleep 15
           done
           if [ -z "$BUILD_URL" ]; then
-            echo "Jenkins build never started (still queued)" >&2
+            echo "Jenkins build never started (still queued after ~90 min)" >&2
             exit 1
           fi
           echo "Building: ${BUILD_URL}"
