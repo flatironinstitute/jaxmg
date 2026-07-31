@@ -1,6 +1,18 @@
-import importlib
+"""Backend initialization and native FFI target registration for JAXMg.
+
+This module locates the packaged native backend for the active CUDA runtime,
+preloads the required NVIDIA wheel libraries, loads the backend with
+``ctypes``, and registers the exported XLA FFI targets with JAX. The native
+backend borrows XLA's communicator during each FFI call.
+
+The cuSOLVERMp backend requires rank-per-GPU execution: each Python process
+must own exactly one local GPU.  Multi-GPU runs should therefore be launched
+with ``jax.distributed.initialize(...)`` and one process per GPU.
+"""
+
 import pathlib
 import ctypes
+import site
 import warnings
 import sys
 import os
@@ -13,6 +25,46 @@ from .utils import JaxMgWarning
 
 _lib_dir = os.path.dirname(__file__)
 _initialized = False
+_xla_comm_backend_library = "libjaxmg_xla_comm_backend.so"
+_preloaded_cuda_libraries = {}
+
+_PRODUCTION_FFI_TARGETS = (
+    (
+        "cusolvermp_potrs",
+        {
+            "prepare": "XlaCusolverMpPotrsPrepareFFI",
+            "execute": "XlaCusolverMpPotrsFFI",
+        },
+    ),
+    (
+        "cusolvermp_potrs_logdet",
+        {
+            "prepare": "XlaCusolverMpPotrsLogdetPrepareFFI",
+            "execute": "XlaCusolverMpPotrsLogdetFFI",
+        },
+    ),
+    (
+        "cusolvermp_lu_solve",
+        {
+            "prepare": "XlaCusolverMpLuSolvePrepareFFI",
+            "execute": "XlaCusolverMpLuSolveFFI",
+        },
+    ),
+    (
+        "cusolvermp_syevd",
+        {
+            "prepare": "XlaCusolverMpSyevdPrepareFFI",
+            "execute": "XlaCusolverMpSyevdFFI",
+        },
+    ),
+    (
+        "cusolvermp_syevd_values",
+        {
+            "prepare": "XlaCusolverMpSyevdPrepareFFI",
+            "execute": "XlaCusolverMpSyevdValuesFFI",
+        },
+    ),
+)
 
 if not sys.platform.startswith("linux"):
     warnings.warn(
@@ -22,29 +74,103 @@ if not sys.platform.startswith("linux"):
     )
 
 
-def _load(module, libraries):
+def _candidate_python_roots():
+    """Yield Python installation roots that may contain NVIDIA wheel payloads."""
+    roots = [pathlib.Path(path) for path in sys.path if path]
     try:
-        m = importlib.import_module(f"nvidia.{module}")
-    except ImportError:
-        m = None
+        roots.extend(pathlib.Path(path) for path in site.getsitepackages())
+    except AttributeError:
+        pass
+    try:
+        roots.append(pathlib.Path(site.getusersitepackages()))
+    except AttributeError:
+        pass
+    seen = set()
+    for root in roots:
+        try:
+            resolved = root.resolve()
+        except OSError:
+            resolved = root
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        yield root
 
-    for lib in libraries:
-        if m is not None:
-            path = pathlib.Path(m.__path__[0]) / "lib" / lib
-            try:
-                ctypes.cdll.LoadLibrary(path)
-                continue
-            except OSError as e:
-                raise OSError(
-                    f"Unable to load CUDA library {lib}, make sure you have a version of JAX that is "
-                    "GPU compatible: jax[cuda12], jax[cuda12-local] (>=0.6.2) or jax[cuda13], jax[cuda13-local] (>=0.7.2)."
-                    "This is guaranteed if you install JAXMg as: jaxmg[cuda12], jaxmg[cuda12-local], jaxmg[cuda13] or jaxmg[cuda13-local]"
-                ) from e
+
+def _find_nvidia_cuda_library(cuda_major, library_name):
+    """Find a CUDA-library wheel payload such as nvidia/cu12/lib/*.so."""
+    relative_path = pathlib.Path("nvidia") / f"cu{cuda_major}" / "lib" / library_name
+    for root in _candidate_python_roots():
+        path = root / relative_path
+        if path.exists():
+            return path
+    return None
+
+
+def _preload_cusolvermp_runtime(cuda_major):
+    """Load libcusolverMp from the nvidia-cusolvermp-cuXX dependency wheel."""
+    library_name = "libcusolverMp.so.0"
+    cache_key = (cuda_major, library_name)
+    if cache_key in _preloaded_cuda_libraries:
+        return
+
+    path = _find_nvidia_cuda_library(cuda_major, library_name)
+    if path is None:
+        raise OSError(
+            f"Unable to find {library_name} from nvidia-cusolvermp-cu{cuda_major}. "
+            f"Install JAXMg with the matching CUDA extra, e.g. jaxmg[cuda{cuda_major}]."
+        )
+    try:
+        _preloaded_cuda_libraries[cache_key] = ctypes.CDLL(
+            str(path), mode=ctypes.RTLD_GLOBAL
+        )
+    except OSError as e:
+        raise OSError(
+            f"Unable to load cuSOLVERMp runtime library at {path}. "
+            "Make sure the matching NVIDIA CUDA runtime dependency wheels are installed."
+        ) from e
+
+
+def _register_cuda_target_bundle(bin_dir, library_name, ffi_name, symbols):
+    """Load one packaged CUDA backend and register its staged FFI target."""
+    path = os.path.join(_lib_dir, f"{bin_dir}/{library_name}")
+    if not os.path.exists(path):
+        raise OSError(
+            f"Required JAXMg CUDA library is missing: {path}. "
+            "Reinstall JAXMg from a wheel containing the matching CUDA backend."
+        )
+    cuda_major = bin_dir.removeprefix("cu")
+    _preload_cusolvermp_runtime(cuda_major)
+    library = ctypes.cdll.LoadLibrary(path)
+    bundle = {
+        stage: jax.ffi.pycapsule(getattr(library, symbol_name))
+        for stage, symbol_name in symbols.items()
+    }
+    jax.ffi.register_ffi_target(ffi_name, bundle, platform="CUDA")
+
+
+def _validate_rank_per_gpu_runtime():
+    """Validate that the current JAX process owns exactly one local GPU.
+
+    cuSOLVERMp represents every participating GPU with one process rank, so a
+    single process controlling multiple local GPUs is unsupported. Multi-node
+    programs must call ``jax.distributed.initialize(...)`` before device
+    discovery.
+    """
+    local_device_count = jax.local_device_count()
+    if local_device_count != 1:
+        raise RuntimeError(
+            "JAXMg's cuSOLVERMp backend supports only rank-per-GPU execution: "
+            "each Python process must see exactly one local GPU. This process "
+            f"sees {local_device_count} local GPUs. Launch one process per GPU "
+            "with jax.distributed.initialize(..., local_device_ids=[...]) or "
+            "restrict CUDA_VISIBLE_DEVICES to a single GPU per process."
+        )
 
 
 def _initialize():
+    """Initialize native CUDA FFI targets for the active JAX runtime."""
     if any("gpu" == d.platform for d in jax.devices()):
-        # Determine CUDA backend
         backend = jax.extend.backend.get_backend()
         m = re.search(r"cuda[^0-9]*([0-9]+(?:\.[0-9]+)*)", backend.platform_version, re.I)
         if m:
@@ -53,81 +179,36 @@ def _initialize():
             raise OSError("Unable to parse CUDA version")
         bin_dir = f"cu{cuda_major}"
 
-        # Load Cusolver
-        _load("cusolver", ["libcusolverMg.so.11"])
-        _load("cu13", ["libcusolverMg.so.12"])
-
         jax.config.update("jax_enable_x64", True)
 
-        if not jax.distributed.is_initialized():
-            n_devices_per_node = jax.local_device_count()
-            mode = "SPMD"
-        else:
-            if "JAXMG_NUMBER_OF_DEVICES" in os.environ:
-                n_devices_per_node = int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
-                n_machines = jax.device_count() // int(os.environ["JAXMG_NUMBER_OF_DEVICES"])
-                warnings.warn(
-                    f"Running in MPMD mode, with JAXMG_NUMBER_OF_DEVICES={n_devices_per_node}."
-                    f"JAXMg is running on {n_machines} machines and {n_devices_per_node} devices per node."
-                    "If this configuation is incorrect, the code will hang or error.",
-                    JaxMgWarning,
-                    stacklevel=4,  # _initialize -> ensure_init_jaxmg_backend -> public fn -> user code
-                )
-            else:
-                n_devices_per_node = jax.device_count()
-                warnings.warn(
-                    f"Running in MPMD mode with {n_devices_per_node} devices. "
-                    "By default, we assume that computation is running in a single node. "
-                    "To run JAXMg in a setting with multiple nodes, manually set JAXMG_NUMBER_OF_DEVICES to the number of devices per node"
-                    " (see https://flatironinstitute.github.io/jaxmg/examples/spmd_mpmd/ for more details)",
-                    JaxMgWarning,
-                    stacklevel=4,  # _initialize -> ensure_init_jaxmg_backend -> public fn -> user code
-                )
-            mode = "MPMD"
-                
-        # set if not set already
-        os.environ.setdefault("JAXMG_NUMBER_OF_DEVICES", str(n_devices_per_node))
+        _validate_rank_per_gpu_runtime()
 
-        if mode == "SPMD":
-            library_cyclic = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libcyclic.so"))
-            library_potrs = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libpotrs.so"))
-            library_potri = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libpotri.so"))
-            library_syevd = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libsyevd.so"))
-            library_syevd_no_V = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libsyevd_no_V.so"))
-
-            jax.ffi.register_ffi_target("cyclic_mg", jax.ffi.pycapsule(library_cyclic.CyclicMgFFI), platform="CUDA")
-            jax.ffi.register_ffi_target("potrs_mg", jax.ffi.pycapsule(library_potrs.PotrsMgFFI), platform="CUDA")
-            jax.ffi.register_ffi_target("potri_mg", jax.ffi.pycapsule(library_potri.PotriMgFFI), platform="CUDA")
-            jax.ffi.register_ffi_target("syevd_mg", jax.ffi.pycapsule(library_syevd.SyevdMgFFI), platform="CUDA")
-            jax.ffi.register_ffi_target(
-                "syevd_no_V_mg", jax.ffi.pycapsule(library_syevd_no_V.SyevdMgFFI), platform="CUDA"
+        for ffi_name, symbols in _PRODUCTION_FFI_TARGETS:
+            _register_cuda_target_bundle(
+                bin_dir,
+                _xla_comm_backend_library,
+                ffi_name,
+                symbols,
             )
-
-        else:
-            library_potrs_mp = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libpotrs_mp.so"))
-            library_potri_mp = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libpotri_mp.so"))
-            library_syevd_mp = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libsyevd_mp.so"))
-            library_syevd_no_V_mp = ctypes.cdll.LoadLibrary(os.path.join(_lib_dir, f"{bin_dir}/libsyevd_no_V_mp.so"))
-
-            jax.ffi.register_ffi_target("potrs_mg", jax.ffi.pycapsule(library_potrs_mp.PotrsMgMpFFI), platform="CUDA")
-            jax.ffi.register_ffi_target("potri_mg", jax.ffi.pycapsule(library_potri_mp.PotriMgMpFFI), platform="CUDA")
-            jax.ffi.register_ffi_target("syevd_mg", jax.ffi.pycapsule(library_syevd_mp.SyevdMgMpFFI), platform="CUDA")
-            jax.ffi.register_ffi_target(
-                "syevd_no_V_mg", jax.ffi.pycapsule(library_syevd_no_V_mp.SyevdNoVMgMpFFI), platform="CUDA"
-            )
-
     else:
         warnings.warn(
             "No GPUs found, only use this mode for testing or generating documentation.",
             JaxMgWarning,
             stacklevel=4,  # _initialize -> ensure_init_jaxmg_backend -> public fn -> user code
         )
-        os.environ["JAXMG_NUMBER_OF_DEVICES"] = str(jax.device_count())
 
 
 def ensure_init_jaxmg_backend():
+    """Lazily initialize the JAXMg native backend and FFI targets.
+
+    One-time initialization:
+
+    1. identifies the CUDA version from the JAX backend;
+    2. verifies that the process owns exactly one local GPU;
+    3. loads the packaged native backend library; and
+    4. registers JAX FFI targets such as ``cusolvermp_potrs``.
+    """
     global _initialized
-    if _initialized:
-        return
-    _initialized = True
-    _initialize()
+    if not _initialized:
+        _initialize()
+        _initialized = True

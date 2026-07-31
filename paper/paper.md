@@ -23,7 +23,7 @@ bibliography: paper.bib
 
 Solving large dense linear systems and eigenvalue problems is a core requirement in many areas of scientific computing, but scaling these operations beyond a single GPU remains challenging within modern programming frameworks. While highly optimized multi-GPU solver libraries exist, they are typically difficult to integrate into composable, just-in-time (JIT) compiled Python workflows.
 
-JAXMg provides multi-GPU dense linear algebra for JAX, enabling Cholesky-based linear solves and symmetric eigendecompositions for matrices that exceed single-GPU memory limits. By interfacing JAX with NVIDIA’s cuSOLVERMg through an XLA Foreign Function Interface, JAXMg exposes distributed GPU solvers as JIT-compatible JAX primitives. This design allows scalable linear algebra to be embedded directly within JAX programs, preserving composability with JAX transformations and enabling multi-GPU execution in end-to-end scientific workflows.
+JAXMg provides distributed dense linear algebra for JAX, enabling linear solves based on Cholesky and lower-upper (LU) factorizations, and symmetric eigendecompositions for matrices that exceed single-GPU memory limits. By interfacing JAX with NVIDIA’s cuSOLVERMp through an XLA Foreign Function Interface, JAXMg exposes distributed GPU solvers as JIT-compatible JAX primitives. This design allows scalable linear algebra to be embedded directly within JAX programs, preserving composability with JAX transformations and enabling multi-GPU and multi-node execution in end-to-end scientific workflows.
 
 # Statement of need
 
@@ -43,7 +43,8 @@ and full physics simulation environments [@brax2021github]. These workflows ofte
 solving linear systems or computing eigenvalue decompositions, either as part of a larger simulation
 loop or inside differentiable optimization.
 
-Despite this growth, the JAX ecosystem lacks distributed dense linear
+Despite this growth, and the availability of packages such as Lineax for composable linear solves
+within JAX [@lineax2023], the ecosystem still lacks distributed dense linear
 solver routines that scale across multiple GPUs while remaining usable
 from idiomatic JAX programs. This gap makes it challenging to take
 existing JAX-based scientific applications to problem sizes that exceed
@@ -53,73 +54,101 @@ model, either by exporting arrays to external MPI-based solvers or by
 manually orchestrating GPU kernels outside JAX's JIT. These approaches
 break composability and complicate memory management.
 
-JAXMg addresses this need by providing a distributed multi-GPU interface to GPU-accelerated solver
+JAXMg addresses this need by providing a distributed multi-GPU and multi-node interface to GPU-accelerated solver
 backends, enabling scalable linear solves and eigendecompositions from within JAX. 
 
 # Software design
 
-JAXMg connects JAX to NVIDIA’s multi-GPU dense linear algebra library cuSOLVERMg [@cusolver] via an
-XLA Foreign Function Interface (FFI) C++ extension. This design enables writing complex,
-JIT-compatible JAX programs while delegating the computationally intensive components to a compiled backend.
+JAXMg connects JAX to NVIDIA’s distributed dense linear algebra library cuSOLVERMp [@cusolver] via an XLA Foreign Function Interface (FFI) C++/CUDA extension. This design enables writing complex, JIT-compatible JAX programs while delegating the computationally intensive components to a compiled backend.
 
+Simply pass JAXMg an ordinary JAX array sharded over a two-dimensional device mesh. The native backend handles the local memory-layout conversion, 2D block-cyclic redistribution, distributed solver execution, and restoration of the result to its original JAX layout.
 
-The current release provides a JIT-able interface to the main cuSOLVERMg routines `potrs`, `potri`, and
-`syevd`:
+The current release provides a JIT-compatible interface to three workflows:
 
-- `cusolverMgPotrs`: Solves $Ax=b$ for symmetric (Hermitian) positive-definite $A$ using a Cholesky factorization. 
-- `cusolverMgPotri`: Computes the inverse of a symmetric (Hermitian) positive-definite matrix from its Cholesky factorization.
-- `cusolverMgSyevd`: Computes eigenvalues and eigenvectors of a symmetric (Hermitian) matrix.
+- `potrs`: Solves $Ax=b$ for symmetric (Hermitian) positive-definite $A$ using a Cholesky
+  factorization (`cusolverMpPotrf` and `cusolverMpPotrs`). The same factorization can optionally
+  return $\log\det(A)$.
+- `lu_solve`: Solves $Ax=b$ for general nonsingular $A$ using a pivoted LU factorization
+  (`cusolverMpGetrf` and `cusolverMpGetrs`).
+- `syevd`: Computes the eigenvalues and eigenvectors of a symmetric (Hermitian) matrix
+  (`cusolverMpSyevd`).
 
-All routines support JAX dtypes `float32`, `float64`, `complex64`, and `complex128`. JAXMg supports
-CUDA 12 and CUDA 13 compatible devices.
+All three routines support the JAX dtypes float32, float64, complex64, and complex128, with CUDA 12 and CUDA 13 backends available for both x86_64 and aarch64 systems.
 
-For example, the `potrs` routine can be called like this over a 1D mesh 
+For example, the `potrs` routine can be called over a two-dimensional mesh:
+
 ```python
-mesh = jax.make_mesh((jax.device_count(),), ("x",))`:
+mesh = jax.make_mesh((jax.process_count(), 1), ("pr", "pc"))
+matrix_specs = P("pr", "pc")
 ```
-like this:
+
+Here, `A` is an $N\times N$ positive-definite matrix sharded over the process rows and columns.
+The solve input `b` has shape $N \times N_{\mathrm{RHS}}$ and is sharded over the process rows:
+
 ```python
-out = potrs(A, b, T_A=T_A, mesh=mesh, in_specs=(P("x", None), P(None, None)))
+A = jax.device_put(A, NamedSharding(mesh, P("pr", "pc")))
+b = jax.device_put(b, NamedSharding(mesh, P("pr", None)))
 ```
-Here, `A` is an $N\times N$ positive-definite matrix that is sharded row-wise over the available
-devices: `jax.device_put(A, NamedSharding(mesh, P("x", None)))`. The right-hand side `b` has shape
-$N \times N_{\mathrm{RHS}}$ and is replicated across devices:
-`jax.device_put(b, NamedSharding(mesh, P(None, None)))`. The tile size $T_A$ is user-configurable and
-controls the trade-off between memory usage and performance; larger tiles typically improve
-throughput (see Benchmark).
 
-## 1D Cyclic Data Distribution
+The sharded arrays can then be passed directly to `potrs`:
 
-Parallelized linear algebra algorithms require a distributed data layout to ensure proper load
-balancing of the available computational power [@dongarra1994]. JAXMg constructs the required 1D
-block-cyclic layout in the C++ backend.
+```python
+out = potrs(A, b, T_A=T_A, mesh=mesh, matrix_specs=P("pr", "pc"))
+```
 
-In this 1D scheme, columns are assigned to GPUs in fixed-size tiles of $T_A$ columns, distributed in round-robin order across the available devices. Given a global matrix dimension $N$, we first construct an explicit mapping from each global source column index to its destination column index in the target 1D block-cyclic layout.
+The tile size $T_A$ is user-configurable and controls the trade-off between memory usage and
+performance; larger tiles typically improve throughput once the problem is sufficiently large
+(see Figure \ref{fig:benchmark}).
+
+## Memory-efficient data redistribution
+
+Parallelized linear algebra algorithms require a distributed data layout to ensure proper load balancing of the available computational power [@dongarra1994]. For JAXMg, the central challenge is constructing this layout without reducing the matrix sizes that can be held in aggregate GPU memory. JAXMg therefore transforms the donated matrix buffers in place and reuses a single bounded scratch allocation across all stages. Minimizing memory overhead alone, however, is not sufficient: the redistribution must also use the available interconnect bandwidth efficiently. Although arbitrary permutations can be decomposed into fine-grained cycles, repeated small transfers introduce synchronization and transfer overheads, leading to poor utilization of the bandwidth available from modern GPU interconnects [@li2020interconnect]. JAXMg addresses both requirements through a three-stage redistribution. Each stage moves the largest contiguous regions that fit within a shared scratch allocation and performs independent transfers concurrently wherever dependencies allow. The size of this allocation is determined by the tile slabs used in the final 2D block-cyclic stage, described in Section \ref{sec:block-cyclic}, and is reused throughout. The following sections describe the three forward redistribution stages used to prepare the matrix for distributed solver execution; after the solver completes, these stages are reversed to restore the original JAX layout.
+
+### Local memory-layout conversion
+
+The first stage reconciles the physical memory layouts used by JAX and cuSOLVERMp. JAX stores each local matrix shard in row-major order, whereas cuSOLVERMp requires column-major local buffers. While XLA can materialize a column-major FFI input, doing so requires a second full-sized local matrix allocation, defeating the low-memory design. JAXMg instead applies a parallel implementation of the rectangular permutation decomposition introduced by @catanzaro2014transpose directly to each donated buffer. The method expresses the layout change as modular column and row permutations, processed in batches bounded by the shared scratch allocation. The logical matrix remains unchanged and, because the conversion is entirely local, this stage runs concurrently on every GPU without inter-device communication.
+
+
+### Edge-padding alignment
+
+Due to the 2D block-cyclic layout required by the cuSOLVERMp backend, JAXMg pads a local JAX shard before it enters the native backend if either dimension is not divisible by the corresponding tile dimension. This provides enough local capacity for the solver layout, but leaves padding between neighbouring shards in the global process grid. As a result, the destination of a solver tile may still contain part of another tile, so the redistribution in Section \ref{sec:block-cyclic} cannot yet move complete tile slabs directly. JAXMg therefore compacts the real matrix towards the global top-left, leaving the padding on the global right and bottom edges.
+
+The compaction proceeds in two passes. Column slabs are first shifted left within each process row, after which row slabs are shifted upwards within each process column. Since the padding provides empty destinations, these movements form open chains and do not require an additional temporary buffer for preserving overwritten data. Dependencies between movements prevent an entire pass from being executed at once, so each pass is divided into ordered waves. Within each wave, the largest slabs that fit in the shared scratch allocation are moved concurrently across independent process rows or columns.
+
 
 ![Arrays are row-wise sharded and put into the round-robin 1D cyclic form illustrated here.\label{fig:jaxmg_cyclic}](jaxmg_cyclic.png){ width=100% }
 
-To apply this redistribution efficiently in-place, we decompose the column-index mapping into disjoint permutation cycles. Each cycle specifies a sequence of columns that must be rotated to reach the target layout, and we execute these rotations using peer-to-peer GPU copies (via `cudaMemcpyPeerAsync`) together with two small staging buffers to avoid overwriting data before it is forwarded. This yields a deterministic procedure for converting between contiguous per-device column storage and the 1D block-cyclic distribution required by cuSOLVERMg. See \autoref{fig:jaxmg_cyclic} for a schematic depiction.
+Unlike the in-place redistribution handled by the native backend, this initial capacity padding must be performed by JAX because an existing donated allocation cannot be expanded once assigned. Materializing the padded array thus temporarily requires both the original and padded buffers, reducing the matrix size that fits in available GPU memory. Padding should therefore be avoided where possible by choosing a tile size that divides both dimensions of every local matrix shard.
 
-## Memory management
+### 2D block-cyclic redistribution {#sec:block-cyclic}
 
-For parallel execution, JAXMg supports Single Program Multiple Devices (SPMD) and Multi Program
-Multiple Devices (MPMD) modes. In both cases, we use the `jax.shard_map` primitive to expose each
-device’s local shard and pass the corresponding GPU pointers into the backend.
+Finally, JAXMg constructs the 2D block-cyclic layout required by cuSOLVERMp. For a process grid with $P_r$ rows and $P_c$ columns, tiles are distributed in round-robin order over both axes, such that the tile at global tile coordinate $(i,j)$ is assigned to
 
-At execution time, `shard_map` launches one thread (SPMD) or one process (MPMD) per GPU. However, the
-cuSOLVERMg API must be called from a single thread/process that can access all GPU pointers. 
-The main technical challenge is reconciling JAX’s execution model with cuSOLVERMg’s single-caller requirement.”
+$$
+\operatorname{owner}(i,j)
+=
+\left(i \bmod P_r,\;j \bmod P_c\right).
+$$
 
-In the SPMD case, all threads share a single virtual address space, so sharing pointers is
-straightforward: we create a POSIX shared-memory region that stores the per-device pointers
-and each thread assigns its respective shard to the shared array.
+JAXMg constructs an explicit mapping from every source tile to its destination and applies it in two separable phases. First, the column-owner mapping is decomposed into disjoint permutation cycles that rotate complete tile-column slabs within each process row. The corresponding cycles run concurrently across all process rows until every tile has the correct process-column owner. The same procedure is then applied at the row level within each process column and parallelized across the process columns.
 
-In the MPMD case, each process has its own virtual address space, and directly sharing device
-pointers across processes is undefined. CUDA therefore provides low-level inter-process
-communication via the `cudaIpc` API, which allows GPU allocations to be shared between processes. We
-illustrate the SPMD and MPMD approaches schematically in \autoref{fig:jaxmg_shm}.
+![Arrays are row-wise sharded and put into the round-robin 1D cyclic form illustrated here.\label{fig:jaxmg_cyclic}](jaxmg_cyclic.png){ width=100% }
 
-![(Left) In SPMD mode, each GPU is controlled by a separate thread. Since these threads share the same virtual memory space, we can share device pointers between them. (Right) In MPMD mode, we use the `cudaIpc` API to transport the device pointers to a single array in process 0.\label{fig:jaxmg_shm}](jaxmg_shm.png){ width=100% }
+
+During each cycle, a slab is packed into the send scratch slot, transferred into the receive scratch slot, and unpacked into its destination, while a third saved slot preserves data that would otherwise be overwritten before it is forwarded. Let $N_r$ and $N_c$ denote the local row and column capacities, and let $T_r$ and $T_c$ denote the tile dimensions. Since a tile-column slab contains at most $T_cN_r$ elements and a tile-row slab contains at most $T_rN_c$ elements, the bounded scratch allocation is
+
+$$
+S_{\mathrm{scratch}}
+=
+3\max\left(T_cN_r,\;T_rN_c\right)
+$$
+
+elements, where the factor of three accounts for the send, receive, and saved slots.
+
+### Redistribution orchestration
+
+A central design choice in JAXMg is to build the native backend against the matching XLA source through Bazel. This gives the FFI handler access to the underlying NCCL communicator handle (`ncclComm_t`) owned by XLA. JAXMg borrows this communicator for both intra-node and inter-node redistribution before passing the same handle to cuSOLVERMp for the distributed solver operation. Movements confined to one rank use local CUDA operations on the XLA-provided stream. The complete forward redistribution, solver operation, and reverse redistribution can therefore share one communication context within a single fused C++/CUDA FFI call.
+
 
 # Research Impact Statement
 
@@ -144,9 +173,12 @@ GitHub Copilot was used during software development for code exploration and deb
 
 # Acknowledgements
 
-I want to thank Dennis Bollweg, Alex Chavin, Geraud Krawezik, Dylan Simon and Nils Wentzell for their help with developing the code. I also want to acknowledge the help of Ao Chen and Riccardo Rende with testing the code in applied settings.  
-I am grateful to Simon Tartakovsky for his suggestions on the 1D cyclic algorithm. Finally, I want to thank
- Filippo Vincentini for his suggestions on code distribution. I acknowledge support from the Flatiron Institute. The Flatiron Institute is a division of the Simons Foundation. 
+I want to thank Dennis Bollweg, Alex Chavin, Geraud Krawezik, Dylan Simon and Nils Wentzell for their help with developing the code. I also want to acknowledge the help of Ao Chen and Riccardo Rende with testing the code in applied settings. 
+ 
+I am grateful to Simon Tartakovsky for his suggestions on the 1D cyclic algorithm. Finally, I want to thank Filippo Vincentini for his suggestions on code distribution. I acknowledge support from the Flatiron Institute. The Flatiron Institute is a division of the Simons Foundation. 
+
+The authors acknowledge the use of resources provided by the Isambard-AI National AI Research Resource (AIRR). Isambard-AI [@Isamabrd_2024] is operated by the University of Bristol and is funded by the UK Government’s Department for Science, Innovation and Technology (DSIT) via UK Research and Innovation; and the Science and Technology Facilities Council [ST/AIRR/I-A-I/1023].
+
 
 
 # References

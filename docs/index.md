@@ -2,13 +2,51 @@
 
 <figure markdown>
   ![Title](_static/jaxmg_gpu_light.png#only-light){ width="600" }
-  ![Title](_static/jaxmg_gpu_dark.png#only-dark){ width="600" } 
+  ![Title](_static/jaxmg_gpu_dark.png#only-dark){ width="600" }
 </figure>
 
-JAXMg provides a C++ interface between [JAX](https://github.com/google/jax) and [cuSolverMg](https://docs.nvidia.com/cuda/cusolver/index.html#using-the-cuSolverMg-api), NVIDIA’s multi-GPU linear solver.  We provide a jittable API for the following routines.
+JAXMg brings distributed matrix solvers to JAX, allowing calculations to run
+across multiple GPUs and nodes. This enables solvers to scale to matrices near
+the combined memory capacity of the available GPUs, far beyond native JAX
+routines, while retaining a familiar JAX interface.
 
-- [cusolverMgPotrs](https://docs.nvidia.com/cuda/cusolver/index.html#cusolvermgpotrs-deprecated): Solves the system of linear equations: $Ax=b$ where $A$ is an $N\times N$ symmetric (Hermitian) positive-definite matrix via a Cholesky decomposition 
-- [cusolverMgPotrs](https://docs.nvidia.com/cuda/cusolver/index.html#cusolvermgpotri-deprecated): Computes the inverse of an $N\times N$ symmetric (Hermitian) positive-definite matrix via a Cholesky decomposition.
-- [cusolverMgPotrs](https://docs.nvidia.com/cuda/cusolver/index.html#cusolvermgsyevd-deprecated): Computes eigenvalues and eigenvectors of an $N\times N$ symmetric (Hermitian) matrix.
+JAXMg currently provides a jittable API for the following routines:
 
-For more details, see the [API](api/potrs.md) and the accompanying [paper](https://arxiv.org/abs/2601.14466).
+- [`potrs`](api/potrs.md): Solves the system of linear equations $Ax=B$, where
+  $A$ is an $N \times N$ symmetric or Hermitian positive-definite matrix, using
+  a Cholesky decomposition. It can also return the log determinant of $A$.
+- [`lu_solve`](api/lu_solve.md): Solves the system of linear equations $Ax=B$,
+  where $A$ is an $N \times N$ general nonsingular matrix, using a pivoted LU
+  decomposition.
+- [`syevd`](api/syevd.md): Computes the eigenvalues and optional eigenvectors of
+  an $N \times N$ symmetric or Hermitian matrix.
+
+## How JAXMg works
+
+JAXMg connects JAX to NVIDIA's distributed
+[cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/) routines through a native
+C++/CUDA backend.
+
+Supply a JAX matrix sharded over a two-dimensional device mesh, and JAXMg
+handles the local memory-layout conversion, redistribution into cuSOLVERMp's 2D
+block-cyclic layout, distributed numerical computation, and restoration of the
+result to its original JAX layout. The matrix data remains GPU-resident
+throughout, with in-place transformations and bounded scratch storage minimizing
+memory overhead.
+
+The operations are implemented using:
+
+- `potrs`: [`cusolverMpPotrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf)
+  and [`cusolverMpPotrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrs)
+- `lu_solve`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
+  and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)
+- `syevd`: [`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)
+
+For more details, see the [API reference](api/index.md) and the accompanying
+[paper](https://arxiv.org/abs/2601.14466).
+
+> **Deprecation notice:** JAXMg 0.x, based on NVIDIA's deprecated cuSOLVERMg
+> backend, has been superseded by JAXMg 1.0. Version 1.0 requires one Python
+> process per GPU and removes `potri`; the previous API remains available with
+> `pip install "jaxmg<1"` and in the
+> [0.0.9 release](https://github.com/flatironinstitute/jaxmg/releases/tag/v0.0.9).

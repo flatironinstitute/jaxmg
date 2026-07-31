@@ -28,7 +28,7 @@ theme:
     favicon: "_static/square.png"
 
 site_name: JAXMg
-site_description: The documentation for the jaxmg software library.
+site_description: Distributed cuSOLVERMp linear algebra for JAX.
 site_author: Roeland Wiersema
 site_url: https://flatironinstitute.github.io/jaxmg
 
@@ -46,13 +46,27 @@ extra_javascript:
 extra_css:
     - _static/custom.css
 
+extra:
+    # Enables the version selector in the header. mkdocs-material only wires up
+    # the selector when provider is literally "mike"; versions.json alone is not
+    # enough. `default` is the alias the root URL redirects to and the one the
+    # "outdated version" check compares against; `alias` shows the alias name
+    # next to the version in the button (e.g. "1.0.0 · latest").
+    version:
+        provider: mike
+        default: latest
+        alias: true
+
 markdown_extensions:
     - pymdownx.arithmatex: # Render LaTeX via MathJax
           generic: true
     - pymdownx.superfences # Seems to enable syntax highlighting when used with the Material theme.
     - pymdownx.details # Allowing hidden expandable regions denoted by ???
     - pymdownx.snippets: # Include one Markdown file into another
-          base_path: docs
+          base_path:
+              - docs
+              - .
+          check_paths: true
     - admonition
     - md_in_html
     - attr_list
@@ -63,9 +77,16 @@ markdown_extensions:
 plugins:
     - search:
         separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
-        # exclude:
-            # - "examples/.ipynb_checkpoints/"
-    - ipynb
+    # Listed only to configure it -- mike injects itself into a temporary copy of
+    # this config when it isn't listed. alias_type: copy rather than the default
+    # symlink, because GitHub Pages does not reliably serve symlinked
+    # directories and /latest/ is the primary entry point. canonical_version
+    # points every version's <link rel=canonical> at /latest/ so search engines
+    # don't split ranking across versions.
+    - mike:
+          alias_type: copy
+          canonical_version: latest
+          version_selector: true
     - hippogriffe:
           extra_public_objects:
               - jax.Array
@@ -95,15 +116,19 @@ nav:
         - "index.md"
         - "install.md"
     - Examples:
-        - "examples/potrs_example.ipynb"
-        - "examples/block_cyclic_data_layout.ipynb"
-        - "examples/spmd_mpmd.ipynb"
+        - "examples/index.md"
+        - "examples/execution.md"
+        - "examples/choose_tile_size.md"
+        - "examples/potrs.md"
+        - "examples/lu_solve.md"
+        - "examples/syevd.md"
     - API:
         - "api/index.md"
         - "api/potrs.md"
-        - "api/potri.md"
+        - "api/lu_solve.md"
         - "api/syevd.md"
     - Technical Details:
-        - "technical_details/col_maj.md"
-        - "technical_details/spmd.md"
-        - "technical_details/mpmd.md"
+        - Native workflow: "technical_details/index.md"
+        - Memory distribution: "technical_details/memory_distribution.md"
+        - Building from source: "technical_details/building_from_source.md"
+        - Contributing: "technical_details/contributing.md"

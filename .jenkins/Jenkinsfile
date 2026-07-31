@@ -1,235 +1,140 @@
-def props = [
+// GPU test job. Jenkins no longer builds anything: the x86_64 wheels are built
+// on GitHub Actions and this job downloads them (by GHA run id) and runs the
+// A100 test suite. It is triggered by the GHA `jenkins-test` reusable workflow
+// via buildWithParameters. See .github/workflows/{ci,release,jenkins-test}.yml.
+properties([
+  parameters([
+    string(name: 'GHA_RUN_ID', defaultValue: '',
+           description: 'GitHub Actions run id whose wheel artifacts to test'),
+    string(name: 'GIT_SHA', defaultValue: '',
+           description: 'Commit SHA under test (matches the built wheels)'),
+    password(name: 'GH_TOKEN', defaultValue: '',
+             description: 'Short-lived GitHub token (actions:read) to download the wheel artifacts'),
+  ]),
   disableConcurrentBuilds(),
   buildDiscarder(logRotator(numToKeepStr: '8', daysToKeepStr: '30')),
-]
+])
 
-if (env.BRANCH_NAME == "main")
-  props <<= pipelineTriggers([cron('@monthly')])
+GITHUB_REPO = 'flatironinstitute/jaxmg'
 
-properties(props)
+// This job only makes sense when triggered by GitHub Actions (which passes the
+// wheels' GHA_RUN_ID). Every push also makes the multibranch project index the
+// branch and start a parameterless build; that build has nothing to test and
+// must report green. NOT_BUILT/ABORTED are published to GitHub as commit state
+// "error" by the GitHub Branch Source plugin -- only SUCCESS shows a green
+// check -- so mark the no-op build SUCCESS and label it in the UI.
+if (!params.GHA_RUN_ID?.trim()) {
+  echo 'No GHA_RUN_ID parameter: not triggered by GitHub Actions. ' +
+       'The GPU test runs when the GHA build finishes and triggers this job with wheels.'
+  currentBuild.result = 'SUCCESS'
+  currentBuild.displayName = "#${currentBuild.number} (no-op)"
+  currentBuild.description = 'No wheels to test - waiting for the GitHub Actions build to trigger the real run'
+  return
+}
 
-timeout(time: 2, unit: 'HOURS') {
-  buildImages([
-    [tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12'],
-    [tag: '13', context: '.jenkins', dockerfile: 'Dockerfile13']
-  ], checkout: true)
+currentBuild.description = "GHA run ${params.GHA_RUN_ID}" +
+  (params.GIT_SHA?.trim() ? " @ ${params.GIT_SHA.take(8)}" : '')
 
-  parallel cuda12: {
-    runPod(tag: '12') {
-          stage('Compile CUDA 12') {
-                    withEnv([
-                        "CUDA_ROOT=/usr/local/cuda",
-                        "CUDNN_ROOT=/usr",
-                        "JAX_VERSION=0.6.2",
-                        "XLA_PYTHON_CLIENT_ALLOCATOR=platform"
-                      ]) {
-                            sh '''#!/bin/bash -ex
-                            export PATH="/usr/local/cuda/bin:$PATH"
-                            export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
-
-                            mkdir -p build && cd build
-                            cmake -DCMAKE_BUILD_TYPE=Release ..
-                            cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
-                            echo "Built libs at $WORKSPACE/src/jaxmg/cu12:"
-                            ls -la "$WORKSPACE/src/jaxmg/cu12"
-                            '''
-                        stash name: 'bin12', includes: 'src/jaxmg/cu12/**', useDefaultExcludes: false
-                    }
-          }
+// Test in a manylinux + local CUDA toolkit image, across Python versions, on 2 A100s.
+buildPod(tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12', devShm: true, gpus: 2, gpuType: 'a100') {
+  stage('Test CUDA 12') {
+    checkout scm
+    // Test the exact commit that produced the wheels.
+    if (params.GIT_SHA?.trim()) {
+      sh "git fetch --all --quiet && git checkout --quiet ${params.GIT_SHA}"
     }
 
-    runPod(tag: '12',
-      devShm: true,
-      gpus: 2,
-      gpuType: 'a100') {
-        stage('Test CUDA 12') {
-                    withEnv([
-                        "CUDA_ROOT=/usr/local/cuda",
-                        "CUDNN_ROOT=/usr",
-                        "JAX_VERSION=0.6.2",
-                        "CUDA_VISIBLE_DEVICES=0,1"
-                      ]) {
-                            sh '''#!/bin/bash -ex
-                            export PATH="/usr/local/cuda/bin:$PATH"
-                            export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
-                            '''
+    withEnv([
+      "CUDA_ROOT=/usr/local/cuda",
+      "CUDNN_ROOT=/usr",
+      "CUDA_VISIBLE_DEVICES=0,1",
+      "JAXMG_GPU_TEST_LAUNCHER=subprocess",
+      // Disable NCCL's cuMem allocator (fails at ncclGroupEnd in the pod) and
+      // keep JAX on the conservative platform allocator.
+      "NCCL_CUMEM_ENABLE=0",
+      "XLA_PYTHON_CLIENT_ALLOCATOR=platform",
+      "GHA_RUN_ID=${params.GHA_RUN_ID}",
+      "GITHUB_REPO=${GITHUB_REPO}",
+    ]) {
+      // Download the x86_64 wheels produced by the triggering GHA run, using the
+      // short-lived GH_TOKEN passed by GitHub Actions (no stored credential).
+      stage('Fetch GHA wheels') {
+        // Pass the token via env; do NOT interpolate it into the shell in a way
+        // that could be traced. The script runs without `set -x` for that reason.
+        withEnv(["GH_TOKEN=${params.GH_TOKEN}"]) {
+          sh '''#!/bin/bash
+            set -eo pipefail
+            set +x   # never trace: GH_TOKEN must not reach the log
+            if [ -z "$GHA_RUN_ID" ]; then
+              echo "GHA_RUN_ID parameter is required" >&2; exit 1
+            fi
+            if [ -z "$GH_TOKEN" ]; then
+              echo "GH_TOKEN parameter is required" >&2; exit 1
+            fi
+            rm -rf dist && mkdir -p dist
+            api="https://api.github.com/repos/${GITHUB_REPO}/actions/runs/${GHA_RUN_ID}/artifacts?per_page=100"
+            curl -fsS -H "Authorization: Bearer ${GH_TOKEN}" \
+                 -H "Accept: application/vnd.github+json" "$api" -o artifacts.json
 
-                            def cudaVersions = ['cuda12-local', ]
-                            def pyVersions = ['3.11', '3.12', '3.13', '3.14', ]
-                            def jaxVersions = ['0.6.2', '0.7.1', '0.8.1', '0.9.1']
-                            for (c in cudaVersions) {
-                                for (p in pyVersions) {
-                                    for (j in jaxVersions) {
-                                        if (p == '3.14' && j == '0.6.2') {
-                                            echo "Skipping ${c}-${p}-${j}: python 3.14 with JAX 0.6.2 unsupported"
-                                            continue
-                                        }
-                                        if (p == '3.11') {
-                                            pytest_cmd = "python -m pytest -svv tests"
-                                        } else {
-                                            pytest_cmd = "python -m pytest -svv -m 'not mpmd' tests"
-                                        }
-                                        stage("Build ${c}-${p}-${j}") {
-                                            unstash 'bin12'
-                                            withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
-                                                sh '''#!/bin/bash -ex
-                                                    mkdir -p "$WORKDIR"
-
-                                                    python"$PYV" -m venv "$WORKDIR/venv"
-                                                    source "$WORKDIR/venv/bin/activate"
-
-                                                    python -m pip install --upgrade pip build auditwheel
-                                                    python -m pip install "jax[$CUV]==$JAXV"
-
-                                                    # Build wheel from project root, output to the cell-specific dist
-                                                    python -m build --wheel --outdir "$WORKDIR/dist"
-                                                    # Use auditwheel to create manylinux dist, excluding CUDA libs
-                                                    auditwheel repair \
-                                                            --plat manylinux_2_26_x86_64 \
-                                                            --exclude 'libcuda.so*' \
-                                                            --exclude 'libcusolver.so*' \
-                                                            --exclude 'libcusolverMg.so*' \
-                                                            --exclude 'libcupti.so*' \
-                                                            --exclude 'libcusparse.so*' \
-                                                            --exclude 'libcublasLt.so*' \
-                                                            --exclude 'libcublas.so*' \
-                                                            --exclude 'libnvJitLink.so*' \
-                                                            "$WORKDIR"/dist/jaxmg-*.whl -w "$WORKDIR/dist_repaired"
-
-                                                    # Do not quote the wildcard; allow shell globbing
-                                                    python -m pip install --no-deps "$WORKDIR"/dist_repaired/jaxmg-*.whl
-                                                    source .jenkins/scripts/gpu_utils.sh
-                                                    killgpu
-                                                    python -c "import sys, jax; print(f'Python {sys.version_info[:2]}, JAX {jax.__version__}'); print(jax.devices()); import jaxmg"
-                                                '''
-                                                archiveArtifacts artifacts: "${WORKDIR}/dist_repaired/*.whl", onlyIfSuccessful: true
-                                            }
-                                        }
-                                        stage("Test ${c}-${p}-${j}") {
-                                            withEnv(["WORKDIR=${c}/${p}/${j}"]) {
-                                                sh """#!/bin/bash -ex
-                                                    source .jenkins/scripts/gpu_utils.sh
-                                                    killgpu
-                                                    source "$WORKDIR/venv/bin/activate"
-                                                    python -m pip install pytest matplotlib
-                                                    ${pytest_cmd}
-                                                """
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                    }
+            # Download + unzip every wheels-x86_64-* artifact into dist/.
+            python3 - <<'PY' > urls.txt
+import json
+d = json.load(open("artifacts.json"))
+for a in d["artifacts"]:
+    if a["name"].startswith("wheels-x86_64-"):
+        print(a["id"], a["name"])
+PY
+            [ -s urls.txt ] || { echo "no wheels-x86_64-* artifacts in run $GHA_RUN_ID" >&2; exit 1; }
+            while read -r id name; do
+              curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+                   "https://api.github.com/repos/${GITHUB_REPO}/actions/artifacts/${id}/zip" \
+                   -o "dist/${name}.zip"
+              (cd dist && unzip -o "${name}.zip" && rm -f "${name}.zip")
+            done < urls.txt
+            echo "Fetched wheels:"; ls -la dist/*.whl
+          '''
         }
-    }
-  }, cuda13: {
-    runPod(tag: '13') {
-          stage('Compile CUDA 13') {
-                    withEnv([
-                        "CUDA_ROOT=/usr/local/cuda",
-                        "CUDNN_ROOT=/usr",
-                        "JAX_VERSION=0.7.2"
-                      ]) {
-                            sh '''#!/bin/bash -ex
-                            export PATH="/usr/local/cuda/bin:$PATH"
-                            export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
-
-                            mkdir -p build && cd build
-                            cmake -DCMAKE_BUILD_TYPE=Release ..
-                            cmake --build . --target install -- -j${PARALLEL:-$(nproc)}
-                            echo "Built libs at $WORKSPACE/src/jaxmg/cu13:"
-                            ls -la "$WORKSPACE/src/jaxmg/cu13"
-                            '''
-                        stash name: 'bin13', includes: 'src/jaxmg/cu13/**', useDefaultExcludes: false
-                    }
-        }
-    }
-
-    runPod(tag: '13',
-      devShm: true,
-      gpus: 2,
-      gpuType: 'a100') {
-          stage('Test CUDA 13') {
-                    withEnv([
-                        "CUDA_ROOT=/usr/local/cuda",
-                        "CUDNN_ROOT=/usr",
-                        "JAX_VERSION=0.6.2",
-                        "CUDA_VISIBLE_DEVICES=0,1"
-                      ]) {
-                            sh '''#!/bin/bash -ex
-                            export PATH="/usr/local/cuda/bin:$PATH"
-                            export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
-                            '''
-
-                            def cudaVersions = ['cuda13-local', ]
-                            def pyVersions = ['3.11', '3.12', '3.13', '3.14', ]
-                            def jaxVersions = ['0.7.2', '0.8.1']
-                            for (c in cudaVersions) {
-                                for (p in pyVersions) {
-                                    for (j in jaxVersions) {
-                                        stage("Build ${c}-${p}-${j}") {
-                                            unstash 'bin13'
-                                            withEnv(["WORKDIR=${c}/${p}/${j}", "CUV=${c}", "PYV=${p}", "JAXV=${j}"]) {
-                                                sh '''#!/bin/bash -ex
-                                                    mkdir -p "$WORKDIR"
-
-                                                    python"$PYV" -m venv "$WORKDIR/venv"
-                                                    source "$WORKDIR/venv/bin/activate"
-
-                                                    python -m pip install --upgrade pip build auditwheel
-                                                    python -m pip install "jax[$CUV]==$JAXV"
-
-                                                    # Build wheel from project root, output to the cell-specific dist
-                                                    python -m build --wheel --outdir "$WORKDIR/dist"
-                                                    # Use auditwheel to create manylinux dist, excluding CUDA libs
-                                                    auditwheel repair \
-                                                            --plat manylinux_2_26_x86_64 \
-                                                            --exclude 'libcuda.so*' \
-                                                            --exclude 'libcusolver.so*' \
-                                                            --exclude 'libcusolverMg.so*' \
-                                                            --exclude 'libcupti.so*' \
-                                                            --exclude 'libcusparse.so*' \
-                                                            --exclude 'libcublasLt.so*' \
-                                                            --exclude 'libcublas.so*' \
-                                                            --exclude 'libnvJitLink.so*' \
-                                                            "$WORKDIR"/dist/jaxmg-*.whl -w "$WORKDIR/dist_repaired"
-
-                                                    # Do not quote the wildcard; allow shell globbing
-                                                    python -m pip install --no-deps "$WORKDIR"/dist_repaired/jaxmg-*.whl
-                                                    echo "Cannot CUDA 13 test package on V100s"
-                                                '''
-                                                archiveArtifacts artifacts: "${WORKDIR}/dist_repaired/*.whl", onlyIfSuccessful: true
-                                            }
-                                        }
-                                    // stage("Test ${c}-${p}-${j}") {
-                                    //     withEnv(["WORKDIR=${c}/${p}/${j}"]) {
-                                    //         sh '''#!/bin/bash -ex
-                                    //             nukegpu() {
-                                    //                 local pids
-                                    //                 pids=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | sed '/^$/d' | sort -u)
-                                    //                 if [ -z "$pids" ]; then
-                                    //                     echo "nukegpu_all: no GPU PIDs."
-                                    //                     return 0
-                                    //                 fi
-                                    //                 echo "nukegpu_all: killing ALL GPU PIDs -> $pids"
-                                    //                 for pid in $pids; do
-                                    //                     kill -9 "$pid" 2>/dev/null || sudo kill -9 "$pid" 2>/dev/null || echo "could not kill $pid"
-                                    //                 done
-                                    //             }
-                                    //             # Ensure GPUs are free before running tests
-                                    //             nukegpu || true
-                                    //             source "$WORKDIR/venv/bin/activate"
-                                    //             python -m pip install pytest matplotlib
-                                    //             python -m pytest -svv tests
-                                    //         '''
-                                    //     }
-                                    // } python -m pytest -svv tests
-
-                                    }
-                                }
-                            }
-                    }
-          }
       }
+
+      def pyVersions = ['3.11', '3.12', '3.13', '3.14']
+      for (p in pyVersions) {
+        stage("Test py${p}") {
+          withEnv(["PYV=${p}"]) {
+            sh '''#!/bin/bash -ex
+              export PATH="/usr/local/cuda/bin:$PATH"
+              PYTAG="cp${PYV/./}"
+
+              whl=$(ls dist/jaxmg-*-${PYTAG}-${PYTAG}-*.whl | head -1)
+              [ -n "$whl" ] || { echo "no x86_64 wheel for ${PYTAG}" >&2; exit 1; }
+
+              python"$PYV" -m venv "venv/$PYV"
+              source "venv/$PYV/bin/activate"
+              python -m pip install --upgrade pip
+
+              # Exercise the same CUDA dependency path used by wheel consumers.
+              python -m pip install "${whl}[cuda12]"
+              python -m pip install pytest matplotlib
+
+              python - <<'PY'
+import sys
+
+import jax
+import jaxmg
+
+devices = jax.devices("gpu")
+if len(devices) != 2:
+    raise RuntimeError(f"Expected 2 GPUs, found {devices}")
+print(f"Python {sys.version_info[:2]}, JAX {jax.__version__}")
+print(devices)
+PY
+
+              python -m pytest -svv -m 'not gpu' tests
+              JAXMG_GPU_TEST_LAUNCHER=subprocess \
+                python -m pytest -svv -m 'gpu and not slow' tests/gpu
+            '''
+          }
+        }
+      }
+    }
   }
 }

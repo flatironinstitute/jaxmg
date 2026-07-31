@@ -1,0 +1,110 @@
+# Copied by build_native_backend.sh into the JAX repo checkout, where XLA is
+# the external Bazel repo `@xla`. The internal XLA targets below resolve against
+# the XLA revision pinned by the JAX version installed in the build container,
+# so keep them in sync with that JAX/XLA pin.
+
+load("@local_config_cuda//cuda:build_defs.bzl", "cuda_library")
+
+package(default_visibility = ["//visibility:public"])
+
+cuda_library(
+    name = "layout_convert_cuda",
+    srcs = ["memory_redist/layout_convert.cu.cc"],
+    hdrs = ["memory_redist/layout_convert.h"],
+    alwayslink = True,
+    tags = ["cuda-only"],
+    deps = [
+        "@local_config_cuda//cuda:cuda_headers",
+    ],
+)
+
+cuda_library(
+    name = "potrs_logdet_cuda",
+    srcs = ["cusolvermp_routines/potrs_logdet.cu.cc"],
+    hdrs = ["cusolvermp_routines/potrs_logdet.h"],
+    alwayslink = True,
+    tags = ["cuda-only"],
+    deps = [
+        "@local_config_cuda//cuda:cuda_headers",
+    ],
+)
+
+cc_binary(
+    name = "libjaxmg_xla_comm_backend.so",
+    # Declare the complete staged include tree. CUDA 13 uses transitive .hpp
+    # headers, and Bazel rejects headers found through -I unless they are also
+    # explicit target inputs.
+    srcs = glob(["cusolvermp_include/**/*"]) + [
+        "cusolvermp_routines/cusolvermp_common.cc",
+        "cusolvermp_routines/cusolvermp_common.h",
+        "cusolvermp_routines/cusolvermp_lu_solve.cc",
+        "cusolvermp_routines/cusolvermp_potrs.cc",
+        "cusolvermp_routines/potrs_logdet.h",
+        "cusolvermp_routines/cusolvermp_routines.h",
+        "cusolvermp_routines/cusolvermp_syevd.cc",
+        "memory_redist/block_cyclic_2d.cc",
+        "memory_redist/edge_padding_2d.cc",
+        "memory_redist/rectangle_pack.cc",
+        "memory_redist/memory_redist.h",
+        "memory_redist/scratch.cc",
+        "xla_ffi/handlers.cc",
+        "xla_ffi/runtime.cc",
+        "xla_ffi/runtime.h",
+    ],
+    linkshared = True,
+    linkstatic = True,
+    # `@local_config_cuda//cuda:cuda_headers` (in deps) stages the hermetic CUDA
+    # header *files* into the sandbox, but it exposes them only under XLA's
+    # `third_party/gpus/...` prefix. cuSOLVERMp's own headers (and our code)
+    # include CUDA headers unprefixed (e.g. <cuda_runtime.h>, <cusolver_common.h>),
+    # so we add the redist repos' include dirs directly. The canonical repo names
+    # below are those used by the JAX CI container (tensorflow/ml-build:latest);
+    # confirm with `ls bazel-jax/external | grep cuda_` if the container changes.
+    copts = [
+        # The JAX CI container's .bazelrc compiles with -fvisibility=hidden, which
+        # would hide the XLA_FFI_DEFINE_HANDLER_SYMBOL handler symbols
+        # (XlaCusolverMp*FFI) that the Python loader resolves via ctypes/dlsym.
+        # Re-export them by compiling our sources with default visibility.
+        "-fvisibility=default",
+        "-Iexternal/cuda_cudart/include",
+        "-Iexternal/cuda_cusolver/include",
+        "-Iexternal/cuda_cublas/include",
+        "-Ijaxmg_backend/cusolvermp_include",
+    ],
+    # cuSOLVERMp is not part of the hermetic CUDA set, so it is linked explicitly
+    # from our symlinked lib dir. The other CUDA libs link via stubs under
+    # --config=cuda_libraries_from_stubs (see :cusolver / :cudart deps).
+    linkopts = [
+        "-Ljaxmg_backend/cusolvermp_lib",
+        "-l:libcusolverMp.so.0",
+        "-Wl,-rpath,$ORIGIN/../../nvidia/cu@JAXMG_CUDA_MAJOR@/lib",
+    ],
+    deps = [
+        ":layout_convert_cuda",
+        ":potrs_logdet_cuda",
+        "@local_config_cuda//cuda:cuda_headers",
+        "@cuda_cudart//:cudart",
+        "@cuda_cusolver//:cusolver",
+        "@xla//xla:xla_data_proto_cc",
+        "@xla//xla/backends/gpu/collectives:gpu_clique_key",
+        "@xla//xla/backends/gpu/collectives:gpu_collectives",
+        "@xla//xla/backends/gpu/collectives:gpu_communicator",
+        "@xla//xla/backends/gpu:ffi",
+        "@xla//xla/backends/gpu/runtime:collective_clique_requests",
+        "@xla//xla/backends/gpu/runtime:collective_cliques",
+        "@xla//xla/backends/gpu/runtime:collective_execution",
+        "@xla//xla/backends/gpu/runtime:collective_params",
+        "@xla//xla/core/collectives:communicator",
+        "@xla//xla/core/collectives:rank_id",
+        "@xla//xla/core/collectives:reduction_kind",
+        "@xla//xla/ffi",
+        "@xla//xla/ffi:ffi_api",
+        "@xla//xla:future",
+        "@xla//xla/stream_executor:stream",
+        "@xla//xla/tsl/cuda:nccl",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
+    ],
+)

@@ -1,25 +1,57 @@
 # Installation
-The package is available on PyPi and can be installed with
+
+Install the package with the extra matching your CUDA setup:
+
+| CUDA setup | Command |
+|---|---|
+| CUDA 12 | `pip install "jaxmg[cuda12]"` |
+| Local CUDA 12 | `pip install "jaxmg[cuda12-local]"` |
+| CUDA 13 | `pip install "jaxmg[cuda13]"` |
+| Local CUDA 13 | `pip install "jaxmg[cuda13-local]"` |
+
+!!! note
+
+    `pip install jaxmg` installs a CPU-only version of JAX. JAXMg is a GPU-only
+    package, so it will warn you to install a GPU-compatible version of JAX.
+
+## Older releases
+
+Use the version selector next to the site title to switch between releases.
+
+Documentation for JAXMg `0.0.9` is archived at
+<https://flatironinstitute.github.io/jaxmg/0.0.9/>. That was the last release
+built on NVIDIA's single-node [cuSolverMg](https://docs.nvidia.com/cuda/cusolver/index.html#using-the-cuSolverMg-api)
+API, so its interface differs substantially from this one: it provides `potri`
+and the `cyclic_1d` layout helpers, has no `lu_solve`, and distributes matrices
+over a 1D device mesh rather than a 2D process grid.
+
+## Supported systems
+
+Prebuilt Linux wheels are provided for `x86_64` and `aarch64`. The supported
+NVIDIA GPU families are:
+
+| CUDA setup | Supported GPUs |
+|---|---|
+| CUDA 12 | V100, A100, H100/H200, and Blackwell GPUs |
+| CUDA 13 | A100, H100/H200, and Blackwell GPUs |
+
+The binaries use JAX `0.10.1` and cuSOLVERMp `0.9.0.6427`. See
+[Building from source](technical_details/building_from_source.md) for the native
+build procedure.
+
+## Runtime requirements
+
+cuSOLVERMp requires a one-to-one mapping between processes and GPUs. Multi-GPU
+and multi-node JAXMg jobs must therefore be launched with one Python process per
+GPU and initialized with
+`jax.distributed.initialize()` before the global device mesh is constructed.
+See [Distributed execution](examples/execution.md).
+
+For large solves close to the GPU memory limit, CUDA Virtual Memory Management
+can improve allocator behaviour. Enable it by setting these variables before
+Python starts:
 
 ```bash
-pip install jaxmg[cuda12]
+export XLA_PYTHON_CLIENT_ALLOCATOR=vmm
+export XLA_PYTHON_CLIENT_MEM_FRACTION=0.99
 ```
-
-This will install a GPU compatible version of JAX. 
-
-1. `pip install "jaxmg[cuda12]"`: Use CUDA 12 (only works for `jax>=0.6.2`).
-
-2. `pip install "jaxmg[cuda12-local]"`: Use locally available CUDA 12 installation.
-
-3. `pip install "jaxmg[cuda13]"`: Use CUDA 13 (only works for `jax>=0.7.2`).
-
-4. `pip install "jaxmg[cuda13-local]"`: Use locally available CUDA 13 installation.
-
-The provided binaries are compiled with
-
-|**JAXMg** | **CUDA** | **cuDNN** |
-|---|---|---| 
-| `cuda12`,`cuda12-local` | 12.8.0 | 9.17.1.4|
-| `cuda13`,`cuda13-local` | 13.0.0 | 9.17.1.4|
-
-> **_Note:_** `pip install jaxmg` will install a CPU-only version of JAX. Since `jaxmg` is a GPU-only package you will receive a warning to install a GPU-compatible version of jax. 

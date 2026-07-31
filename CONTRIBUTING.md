@@ -1,138 +1,185 @@
 # Contributing
-## TODO (last updated: January 7th, 2026)
 
-### Small effort
+Please help us improve JAXMg. You can contribute by
+[reporting a bug or suggesting a feature](https://github.com/flatironinstitute/jaxmg/issues),
+improving the documentation, or
+[opening a pull request](https://github.com/flatironinstitute/jaxmg/pulls)
+with a code change. Contributions of any size are welcome.
 
-- ~~**Implement multi-process variants of `potri` and `syevd`**. Right now we only have `potrs_mp.cu` which contains all the necessary machinery to also create multi-process equivalents of `potri.cu`, `syevd.cu` and `syevd_no_V.cu`.~~ (#10)
+A typical contribution follows five steps:
 
-- ~~**Get rid of compiler warnings** There is some unused code that needs to be removed. There are warnings due to things in JAXlib that we probably can't get rid of though.~~ (#10)
+1. pull a clean copy of the repository and create a branch;
+2. set up a development environment;
+3. make a focused change;
+4. run the checks relevant to that change;
+5. open a pull request describing the change and its validation.
 
-- **Better error handling**. There are parts of the code that simply throw `std::runtime_error`. We need to make the error handling compatible with the XLA_FFI error handlers like: `FFI_ASSIGN_OR_RETURN`, `JAX_FFI_RETURN_IF_GPU_ERROR`, etc... 
+## Current development priority
 
-### Large effort
+1. Some native failures still use `std::runtime_error`. Contributions that
+   express these consistently through XLA FFI error handling are particularly
+   useful.
 
-- Change to the CusolverMp API that's available for CUDA 13.
+## Pull a clean copy
 
-There has been a discussion with the cuSOLVERMp team at NVIDIA who can potentially assist with this. The main problem is communicating between the different threads/processes that launch cuSOLVERMp from JAX. Since JAX launches a thread/process for each GPU, we need to be able to synchronize these processes and orchestrate calls to cuSOLVER from a designated master process. In JAXMg this is handled by creating shared memory, and sharing GPU pointers between the processes. However, for cuSOLVERMp, where GPUs can be on different nodes, this would be quite a challenge to set up in a robust way. This could be resolved if it was possible to pass the underlying XLA communicator through from JAX to the foreign function interface, so that multi process synchronization collectives are accessible on the C++ side.
-
-**Update May 28th:**
-There seems to be a pathway to use the XLA-communicator directly, which is discussed here: 
-https://github.com/openxla/xla/discussions/42689
-
-## Build from source
-
-To build from source:
-
-```bash
-mkdir build
-cd build
-cmake ..
-cmake --build . --target install
-```
-
-This installs the CUDA binaries into `src/jaxmg/bin`
-
-Dependencies are managed with [CPM-CMAKE](https://github.com/cpm-cmake/CPM.cmake),
-including **abseil-cpp**, **jaxlib**, **XLA** for compilation. Compilation requires C++20 or later and an installation of CUDA Toolkit 12.x or 13.x. See the Docker images in `.jenkins` for an environment that can compile the code.
-
-To build specific targets only, for example potrs:
-```bash
-cmake ..
-cmake --build . --target potrs && cmake --install .
-```
-
-then install the package with 
+Fork the repository first if you do not have write access. Then clone your fork
+or the main repository, update `main`, and create a branch:
 
 ```bash
-pip install .
+git clone https://github.com/flatironinstitute/jaxmg.git
+cd jaxmg
+git switch main
+git pull --ff-only
+git switch -c my-change
 ```
 
-To verify the installation (requires at least one GPU) run
+## Set up an environment
+
+Create a virtual environment and install the development dependencies:
 
 ```bash
-pytest tests
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
 ```
-There are two types of tests:
 
-1. SPMD tests: Single Process Multiple GPU tests.
-3. MPMD: Multiple Processes Multiple GPU tests. Marked using the PyTest mark `mpmd`.
+For documentation-only work on a system without CUDA, install `.[docs]` and
+pytest instead.
 
-Use the `conftest.py` file in tests to turn on/off any tests you want to run. 
+## Make your changes
 
-## JAX and CUDA
+The main areas of the repository are:
 
-As of version 0.6.2, JAX can be installed for GPU usage in two ways:
+- `src/jaxmg/` for the public Python interface and JAX integration;
+- `src/cuda/` for memory redistribution and cuSOLVERMp routines;
+- `tests/` for interface and distributed numerical tests;
+- `docs/` for user guides, examples, and technical documentation;
+- `.github/`, `.jenkins/`, and `pyproject.toml` for building and packaging.
 
-1. `pip install "jax[cuda12]"`: Install a NVIDIA python module along side the jax installation and rely on those binaries for CUDA functionality.
+Changes under `src/cuda/`, `bazel/`, or `build_native_backend.sh` require a
+native rebuild. Follow
+[Building the native backend](https://flatironinstitute.github.io/jaxmg/latest/technical_details/building_from_source/)
+before running the GPU tests.
 
-2. `pip install "jax[cuda12-local]"`: Rely on a local installation.
+Public behavior changes should include corresponding tests and documentation.
 
-As of version 0.7.2, JAX is compatible with CUDA 13:
+## Test your changes
 
-1. `pip install "jax[cuda13]"`:
+Run the checks relevant to the change:
 
-2. `pip install "jax[cuda13-local]"`
+| Change | Check |
+|---|---|
+| Python API, validation, or layout metadata | `python -m pytest -q -m "not gpu" tests` |
+| Documentation | `python -m mkdocs build --strict` |
+| Native solver or redistribution code | Rebuild the backend and run the GPU tests |
+| Packaging or dependencies | Build and install a wheel through the matching CUDA extra |
 
-At compilation time, we do not need to worry about the distinction between `cudax` and `cudax-local`, since the symbols we link again are resolved at runtime via `import jax`. However, 
+The GPU suite distinguishes between `single_gpu` and `multi_gpu` tests. The
+multi-GPU tests launch one Python process per GPU. On a workstation with two
+GPUs, run the complete smoke suite with:
 
-Jaxlib contains C++ headers that have to be compiled against. To compile against a specific Jaxlib version, set the environment variable
-`JAX_VERSION` before building. For CUDA 12, `JAX_VERSION=0.6.2` is backwards compatible up to `jax==0.8.x`, but for CUDA 13 you must set
-`JAX_VERSION>=0.7.2` or you will get compilation errors.
+```bash
+CUDA_VISIBLE_DEVICES=0,1 \
+JAXMG_GPU_TEST_LAUNCHER=subprocess \
+python -m pytest -q -m "gpu and not slow" tests/gpu
+```
+
+The two smoke groups can also be selected independently with
+`-m "single_gpu and not slow"` or `-m "multi_gpu and not slow"`. Tests
+requiring more GPUs than are visible are skipped. On Slurm systems, the test
+helper can use `srun` across the current allocation.
+
+## Open a pull request
+
+Push your branch and
+[open a pull request](https://github.com/flatironinstitute/jaxmg/compare):
+
+```bash
+git push -u origin my-change
+```
+
+In the pull-request description, explain:
+
+- what changed and why;
+- any user-visible or compatibility effects;
+- which tests were run;
+- any hardware-dependent checks that could not be run locally.
+
+Generated build outputs should not be committed.
 
 ## Continuous integration
 
-We make use of Jenkins to build and test the code. We test the following configurations:
+The release build and GPU tests run on separate systems:
 
-1. A manylinux docker images (quay.io/pypa/manylinux_2_28_x86_64) where we install CUDA, CUDNN and NCCL.
+1. **GitHub Actions builds** CUDA 12 and CUDA 13 backends for `x86_64` and
+   `aarch64`.
+2. **GitHub Actions packages** Python 3.11–3.14 `manylinux_2_28` wheels and
+   checks their metadata and native libraries.
+3. **Jenkins downloads those wheels** and installs the normal
+   `jaxmg[cuda12]` dependency path.
+4. **Jenkins tests them** on two physical A100 GPUs using the interface and GPU
+   smoke suites.
 
-2. Python `3.11`, `3.12`, `3.13`, `3.14`
+This ensures that Jenkins tests the wheel produced by GitHub Actions rather
+than rebuilding it. AArch64 and CUDA 13 are currently build-validated but are
+not runtime-tested by Jenkins.
 
-3. For CUDA 12:
-   - JAX `0.6.2`, `0.7.1`, `0.8.1`
+The implementation is in:
 
-   For CUDA 13 **currently only building code but no testing due to lack of availibility of CC > 7.0 GPUs. Locally tested on Blackwell.**
-   - JAX `0.7.2`, `0.8.1`
+- `.github/workflows/build-wheels.yml`;
+- `.github/workflows/ci.yml`;
+- `.github/workflows/jenkins-test.yml`;
+- `.jenkins/Jenkinsfile`.
 
-See `.jenkins/Jenkinsfile` for details
+## Versioned documentation
 
-## Documentation setup
+The site is published per release with [mike](https://github.com/jimporter/mike)
+on the `gh-pages` branch, so documentation for an older release keeps matching
+the wheel that shipped it:
 
-See https://olgarithms.github.io/sphinx-tutorial/docs/7-hosting-on-github-pages.html
+| Trigger | Published as |
+|---|---|
+| Pull request | nothing — `mkdocs build --strict` runs as a check only |
+| Push to `main` | `dev`, a mutable build of the development tree |
+| Release tag `vX.Y.Z` | `X.Y.Z`, and takes over the `latest` alias |
 
-Make sure you install `jaxmg[docs]` to be able to generate the documentation.
-Run 
+The bare site URL redirects to whatever `latest` points at, so links in the
+README and in `pyproject.toml` should use `/latest/…` rather than a version
+number. `0.0.9` is archived because it wrapped the older single-node cuSolverMg
+API; do not redeploy it.
+
+Numbered versions are written only by `release.yml`. Never run
+`mike deploy X.Y.Z` by hand for a version that has already shipped — that would
+silently replace the documentation for a released wheel.
+
+## Updating JAX or CUDA
+
+JAXMg pins `jax==0.10.1` and builds against its matching internal XLA revision.
+Updating JAX therefore requires auditing the `@xla` targets, updating the JAX
+source tag and dependencies, and rebuilding both CUDA backends on both
+architectures.
+
+The same care is required when changing CUDA, cuSOLVERMp, or the supported GPU
+architecture list.
+
+## Release process
+
+This section is for maintainers.
+
+Before a final release, run `.github/workflows/release.yml` manually with a
+release candidate such as `1.0.0rc1`. The workflow builds all wheels, runs the
+Jenkins GPU tests, and publishes to TestPyPI.
+
+After checking the TestPyPI installation, create the final tag:
 
 ```bash
-mkdocs serve
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
-to serve the docs locally. On push to main, the docs are automatically deployed with the `.github/workflow/deploy-docs.yml` action.
+The tagged workflow repeats the build and test process, publishes to TestPyPI,
+waits for approval, then publishes to PyPI and creates the GitHub release.
 
-## Publish Package
-
-Get the latest built wheels from Jenkins:
-
-```bash
-mkdir dist
-VERSION=0.0.9
-CUDA_FLAVOR=cuda12-local
-JAX_VERSION=0.8.1
-for PY in 3.11 3.12 3.13 3.14; do
-   PYTAG=cp${PY/./}
-   URL="https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg/job/main/lastBuild/artifact/${CUDA_FLAVOR}/${PY}/${JAX_VERSION}/dist_repaired/jaxmg-${VERSION}-${PYTAG}-${PYTAG}-manylinux_2_26_x86_64.whl"
-   echo "Downloading ${URL}"
-   wget -q -N --show-progress "${URL}" -P ./dist
-done
-```
-Install twine
-```bash
-python -m pip install twine
-```
-Upload to testpypi
-```bash
-python -m twine upload --repository testpypi dist/*
-```
-Test the wheel
-```bash
-pip install -i https://test.pypi.org/simple/ "jaxmg[cuda12]==0.0.9" --extra-index-url https://pypi.org/simple
-```
+Publishing requires the Jenkins secrets, PyPI Trusted Publishers, and
+`testpypi` and `pypi` GitHub environments described in
+`.github/workflows/release.yml`.
