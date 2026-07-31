@@ -18,12 +18,22 @@ properties([
 GITHUB_REPO = 'flatironinstitute/jaxmg'
 
 // This job only makes sense when triggered by GitHub Actions (which passes the
-// wheels' GHA_RUN_ID). 
+// wheels' GHA_RUN_ID). Every push also makes the multibranch project index the
+// branch and start a parameterless build; that build has nothing to test and
+// must report green. NOT_BUILT/ABORTED are published to GitHub as commit state
+// "error" by the GitHub Branch Source plugin -- only SUCCESS shows a green
+// check -- so mark the no-op build SUCCESS and label it in the UI.
 if (!params.GHA_RUN_ID?.trim()) {
-  echo 'No GHA_RUN_ID parameter: not triggered by GitHub Actions. Nothing to test; skipping.'
-  currentBuild.result = 'NOT_BUILT'
+  echo 'No GHA_RUN_ID parameter: not triggered by GitHub Actions. ' +
+       'The GPU test runs when the GHA build finishes and triggers this job with wheels.'
+  currentBuild.result = 'SUCCESS'
+  currentBuild.displayName = "#${currentBuild.number} (no-op)"
+  currentBuild.description = 'No wheels to test - waiting for the GitHub Actions build to trigger the real run'
   return
 }
+
+currentBuild.description = "GHA run ${params.GHA_RUN_ID}" +
+  (params.GIT_SHA?.trim() ? " @ ${params.GIT_SHA.take(8)}" : '')
 
 // Test in a manylinux + local CUDA toolkit image, across Python versions, on 2 A100s.
 buildPod(tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12', devShm: true, gpus: 2, gpuType: 'a100') {
