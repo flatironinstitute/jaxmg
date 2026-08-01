@@ -57,10 +57,9 @@ For more details, see the [API reference](https://flatironinstitute.github.io/ja
 > **Deprecation notice:** JAXMg 0.x, based on NVIDIA's deprecated cuSOLVERMg
 > backend, has been superseded by JAXMg 1.0. Version 1.0 requires one Python
 > process per GPU and removes `potri`; the previous API remains available with
-> `pip install "jaxmg<1"` and in the
-> [0.0.9 release](https://github.com/flatironinstitute/jaxmg/releases/tag/v0.0.9).
-> The documentation for this release can be found 
-> [here](https://flatironinstitute.github.io/jaxmg/0.0.9/).
+> `pip install "jaxmg<1"`. See the
+> [0.0.9 release](https://github.com/flatironinstitute/jaxmg/releases/tag/v0.0.9)
+> and [0.0.9 documentation](https://flatironinstitute.github.io/jaxmg/0.0.9/).
 
 ## Installation
 

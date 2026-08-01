@@ -99,6 +99,26 @@ html {
     font-size: 0.8rem;
 }
 
+/* Let the wide redistribution diagrams use the full article column. */
+
+.md-typeset figure.memory-distribution-figure {
+    width: 100%;
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+}
+
+.md-typeset figure.memory-distribution-figure > a {
+    display: block;
+    width: 100%;
+}
+
+.md-typeset .memory-distribution-image {
+    display: block;
+    width: 100%;
+    max-width: none;
+}
+
 /* Bugfix: remove the superfluous parts generated when doing:
 
 ??? Blah

@@ -72,6 +72,8 @@ allocate a second full local matrix.
     Moves in one horizontal wave are independent across process rows. Moves in
     one vertical wave are independent across process columns.
 
+    [![Three stages of edge-padding alignment over a two-by-four GPU process grid.](../_static/memory_distribution/block_cyclic_padding_alignment.svg){ .memory-distribution-image }](../_static/memory_distribution/block_cyclic_padding_alignment.svg)
+
     [Edge-padding details](memory_distribution.md#stage-2-top-left-edge-padding-alignment)
 
 ??? info "Stage 3: 2D block-cyclic redistribution"
@@ -82,6 +84,8 @@ allocate a second full local matrix.
     Same-rank moves use local CUDA operations. Cross-rank moves use the
     NCCL-backed communicator borrowed from XLA. The same communicator supplies
     the `ncclComm_t` used by cuSOLVERMp.
+
+    [![Three stages of the two-dimensional block-cyclic redistribution over a two-by-four GPU process grid.](../_static/memory_distribution/block_cyclic_redistribution.svg){ .memory-distribution-image }](../_static/memory_distribution/block_cyclic_redistribution.svg)
 
     [2D block-cyclic details](memory_distribution.md#stage-3-2d-block-cyclic-redistribution)
 
@@ -104,5 +108,5 @@ for the required launch model.
 ## Detailed implementation
 
 [Memory distribution](memory_distribution.md) gives the complete diagrams,
-address mappings, dependency waves, parallelism, reverse path, and source-code
-map.
+layout definitions, dependency waves, permutation cycles, reverse path, and
+source-code map.
