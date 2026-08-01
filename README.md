@@ -5,6 +5,7 @@
 # JAXMg: A multi-GPU linear solver in JAX
 
 [![Docs](https://img.shields.io/badge/docs-site-blue?style=flat-square)](https://flatironinstitute.github.io/jaxmg/)
+[![PyPI](https://img.shields.io/pypi/v/jaxmg?style=flat-square)](https://pypi.org/project/jaxmg/)
 [![Releases](https://img.shields.io/github/v/release/flatironinstitute/jaxmg?style=flat-square)](https://github.com/flatironinstitute/jaxmg/releases)
 [![Build](https://github.com/flatironinstitute/jaxmg/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/flatironinstitute/jaxmg/actions/workflows/ci.yml)
 [![Tests](https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg/job/main/lastBuild/badge/icon)](https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg/job/main/)
