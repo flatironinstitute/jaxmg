@@ -127,10 +127,30 @@ absl::Status RunCusolverMpGesvd(
     if (d_work != nullptr) cudaFree(d_work);
     if (d_info != nullptr) cudaFree(d_info);
     if (h_work != nullptr) std::free(h_work);
-    if (desc_vh != nullptr) api.destroy_matrix_desc(desc_vh);
-    if (desc_u != nullptr) api.destroy_matrix_desc(desc_u);
-    if (desc_a != nullptr) api.destroy_matrix_desc(desc_a);
-    if (gesvd_desc != nullptr) api.gesvd_descriptor_destroy(gesvd_desc);
+    auto record_destroy_failure = [&](cusolverStatus_t destroy_status,
+                                      int32_t status_code) {
+      if (destroy_status != CUSOLVER_STATUS_SUCCESS &&
+          (*status_words)[0] == kStatusOk) {
+        (*status_words)[0] = status_code;
+        (*status_words)[11] = static_cast<int32_t>(destroy_status);
+      }
+    };
+    if (desc_vh != nullptr) {
+      record_destroy_failure(api.destroy_matrix_desc(desc_vh),
+                             kDestroyMatrixDescFailed);
+    }
+    if (desc_u != nullptr) {
+      record_destroy_failure(api.destroy_matrix_desc(desc_u),
+                             kDestroyMatrixDescFailed);
+    }
+    if (desc_a != nullptr) {
+      record_destroy_failure(api.destroy_matrix_desc(desc_a),
+                             kDestroyMatrixDescFailed);
+    }
+    if (gesvd_desc != nullptr) {
+      record_destroy_failure(api.gesvd_descriptor_destroy(gesvd_desc),
+                             kGesvdDescriptorDestroyFailed);
+    }
   };
   auto cuda_error_after_cleanup = [&](cudaError_t cuda_status,
                                       const char* caller) -> absl::Status {
