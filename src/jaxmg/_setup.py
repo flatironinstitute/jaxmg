@@ -64,6 +64,34 @@ _PRODUCTION_FFI_TARGETS = (
             "execute": "XlaCusolverMpSyevdValuesFFI",
         },
     ),
+    (
+        "cusolvermp_gesvd_uv",
+        {
+            "prepare": "XlaCusolverMpGesvdPrepareFFI",
+            "execute": "XlaCusolverMpGesvdUvFFI",
+        },
+    ),
+    (
+        "cusolvermp_gesvd_u",
+        {
+            "prepare": "XlaCusolverMpGesvdPrepareFFI",
+            "execute": "XlaCusolverMpGesvdUFFI",
+        },
+    ),
+    (
+        "cusolvermp_gesvd_vh",
+        {
+            "prepare": "XlaCusolverMpGesvdPrepareFFI",
+            "execute": "XlaCusolverMpGesvdVhFFI",
+        },
+    ),
+    (
+        "cusolvermp_gesvd_values",
+        {
+            "prepare": "XlaCusolverMpGesvdPrepareFFI",
+            "execute": "XlaCusolverMpGesvdValuesFFI",
+        },
+    ),
 )
 
 if not sys.platform.startswith("linux"):

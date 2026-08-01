@@ -86,9 +86,9 @@ absl::StatusOr<Padded2DRedistScratch> AllocatePadded2DRedistScratch(
 
   int64_t max_elements = 0;
   for (const Padded2DRedistScratchRequest& request : requests) {
-    // POTRS passes both A and B requests because their logical column counts
-    // can differ.  SYEVD passes only A.  One allocation is sized to the maximum
-    // across all requested fused-call buffers.
+    // Solvers may pass several logical matrices with different rectangular
+    // shapes. One allocation is sized to the maximum requirement across all
+    // buffers participating in the fused call.
     absl::StatusOr<int64_t> elements =
         RequiredPadded2DRedistScratchElements(request);
     if (!elements.ok()) {

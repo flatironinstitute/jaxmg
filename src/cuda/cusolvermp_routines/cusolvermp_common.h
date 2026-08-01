@@ -14,11 +14,11 @@
 //
 // Shared cuSOLVERMp runtime helpers.
 //
-// This header defines the shared boundary between the fused POTRS, LU, and
-// SYEVD handlers and the cuSOLVERMp runtime. It contains the status schemas,
-// process-grid validation, typed cuSOLVERMp entry points, and CUDA/XLA utility
-// declarations used by each solver. Solver orchestration remains in the
-// corresponding solver source file.
+// This header defines the shared boundary between the fused POTRS, LU, SYEVD,
+// and GESVD handlers and the cuSOLVERMp runtime. It contains the status
+// schemas, process-grid validation, typed cuSOLVERMp entry points, and CUDA/XLA
+// utility declarations used by each solver. Solver orchestration remains in
+// the corresponding solver source file.
 
 #ifndef JAXMG_CUSOLVERMP_COMMON_H_
 #define JAXMG_CUSOLVERMP_COMMON_H_
@@ -36,8 +36,8 @@
 namespace xla::gpu {
 
 // Typed table of the cuSOLVERMp entry points used by the native solver handlers.
-// Grouping the functions here keeps runtime invocation consistent across POTRS,
-// LU solve, and SYEVD.
+// Grouping the functions here keeps runtime invocation consistent across the
+// supported solver routines.
 struct CusolverMpApi {
   decltype(&cusolverMpCreate) create = &cusolverMpCreate;
   decltype(&cusolverMpDestroy) destroy = &cusolverMpDestroy;
@@ -64,6 +64,17 @@ struct CusolverMpApi {
   decltype(&cusolverMpSyevd_bufferSize) syevd_buffer_size =
       &cusolverMpSyevd_bufferSize;
   decltype(&cusolverMpSyevd) syevd = &cusolverMpSyevd;
+  decltype(&cusolverMpGesvdDescriptorCreate) gesvd_descriptor_create =
+      &cusolverMpGesvdDescriptorCreate;
+  decltype(&cusolverMpGesvdDescriptorDestroy) gesvd_descriptor_destroy =
+      &cusolverMpGesvdDescriptorDestroy;
+  decltype(&cusolverMpGesvdDescriptorSetAttribute)
+      gesvd_descriptor_set_attribute = &cusolverMpGesvdDescriptorSetAttribute;
+  decltype(&cusolverMpGesvdDescriptorGetAttribute)
+      gesvd_descriptor_get_attribute = &cusolverMpGesvdDescriptorGetAttribute;
+  decltype(&cusolverMpGesvd_bufferSize) gesvd_buffer_size =
+      &cusolverMpGesvd_bufferSize;
+  decltype(&cusolverMpGesvd) gesvd = &cusolverMpGesvd;
 };
 
 // Native status codes returned through the small device status vectors.
@@ -114,11 +125,19 @@ enum CusolverMpStatusCode : int32_t {
   kGetrfInfoNonzero = 39,
   kGetrsFailed = 40,
   kGetrsInfoNonzero = 41,
+  kGesvdDescriptorCreateFailed = 42,
+  kGesvdDescriptorAttributeFailed = 43,
+  kGesvdWorkspaceFailed = 44,
+  kGesvdFailed = 45,
+  kGesvdInfoNonzero = 46,
+  kGesvdDescriptorDestroyFailed = 47,
+  kGesvdDescriptorQueryFailed = 48,
 };
 
 inline constexpr int kPotrsStatusSize = 40;
 inline constexpr int kLuSolveStatusSize = 41;
 inline constexpr int kSyevdStatusSize = 36;
+inline constexpr int kGesvdStatusSize = 42;
 inline constexpr cusolverMpGridMapping_t kCusolverMpGridMappingRowMajor =
     CUSOLVERMP_GRID_MAPPING_ROW_MAJOR;
 inline constexpr cusolverMpGridMapping_t kCusolverMpGridMappingColMajor =
@@ -175,6 +194,12 @@ absl::Status CopyLuSolveStatusToDevice(
 // status output.
 absl::Status CopySyevdStatusToDevice(
     se::Stream* stream, const std::array<int32_t, kSyevdStatusSize>& status,
+    ffi::Result<ffi::BufferR1<S32>> out);
+
+// Copies a GESVD status vector from host memory into the JAX-visible device
+// status output.
+absl::Status CopyGesvdStatusToDevice(
+    se::Stream* stream, const std::array<int32_t, kGesvdStatusSize>& status,
     ffi::Result<ffi::BufferR1<S32>> out);
 
 // Encodes workspace byte sizes compactly in status vectors as KiB.
