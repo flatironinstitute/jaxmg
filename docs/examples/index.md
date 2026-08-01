@@ -30,5 +30,6 @@ reduce memory use.
   `lu_solve`.
 - [Symmetric or Hermitian eigensolve](syevd.md) computes eigenvalues and
   optional eigenvectors with `syevd`.
-- [Singular-value decomposition](gesvd.md) computes singular values and
-  independently selected left and right singular vectors with `gesvd`.
+- [Singular-value decomposition](gesvd.md) computes the singular values and
+  optional left and right singular vectors of a real or complex matrix with
+  `gesvd`.

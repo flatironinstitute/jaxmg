@@ -59,14 +59,8 @@ Hermitian matrix.
 
 ## `gesvd`
 
-Multi-GPU singular-value decomposition for rectangular real or complex
-matrices.
-
-$$
-A = U \Sigma V^{\dagger}.
-$$
-
-Compute singular values and independently select the left and right singular
-vectors in reduced or full form.
+Compute the singular-value decomposition of an $M \times N$ real or complex
+matrix $A$ ($A = U \Sigma V^{\dagger}$), returning the singular values and
+independently selected left and right singular vectors in reduced or full form.
 
 [`gesvd` API and usage](gesvd.md)

@@ -1,17 +1,17 @@
 # jaxmg.gesvd
 
-`gesvd` computes the singular values and optional singular vectors of a real or
-complex rectangular matrix:
+`gesvd` computes the singular-value decomposition of an $M \times N$ real or
+complex matrix $A$:
 
 $$
 A = U \Sigma V^{\dagger}.
 $$
 
-The default reduced decomposition returns `U`, `s`, and `Vh`, matching the
-ordering used by `jax.numpy.linalg.svd`. Set `full_matrices=True` for complete
-square vector matrices. `compute_u` and `compute_vh` select the two vector
-outputs independently; disabling an output avoids its matrix allocation and
-reverse redistribution.
+By default, `gesvd` returns the reduced decomposition `(U, s, Vh)`, following
+`jax.numpy.linalg.svd`. Set `full_matrices=True` to return full-sized
+singular-vector matrices. The left and right singular vectors can be requested
+independently with `compute_u` and `compute_vh`; outputs that are not requested
+are neither allocated nor redistributed.
 
 Use `gesvd` for a direct decomposition. Use `gesvd_shardmap_ctx` when the SVD
 is part of a larger caller-owned `jax.jit`. The context interface returns the

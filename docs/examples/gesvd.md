@@ -1,8 +1,8 @@
 # Singular-value decomposition
 
-`jaxmg.gesvd` computes a distributed singular-value decomposition of a real or
-complex rectangular matrix. The default reduced decomposition follows the JAX
-return order `(U, s, Vh)`.
+`jaxmg.gesvd` computes the singular-value decomposition of an $M \times N$ real
+or complex matrix $A$ ($A = U \Sigma V^{\dagger}$). The default reduced
+decomposition follows the JAX return order `(U, s, Vh)`.
 
 ## Common setup
 
@@ -108,14 +108,29 @@ decomposition must be embedded in a larger compiled calculation.
 
 ## Advanced: control the outer `jax.jit`
 
-`gesvd_shardmap_ctx` leaves the outer JIT boundary to the caller and returns
-the overwritten matrix work buffer. When A is an argument of the compiled
-function, donate it and retain `a_work` in the returned pytree:
+`gesvd_shardmap_ctx` runs the same padding, redistribution, and decomposition
+as `gesvd`, but leaves the outer `jax.jit` boundary to the caller. This allows
+the decomposition to become one stage of a larger compiled calculation.
+
+The context interface returns `a_work` before the selected numerical outputs.
+This is the overwritten input-matrix work buffer. Whether it must leave the
+outer function depends on where the input matrix was created.
+
+The advanced examples additionally use:
 
 ```python
 from functools import partial
 
 from jaxmg import gesvd_shardmap_ctx
+```
+
+### Case 1: `a` is an argument of the jitted function
+
+When an existing matrix enters the outer jitted function as an argument, donate
+it with `donate_argnums`. Return `a_work` so the donated input has an $A$-sized
+output alias at the outer compiled boundary:
+
+```python
 
 
 @partial(jax.jit, donate_argnums=(0,))
@@ -126,17 +141,72 @@ def compiled_svd(a):
         mesh=mesh,
         matrix_specs=matrix_specs,
     )
-    return a_work, u, singular_values, vh, status
+
+    # Further JAX operations can be part of this compiled function.
+    scaled_singular_values = 2.0 * singular_values
+    return a_work, u, scaled_singular_values, vh, status
 
 
-a, _ = make_matrix()
-a_work, u, singular_values, vh, status = compiled_svd(a)
+a, expected_singular_values = make_matrix()
+a_work, u, scaled_singular_values, vh, status = compiled_svd(a)
 vh.block_until_ready()
+
+correct = jnp.allclose(scaled_singular_values, 2.0 * expected_singular_values)
+correct.block_until_ready()
+
+if jax.process_index() == 0:
+    print(correct)
 ```
 
-`a_work` is opaque overwritten solver storage, not a numerical SVD output.
-Requested U and Vh matrices occupy separate allocations because cuSOLVERMp
-does not permit them to overlap A.
+Returning `a_work` is required when `a` is donated. It is opaque overwritten
+solver storage, not a numerical SVD output, and should remain in the returned
+pytree until the compiled calculation has completed. Requested U and Vh
+matrices occupy separate allocations because cuSOLVERMp does not permit them to
+overlap A.
+
+### Case 2: `a` is created inside the jitted function
+
+If the outer compiled function constructs `a` itself, the matrix is an internal
+temporary rather than a donated argument. XLA controls its lifetime, so
+`a_work` can remain inside the compiled function:
+
+```python
+@jax.jit
+def build_and_decompose(scale):
+    expected_singular_values = scale * jnp.linspace(
+        2.0, 1.0, K, dtype=dtype
+    )
+    a = jnp.zeros((M, N), dtype=dtype)
+    a = a.at[jnp.arange(K), jnp.arange(K)].set(expected_singular_values)
+    a = jax.reshard(a, matrix_sharding)
+
+    _, u, singular_values, vh, status = gesvd_shardmap_ctx(
+        a,
+        T_A=T_A,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+    )
+
+    # a_work remains internal because a was created inside this function.
+    return u, singular_values, vh, expected_singular_values, status
+
+
+scale = jnp.asarray(2.0, dtype=dtype)
+u, singular_values, vh, expected_singular_values, status = build_and_decompose(
+    scale
+)
+vh.block_until_ready()
+
+correct = jnp.allclose(singular_values, expected_singular_values)
+correct.block_until_ready()
+
+if jax.process_index() == 0:
+    print(correct)
+```
+
+`donate_argnums` is not needed for the internally created `a`, because it is
+not an argument of `build_and_decompose`. Only donate an outer argument such as
+`scale` if the caller no longer needs it after the call.
 
 See the [`gesvd` API reference](../api/gesvd.md) for the complete argument and
 return-value documentation.

@@ -30,8 +30,9 @@ JAXMg currently provides a jittable API for the following routines:
   eigenvalues and optional eigenvectors of an $N \times N$ symmetric or
   Hermitian matrix.
 - [`gesvd`](https://flatironinstitute.github.io/jaxmg/latest/api/gesvd/): Computes
-  the singular values and optional left and right singular vectors of a
-  rectangular real or complex matrix.
+  the singular-value decomposition of an $M \times N$ real or complex matrix
+  $A$ ($A = U \Sigma V^{\dagger}$), returning the singular values and optional
+  left and right singular vectors.
 
 ## How JAXMg works
 
