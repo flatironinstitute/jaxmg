@@ -1143,6 +1143,7 @@ compaction moves real row slabs toward the global top edge. Padding is
 consolidated on the global right and bottom edges.</p>
 <p>Moves in one horizontal wave are independent across process rows. Moves in
 one vertical wave are independent across process columns.</p>
+<p><a href="../_static/memory_distribution/block_cyclic_padding_alignment.svg"><img alt="Three stages of edge-padding alignment over a two-by-four GPU process grid." class="memory-distribution-image" src="../_static/memory_distribution/block_cyclic_padding_alignment.svg" /></a></p>
 <p><a href="memory_distribution/#stage-2-top-left-edge-padding-alignment">Edge-padding details</a></p>
 </details>
 <details class="info">
@@ -1153,6 +1154,7 @@ row-owner phase then assigns each tile to the correct process row.</p>
 <p>Same-rank moves use local CUDA operations. Cross-rank moves use the
 NCCL-backed communicator borrowed from XLA. The same communicator supplies
 the <code>ncclComm_t</code> used by cuSOLVERMp.</p>
+<p><a href="../_static/memory_distribution/block_cyclic_redistribution.svg"><img alt="Three stages of the two-dimensional block-cyclic redistribution over a two-by-four GPU process grid." class="memory-distribution-image" src="../_static/memory_distribution/block_cyclic_redistribution.svg" /></a></p>
 <p><a href="memory_distribution/#stage-3-2d-block-cyclic-redistribution">2D block-cyclic details</a></p>
 </details>
 <h2 id="solver-workflows">Solver workflows<a class="headerlink" href="#solver-workflows" title="Permanent link">¤</a></h2>
@@ -1171,8 +1173,8 @@ cuSOLVERMp communicators. See <a href="../examples/execution/">Distributed execu
 for the required launch model.</p>
 <h2 id="detailed-implementation">Detailed implementation<a class="headerlink" href="#detailed-implementation" title="Permanent link">¤</a></h2>
 <p><a href="memory_distribution/">Memory distribution</a> gives the complete diagrams,
-address mappings, dependency waves, parallelism, reverse path, and source-code
-map.</p>
+layout definitions, dependency waves, permutation cycles, reverse path, and
+source-code map.</p>
 
 
 
