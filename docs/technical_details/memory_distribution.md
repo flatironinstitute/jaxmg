@@ -31,8 +31,8 @@ JAX-facing row-major result
 
 The sections below describe the three forward redistribution stages. After a
 matrix-valued solver output is produced, the stages are reversed to restore the
-original JAX layout. Eigenvalues-only `syevd` returns its replicated eigenvalue
-array directly and does not need the reverse matrix redistribution.
+original JAX layout. Values-only `syevd` and `gesvd` return replicated vectors
+directly and do not need reverse matrix redistribution.
 
 ## Memory bound
 
@@ -361,6 +361,10 @@ differences are the cuSOLVERMp call sequence and solver workspace:
 - `syevd` calls `cusolverMpSyevd`. Its eigenvector-producing mode materializes a
   full distributed eigenvector matrix and reverses the redistribution for that
   output. Its eigenvalues-only mode omits both operations.
+- `gesvd` calls `cusolverMpGesvd` for rectangular matrices. U and Vh are
+  selected independently in reduced or full form, and only requested vector
+  matrices are allocated and reverse-redistributed. The shared scratch buffer
+  is sized to the largest requirement among A and those outputs.
 
 ## Python and native responsibilities
 
@@ -398,4 +402,5 @@ Solver orchestration
   src/cuda/cusolvermp_routines/potrs_logdet.cu.cc
   src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc
   src/cuda/cusolvermp_routines/cusolvermp_syevd.cc
+  src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc
 ```

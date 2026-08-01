@@ -20,6 +20,8 @@ JAXMg currently provides a jittable API for the following routines:
   decomposition.
 - [`syevd`](api/syevd.md): Computes the eigenvalues and optional eigenvectors of
   an $N \times N$ symmetric or Hermitian matrix.
+- [`gesvd`](api/gesvd.md): Computes the singular values and optional left and
+  right singular vectors of a rectangular real or complex matrix.
 
 ## How JAXMg works
 
@@ -41,6 +43,7 @@ The operations are implemented using:
 - `lu_solve`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
   and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)
 - `syevd`: [`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)
+- `gesvd`: [`cusolverMpGesvd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgesvd)
 
 For more details, see the [API reference](api/index.md) and the accompanying
 [paper](https://arxiv.org/abs/2601.14466).

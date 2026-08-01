@@ -92,19 +92,28 @@ def test_gesvd_supports_independent_vector_outputs(
     assert tuple(output.shape for output in outputs) == expected_shapes
 
 
-def test_gesvd_full_matrices_uses_full_vector_shapes(monkeypatch):
+@pytest.mark.parametrize(
+    "matrix_shape,expected_u_shape,expected_vh_shape",
+    [
+        ((6, 4), (6, 6), (4, 4)),
+        ((4, 6), (4, 4), (6, 6)),
+    ],
+)
+def test_gesvd_full_matrices_uses_full_vector_shapes(
+    monkeypatch, matrix_shape, expected_u_shape, expected_vh_shape
+):
     """Return square U and Vh matrices when full decomposition is requested."""
     captured = _install_fake_gesvd_backend(monkeypatch)
     u, singular_values, vh = gesvd(
-        jnp.ones((6, 4), dtype=jnp.float64),
+        jnp.ones(matrix_shape, dtype=jnp.float64),
         2,
         mesh=_one_rank_mesh(),
         matrix_specs=P("pr", "pc"),
         full_matrices=True,
     )
-    assert u.shape == (6, 6)
+    assert u.shape == expected_u_shape
     assert singular_values.shape == (4,)
-    assert vh.shape == (4, 4)
+    assert vh.shape == expected_vh_shape
     assert captured["kwargs"]["full_matrices"] is True
 
 

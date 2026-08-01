@@ -100,6 +100,9 @@ The redistribution stages are shared by all public routines:
   the distributed pivot allocation.
 - `syevd` calls `cusolverMpSyevd` and materializes distributed eigenvalues plus
   eigenvectors when requested.
+- `gesvd` calls `cusolverMpGesvd` for rectangular matrices and restores only
+  the requested U and Vh outputs. Its shared scratch allocation is sized to the
+  largest redistribution requirement among A and those requested outputs.
 
 Each Python process owns one GPU and contributes one rank to the XLA/NCCL and
 cuSOLVERMp communicators. See [Distributed execution](../examples/execution.md)
