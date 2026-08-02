@@ -20,6 +20,10 @@ A typical contribution follows five steps:
    express these consistently through XLA FFI error handling are particularly
    useful.
 
+2. We would like to make the JAXMg solver routines differentiable. This will
+   require custom JVP and VJP rules that tell JAX how to propagate derivatives
+   through the FFI-backed distributed calculations.
+
 ## Pull a clean copy
 
 Fork the repository first if you do not have write access. Then clone your fork
