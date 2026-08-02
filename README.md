@@ -204,5 +204,5 @@ Eprint = {arXiv:2601.14466},
 ```
 
 ## Acknowledgements
-I acknowledge support from the Flatiron Institute. The Flatiron Institute is a
+We acknowledge support from the Flatiron Institute. The Flatiron Institute is a
 division of the Simons Foundation.
