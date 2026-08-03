@@ -35,7 +35,7 @@ bibliography: paper.bib
 
 Solving large dense linear systems and eigenvalue problems is a core requirement in many areas of scientific computing, but scaling these operations beyond a single GPU remains challenging within modern programming frameworks. While highly optimized multi-GPU solver libraries exist, they are typically difficult to integrate into composable, just-in-time (JIT) compiled Python workflows.
 
-JAXMg provides distributed dense linear algebra for JAX, enabling linear solves based on Cholesky and lower-upper (LU) factorizations, and symmetric eigendecompositions for matrices that exceed single-GPU memory limits. By interfacing JAX with NVIDIA’s cuSOLVERMp through an XLA Foreign Function Interface, JAXMg exposes distributed GPU solvers as JIT-compatible JAX primitives. This design allows scalable linear algebra to be embedded directly within JAX programs, preserving composability with JAX transformations and enabling multi-GPU and multi-node execution in end-to-end scientific workflows.
+JAXMg provides distributed dense linear algebra for JAX, enabling linear solves and decompositions for matrices that exceed single-GPU memory limits. By interfacing JAX with NVIDIA’s cuSOLVERMp through an XLA Foreign Function Interface, JAXMg exposes distributed GPU solvers as JIT-compatible JAX primitives. This design allows scalable linear algebra to be embedded directly within JAX programs, preserving composability with JAX transformations and enabling multi-GPU and multi-node execution in end-to-end scientific workflows.
 
 # Statement of need
 
@@ -75,17 +75,20 @@ JAXMg connects JAX to NVIDIA’s distributed dense linear algebra library cuSOLV
 
 Simply pass JAXMg an ordinary JAX array sharded over a two-dimensional device mesh. The native backend handles the local memory-layout conversion, 2D block-cyclic redistribution, distributed solver execution, and restoration of the result to its original JAX layout.
 
-The current release provides a JIT-compatible interface to three workflows:
+The current release provides a JIT-compatible interface to four workflows:
 
 - `potrs`: Solves $Ax=b$ for symmetric (Hermitian) positive-definite $A$ using a Cholesky
   factorization (`cusolverMpPotrf` and `cusolverMpPotrs`). The same factorization can optionally
   return $\log\det(A)$.
 - `lu_solve`: Solves $Ax=b$ for general nonsingular $A$ using a pivoted LU factorization
   (`cusolverMpGetrf` and `cusolverMpGetrs`).
-- `syevd`: Computes the eigenvalues and eigenvectors of a symmetric (Hermitian) matrix
-  (`cusolverMpSyevd`).
+- `syevd`: Computes the eigenvalues $\lambda_i$ and eigenvectors $v_i$ of a symmetric
+  (Hermitian) matrix $A$, satisfying $Av_i=\lambda_i v_i$ (`cusolverMpSyevd`).
+- `gesvd`: Computes the singular-value decomposition of an $M\times N$ matrix
+  $A=U\Sigma V^\dagger$, returning the singular values and optional left and right singular
+  vectors (`cusolverMpGesvd`).
 
-All three routines support the JAX dtypes float32, float64, complex64, and complex128, with CUDA 12 and CUDA 13 backends available for both x86_64 and aarch64 systems.
+All four routines support the JAX dtypes float32, float64, complex64, and complex128, with CUDA 12 and CUDA 13 backends available for both x86_64 and aarch64 systems.
 
 For example, the `potrs` routine can be called over a two-dimensional mesh:
 
@@ -163,6 +166,34 @@ A central design choice in JAXMg is to build the native backend against the matc
 
 
 # Research Impact Statement
+
+## Scientific applications
+
+We first highlight a selection of examples from across physics in which the dense linear algebra routines provided by JAXMg can be embedded within wider workflows, allowing scientific applications to scale beyond the capabilities of a single GPU while remaining within the JAX ecosystem:
+
+### Cholesky solve (`potrs`)
+
+Across statistical inference, positive-definite linear solves are ubiquitous, particularly in Gaussian processes, a widely used Bayesian nonparametric model, and in the marginalization of nuisance parameters. For a Gaussian process with observations $\mathbf{y}$, mean vector $\mathbf{m}$, kernel covariance $\mathbf{K}$, and noise covariance $\boldsymbol{\Sigma}$, the marginal log likelihood is:
+
+  $$
+  \log \mathcal{L}
+  = -\frac{1}{2}(\mathbf{y}-\mathbf{m})^\mathsf{T}
+      (\mathbf{K}+\boldsymbol{\Sigma})^{-1}(\mathbf{y}-\mathbf{m})
+    -\frac{1}{2}\log\det(\mathbf{K}+\boldsymbol{\Sigma})
+    -\frac{N_{\mathrm{data}}}{2}\log(2\pi).
+  $$
+
+The quadratic and determinant terms thus require a solve against the $N_{\mathrm{data}}\times N_{\mathrm{data}}$ matrix $\mathbf{K}+\boldsymbol{\Sigma}$ and its log determinant; analytically integrating linear nuisance parameters with Gaussian priors yields analogous operations for their posterior precision matrix. One application in which both requirements arise is cosmological inference of the 21-cm brightness-temperature field. As next-generation radio interferometers such as the Square Kilometre Array (SKA) come online, JAXMg's distributed Cholesky factorization allows such analyses to accommodate exascale datasets [@liu2026gpr] and higher-fidelity forward models with larger sets of nuisance parameters [@burba2023allsky] while remaining within JAX.
+
+### General linear solve (`lu_solve`)
+
+Across computational electromagnetics, general linear solves are central to antenna simulations that model electromagnetic fields and their interaction with complex structures through numerical solutions of Maxwell's equations. A common approach is the method of moments [@Harrington1993], in which the governing integral equations are discretized to produce the dense complex system $ZI=V$, where $Z$ is the impedance matrix, $I$ contains the unknown current coefficients, and $V$ represents one or more excitations. Recovering the current coefficients therefore requires solving this general nonsingular system. One application in which this becomes computationally demanding is the full-wave simulation of mutual coupling across the 320-element core of the Hydrogen Epoch of Reionization Array for 21-cm cosmology [@gueuning2026mutual]. As precision requirements drive larger arrays and finer geometric meshes, the number of basis functions and hence the dimensions of $Z$ grow. JAXMg's distributed LU factorization allows the construction of $Z$, the solution of $ZI=V$, and downstream analysis to remain within a single compiled JAX workflow, supporting efficient end-to-end simulation at increasing model fidelity.
+
+### Symmetric eigendecomposition (`syevd`)
+
+### Singular-value decomposition (`gesvd`)
+
+## Performance and scaling
 
 To assess performance, we benchmark JAXMg against the single-GPU routines currently available in JAX.
 All experiments are run on a single node with 8 NVIDIA H200 GPUs (143 GB VRAM each) connected via NVLink.

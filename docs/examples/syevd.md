@@ -1,10 +1,10 @@
 # Symmetric or Hermitian eigensolve
 
-`jaxmg.syevd` computes the eigenvalues and, optionally, eigenvectors of a
-symmetric real matrix or Hermitian complex matrix. For a normal eigensolve, use
-`syevd`. It provides the high-level interface and internally handles JIT
-compilation, buffer donation, input/output aliasing, padding, and distributed
-execution.
+`jaxmg.syevd` computes the eigenvalues $\lambda_i$ and, optionally, eigenvectors
+$v_i$ of a symmetric real or Hermitian complex matrix $A$, satisfying
+$Av_i=\lambda_i v_i$. For a normal eigensolve, use `syevd`. It provides the
+high-level interface and internally handles JIT compilation, buffer donation,
+input/output aliasing, padding, and distributed execution.
 
 ## Common setup
 

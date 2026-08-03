@@ -1,9 +1,9 @@
 # jaxmg.syevd
 
-`syevd` computes the eigenvalues and, by default, eigenvectors of a symmetric
-real matrix or Hermitian complex matrix. Eigenvalues are real, while
-eigenvectors use the input dtype and are returned in the original JAX-facing
-matrix layout.
+`syevd` computes the eigenvalues $\lambda_i$ and, by default, eigenvectors $v_i$
+of a symmetric real or Hermitian complex matrix $A$, satisfying
+$Av_i=\lambda_i v_i$. Eigenvalues are real, while eigenvectors use the input
+dtype and are returned in the original JAX-facing matrix layout.
 
 Set `return_eigenvectors=False` when only the spectrum is required. This selects
 the eigenvalues-only mode and reduces memory use by avoiding the full

@@ -18,8 +18,9 @@ JAXMg currently provides a jittable API for the following routines:
 - [`lu_solve`](api/lu_solve.md): Solves the system of linear equations $Ax=B$,
   where $A$ is an $N \times N$ general nonsingular matrix, using a pivoted LU
   decomposition.
-- [`syevd`](api/syevd.md): Computes the eigenvalues and optional eigenvectors of
-  an $N \times N$ symmetric or Hermitian matrix.
+- [`syevd`](api/syevd.md): Computes the eigenvalues $\lambda_i$ and optional
+  eigenvectors $v_i$ of an $N \times N$ symmetric or Hermitian matrix $A$,
+  satisfying $Av_i=\lambda_i v_i$.
 - [`gesvd`](api/gesvd.md): Computes the singular-value decomposition of an
   $M \times N$ real or complex matrix $A$ ($A = U \Sigma V^{\dagger}$),
   returning the singular values and optional left and right singular vectors.
