@@ -26,7 +26,7 @@ affiliations:
  - name: Center for Computational Quantum Physics, Flatiron Institute, 162 Fifth Avenue, New York, NY 10010, USA
    index: 3
    ror: 00sekdz59
-date: 13 January 2026
+date: 4 August 2026
 bibliography: paper.bib
 
 ---
@@ -35,7 +35,7 @@ bibliography: paper.bib
 
 Solving large dense linear systems and eigenvalue problems is a core requirement in many areas of scientific computing, but scaling these operations beyond a single GPU remains challenging within modern programming frameworks. While highly optimized multi-GPU solver libraries exist, they are typically difficult to integrate into composable, just-in-time (JIT) compiled Python workflows.
 
-JAXMg provides distributed dense linear algebra for JAX, enabling linear solves and decompositions for matrices that exceed single-GPU memory limits. By interfacing JAX with NVIDIA’s cuSOLVERMp through an XLA Foreign Function Interface, JAXMg exposes distributed GPU solvers as JIT-compatible JAX primitives. This design allows scalable linear algebra to be embedded directly within JAX programs, preserving composability with JAX transformations and enabling multi-GPU and multi-node execution in end-to-end scientific workflows.
+JAXMg provides distributed dense linear algebra for JAX, enabling linear solves and decompositions for matrices that exceed single-GPU memory limits. By interfacing JAX with NVIDIA’s cuSOLVERMp through an XLA Foreign Function Interface, JAXMg exposes distributed GPU routines as JIT-compatible JAX primitives. This design allows scalable linear algebra to be embedded directly within JAX programs, preserving composability with JAX transformations and enabling multi-GPU and multi-node execution in end-to-end scientific workflows.
 
 # Statement of need
 
@@ -185,13 +185,44 @@ Across statistical inference, positive-definite linear solves are ubiquitous, pa
 
 The quadratic and determinant terms thus require a solve against the $N_{\mathrm{data}}\times N_{\mathrm{data}}$ matrix $\mathbf{K}+\boldsymbol{\Sigma}$ and its log determinant; analytically integrating linear nuisance parameters with Gaussian priors yields analogous operations for their posterior precision matrix. One application in which both requirements arise is cosmological inference of the 21-cm brightness-temperature field. As next-generation radio interferometers such as the Square Kilometre Array (SKA) come online, JAXMg's distributed Cholesky factorization allows such analyses to accommodate exascale datasets [@liu2026gpr] and higher-fidelity forward models with larger sets of nuisance parameters [@burba2023allsky] while remaining within JAX.
 
+
+Positive-definite solves also arise in stochastic reconfiguration (SR), a natural-gradient method widely used to optimize variational quantum states in variational Monte Carlo [@sorella1998green]. For a state $\psi_{\boldsymbol{\theta}}$, SR determines the parameter update $\delta\boldsymbol{\theta}$ from
+
+$$
+(\mathbf{S}+\lambda\mathbf{I})\delta\boldsymbol{\theta}
+= \mathbf{F},
+$$
+
+where $\mathbf{S}$ is the quantum geometric tensor, $\mathbf{F}$ is the variational force associated with the energy gradient, and $\lambda>0$ is a diagonal regularization. The Monte Carlo estimate of $\mathbf{S}$ is Hermitian positive semidefinite; the regularization makes it positive definite and therefore suitable for Cholesky factorization. Because this solve is repeated at every optimization step, explicitly forming $\mathbf{S}$ for $N_{\mathrm{par}}$ parameters requires an $N_{\mathrm{par}}\times N_{\mathrm{par}}$ dense matrix and can quickly become limited by single-GPU memory. Alternatively, in the MinSR formulation [@rende2024simple,@chen2024empowering], the neural tangent kernel is of size $N_{\mathrm{samples}}\times N_{\mathrm{samples}}$, which faces a similar problem as the number of Monte Carlo samples increases. JAXMg's distributed `potrs` allows the parameter update to remain within one JIT-compiled JAX workflow, enabling direct stochastic-reconfiguration solves for larger neural quantum states and other parameterized variational ansätze.
+JAXMg is integrated in the latest version of NetKet [@netket3:2022].
+
 ### General linear solve (`lu_solve`)
 
 Across computational electromagnetics, general linear solves are central to antenna simulations that model electromagnetic fields and their interaction with complex structures through numerical solutions of Maxwell's equations. A common approach is the method of moments [@Harrington1993], in which the governing integral equations are discretized to produce the dense complex system $ZI=V$, where $Z$ is the impedance matrix, $I$ contains the unknown current coefficients, and $V$ represents one or more excitations. Recovering the current coefficients therefore requires solving this general nonsingular system. One application in which this becomes computationally demanding is the full-wave simulation of mutual coupling across the 320-element core of the Hydrogen Epoch of Reionization Array for 21-cm cosmology [@gueuning2026mutual]. As precision requirements drive larger arrays and finer geometric meshes, the number of basis functions and hence the dimensions of $Z$ grow. JAXMg's distributed LU factorization allows the construction of $Z$, the solution of $ZI=V$, and downstream analysis to remain within a single compiled JAX workflow, supporting efficient end-to-end simulation at increasing model fidelity.
 
+
 ### Symmetric eigendecomposition (`syevd`)
 
+The time-dependent variational principle (TDVP) projects Schrödinger evolution onto the tangent space of a parameterized quantum state, producing equations of motion of the form [@Carleo2017,@schmitt2020quantum]
+
+$$
+\dot{\boldsymbol{\theta}}
+= -i\mathbf{S}^+ \mathbf{F},
+$$
+
+where $\mathbf{S}$ and $\mathbf{F}$ are the same objects as in the Cholesky-solve section. In practical time-dependent variational Monte Carlo calculations, redundant parameters, gauge directions, and Monte Carlo noise can make $\mathbf{S}$ singular or severely ill-conditioned. An eigendecomposition $\mathbf{S}=\mathbf{V}\boldsymbol{\Lambda}\mathbf{V}^{\dagger}$ exposes these directions and permits stable spectral regularization, for example by discarding eigenvalues below a threshold or replacing $\boldsymbol{\Lambda}^{-1}$ with a smooth pseudoinverse. Since the decomposition may be required at every stage of an ODE integrator, its memory and computational cost become substantial as the number of variational parameters grows. JAXMg's distributed `syevd` enables full-spectrum regularization and diagnostics to be carried out on matrices exceeding single-GPU memory while keeping state evaluation, Monte Carlo estimation, and time integration inside a compiled JAX program. JAXMg has been used for the t-VMC simulations of [@Wan2026BlurredSampling,@Wiersema2026].
+
 ### Singular-value decomposition (`gesvd`)
+
+Principal component analysis (PCA) uses the singular-value decomposition to identify dominant directions of variation in high-dimensional data. For a centered data matrix $X\in\mathbb{R}^{N_{\mathrm{samples}}\times N_{\mathrm{features}}}$,
+
+$$
+X=U\Sigma V^\mathsf{T},
+$$
+
+the columns of $V$ are the principal directions, while $U\Sigma$ contains the corresponding low-dimensional representations of the samples. The variance associated with the $i$th component is proportional to $\sigma_i^2$, allowing the data to be compressed by retaining only the leading singular values and vectors. JAXMg's distributed `gesvd` routine enables PCA for dense datasets whose sample or feature dimensions make the full data matrix and its decomposition too large for a single GPU.
+
+Singular-value decompositions are a central primitive in tensor-network algorithms for quantum many-body systems [@schollwock2011density; @banuls2023tensor]. After applying a local gate, contracting neighbouring tensors, or enlarging an auxiliary bond, the resulting tensor is reshaped into a matrix and decomposed as $X=U\Sigma V^\mathsf{T}$. Retaining the largest singular values yields the optimal low-rank approximation in the Frobenius norm, controls the tensor-network bond dimension, and provides an estimate of the truncation error through the discarded singular-value weight. The SVD is therefore the backbone of modern tensor network algorithms such as the density matrix renormalization group (DMRG), time-evolving block decimation (TEBD) and approximate contraction schemes for hig-dimensional networks. As the physical dimension and bond dimensions grow, the intermediate matrices entering these decompositions can become considerably larger than the tensors retained after truncation and may exceed the memory of one GPU. JAXMg's distributed `gesvd` allows tensor contractions, reshaping, singular-vector construction, and truncation to remain within a JIT-compiled JAX workflow, supporting tensor-network calculations at larger bond dimensions without exporting arrays to an external distributed solver.
 
 ## Performance and scaling
 
@@ -216,12 +247,9 @@ GitHub Copilot was used during software development for code exploration and deb
 
 # Acknowledgements
 
-I want to thank Dennis Bollweg, Alex Chavin, Geraud Krawezik, Dylan Simon and Nils Wentzell for their help with developing the code. I also want to acknowledge the help of Ao Chen and Riccardo Rende with testing the code in applied settings. 
- 
-I am grateful to Simon Tartakovsky for his suggestions on the 1D cyclic algorithm. Finally, I want to thank Filippo Vincentini for his suggestions on code distribution. I acknowledge support from the Flatiron Institute. The Flatiron Institute is a division of the Simons Foundation. 
+We want to thank Dennis Bollweg, Alex Chavin, Geraud Krawezik, Dylan Simon and Nils Wentzell for their help with developing the code. We also want to acknowledge the help of Ao Chen and Riccardo Rende with testing the code in applied settings. RW is grateful to Simon Tartakovsky for his suggestions on the 1D cyclic algorithm. Finally, we want to thank Filippo Vincentini for his suggestions on code distribution. I acknowledge support from the Flatiron Institute. The Flatiron Institute is a division of the Simons Foundation. 
 
 The authors acknowledge the use of resources provided by the Isambard-AI National AI Research Resource (AIRR). Isambard-AI [@Isamabrd_2024] is operated by the University of Bristol and is funded by the UK Government’s Department for Science, Innovation and Technology (DSIT) via UK Research and Innovation; and the Science and Technology Facilities Council [ST/AIRR/I-A-I/1023].
-
 
 
 # References
