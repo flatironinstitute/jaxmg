@@ -203,7 +203,7 @@ Across computational electromagnetics, general linear solves are central to ante
 
 ### Symmetric eigendecomposition (`syevd`)
 
-The time-dependent variational principle (TDVP) projects Schrödinger evolution onto the tangent space of a parameterized quantum state, producing equations of motion of the form [@Carleo2017,@schmitt2020quantum]
+The time-dependent variational principle (TDVP) projects Schrödinger evolution onto the tangent space of a parameterized quantum state, producing equations of motion of the form [@Carleo2017,@Schmitt2020QuantumDynamics]
 
 $$
 \dot{\boldsymbol{\theta}}
