@@ -12,13 +12,13 @@
         <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
-        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/examples/potrs/">
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/examples/gesvd/">
       
       
-        <link rel="prev" href="../choose_tile_size/">
+        <link rel="prev" href="../syevd/">
       
       
-        <link rel="next" href="../lu_solve/">
+        <link rel="next" href="../../api/">
       
       
       <link rel="icon" href="../../_static/square.png">
@@ -26,7 +26,7 @@
     
     
       
-        <title>Cholesky solve - JAXMg</title>
+        <title>Singular-value decomposition - JAXMg</title>
       
     
     
@@ -84,7 +84,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#cholesky-solve" class="md-skip">
+        <a href="#singular-value-decomposition" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Cholesky solve
+              Singular-value decomposition
             
           </span>
         </div>
@@ -569,32 +569,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    Cholesky solve
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../potrs/" class="md-nav__link">
         
   
   
@@ -605,77 +583,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#common-setup" class="md-nav__link">
-    <span class="md-ellipsis">
-      Common setup
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#solve-with-potrs" class="md-nav__link">
-    <span class="md-ellipsis">
-      Solve with potrs
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#advanced-control-the-outer-jaxjit" class="md-nav__link">
-    <span class="md-ellipsis">
-      Advanced: control the outer jax.jit
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Advanced: control the outer jax.jit">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#case-1-a-and-b-are-arguments-of-the-jitted-function" class="md-nav__link">
-    <span class="md-ellipsis">
-      Case 1: a and b are arguments of the jitted function
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#case-2-a-and-b-are-created-inside-the-jitted-function" class="md-nav__link">
-    <span class="md-ellipsis">
-      Case 2: a and b are created inside the jitted function
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -731,10 +638,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../gesvd/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Singular-value decomposition
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -745,6 +674,86 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#common-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common setup
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reduced-decomposition" class="md-nav__link">
+    <span class="md-ellipsis">
+      Reduced decomposition
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#select-vector-outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Select vector outputs
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#advanced-control-the-outer-jaxjit" class="md-nav__link">
+    <span class="md-ellipsis">
+      Advanced: control the outer jax.jit
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Advanced: control the outer jax.jit">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#case-1-a-is-an-argument-of-the-jitted-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      Case 1: a is an argument of the jitted function
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#case-2-a-is-created-inside-the-jitted-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      Case 2: a is created inside the jitted function
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1100,9 +1109,18 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#solve-with-potrs" class="md-nav__link">
+  <a href="#reduced-decomposition" class="md-nav__link">
     <span class="md-ellipsis">
-      Solve with potrs
+      Reduced decomposition
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#select-vector-outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Select vector outputs
     </span>
   </a>
   
@@ -1119,18 +1137,18 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#case-1-a-and-b-are-arguments-of-the-jitted-function" class="md-nav__link">
+  <a href="#case-1-a-is-an-argument-of-the-jitted-function" class="md-nav__link">
     <span class="md-ellipsis">
-      Case 1: a and b are arguments of the jitted function
+      Case 1: a is an argument of the jitted function
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#case-2-a-and-b-are-created-inside-the-jitted-function" class="md-nav__link">
+  <a href="#case-2-a-is-created-inside-the-jitted-function" class="md-nav__link">
     <span class="md-ellipsis">
-      Case 2: a and b are created inside the jitted function
+      Case 2: a is created inside the jitted function
     </span>
   </a>
   
@@ -1157,26 +1175,14 @@
 
 
 
-<h1 id="cholesky-solve">Cholesky solve<a class="headerlink" href="#cholesky-solve" title="Permanent link">¤</a></h1>
-<p><code>jaxmg.potrs</code> solves <span class="arithmatex">\(Ax=B\)</span> for a symmetric or Hermitian positive-definite
-matrix. For a normal solve, use <code>potrs</code>. It provides the high-level interface
-and internally handles JIT compilation, buffer donation, input/output aliasing,
-padding, and distributed execution.</p>
-<p>The same Cholesky factorization can also return the log determinant of the
-input matrix:</p>
-<div class="arithmatex">\[
-\log\det(A) = 2\sum_i \log |L_{ii}|,
-\qquad A=LL^H.
-\]</div>
-<p>This quantity appears alongside the solve in Gaussian log likelihoods. For
-example, Gaussian process regression requires both
-<span class="arithmatex">\((K+\sigma^2I)^{-1}y\)</span> and <span class="arithmatex">\(\log\det(K+\sigma^2I)\)</span>, while analytical
-marginalisation introduces equivalent quadratic and log-determinant terms.
-JAXMg computes both from the same distributed factorization, avoiding a second
-factorization or a separate determinant calculation.</p>
+<h1 id="singular-value-decomposition">Singular-value decomposition<a class="headerlink" href="#singular-value-decomposition" title="Permanent link">¤</a></h1>
+<p><code>jaxmg.gesvd</code> computes the singular-value decomposition of an <span class="arithmatex">\(M \times N\)</span> real
+or complex matrix <span class="arithmatex">\(A\)</span> (<span class="arithmatex">\(A = U \Sigma V^{\dagger}\)</span>). The default reduced
+decomposition follows the JAX return order <code>(U, s, Vh)</code>.</p>
 <h2 id="common-setup">Common setup<a class="headerlink" href="#common-setup" title="Permanent link">¤</a></h2>
-<p>The following setup uses a degenerate two-dimensional process grid with one
-Python process per GPU:</p>
+<p>This example uses four Python processes and a <span class="arithmatex">\(2 \times 2\)</span> process grid. The
+matrix dimensions are chosen so A and the reduced U and Vh outputs are evenly
+divisible by the process grid and local dimensions are divisible by <code>T_A</code>.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
 
 <span class="n">jax</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="s2">&quot;jax_enable_x64&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
@@ -1184,157 +1190,167 @@ Python process per GPU:</p>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">jax.sharding</span><span class="w"> </span><span class="kn">import</span> <span class="n">NamedSharding</span><span class="p">,</span> <span class="n">PartitionSpec</span> <span class="k">as</span> <span class="n">P</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">potrs</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">gesvd</span>
 
 
-<span class="n">num_processes</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_count</span><span class="p">()</span>
-<span class="n">mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="n">num_processes</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">))</span>
+<span class="n">mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">))</span>
 <span class="n">jax</span><span class="o">.</span><span class="n">set_mesh</span><span class="p">(</span><span class="n">mesh</span><span class="p">)</span>
 <span class="n">matrix_specs</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">)</span>
-<span class="n">a_sharding</span> <span class="o">=</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="p">)</span>
-<span class="n">b_sharding</span> <span class="o">=</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span>
+<span class="n">matrix_sharding</span> <span class="o">=</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="p">)</span>
 
-<span class="n">T_A</span> <span class="o">=</span> <span class="mi">64</span>
-<span class="n">N</span> <span class="o">=</span> <span class="n">T_A</span> <span class="o">*</span> <span class="n">num_processes</span>
+<span class="n">T_A</span> <span class="o">=</span> <span class="mi">128</span>
+<span class="n">M</span> <span class="o">=</span> <span class="mi">1024</span>
+<span class="n">N</span> <span class="o">=</span> <span class="mi">512</span>
+<span class="n">K</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">)</span>
 <span class="n">dtype</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">float64</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">make_problem</span><span class="p">():</span>
-    <span class="n">a</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">N</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">))</span>
-    <span class="n">b</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">N</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
-    <span class="n">a</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">a_sharding</span><span class="p">)</span>
-    <span class="n">b</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">b_sharding</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span>
-
-
-<span class="n">expected</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">N</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+<span class="nd">@jax</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">make_matrix</span><span class="p">():</span>
+    <span class="n">singular_values</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">2.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">at</span><span class="p">[</span><span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">K</span><span class="p">),</span> <span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">K</span><span class="p">)]</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">singular_values</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">jax</span><span class="o">.</span><span class="n">reshard</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">matrix_sharding</span><span class="p">),</span> <span class="n">singular_values</span>
 </code></pre></div>
-<h2 id="solve-with-potrs">Solve with <code>potrs</code><a class="headerlink" href="#solve-with-potrs" title="Permanent link">¤</a></h2>
-<p>Pass the sharded matrix and solve input directly to <code>potrs</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">make_problem</span><span class="p">()</span>
+<h2 id="reduced-decomposition">Reduced decomposition<a class="headerlink" href="#reduced-decomposition" title="Permanent link">¤</a></h2>
+<p>Pass the sharded matrix directly to <code>gesvd</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="n">a</span><span class="p">,</span> <span class="n">expected_singular_values</span> <span class="o">=</span> <span class="n">make_matrix</span><span class="p">()</span>
 
-<span class="n">x</span> <span class="o">=</span> <span class="n">potrs</span><span class="p">(</span>
+<span class="n">u</span><span class="p">,</span> <span class="n">singular_values</span><span class="p">,</span> <span class="n">vh</span> <span class="o">=</span> <span class="n">gesvd</span><span class="p">(</span>
     <span class="n">a</span><span class="p">,</span>
-    <span class="n">b</span><span class="p">,</span>
     <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
     <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
     <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="n">x</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+<span class="n">vh</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
 
-<span class="n">correct</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">x</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">expected</span><span class="p">)</span>
+<span class="n">correct</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">singular_values</span><span class="p">,</span> <span class="n">expected_singular_values</span><span class="p">)</span>
 <span class="n">correct</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
 
 <span class="k">if</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_index</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
     <span class="nb">print</span><span class="p">(</span><span class="n">correct</span><span class="p">)</span>
 </code></pre></div>
-<p>Set <code>return_logdet=True</code> to return the solution and log determinant together:</p>
-<div class="highlight"><pre><span></span><code><span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">make_problem</span><span class="p">()</span>
-
-<span class="n">x</span><span class="p">,</span> <span class="n">logdet</span> <span class="o">=</span> <span class="n">potrs</span><span class="p">(</span>
+<p>The reduced outputs have shapes <code>(M, K)</code>, <code>(K,)</code>, and <code>(K, N)</code>. Set
+<code>full_matrices=True</code> to request U with shape <code>(M, M)</code> and Vh with shape
+<code>(N, N)</code>.</p>
+<h2 id="select-vector-outputs">Select vector outputs<a class="headerlink" href="#select-vector-outputs" title="Permanent link">¤</a></h2>
+<p>U and Vh can be selected independently:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Singular values only.</span>
+<span class="n">a</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">make_matrix</span><span class="p">()</span>
+<span class="n">singular_values</span> <span class="o">=</span> <span class="n">gesvd</span><span class="p">(</span>
     <span class="n">a</span><span class="p">,</span>
-    <span class="n">b</span><span class="p">,</span>
     <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
     <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
     <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
-    <span class="n">return_logdet</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">compute_u</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">compute_vh</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="k">if</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_index</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="n">logdet</span><span class="p">)</span>
+<span class="c1"># U and singular values, without Vh.</span>
+<span class="n">a</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">make_matrix</span><span class="p">()</span>
+<span class="n">u</span><span class="p">,</span> <span class="n">singular_values</span> <span class="o">=</span> <span class="n">gesvd</span><span class="p">(</span>
+    <span class="n">a</span><span class="p">,</span>
+    <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
+    <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
+    <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
+    <span class="n">compute_vh</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
 </code></pre></div>
-<p>A one-dimensional <code>b</code> is also accepted; in that case <code>potrs</code> returns a
-one-dimensional solution.</p>
+<p>Disabling an output avoids allocating and restoring that distributed vector
+matrix.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p>The public wrapper will donate <code>a</code> and <code>b</code> to the compiled solve. Do not use
- those input arrays after the call.</p>
+<p>The public wrapper donates <code>a</code> to the compiled decomposition. Do not use
+ the input array after the call.</p>
 </div>
-<p>There is no need to apply <code>jax.jit</code> or specify <code>donate_argnums</code>: <code>potrs</code> uses
-an internally cached jitted wrapper and manages donation and aliasing itself.
-If the solve must be embedded inside a larger jitted calculation, use the
-advanced interface below instead of wrapping <code>potrs</code> in another <code>jax.jit</code>.</p>
+<p>There is no need to apply <code>jax.jit</code> or specify <code>donate_argnums</code>: <code>gesvd</code> uses
+an internally cached jitted wrapper. Use the context interface below when the
+decomposition must be embedded in a larger compiled calculation.</p>
 <h2 id="advanced-control-the-outer-jaxjit">Advanced: control the outer <code>jax.jit</code><a class="headerlink" href="#advanced-control-the-outer-jaxjit" title="Permanent link">¤</a></h2>
-<p><code>potrs_shardmap_ctx</code> runs the same padding, redistribution, Cholesky
-factorization, solve, and reverse redistribution as <code>potrs</code>. The difference is
-that it does not create an internal <code>jax.jit</code>. This allows the solve to become
-one stage of a larger function compiled by the caller.</p>
-<p>The context interface returns <code>(a_work, x, status)</code> rather than only <code>x</code>.
-<code>a_work</code> is the native work buffer that aliases the input matrix. Whether it
-must be returned from the outer function depends on where the input matrix was
-created.</p>
+<p><code>gesvd_shardmap_ctx</code> runs the same padding, redistribution, and decomposition
+as <code>gesvd</code>, but leaves the outer <code>jax.jit</code> boundary to the caller. This allows
+the decomposition to become one stage of a larger compiled calculation.</p>
+<p>The context interface returns <code>a_work</code> before the selected numerical outputs.
+This is the overwritten input-matrix work buffer. Whether it must leave the
+outer function depends on where the input matrix was created.</p>
 <p>The advanced examples additionally use:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">potrs_shardmap_ctx</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">gesvd_shardmap_ctx</span>
 </code></pre></div>
-<h3 id="case-1-a-and-b-are-arguments-of-the-jitted-function">Case 1: <code>a</code> and <code>b</code> are arguments of the jitted function<a class="headerlink" href="#case-1-a-and-b-are-arguments-of-the-jitted-function" title="Permanent link">¤</a></h3>
-<p>When existing arrays enter the outer jitted function as arguments, donate them
-with <code>donate_argnums</code>. Return <code>a_work</code> so the donated input matrix has an
-<span class="arithmatex">\(A\)</span>-sized output alias at the outer compiled boundary:</p>
-<div class="highlight"><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">donate_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">compiled_solve</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
-    <span class="n">a_work</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">potrs_shardmap_ctx</span><span class="p">(</span>
+<h3 id="case-1-a-is-an-argument-of-the-jitted-function">Case 1: <code>a</code> is an argument of the jitted function<a class="headerlink" href="#case-1-a-is-an-argument-of-the-jitted-function" title="Permanent link">¤</a></h3>
+<p>When an existing matrix enters the outer jitted function as an argument, donate
+it with <code>donate_argnums</code>. Return <code>a_work</code> so the donated input has an <span class="arithmatex">\(A\)</span>-sized
+output alias at the outer compiled boundary:</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">donate_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">compiled_svd</span><span class="p">(</span><span class="n">a</span><span class="p">):</span>
+    <span class="n">a_work</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">singular_values</span><span class="p">,</span> <span class="n">vh</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">gesvd_shardmap_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
-        <span class="n">b</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
         <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
         <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
     <span class="p">)</span>
 
-    <span class="c1"># Further JAX operations on x can be part of this compiled function.</span>
-    <span class="n">scaled_x</span> <span class="o">=</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">x</span>
-    <span class="k">return</span> <span class="n">a_work</span><span class="p">,</span> <span class="n">scaled_x</span><span class="p">,</span> <span class="n">status</span>
+    <span class="c1"># Further JAX operations can be part of this compiled function.</span>
+    <span class="n">scaled_singular_values</span> <span class="o">=</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">singular_values</span>
+    <span class="k">return</span> <span class="n">a_work</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">scaled_singular_values</span><span class="p">,</span> <span class="n">vh</span><span class="p">,</span> <span class="n">status</span>
 
 
-<span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">make_problem</span><span class="p">()</span>
-<span class="n">a_work</span><span class="p">,</span> <span class="n">scaled_x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">compiled_solve</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
-<span class="n">scaled_x</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+<span class="n">a</span><span class="p">,</span> <span class="n">expected_singular_values</span> <span class="o">=</span> <span class="n">make_matrix</span><span class="p">()</span>
+<span class="n">a_work</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">scaled_singular_values</span><span class="p">,</span> <span class="n">vh</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">compiled_svd</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+<span class="n">vh</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
 
-<span class="n">correct</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">scaled_x</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">expected</span><span class="p">)</span>
+<span class="n">correct</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">scaled_singular_values</span><span class="p">,</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">expected_singular_values</span><span class="p">)</span>
 <span class="n">correct</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
 
 <span class="k">if</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_index</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
     <span class="nb">print</span><span class="p">(</span><span class="n">correct</span><span class="p">)</span>
 </code></pre></div>
-<p>Returning <code>a_work</code> from the outer jitted function is required when <code>a</code> is
-donated. It is an opaque native work buffer and should not be interpreted as
-the original input matrix. The caller should keep it in the returned
-pytree until the compiled computation has completed.</p>
-<h3 id="case-2-a-and-b-are-created-inside-the-jitted-function">Case 2: <code>a</code> and <code>b</code> are created inside the jitted function<a class="headerlink" href="#case-2-a-and-b-are-created-inside-the-jitted-function" title="Permanent link">¤</a></h3>
-<p>If the outer compiled function constructs <code>a</code> and <code>b</code> itself, they are internal
-temporaries rather than donated arguments. XLA controls their lifetime and can
-reuse their storage after the solve. In this case, <code>a_work</code> can remain inside
-the compiled function:</p>
+<p>Returning <code>a_work</code> is required when <code>a</code> is donated. It is opaque overwritten
+solver storage, not a numerical SVD output, and should remain in the returned
+pytree until the compiled calculation has completed. Requested U and Vh
+matrices occupy separate allocations because cuSOLVERMp does not permit them to
+overlap A.</p>
+<h3 id="case-2-a-is-created-inside-the-jitted-function">Case 2: <code>a</code> is created inside the jitted function<a class="headerlink" href="#case-2-a-is-created-inside-the-jitted-function" title="Permanent link">¤</a></h3>
+<p>If the outer compiled function constructs <code>a</code> itself, the matrix is an internal
+temporary rather than a donated argument. XLA controls its lifetime, so
+<code>a_work</code> can remain inside the compiled function:</p>
 <div class="highlight"><pre><span></span><code><span class="nd">@jax</span><span class="o">.</span><span class="n">jit</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">build_and_solve</span><span class="p">(</span><span class="n">diagonal</span><span class="p">):</span>
-    <span class="n">a</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">diagonal</span><span class="p">)</span>
-    <span class="n">b</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">N</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">diagonal</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">build_and_decompose</span><span class="p">(</span><span class="n">scale</span><span class="p">):</span>
+    <span class="n">expected_singular_values</span> <span class="o">=</span> <span class="n">scale</span> <span class="o">*</span> <span class="n">jnp</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span>
+        <span class="mf">2.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span>
+    <span class="p">)</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">at</span><span class="p">[</span><span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">K</span><span class="p">),</span> <span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">K</span><span class="p">)]</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">expected_singular_values</span><span class="p">)</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">reshard</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">matrix_sharding</span><span class="p">)</span>
 
-    <span class="n">a</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">reshard</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">a_sharding</span><span class="p">)</span>
-    <span class="n">b</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">reshard</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">b_sharding</span><span class="p">)</span>
-
-    <span class="n">_</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">potrs_shardmap_ctx</span><span class="p">(</span>
+    <span class="n">_</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">singular_values</span><span class="p">,</span> <span class="n">vh</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">gesvd_shardmap_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
-        <span class="n">b</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
         <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
         <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
     <span class="p">)</span>
 
-    <span class="c1"># a_work does not need to leave the function because a was created here.</span>
-    <span class="k">return</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">x</span><span class="p">,</span> <span class="n">status</span>
+    <span class="c1"># a_work remains internal because a was created inside this function.</span>
+    <span class="k">return</span> <span class="n">u</span><span class="p">,</span> <span class="n">singular_values</span><span class="p">,</span> <span class="n">vh</span><span class="p">,</span> <span class="n">expected_singular_values</span><span class="p">,</span> <span class="n">status</span>
 
 
-<span class="n">diagonal</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">N</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
-<span class="n">diagonal</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">diagonal</span><span class="p">,</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">)))</span>
-<span class="n">scaled_x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">build_and_solve</span><span class="p">(</span><span class="n">diagonal</span><span class="p">)</span>
-<span class="n">scaled_x</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+<span class="n">scale</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="mf">2.0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+<span class="n">u</span><span class="p">,</span> <span class="n">singular_values</span><span class="p">,</span> <span class="n">vh</span><span class="p">,</span> <span class="n">expected_singular_values</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">build_and_decompose</span><span class="p">(</span>
+    <span class="n">scale</span>
+<span class="p">)</span>
+<span class="n">vh</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+
+<span class="n">correct</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">singular_values</span><span class="p">,</span> <span class="n">expected_singular_values</span><span class="p">)</span>
+<span class="n">correct</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+
+<span class="k">if</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_index</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">correct</span><span class="p">)</span>
 </code></pre></div>
-<p><code>donate_argnums</code> is not needed for the internally created <code>a</code> and <code>b</code>: they are
-not arguments of <code>build_and_solve</code>. Only donate an outer argument such as
-<code>diagonal</code> if the caller no longer needs that input after the call.</p>
-<p>See the <a href="../../api/potrs/"><code>potrs</code> API reference</a> for the complete argument and
+<p><code>donate_argnums</code> is not needed for the internally created <code>a</code>, because it is
+not an argument of <code>build_and_decompose</code>. Only donate an outer argument such as
+<code>scale</code> if the caller no longer needs it after the call.</p>
+<p>See the <a href="../../api/gesvd/"><code>gesvd</code> API reference</a> for the complete argument and
 return-value documentation.</p>
 
 

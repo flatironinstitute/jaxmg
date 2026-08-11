@@ -683,6 +683,29 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="examples/gesvd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Singular-value decomposition
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -815,6 +838,29 @@
   
   <span class="md-ellipsis">
     jaxmg.syevd
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="api/gesvd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.gesvd
     
   </span>
   
@@ -1042,8 +1088,12 @@ routines, while retaining a familiar JAX interface.</p>
 <li><a href="api/lu_solve/"><code>lu_solve</code></a>: Solves the system of linear equations <span class="arithmatex">\(Ax=B\)</span>,
   where <span class="arithmatex">\(A\)</span> is an <span class="arithmatex">\(N \times N\)</span> general nonsingular matrix, using a pivoted LU
   decomposition.</li>
-<li><a href="api/syevd/"><code>syevd</code></a>: Computes the eigenvalues and optional eigenvectors of
-  an <span class="arithmatex">\(N \times N\)</span> symmetric or Hermitian matrix.</li>
+<li><a href="api/syevd/"><code>syevd</code></a>: Computes the eigenvalues <span class="arithmatex">\(\lambda_i\)</span> and optional
+  eigenvectors <span class="arithmatex">\(v_i\)</span> of an <span class="arithmatex">\(N \times N\)</span> symmetric or Hermitian matrix <span class="arithmatex">\(A\)</span>,
+  satisfying <span class="arithmatex">\(Av_i=\lambda_i v_i\)</span>.</li>
+<li><a href="api/gesvd/"><code>gesvd</code></a>: Computes the singular-value decomposition of an
+  <span class="arithmatex">\(M \times N\)</span> real or complex matrix <span class="arithmatex">\(A\)</span> (<span class="arithmatex">\(A = U \Sigma V^{\dagger}\)</span>),
+  returning the singular values and optional left and right singular vectors.</li>
 </ul>
 <h2 id="how-jaxmg-works">How JAXMg works<a class="headerlink" href="#how-jaxmg-works" title="Permanent link">¤</a></h2>
 <p>JAXMg connects JAX to NVIDIA's distributed
@@ -1062,6 +1112,7 @@ memory overhead.</p>
 <li><code>lu_solve</code>: <a href="https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf"><code>cusolverMpGetrf</code></a>
   and <a href="https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs"><code>cusolverMpGetrs</code></a></li>
 <li><code>syevd</code>: <a href="https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd"><code>cusolverMpSyevd</code></a></li>
+<li><code>gesvd</code>: <a href="https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgesvd"><code>cusolverMpGesvd</code></a></li>
 </ul>
 <p>For more details, see the <a href="api/">API reference</a> and the accompanying
 <a href="https://arxiv.org/abs/2601.14466">paper</a>.</p>

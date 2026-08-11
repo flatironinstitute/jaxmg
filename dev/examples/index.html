@@ -562,9 +562,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-choose-a-tile-size-t_a" class="md-nav__link">
+  <a href="#2-choose-a-tile-size" class="md-nav__link">
     <span class="md-ellipsis">
-      2. Choose a tile size \(T_A\)
+      2. Choose a tile size
     </span>
   </a>
   
@@ -693,6 +693,29 @@
   
   <span class="md-ellipsis">
     Symmetric or Hermitian eigensolve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="gesvd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Singular-value decomposition
     
   </span>
   
@@ -835,6 +858,29 @@
   
   <span class="md-ellipsis">
     jaxmg.syevd
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/gesvd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.gesvd
     
   </span>
   
@@ -1030,9 +1076,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-choose-a-tile-size-t_a" class="md-nav__link">
+  <a href="#2-choose-a-tile-size" class="md-nav__link">
     <span class="md-ellipsis">
-      2. Choose a tile size \(T_A\)
+      2. Choose a tile size
     </span>
   </a>
   
@@ -1073,8 +1119,8 @@ launching a distributed JAX program to running a cuSOLVERMp routine.</p>
 assigning one GPU to each process, and constructing the two-dimensional device
 mesh used by the matrix.</p>
 <p><a href="execution/">Configure distributed execution</a></p>
-<h2 id="2-choose-a-tile-size-t_a">2. Choose a tile size <span class="arithmatex">\(T_A\)</span><a class="headerlink" href="#2-choose-a-tile-size-t_a" title="Permanent link">¤</a></h2>
-<p>Choose a cuSOLVERMp tile size that divides both dimensions of each local matrix
+<h2 id="2-choose-a-tile-size">2. Choose a tile size<a class="headerlink" href="#2-choose-a-tile-size" title="Permanent link">¤</a></h2>
+<p>Choose a cuSOLVERMp tile size <span class="arithmatex">\(T_A\)</span> that divides both dimensions of each local matrix
 shard. Choosing an appropriate tile size can substantially improve runtime and
 reduce memory use.</p>
 <p><a href="choose_tile_size/">Choose a tile size</a></p>
@@ -1086,6 +1132,9 @@ reduce memory use.</p>
   <code>lu_solve</code>.</li>
 <li><a href="syevd/">Symmetric or Hermitian eigensolve</a> computes eigenvalues and
   optional eigenvectors with <code>syevd</code>.</li>
+<li><a href="gesvd/">Singular-value decomposition</a> computes the singular values and
+  optional left and right singular vectors of a real or complex matrix with
+  <code>gesvd</code>.</li>
 </ul>
 
 

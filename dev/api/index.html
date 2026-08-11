@@ -15,7 +15,7 @@
         <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/api/">
       
       
-        <link rel="prev" href="../examples/syevd/">
+        <link rel="prev" href="../examples/gesvd/">
       
       
         <link rel="next" href="potrs/">
@@ -629,6 +629,29 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/gesvd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Singular-value decomposition
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -767,6 +790,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#gesvd" class="md-nav__link">
+    <span class="md-ellipsis">
+      gesvd
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -835,6 +867,29 @@
   
   <span class="md-ellipsis">
     jaxmg.syevd
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="gesvd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.gesvd
     
   </span>
   
@@ -1047,6 +1102,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#gesvd" class="md-nav__link">
+    <span class="md-ellipsis">
+      gesvd
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1064,7 +1128,7 @@
 
 
 <h1 id="api-reference">API reference<a class="headerlink" href="#api-reference" title="Permanent link">¤</a></h1>
-<p>This page highlights the three primary public functions from the jaxmg package.
+<p>This page highlights the primary public functions from the jaxmg package.
 Supported datatypes are <code>jax.numpy.float32</code>, <code>jax.numpy.float64</code>,
 <code>jax.numpy.complex64</code>, and <code>jax.numpy.complex128</code>.</p>
 <p>The routines accept ordinary JAX arrays sharded over a two-dimensional mesh.
@@ -1102,6 +1166,12 @@ A v = \lambda v \quad\Rightarrow\quad A = V \Lambda V^{\top} \;\text{(real)}\qua
 <p>Compute eigenvalues <span class="arithmatex">\(\Lambda\)</span> and optionally eigenvectors <span class="arithmatex">\(V\)</span> of a symmetric or
 Hermitian matrix.</p>
 <p><a href="syevd/"><code>syevd</code> API and usage</a></p>
+<hr />
+<h2 id="gesvd"><code>gesvd</code><a class="headerlink" href="#gesvd" title="Permanent link">¤</a></h2>
+<p>Compute the singular-value decomposition of an <span class="arithmatex">\(M \times N\)</span> real or complex
+matrix <span class="arithmatex">\(A\)</span> (<span class="arithmatex">\(A = U \Sigma V^{\dagger}\)</span>), returning the singular values and
+independently selected left and right singular vectors in reduced or full form.</p>
+<p><a href="gesvd/"><code>gesvd</code> API and usage</a></p>
 
 
 

@@ -627,6 +627,29 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/gesvd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Singular-value decomposition
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -759,6 +782,29 @@
   
   <span class="md-ellipsis">
     jaxmg.syevd
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gesvd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.gesvd
     
   </span>
   
@@ -1203,9 +1249,20 @@ with a code change. Contributions of any size are welcome.</p>
 </ol>
 <h2 id="current-development-priority">Current development priority<a class="headerlink" href="#current-development-priority" title="Permanent link">¤</a></h2>
 <ol>
-<li>Some native failures still use <code>std::runtime_error</code>. Contributions that
+<li>
+<p>Some native failures still use <code>std::runtime_error</code>. Contributions that
    express these consistently through XLA FFI error handling are particularly
-   useful.</li>
+   useful.</p>
+</li>
+<li>
+<p>We would like to make the JAXMg solver routines differentiable. This will
+   require custom JVP and VJP rules that tell JAX how to propagate derivatives
+   through the FFI-backed distributed calculations.</p>
+</li>
+<li>
+<p>Provide users with a small tool to check their compute fabric and HPC setup.
+   This will make it easier for users to debug and for us to provide support.</p>
+</li>
 </ol>
 <h2 id="pull-a-clean-copy">Pull a clean copy<a class="headerlink" href="#pull-a-clean-copy" title="Permanent link">¤</a></h2>
 <p>Fork the repository first if you do not have write access. Then clone your fork

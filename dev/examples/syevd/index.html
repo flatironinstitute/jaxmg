@@ -18,7 +18,7 @@
         <link rel="prev" href="../lu_solve/">
       
       
-        <link rel="next" href="../../api/">
+        <link rel="next" href="../gesvd/">
       
       
       <link rel="icon" href="../../_static/square.png">
@@ -727,6 +727,29 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gesvd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Singular-value decomposition
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -859,6 +882,29 @@
   
   <span class="md-ellipsis">
     jaxmg.syevd
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gesvd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.gesvd
     
   </span>
   
@@ -1112,11 +1158,11 @@
 
 
 <h1 id="symmetric-or-hermitian-eigensolve">Symmetric or Hermitian eigensolve<a class="headerlink" href="#symmetric-or-hermitian-eigensolve" title="Permanent link">¤</a></h1>
-<p><code>jaxmg.syevd</code> computes the eigenvalues and, optionally, eigenvectors of a
-symmetric real matrix or Hermitian complex matrix. For a normal eigensolve, use
-<code>syevd</code>. It provides the high-level interface and internally handles JIT
-compilation, buffer donation, input/output aliasing, padding, and distributed
-execution.</p>
+<p><code>jaxmg.syevd</code> computes the eigenvalues <span class="arithmatex">\(\lambda_i\)</span> and, optionally, eigenvectors
+<span class="arithmatex">\(v_i\)</span> of a symmetric real or Hermitian complex matrix <span class="arithmatex">\(A\)</span>, satisfying
+<span class="arithmatex">\(Av_i=\lambda_i v_i\)</span>. For a normal eigensolve, use <code>syevd</code>. It provides the
+high-level interface and internally handles JIT compilation, buffer donation,
+input/output aliasing, padding, and distributed execution.</p>
 <h2 id="common-setup">Common setup<a class="headerlink" href="#common-setup" title="Permanent link">¤</a></h2>
 <p>The following setup uses a degenerate two-dimensional process grid with one
 Python process per GPU:</p>

@@ -15,7 +15,7 @@
         <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/">
       
       
-        <link rel="prev" href="../api/syevd/">
+        <link rel="prev" href="../api/gesvd/">
       
       
         <link rel="next" href="memory_distribution/">
@@ -629,6 +629,29 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/gesvd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Singular-value decomposition
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -771,6 +794,29 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/gesvd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.gesvd
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -897,6 +943,39 @@
       Memory-distribution stages
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Memory-distribution stages">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#stage-1-local-memory-layout-conversion" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stage 1: local memory layout conversion
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-2-top-left-and-edge-padding-alignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stage 2: top-left and edge-padding alignment
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-3-2d-block-cyclic-redistribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stage 3: 2D block-cyclic redistribution
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1045,6 +1124,39 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Memory-distribution stages">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#stage-1-local-memory-layout-conversion" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stage 1: local memory layout conversion
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-2-top-left-and-edge-padding-alignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stage 2: top-left and edge-padding alignment
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-3-2d-block-cyclic-redistribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stage 3: 2D block-cyclic redistribution
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1086,22 +1198,9 @@
 However, cuSOLVERMp requires column-major local buffers distributed in a 2D
 block-cyclic layout. The native backend bridges these layouts inside one fused
 C++/CUDA FFI call:</p>
-<div class="highlight"><pre><span></span><code>JAX block-sharded arrays
-        |
-        | Python validation and local tile-capacity padding
-        v
-fused native FFI call
-        |
-        | 1. local row-major -&gt; column-major conversion
-        | 2. top-left / edge-padding alignment
-        | 3. 2D block-cyclic redistribution
-        v
-cuSOLVERMp solver
-        |
-        | reverse 3 -&gt; reverse 2 -&gt; reverse 1
-        v
-JAX-facing result
-</code></pre></div>
+<figure class="memory-distribution-figure">
+  <a href="../_static/flowcharts/jaxmg_general.svg"><img alt="Three stages of edge-padding alignment over a two-by-four GPU process grid." class="memory-distribution-image" src="../_static/flowcharts/jaxmg_general.svg" /></a>
+</figure>
 <p>Python calculates static metadata such as the process grid, rank map, logical
 matrix size, tile size, and padded local capacity. C++/CUDA owns the data
 movement, cuSOLVERMp descriptors and workspace, solver calls, and reverse
@@ -1126,37 +1225,32 @@ N_{\mathrm{scratch}}
 stages reuse this allocation and process data in bounded batches. They do not
 allocate a second full local matrix.</p>
 <h2 id="memory-distribution-stages">Memory-distribution stages<a class="headerlink" href="#memory-distribution-stages" title="Permanent link">¤</a></h2>
-<details class="info">
-<summary>Stage 1: local memory layout conversion</summary>
+<p>The memory redistribution is performed in three stages.</p>
+<h3 id="stage-1-local-memory-layout-conversion">Stage 1: local memory layout conversion<a class="headerlink" href="#stage-1-local-memory-layout-conversion" title="Permanent link">¤</a></h3>
 <p>JAX presents each local matrix shard in row-major physical memory.
-cuSOLVERMp expects column-major local memory. CUDA kernels apply an in-place
-rectangular permutation using bounded scratch; the logical matrix is not
-transposed. This stage is local to each GPU and requires no communicator
-traffic.</p>
+  cuSOLVERMp expects column-major local memory. CUDA kernels apply an in-place
+  rectangular permutation using bounded scratch; the logical matrix is not
+  transposed. This stage is local to each GPU and requires no communicator
+  traffic.</p>
 <p><a href="memory_distribution/#stage-1-local-layout-conversion">Layout-conversion details</a></p>
-</details>
-<details class="info">
-<summary>Stage 2: top-left and edge-padding alignment</summary>
+<h3 id="stage-2-top-left-and-edge-padding-alignment">Stage 2: top-left and edge-padding alignment<a class="headerlink" href="#stage-2-top-left-and-edge-padding-alignment" title="Permanent link">¤</a></h3>
 <p>Python provides tile-aligned local capacity. Native horizontal compaction
-moves real column slabs toward the global left edge, then vertical
-compaction moves real row slabs toward the global top edge. Padding is
-consolidated on the global right and bottom edges.</p>
+  moves real column slabs toward the global left edge, then vertical
+  compaction moves real row slabs toward the global top edge. Padding is
+  consolidated on the global right and bottom edges.</p>
 <p>Moves in one horizontal wave are independent across process rows. Moves in
-one vertical wave are independent across process columns.</p>
+  one vertical wave are independent across process columns.</p>
 <p><a href="../_static/memory_distribution/block_cyclic_padding_alignment.svg"><img alt="Three stages of edge-padding alignment over a two-by-four GPU process grid." class="memory-distribution-image" src="../_static/memory_distribution/block_cyclic_padding_alignment.svg" /></a></p>
 <p><a href="memory_distribution/#stage-2-top-left-edge-padding-alignment">Edge-padding details</a></p>
-</details>
-<details class="info">
-<summary>Stage 3: 2D block-cyclic redistribution</summary>
+<h3 id="stage-3-2d-block-cyclic-redistribution">Stage 3: 2D block-cyclic redistribution<a class="headerlink" href="#stage-3-2d-block-cyclic-redistribution" title="Permanent link">¤</a></h3>
 <p>Whole tile slabs are redistributed in two separable phases. The
-column-owner phase assigns each tile to the correct process column; the
-row-owner phase then assigns each tile to the correct process row.</p>
+  column-owner phase assigns each tile to the correct process column; the
+  row-owner phase then assigns each tile to the correct process row.</p>
 <p>Same-rank moves use local CUDA operations. Cross-rank moves use the
-NCCL-backed communicator borrowed from XLA. The same communicator supplies
-the <code>ncclComm_t</code> used by cuSOLVERMp.</p>
+  NCCL-backed communicator borrowed from XLA. The same communicator supplies
+  the <code>ncclComm_t</code> used by cuSOLVERMp.</p>
 <p><a href="../_static/memory_distribution/block_cyclic_redistribution.svg"><img alt="Three stages of the two-dimensional block-cyclic redistribution over a two-by-four GPU process grid." class="memory-distribution-image" src="../_static/memory_distribution/block_cyclic_redistribution.svg" /></a></p>
 <p><a href="memory_distribution/#stage-3-2d-block-cyclic-redistribution">2D block-cyclic details</a></p>
-</details>
 <h2 id="solver-workflows">Solver workflows<a class="headerlink" href="#solver-workflows" title="Permanent link">¤</a></h2>
 <p>The redistribution stages are shared by all public routines:</p>
 <ul>
@@ -1167,6 +1261,9 @@ the <code>ncclComm_t</code> used by cuSOLVERMp.</p>
   the distributed pivot allocation.</li>
 <li><code>syevd</code> calls <code>cusolverMpSyevd</code> and materializes distributed eigenvalues plus
   eigenvectors when requested.</li>
+<li><code>gesvd</code> calls <code>cusolverMpGesvd</code> for rectangular matrices and restores only
+  the requested U and Vh outputs. Its shared scratch allocation is sized to the
+  largest redistribution requirement among A and those requested outputs.</li>
 </ul>
 <p>Each Python process owns one GPU and contributes one rank to the XLA/NCCL and
 cuSOLVERMp communicators. See <a href="../examples/execution/">Distributed execution</a>

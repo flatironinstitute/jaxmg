@@ -12,13 +12,13 @@
         <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
-        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/api/syevd/">
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/api/gesvd/">
       
       
-        <link rel="prev" href="../lu_solve/">
+        <link rel="prev" href="../syevd/">
       
       
-        <link rel="next" href="../gesvd/">
+        <link rel="next" href="../../technical_details/">
       
       
       <link rel="icon" href="../../_static/square.png">
@@ -26,7 +26,7 @@
     
     
       
-        <title>jaxmg.syevd - JAXMg</title>
+        <title>jaxmg.gesvd - JAXMg</title>
       
     
     
@@ -84,7 +84,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#jaxmgsyevd" class="md-skip">
+        <a href="#jaxmggesvd" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              jaxmg.syevd
+              jaxmg.gesvd
             
           </span>
         </div>
@@ -780,6 +780,29 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../syevd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.syevd
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -797,7 +820,7 @@
   
   
   <span class="md-ellipsis">
-    jaxmg.syevd
+    jaxmg.gesvd
     
   </span>
   
@@ -810,7 +833,7 @@
   
   
   <span class="md-ellipsis">
-    jaxmg.syevd
+    jaxmg.gesvd
     
   </span>
   
@@ -833,18 +856,18 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#jaxmg.syevd" class="md-nav__link">
+  <a href="#jaxmg.gesvd" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;syevd
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;gesvd
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#jaxmg.syevd_shardmap_ctx" class="md-nav__link">
+  <a href="#jaxmg.gesvd_shardmap_ctx" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;syevd_shardmap_ctx
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;gesvd_shardmap_ctx
     </span>
   </a>
   
@@ -854,29 +877,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../gesvd/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    jaxmg.gesvd
-    
-  </span>
-  
-
-      </a>
     </li>
   
 
@@ -1058,18 +1058,18 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#jaxmg.syevd" class="md-nav__link">
+  <a href="#jaxmg.gesvd" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;syevd
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;gesvd
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#jaxmg.syevd_shardmap_ctx" class="md-nav__link">
+  <a href="#jaxmg.gesvd_shardmap_ctx" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;syevd_shardmap_ctx
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;gesvd_shardmap_ctx
     </span>
   </a>
   
@@ -1091,51 +1091,49 @@
 
 
 
-<h1 id="jaxmgsyevd">jaxmg.syevd<a class="headerlink" href="#jaxmgsyevd" title="Permanent link">¤</a></h1>
-<p><code>syevd</code> computes the eigenvalues <span class="arithmatex">\(\lambda_i\)</span> and, by default, eigenvectors <span class="arithmatex">\(v_i\)</span>
-of a symmetric real or Hermitian complex matrix <span class="arithmatex">\(A\)</span>, satisfying
-<span class="arithmatex">\(Av_i=\lambda_i v_i\)</span>. Eigenvalues are real, while eigenvectors use the input
-dtype and are returned in the original JAX-facing matrix layout.</p>
-<p>Set <code>return_eigenvectors=False</code> when only the spectrum is required. This selects
-the eigenvalues-only mode and reduces memory use by avoiding the full
-distributed eigenvector matrix.</p>
-<p>Use <code>syevd</code> for a direct eigensolve. Use <code>syevd_shardmap_ctx</code> when the
-eigensolve is part of a larger caller-owned <code>jax.jit</code>. The context interface
-returns the native input-matrix work buffer so the outer compiled function can
-preserve the donated input alias. cuSOLVERMp stores the overwritten input
-matrix and eigenvectors in separate distributed buffers, so <code>a_work</code> is the
-alias target rather than the eigenvector output when vectors are requested.</p>
+<h1 id="jaxmggesvd">jaxmg.gesvd<a class="headerlink" href="#jaxmggesvd" title="Permanent link">¤</a></h1>
+<p><code>gesvd</code> computes the singular-value decomposition of an <span class="arithmatex">\(M \times N\)</span> real or
+complex matrix <span class="arithmatex">\(A\)</span>:</p>
+<div class="arithmatex">\[
+A = U \Sigma V^{\dagger}.
+\]</div>
+<p>By default, <code>gesvd</code> returns the reduced decomposition <code>(U, s, Vh)</code>, following
+<code>jax.numpy.linalg.svd</code>. Set <code>full_matrices=True</code> to return full-sized
+singular-vector matrices. The left and right singular vectors can be requested
+independently with <code>compute_u</code> and <code>compute_vh</code>; outputs that are not requested
+are neither allocated nor redistributed.</p>
+<p>Use <code>gesvd</code> for a direct decomposition. Use <code>gesvd_shardmap_ctx</code> when the SVD
+is part of a larger caller-owned <code>jax.jit</code>. The context interface returns the
+overwritten input-matrix work buffer so an outer compiled function can preserve
+the donated input alias. cuSOLVERMp requires separate storage for A, U, and Vh,
+so requested singular-vector matrices cannot alias the donated input.</p>
 
 
 <div class="doc doc-object doc-function">
 
 
-<h4 id="jaxmg.syevd" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+<h4 id="jaxmg.gesvd" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">gesvd</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">compute_u</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">compute_vh</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">full_matrices</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
-<a href="#jaxmg.syevd" class="headerlink" title="Permanent link">¤</a></h4>
+<a href="#jaxmg.gesvd" class="headerlink" title="Permanent link">¤</a></h4>
 
 
     <div class="doc doc-contents first">
 
-        <p>Compute eigenvalues and optionally eigenvectors using multi-GPU SYEVD.</p>
-<p>This is the high-level JAXMg symmetric/Hermitian eigensolver entry point.
-It accepts a block-sharded JAX matrix, prepares the tile-aligned local
-capacity required by cuSOLVERMp, and calls the fused native backend. By
-default it returns eigenvalues together with eigenvectors in the same
-JAX-facing matrix layout as the input. Setting <code>return_eigenvectors=False</code>
-selects cuSOLVERMp's eigenvalues-only mode and avoids allocating or
-restoring a matrix-sized eigenvector result.</p>
+        <p>Compute a distributed singular-value decomposition with cuSOLVERMp.</p>
+<p>This is the high-level JAXMg interface for rectangular or square matrices.
+For an <code>m x n</code> input, let <code>k = min(m, n)</code>. By default the routine
+returns the reduced decomposition <code>(U, s, Vh)</code> with shapes <code>(m, k)</code>,
+<code>(k,)</code>, and <code>(k, n)</code>. <code>full_matrices=True</code> instead requests U with
+shape <code>(m, m)</code> and Vh with shape <code>(n, n)</code>. Either vector matrix can be
+disabled independently so JAX does not allocate or redistribute an output
+that the application does not require.</p>
+<p>The input and every requested matrix output use the same two-dimensional
+JAX mesh and <code>PartitionSpec</code>. Their logical dimensions must therefore be
+divisible by the corresponding process-grid dimensions. Tile padding is
+applied separately to A, U, and Vh when their local dimensions are not
+divisible by <code>T_A</code>.</p>
 
-
-<details class="note" open>
-  <summary>Note</summary>
-  <p>If a local shard dimension is not divisible by <code>T_A</code>, <code>pad=True</code>
-allocates additional tile-aligned capacity before the native call.
-Choosing a tile size that divides the local dimensions avoids this
-allocation. Performance depends on the matrix size, process grid, and
-tile size.</p>
-</details>
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <table>
@@ -1157,9 +1155,8 @@ tile size.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>A 2D symmetric/Hermitian matrix. Expected to be sharded
-across a 2D mesh with a matrix <code>PartitionSpec</code> such as
-<code>P(&lt;row_axis&gt;, &lt;col_axis&gt;)</code>.</p>
+                <p>A rank-2 real or complex matrix sharded over a two-dimensional
+device mesh.</p>
               </div>
             </td>
             <td>
@@ -1175,8 +1172,8 @@ across a 2D mesh with a matrix <code>PartitionSpec</code> such as
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Square tile width used by cuSOLVERMp. Each local shard
-dimension must be a multiple of <code>T_A</code> after padding.</p>
+                <p>Square cuSOLVERMp tile width. GESVD supports rectangular
+matrices but requires equal row and column tile dimensions.</p>
               </div>
             </td>
             <td>
@@ -1192,7 +1189,7 @@ dimension must be a multiple of <code>T_A</code> after padding.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>JAX mesh used for <code>jax.shard_map</code>. If omitted,
+                <p>JAX mesh used by <code>jax.shard_map</code>. If omitted,
 inferred from <code>a.sharding.mesh</code>.</p>
               </div>
             </td>
@@ -1209,8 +1206,8 @@ inferred from <code>a.sharding.mesh</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>PartitionSpec describing the matrix sharding. If omitted, inferred
-from <code>a.sharding.spec</code>.</p>
+                <p>Rank-2 matrix sharding. If omitted, inferred from
+<code>a.sharding.spec</code>.</p>
               </div>
             </td>
             <td>
@@ -1235,21 +1232,56 @@ from <code>a.sharding.spec</code>.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>return_eigenvectors</code>
+                <code>compute_u</code>
             </td>
             <td>
                   <code><span title="bool">bool</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If True (default), compute and
-return eigenvectors as well as eigenvalues. If False, return only
-eigenvalues and use the shorter native values-only workflow. This
-must be a Python <code>bool</code> fixed while tracing.</p>
+                <p>Whether to compute and return left singular
+vectors. Default is True. This must be a Python <code>bool</code> fixed
+while tracing.</p>
               </div>
             </td>
             <td>
                   <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>compute_vh</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to compute and return conjugate-
+transposed right singular vectors. Default is True. This must be a
+Python <code>bool</code> fixed while tracing.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>full_matrices</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If False (default), return reduced
+vector matrices. If True, return full U and Vh matrices. This must
+be fixed while tracing and affects only requested vector outputs.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
             </td>
           </tr>
           <tr class="doc-section-item">
@@ -1261,8 +1293,8 @@ must be a Python <code>bool</code> fixed while tracing.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If True append a native per-rank
-diagnostic status vector to the return values. Default is False.</p>
+                <p>If True, append the native per-rank
+diagnostic status vector to the selected numerical outputs.</p>
               </div>
             </td>
             <td>
@@ -1278,9 +1310,9 @@ diagnostic status vector to the return values. Default is False.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If True (default) apply per-device padding to
-meet <code>T_A</code> requirements; if False the caller must supply already
-correct shapes.</p>
+                <p>If True (default), add tile-aligned local capacity
+where required. If False, all participating local matrix shapes
+must already be divisible by <code>T_A</code>.</p>
               </div>
             </td>
             <td>
@@ -1302,31 +1334,41 @@ correct shapes.</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                  <code><span title="jax.jaxlib._jax.Array">Array</span> | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span> | <span title="tuple">tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, ...]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If <code>return_eigenvectors=True</code>, <code>(eigenvalues, eigenvectors)</code> or</p>
+                <p>The selected numerical outputs follow NumPy/JAX SVD order:</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
             <td>
-                  <code><span title="jax.jaxlib._jax.Array">Array</span> | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span> | <span title="tuple">tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, ...]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p><code>(eigenvalues, eigenvectors, status)</code>. If False, <code>eigenvalues</code> or</p>
+                <p><code>(U, s, Vh)</code> when both vectors are requested, <code>(U, s)</code> for U only,</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
             <td>
-                  <code><span title="jax.jaxlib._jax.Array">Array</span> | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span> | <span title="tuple">tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, ...]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p><code>(eigenvalues, status)</code>.</p>
+                <p><code>(s, Vh)</code> for Vh only, and <code>s</code> for values only. If</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span> | <span title="tuple">tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, ...]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>return_status=True</code>, the status vector is appended to that result.</p>
               </div>
             </td>
           </tr>
@@ -1349,7 +1391,8 @@ correct shapes.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If dtypes or <code>PartitionSpec</code> inputs are unsupported.</p>
+                <p>If the dtype, static mode flags, or sharding specification is
+unsupported.</p>
               </div>
             </td>
           </tr>
@@ -1359,7 +1402,8 @@ correct shapes.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If shapes, tile sizes, or mesh layouts are incompatible.</p>
+                <p>If a shape, tile size, process grid, or requested output
+layout is incompatible with cuSOLVERMp.</p>
               </div>
             </td>
           </tr>
@@ -1370,14 +1414,13 @@ correct shapes.</p>
 <details class="notes" open>
   <summary>Notes</summary>
   <ul>
-<li>The FFI call can donate the input buffer to enable zero-copy
-  interaction with the native library.</li>
-<li>Native code converts row-major JAX local storage to cuSOLVERMp's
-  column-major local layout and redistributes to 2D block-cyclic
-  layout. The eigenvector mode also redistributes its matrix result
-  back to the original JAX layout.</li>
-<li>If the native solver fails the outputs may contain NaNs and the
-  status, when requested, will be non-zero.</li>
+<li>The internally jitted implementation donates <code>a</code> to the opaque
+  matrix work result returned by the native call.</li>
+<li>cuSOLVERMp requires A, U, and Vh to occupy distinct storage. Donation
+  therefore removes a second A-sized work allocation but cannot alias
+  A to either singular-vector output.</li>
+<li>If the native solver fails, numerical outputs may be incomplete; use
+  <code>return_status=True</code> when per-rank diagnostics are required.</li>
 </ul>
 </details>
 
@@ -1389,37 +1432,27 @@ correct shapes.</p>
 <div class="doc doc-object doc-function">
 
 
-<h4 id="jaxmg.syevd_shardmap_ctx" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+<h4 id="jaxmg.gesvd_shardmap_ctx" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">gesvd_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">compute_u</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">compute_vh</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">full_matrices</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
-<a href="#jaxmg.syevd_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
+<a href="#jaxmg.gesvd_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
 
 
     <div class="doc doc-contents first">
 
-        <p>Compute eigenvalues and optional eigenvectors while exposing work storage.</p>
-<p>This helper is the lower-level variant of :func:<code>jaxmg.syevd</code> intended for
-contexts where the caller controls the outer <code>jax.jit</code> boundary. It
-performs the same validation, local padding, shard-map construction, and
-fused cuSOLVERMp FFI call as the public eigensolver, but does not introduce
-an internal <code>jax.jit</code>. Instead, it returns the native matrix work buffer
-so an outer JIT can donate <code>a</code> into an <code>A</code>-sized output.</p>
-<p>cuSOLVERMp uses separate distributed matrices for its overwritten input
-<code>d_A</code> and eigenvector output <code>d_Q</code>. The context interface therefore
-returns <code>a_work</code> to provide the outer compiled function with an
-<code>A</code>-sized alias target for the donated input. When eigenvectors are
-requested, they occupy a separate matrix-sized allocation. Values-only
-execution omits that allocation and the associated reverse redistribution.</p>
+        <p>Compute a distributed SVD while exposing donated matrix work storage.</p>
+<p>This lower-level interface performs the same validation, padding, native
+redistribution, and cuSOLVERMp execution as :func:<code>jaxmg.gesvd</code>, but leaves
+the outer <code>jax.jit</code> boundary to the caller. The first return value is the
+opaque <code>a_work</code> buffer overwritten by GESVD. Keeping that value in the
+outer function's returned pytree allows <code>jax.jit(...,
+donate_argnums=(0,))</code> to alias the input matrix to an A-sized output.</p>
+<p>Singular values and requested vector matrices follow the same shapes and
+selection rules as :func:<code>jaxmg.gesvd</code>. Unlike POTRS and LU solve, the
+factorized A buffer is not a numerical result. cuSOLVERMp also prohibits A,
+U, and Vh from overlapping, so requested vector matrices remain separate
+allocations even when A is donated.</p>
 
-
-<details class="note" open>
-  <summary>Note</summary>
-  <p>If a local shard dimension is not divisible by <code>T_A</code>, <code>pad=True</code>
-allocates additional tile-aligned capacity before the native call.
-Choosing a tile size that divides the local dimensions avoids this
-allocation. Performance depends on the matrix size, process grid, and
-tile size.</p>
-</details>
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <table>
@@ -1441,9 +1474,8 @@ tile size.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>A 2D symmetric/Hermitian matrix. Expected to be sharded
-across a 2D mesh with a matrix <code>PartitionSpec</code> such as
-<code>P(&lt;row_axis&gt;, &lt;col_axis&gt;)</code>.</p>
+                <p>A rank-2 real or complex matrix sharded over a two-dimensional
+device mesh.</p>
               </div>
             </td>
             <td>
@@ -1459,8 +1491,7 @@ across a 2D mesh with a matrix <code>PartitionSpec</code> such as
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Square tile width used by cuSOLVERMp. Each local shard
-dimension must be a multiple of <code>T_A</code> after padding.</p>
+                <p>Square cuSOLVERMp tile width.</p>
               </div>
             </td>
             <td>
@@ -1476,7 +1507,7 @@ dimension must be a multiple of <code>T_A</code> after padding.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>JAX mesh used for <code>jax.shard_map</code>. If omitted,
+                <p>JAX mesh used by <code>jax.shard_map</code>. If omitted,
 inferred from <code>a.sharding.mesh</code>.</p>
               </div>
             </td>
@@ -1493,8 +1524,8 @@ inferred from <code>a.sharding.mesh</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>PartitionSpec describing the matrix sharding. If omitted, inferred
-from <code>a.sharding.spec</code>.</p>
+                <p>Rank-2 matrix sharding. If omitted, inferred from
+<code>a.sharding.spec</code>.</p>
               </div>
             </td>
             <td>
@@ -1519,21 +1550,52 @@ from <code>a.sharding.spec</code>.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>return_eigenvectors</code>
+                <code>compute_u</code>
             </td>
             <td>
                   <code><span title="bool">bool</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If True (default), compute and
-return eigenvectors as well as eigenvalues. If False, use the
-eigenvalues-only native workflow. This must be a Python <code>bool</code>
-fixed while tracing.</p>
+                <p>Whether to compute left singular vectors.</p>
               </div>
             </td>
             <td>
                   <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>compute_vh</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to compute right singular vectors
+in conjugate-transposed form.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>full_matrices</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether requested vector outputs use
+full rather than reduced shapes.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
             </td>
           </tr>
           <tr class="doc-section-item">
@@ -1545,9 +1607,7 @@ fixed while tracing.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If True (default) apply per-device padding to
-meet <code>T_A</code> requirements; if False the caller must supply already
-correct shapes.</p>
+                <p>Whether JAXMg may add tile-aligned local capacity.</p>
               </div>
             </td>
             <td>
@@ -1562,68 +1622,48 @@ correct shapes.</p>
     <table>
       <thead>
         <tr>
-<th>Name</th>          <th>Type</th>
+          <th>Type</th>
           <th>Description</th>
         </tr>
       </thead>
       <tbody>
           <tr class="doc-section-item">
-<td><code>tuple</code></td>            <td>
-                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
+            <td>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p><code>(a_work, eigenvalues, eigenvectors, status)</code> when</p>
+                <p><code>(a_work, U, s, Vh, status)</code>, <code>(a_work, U, s, status)</code>,</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
-<td></td>            <td>
-                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
+            <td>
+                  <code>...</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p><code>return_eigenvectors=True</code>, otherwise</p>
+                <p><code>(a_work, s, Vh, status)</code>, or <code>(a_work, s, status)</code> according to the</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
-<td></td>            <td>
-                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
+            <td>
+                  <code><span title="tuple">tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, ...]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p><code>(a_work, eigenvalues, status)</code>. <code>a_work</code> preserves the donated</p>
+                <p>selected vector outputs. <code>status</code> is always returned by the context</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
-<td></td>            <td>
-                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
+            <td>
+                  <code><span title="tuple">tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, ...]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>input alias and includes any padding applied by the normal pipeline.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-<td></td>            <td>
-                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p><code>eigenvalues</code> is replicated and real-valued, and <code>status</code> is the</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-<td></td>            <td>
-                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>native per-rank diagnostic vector.</p>
+                <p>interface so an enclosing compiled function can propagate diagnostics.</p>
               </div>
             </td>
           </tr>
@@ -1646,7 +1686,8 @@ correct shapes.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If dtypes or <code>PartitionSpec</code> inputs are unsupported.</p>
+                <p>If the dtype, static mode flags, or sharding specification is
+unsupported.</p>
               </div>
             </td>
           </tr>
@@ -1656,28 +1697,14 @@ correct shapes.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If shapes, tile sizes, or mesh layouts are incompatible.</p>
+                <p>If a shape, tile size, process grid, or requested output
+layout is incompatible with cuSOLVERMp.</p>
               </div>
             </td>
           </tr>
       </tbody>
     </table>
 
-
-<details class="notes" open>
-  <summary>Notes</summary>
-  <ul>
-<li>Callers using <code>jax.jit(..., donate_argnums=(0,))</code> must keep
-  <code>a_work</code> in the outer function's returned pytree so the donated
-  matrix has an <code>A</code>-sized output alias.</li>
-<li>Returning <code>a_work</code> does not remove cuSOLVERMp's separate
-  eigenvector allocation when eigenvectors are requested.</li>
-<li>Native code converts row-major JAX local storage to cuSOLVERMp's
-  column-major local layout, redistributes to 2D block-cyclic layout,
-  calls <code>cusolverMpSyevd</code>, and redistributes eigenvectors back when
-  requested.</li>
-</ul>
-</details>
 
     </div>
 
