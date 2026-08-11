@@ -14,9 +14,9 @@ mesh used by the matrix.
 
 [Configure distributed execution](execution.md)
 
-## 2. Choose a tile size $T_A$
+## 2. Choose a tile size
 
-Choose a cuSOLVERMp tile size that divides both dimensions of each local matrix
+Choose a cuSOLVERMp tile size $T_A$ that divides both dimensions of each local matrix
 shard. Choosing an appropriate tile size can substantially improve runtime and
 reduce memory use.
 

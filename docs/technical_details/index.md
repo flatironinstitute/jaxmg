@@ -5,23 +5,9 @@ However, cuSOLVERMp requires column-major local buffers distributed in a 2D
 block-cyclic layout. The native backend bridges these layouts inside one fused
 C++/CUDA FFI call:
 
-```text
-JAX block-sharded arrays
-        |
-        | Python validation and local tile-capacity padding
-        v
-fused native FFI call
-        |
-        | 1. local row-major -> column-major conversion
-        | 2. top-left / edge-padding alignment
-        | 3. 2D block-cyclic redistribution
-        v
-cuSOLVERMp solver
-        |
-        | reverse 3 -> reverse 2 -> reverse 1
-        v
-JAX-facing result
-```
+<figure markdown="span" class="memory-distribution-figure">
+  [![Three stages of edge-padding alignment over a two-by-four GPU process grid.](../_static/flowcharts/jaxmg_general.svg){ .memory-distribution-image }](../_static/flowcharts/jaxmg_general.svg)
+</figure>
 
 Python calculates static metadata such as the process grid, rank map, logical
 matrix size, tile size, and padded local capacity. C++/CUDA owns the data
@@ -53,41 +39,44 @@ stages reuse this allocation and process data in bounded batches. They do not
 allocate a second full local matrix.
 
 ## Memory-distribution stages
+The memory redistribution is performed in three stages.
 
-??? info "Stage 1: local memory layout conversion"
-    JAX presents each local matrix shard in row-major physical memory.
-    cuSOLVERMp expects column-major local memory. CUDA kernels apply an in-place
-    rectangular permutation using bounded scratch; the logical matrix is not
-    transposed. This stage is local to each GPU and requires no communicator
-    traffic.
+### Stage 1: local memory layout conversion
+  JAX presents each local matrix shard in row-major physical memory.
+  cuSOLVERMp expects column-major local memory. CUDA kernels apply an in-place
+  rectangular permutation using bounded scratch; the logical matrix is not
+  transposed. This stage is local to each GPU and requires no communicator
+  traffic.
 
-    [Layout-conversion details](memory_distribution.md#stage-1-local-layout-conversion)
+  [Layout-conversion details](memory_distribution.md#stage-1-local-layout-conversion)
 
-??? info "Stage 2: top-left and edge-padding alignment"
-    Python provides tile-aligned local capacity. Native horizontal compaction
-    moves real column slabs toward the global left edge, then vertical
-    compaction moves real row slabs toward the global top edge. Padding is
-    consolidated on the global right and bottom edges.
+### Stage 2: top-left and edge-padding alignment
 
-    Moves in one horizontal wave are independent across process rows. Moves in
-    one vertical wave are independent across process columns.
+  Python provides tile-aligned local capacity. Native horizontal compaction
+  moves real column slabs toward the global left edge, then vertical
+  compaction moves real row slabs toward the global top edge. Padding is
+  consolidated on the global right and bottom edges.
 
-    [![Three stages of edge-padding alignment over a two-by-four GPU process grid.](../_static/memory_distribution/block_cyclic_padding_alignment.svg){ .memory-distribution-image }](../_static/memory_distribution/block_cyclic_padding_alignment.svg)
+  Moves in one horizontal wave are independent across process rows. Moves in
+  one vertical wave are independent across process columns.
 
-    [Edge-padding details](memory_distribution.md#stage-2-top-left-edge-padding-alignment)
+  [![Three stages of edge-padding alignment over a two-by-four GPU process grid.](../_static/memory_distribution/block_cyclic_padding_alignment.svg){ .memory-distribution-image }](../_static/memory_distribution/block_cyclic_padding_alignment.svg)
 
-??? info "Stage 3: 2D block-cyclic redistribution"
-    Whole tile slabs are redistributed in two separable phases. The
-    column-owner phase assigns each tile to the correct process column; the
-    row-owner phase then assigns each tile to the correct process row.
+  [Edge-padding details](memory_distribution.md#stage-2-top-left-edge-padding-alignment)
 
-    Same-rank moves use local CUDA operations. Cross-rank moves use the
-    NCCL-backed communicator borrowed from XLA. The same communicator supplies
-    the `ncclComm_t` used by cuSOLVERMp.
+### Stage 3: 2D block-cyclic redistribution
 
-    [![Three stages of the two-dimensional block-cyclic redistribution over a two-by-four GPU process grid.](../_static/memory_distribution/block_cyclic_redistribution.svg){ .memory-distribution-image }](../_static/memory_distribution/block_cyclic_redistribution.svg)
+  Whole tile slabs are redistributed in two separable phases. The
+  column-owner phase assigns each tile to the correct process column; the
+  row-owner phase then assigns each tile to the correct process row.
 
-    [2D block-cyclic details](memory_distribution.md#stage-3-2d-block-cyclic-redistribution)
+  Same-rank moves use local CUDA operations. Cross-rank moves use the
+  NCCL-backed communicator borrowed from XLA. The same communicator supplies
+  the `ncclComm_t` used by cuSOLVERMp.
+
+  [![Three stages of the two-dimensional block-cyclic redistribution over a two-by-four GPU process grid.](../_static/memory_distribution/block_cyclic_redistribution.svg){ .memory-distribution-image }](../_static/memory_distribution/block_cyclic_redistribution.svg)
+
+  [2D block-cyclic details](memory_distribution.md#stage-3-2d-block-cyclic-redistribution)
 
 ## Solver workflows
 
