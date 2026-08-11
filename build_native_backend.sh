@@ -153,7 +153,7 @@ for src in block_cyclic_2d.cc edge_padding_2d.cc layout_convert.cu.cc layout_con
   cp -f "${JAXMG_ROOT}/src/cuda/memory_redist/${src}" \
     "${BACKEND_PKG}/memory_redist/${src}"
 done
-for src in cusolvermp_common.cc cusolvermp_common.h cusolvermp_lu_solve.cc cusolvermp_potrs.cc cusolvermp_routines.h cusolvermp_syevd.cc potrs_logdet.cu.cc potrs_logdet.h; do
+for src in cusolvermp_common.cc cusolvermp_common.h cusolvermp_gesvd.cc cusolvermp_lu_solve.cc cusolvermp_potrs.cc cusolvermp_routines.h cusolvermp_syevd.cc potrs_logdet.cu.cc potrs_logdet.h; do
   cp -f "${JAXMG_ROOT}/src/cuda/cusolvermp_routines/${src}" \
     "${BACKEND_PKG}/cusolvermp_routines/${src}"
 done

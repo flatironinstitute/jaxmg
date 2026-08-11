@@ -7,32 +7,14 @@ these layouts inside one fused C++/CUDA FFI call.
 
 The forward path used before a distributed solver is:
 
-```text
-JAX block-sharded matrix
-row-major local GPU buffers
-        |
-        | Python: validate the inputs and add tile-aligned capacity if needed
-        v
-fused native FFI call
-        |
-        | 1. local row-major -> column-major conversion
-        | 2. top-left edge-padding alignment
-        | 3. 2D block-cyclic redistribution
-        v
-cuSOLVERMp column-major, 2D block-cyclic matrix
-        |
-        | distributed solver execution
-        v
-reverse 3 -> reverse 2 -> reverse 1
-        |
-        v
-JAX-facing row-major result
-```
+<figure markdown="span" class="memory-distribution-figure">
+  [![Three stages of edge-padding alignment over a two-by-four GPU process grid.](../_static/flowcharts/ffi_to_cusolvermp.svg){ .memory-distribution-image }](../_static/flowcharts/ffi_to_cusolvermp.svg)
+</figure>
 
 The sections below describe the three forward redistribution stages. After a
 matrix-valued solver output is produced, the stages are reversed to restore the
-original JAX layout. Eigenvalues-only `syevd` returns its replicated eigenvalue
-array directly and does not need the reverse matrix redistribution.
+original JAX layout. Values-only `syevd` and `gesvd` return replicated vectors
+directly and do not need reverse matrix redistribution.
 
 ## Memory bound
 
@@ -141,21 +123,9 @@ decomposition introduced by Catanzaro, Keller, and Garland in
 The conversion consists of a modular row permutation surrounded, when required
 by the local dimensions, by column pre- and post-shuffles:
 
-```text
-row-major physical order
-        |
-        | optional column pre-shuffle
-        v
-intermediate order
-        |
-        | modular row permutation
-        v
-intermediate order
-        |
-        | optional column post-shuffle
-        v
-column-major physical order
-```
+<figure markdown="span" class="memory-distribution-figure">
+  [![Three stages of edge-padding alignment over a two-by-four GPU process grid.](../_static/flowcharts/inplace_transpose.svg){ .memory-distribution-image }](../_static/flowcharts/inplace_transpose.svg)
+</figure>
 
 The required shuffles are determined from the local row and column counts and
 their greatest common divisor. Each kernel copies a batch of complete rows or
@@ -270,10 +240,10 @@ bijection. JAXMg decomposes that mapping into disjoint closed permutation
 cycles, skipping fixed points that already occupy their target slot. Each cycle
 is applied in place by:
 
-1. saving one live slab;
-2. rotating the remaining slabs from the end of the cycle towards the vacated
+1. Saving one live slab;
+2. Rotating the remaining slabs from the end of the cycle towards the vacated
    slot;
-3. restoring the saved slab into its final destination.
+3. Restoring the saved slab into its final destination.
 
 Dependent steps within a process-row or process-column group are serialized.
 Matching steps from independent groups are assigned the same sequence number
@@ -285,15 +255,9 @@ temporary data remains bounded.
 
 Each cycle uses three scratch slots:
 
-```text
-source matrix rectangle
-        |
-        | pack
-        v
-send slot  ->  receive slot  ->  unpack into destination
-
-saved slot preserves the live slab that closes the cycle
-```
+<figure markdown="span" class="memory-distribution-figure">
+  [![Three stages of edge-padding alignment over a two-by-four GPU process grid.](../_static/flowcharts/send_recv.svg){ .memory-distribution-image }](../_static/flowcharts/send_recv.svg)
+</figure>
 
 A tile-column slab contains at most $T_cN_r$ elements, while a tile-row slab
 contains at most $T_rN_c$ elements. The largest possible slab therefore has
@@ -334,16 +298,6 @@ Matrix-valued solver outputs are produced in cuSOLVERMp's column-major,
 inverse block-cyclic cycles, reverses edge-padding alignment when needed, and
 restores row-major local memory. Python then removes visible capacity padding.
 
-```text
-cuSOLVERMp matrix output
-        |
-        | inverse block-cyclic redistribution
-        | inverse edge-padding alignment
-        | column-major -> row-major conversion
-        v
-JAX-facing result
-```
-
 For `potrs` and `lu_solve`, a vector solve input is represented internally as
 an $N \times 1$ matrix. The public wrappers restore the original vector rank
 before returning the result.
@@ -361,6 +315,10 @@ differences are the cuSOLVERMp call sequence and solver workspace:
 - `syevd` calls `cusolverMpSyevd`. Its eigenvector-producing mode materializes a
   full distributed eigenvector matrix and reverses the redistribution for that
   output. Its eigenvalues-only mode omits both operations.
+- `gesvd` calls `cusolverMpGesvd` for rectangular matrices. U and Vh are
+  selected independently in reduced or full form, and only requested vector
+  matrices are allocated and reverse-redistributed. The shared scratch buffer
+  is sized to the largest requirement among A and those outputs.
 
 ## Python and native responsibilities
 
@@ -381,21 +339,26 @@ Native C++/CUDA is responsible for:
 
 ## Code map
 
-```text
-Stage 1: local layout conversion
-  src/cuda/memory_redist/layout_convert.cu.cc
 
-Stage 2: edge-padding alignment
-  src/cuda/memory_redist/edge_padding_2d.cc
+| Stage 1: local layout conversion|
+|--------|
+|[src/cuda/memory_redist/layout_convert.cu.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/memory_redist/layout_convert.cu.cc)|
 
-Stage 3: 2D block-cyclic redistribution
-  src/cuda/memory_redist/block_cyclic_2d.cc
-  src/cuda/memory_redist/rectangle_pack.cc
-  src/cuda/memory_redist/scratch.cc
+| Stage 2: edge-padding alignment |
+|--------|
+| [src/cuda/memory_redist/edge_padding_2d.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/memory_redist/edge_padding_2d.cc)|
 
-Solver orchestration
-  src/cuda/cusolvermp_routines/cusolvermp_potrs.cc
-  src/cuda/cusolvermp_routines/potrs_logdet.cu.cc
-  src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc
-  src/cuda/cusolvermp_routines/cusolvermp_syevd.cc
-```
+| Stage 3: 2D block-cyclic redistribution| 
+|--------|
+|[src/cuda/memory_redist/block_cyclic_2d.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/memory_redist/block_cyclic_2d.cc)|
+|[src/cuda/memory_redist/rectangle_pack.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/memory_redist/rectangle_pack.cc)|
+|[src/cuda/memory_redist/scratch.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/memory_redist/scratch.cc)|
+
+| Solver orchestration|
+|--------|
+|[src/cuda/cusolvermp_routines/cusolvermp_potrs.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_potrs.cc) |
+|[src/cuda/cusolvermp_routines/potrs_logdet.cu.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/potrs_logdet.cu.cc) |
+|[src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc) |
+|[src/cuda/cusolvermp_routines/cusolvermp_syevd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_syevd.cc) |
+|[src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc) |
+

@@ -5,6 +5,7 @@
 # JAXMg: A multi-GPU linear solver in JAX
 
 [![Docs](https://img.shields.io/badge/docs-site-blue?style=flat-square)](https://flatironinstitute.github.io/jaxmg/)
+[![PyPI](https://img.shields.io/pypi/v/jaxmg?style=flat-square)](https://pypi.org/project/jaxmg/)
 [![Releases](https://img.shields.io/github/v/release/flatironinstitute/jaxmg?style=flat-square)](https://github.com/flatironinstitute/jaxmg/releases)
 [![Build](https://github.com/flatironinstitute/jaxmg/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/flatironinstitute/jaxmg/actions/workflows/ci.yml)
 [![Tests](https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg/job/main/lastBuild/badge/icon)](https://jenkins-new.flatironinstitute.org/job/CCQ/job/jaxmg/job/main/)
@@ -27,8 +28,12 @@ JAXMg currently provides a jittable API for the following routines:
   $Ax=B$, where $A$ is an $N \times N$ general nonsingular matrix, using a
   pivoted LU decomposition.
 - [`syevd`](https://flatironinstitute.github.io/jaxmg/api/syevd/): Computes the
-  eigenvalues and optional eigenvectors of an $N \times N$ symmetric or
-  Hermitian matrix.
+  eigenvalues $\lambda_i$ and optional eigenvectors $v_i$ of an $N \times N$
+  symmetric or Hermitian matrix $A$, satisfying $Av_i=\lambda_i v_i$.
+- [`gesvd`](https://flatironinstitute.github.io/jaxmg/latest/api/gesvd/): Computes
+  the singular-value decomposition of an $M \times N$ matrix
+  $A$ ($A = U \Sigma V^{\dagger}$), returning the singular values and optional
+  left and right singular vectors.
 
 ## How JAXMg works
 
@@ -50,6 +55,7 @@ The operations are implemented using:
 - `lu_solve`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
   and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)
 - `syevd`: [`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)
+- `gesvd`: [`cusolverMpGesvd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgesvd)
 
 For more details, see the [API reference](https://flatironinstitute.github.io/jaxmg/latest/api/) and the
 [accompanying paper](https://arxiv.org/abs/2601.14466).

@@ -9,6 +9,7 @@ JAXMg solver:
 - `run_potrs_example.py`
 - `run_lu_solve_example.py`
 - `run_syevd_example.py`
+- `run_gesvd_example.py`
 
 The context examples construct the inputs and execute the solver inside one
 caller-owned `jax.jit`:
@@ -16,6 +17,7 @@ caller-owned `jax.jit`:
 - `run_potrs_context_example.py`
 - `run_lu_solve_context_example.py`
 - `run_syevd_context_example.py`
+- `run_gesvd_context_example.py`
 
 To run an example on a local node with an even number of GPUs:
 
@@ -32,7 +34,7 @@ done
 wait
 ```
 
-Replace `script` with any of the six files above. Rank 0 prints a final
+Replace `script` with any of the files above. Rank 0 prints a final
 correctness result:
 
 ```text

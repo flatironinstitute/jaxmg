@@ -151,6 +151,14 @@ absl::Status CopySyevdStatusToDevice(
   return stream->MemcpyH2D(absl::MakeConstSpan(status), &dst);
 }
 
+// Writes the GESVD per-rank status words into the rank-1 device output buffer.
+absl::Status CopyGesvdStatusToDevice(
+    se::Stream* stream, const std::array<int32_t, kGesvdStatusSize>& status,
+    ffi::Result<ffi::BufferR1<S32>> out) {
+  se::DeviceAddress<int32_t> dst = out->device_memory();
+  return stream->MemcpyH2D(absl::MakeConstSpan(status), &dst);
+}
+
 // Converts byte counts to rounded-up KiB values that fit in the compact status
 // schema returned to Python.
 int32_t SizeToKiBForStatus(size_t bytes) {

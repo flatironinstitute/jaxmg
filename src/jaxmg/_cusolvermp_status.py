@@ -6,7 +6,8 @@ public JAXMg API, but Python must still declare their fixed lengths when it
 builds the corresponding ``jax.ffi.ffi_call`` result types.
 
 The field order and vector lengths must match the corresponding POTRS,
-LU-solve, and SYEVD status writers in ``src/cuda/cusolvermp_routines``.
+LU-solve, SYEVD, and GESVD status writers in
+``src/cuda/cusolvermp_routines``.
 """
 
 from __future__ import annotations
@@ -147,6 +148,55 @@ _CUSOLVERMP_SYEVD_STATUS_FIELDS = (
 )
 
 
+# Mirrors kGesvdStatusSize/status_words in
+# src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc.
+_CUSOLVERMP_GESVD_STATUS_FIELDS = (
+    "status_code",
+    "cuda_device",
+    "nccl_rank",
+    "nccl_rank_count",
+    "process_rows",
+    "process_cols",
+    "cusolvermp_version",
+    "cusolvermp_runtime_available",
+    "handle_created",
+    "grid_created",
+    "a_descriptor_created",
+    "raw_cusolver_status",
+    "a_size_bytes",
+    "m",
+    "n",
+    "tile_size",
+    "a_local_rows",
+    "a_local_cols",
+    "a_numroc_rows",
+    "a_numroc_cols",
+    "singular_values_size_bytes",
+    "compute_u",
+    "compute_vh",
+    "full_matrices",
+    "gesvd_descriptor_created",
+    "u_descriptor_created",
+    "vh_descriptor_created",
+    "u_numroc_rows",
+    "u_numroc_cols",
+    "vh_numroc_rows",
+    "vh_numroc_cols",
+    "gesvd_device_workspace_kib",
+    "gesvd_host_workspace_kib",
+    "gesvd_called",
+    "gesvd_info",
+    "singular_values_found",
+    "dtype_code",
+    "grid_mapping",
+    "reserved_0",
+    "reserved_1",
+    "reserved_2",
+    "reserved_3",
+)
+
+
 _CUSOLVERMP_POTRS_STATUS_SIZE = len(_CUSOLVERMP_POTRS_STATUS_FIELDS)
 _CUSOLVERMP_LU_SOLVE_STATUS_SIZE = len(_CUSOLVERMP_LU_SOLVE_STATUS_FIELDS)
 _CUSOLVERMP_SYEVD_STATUS_SIZE = len(_CUSOLVERMP_SYEVD_STATUS_FIELDS)
+_CUSOLVERMP_GESVD_STATUS_SIZE = len(_CUSOLVERMP_GESVD_STATUS_FIELDS)

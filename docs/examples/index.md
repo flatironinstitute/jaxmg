@@ -14,9 +14,9 @@ mesh used by the matrix.
 
 [Configure distributed execution](execution.md)
 
-## 2. Choose a tile size $T_A$
+## 2. Choose a tile size
 
-Choose a cuSOLVERMp tile size that divides both dimensions of each local matrix
+Choose a cuSOLVERMp tile size $T_A$ that divides both dimensions of each local matrix
 shard. Choosing an appropriate tile size can substantially improve runtime and
 reduce memory use.
 
@@ -30,3 +30,6 @@ reduce memory use.
   `lu_solve`.
 - [Symmetric or Hermitian eigensolve](syevd.md) computes eigenvalues and
   optional eigenvectors with `syevd`.
+- [Singular-value decomposition](gesvd.md) computes the singular values and
+  optional left and right singular vectors of a real or complex matrix with
+  `gesvd`.

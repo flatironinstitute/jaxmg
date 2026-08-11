@@ -111,6 +111,64 @@ absl::Status XlaCusolverMpSyevdValuesDispatch(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 
+// Prepare hook for GESVD. Requests the all-assigned communicator shared by
+// rectangular redistribution and the cuSOLVERMp device grid.
+absl::Status XlaCusolverMpGesvdPrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests);
+
+// Runtime GESVD hook for singular values and both singular-vector matrices.
+// The four public dispatches select distinct FFI result lists so unrequested
+// matrix-sized outputs are never allocated by XLA.
+absl::Status XlaCusolverMpGesvdUvDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
+    int64_t tile_size, int64_t grid_mapping, int64_t full_matrices,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> singular_values,
+    ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> u,
+    ffi::Result<ffi::AnyBuffer> vh,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
+// Runtime GESVD hook for singular values and left singular vectors.
+absl::Status XlaCusolverMpGesvdUDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
+    int64_t tile_size, int64_t grid_mapping, int64_t full_matrices,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> singular_values,
+    ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> u,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
+// Runtime GESVD hook for singular values and right singular vectors.
+absl::Status XlaCusolverMpGesvdVhDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
+    int64_t tile_size, int64_t grid_mapping, int64_t full_matrices,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> singular_values,
+    ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> vh,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
+// Runtime values-only GESVD hook. It omits both singular-vector outputs and
+// ends after the distributed factorization has produced the singular values.
+absl::Status XlaCusolverMpGesvdValuesDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
+    int64_t tile_size, int64_t grid_mapping, int64_t full_matrices,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> singular_values,
+    ffi::Result<ffi::AnyBuffer> work,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
 }  // namespace xla::gpu
 
 #endif  // JAXMG_CUSOLVERMP_ROUTINES_H_

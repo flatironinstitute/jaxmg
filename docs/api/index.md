@@ -1,6 +1,6 @@
 # API reference
 
-This page highlights the three primary public functions from the jaxmg package.
+This page highlights the primary public functions from the jaxmg package.
 Supported datatypes are `jax.numpy.float32`, `jax.numpy.float64`,
 `jax.numpy.complex64`, and `jax.numpy.complex128`.
 
@@ -54,3 +54,13 @@ Compute eigenvalues $\Lambda$ and optionally eigenvectors $V$ of a symmetric or
 Hermitian matrix.
 
 [`syevd` API and usage](syevd.md)
+
+---
+
+## `gesvd`
+
+Compute the singular-value decomposition of an $M \times N$ real or complex
+matrix $A$ ($A = U \Sigma V^{\dagger}$), returning the singular values and
+independently selected left and right singular vectors in reduced or full form.
+
+[`gesvd` API and usage](gesvd.md)
