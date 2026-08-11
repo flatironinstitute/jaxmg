@@ -24,6 +24,9 @@ A typical contribution follows five steps:
    require custom JVP and VJP rules that tell JAX how to propagate derivatives
    through the FFI-backed distributed calculations.
 
+3. Provide users with a small tool to check their compute fabric and HPC setup.
+   This will make it easier for users to debug and for us to provide support.
+
 ## Pull a clean copy
 
 Fork the repository first if you do not have write access. Then clone your fork
