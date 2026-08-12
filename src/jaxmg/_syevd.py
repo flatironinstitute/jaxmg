@@ -23,6 +23,7 @@ from ._cusolvermp_layout import (
     _unpad_local_2d,
     cusolvermp_grid_mapping_attr,
     infer_mesh_and_matrix_specs,
+    use_abstract_mesh_decorator,
     process_rank_map_from_mesh,
     standard_grid_rank_map_attr,
     status_specs,
@@ -524,6 +525,7 @@ def _syevd_pipeline(
         check_vma=False,
     )
 
+    @use_abstract_mesh_decorator(mesh)
     def impl(_a: Array):
         """Run padding, fused native SYEVD, and optional vector unpadding."""
         a_padded = pad_a(_a)

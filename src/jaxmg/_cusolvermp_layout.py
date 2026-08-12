@@ -15,6 +15,8 @@ C++/CUDA.  The helpers here only describe shapes and sharding to JAX.
 
 from __future__ import annotations
 
+import functools
+
 import jax.numpy as jnp
 import numpy as np
 import jax
@@ -92,6 +94,24 @@ def mesh_axis_size(mesh: Mesh, axis_name: str) -> int:
         return int(mesh.shape[axis_name])
     except KeyError as exc:
         raise ValueError(f"mesh does not contain axis {axis_name!r}.") from exc
+
+
+def use_abstract_mesh_decorator(mesh: Mesh):
+    """The decorated function is called within the context of ``use_abstract_mesh``.
+
+    Needed because ``jax.shard_map`` rejects a mesh that is not the context mesh,
+    so a caller keeping its own mesh in context could not call JAXMg at all.
+    """
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            with jax.sharding.use_abstract_mesh(mesh.abstract_mesh):
+                return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 def validate_2d_matrix_specs(

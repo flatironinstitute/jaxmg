@@ -22,6 +22,7 @@ from ._cusolvermp_layout import (
     _unpad_local_2d,
     cusolvermp_grid_mapping_attr,
     infer_mesh_and_matrix_specs,
+    use_abstract_mesh_decorator,
     place_rhs_for_native_work,
     process_rank_map_from_mesh,
     restore_rhs_from_native_work,
@@ -576,6 +577,7 @@ def _potrs_pipeline(
         check_vma=False,
     )
 
+    @use_abstract_mesh_decorator(mesh)
     def impl(_a: Array, _b: Array):
         """Run padding, fused native POTRS, and unpadding as one compiled path."""
         a_padded = pad_a(_a)
