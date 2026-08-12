@@ -88,6 +88,10 @@ mesh = jax.make_mesh((8,), ("x",))
 matrix_specs = P("x", None)   # an 8 x 1 process grid; P("x") is equivalent
 ```
 
+The mesh passed to a solver does not have to be the one in context: each call
+enters its own mesh, so a program that keeps a different mesh set globally can
+call JAXMg without switching it.
+
 You can inspect the resultant process-rank mapping selected by JAX:
 
 ```python
