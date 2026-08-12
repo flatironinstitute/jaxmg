@@ -79,6 +79,15 @@ axis, `pr`, identifies process rows; the second, `pc`, identifies process column
 Calling `jax.set_mesh(mesh)` makes this concrete mesh available while JAX traces
 the explicitly sharded computation.
 
+A degenerate grid, where one matrix dimension is not distributed, is written
+with `None` in place of that mesh axis. A mesh with a single axis is then
+enough, which is convenient when the calling program already has one:
+
+```python
+mesh = jax.make_mesh((8,), ("x",))
+matrix_specs = P("x", None)   # an 8 x 1 process grid; P("x") is equivalent
+```
+
 You can inspect the resultant process-rank mapping selected by JAX:
 
 ```python
