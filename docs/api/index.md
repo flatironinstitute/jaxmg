@@ -4,7 +4,8 @@ This page highlights the primary public functions from the jaxmg package.
 Supported datatypes are `jax.numpy.float32`, `jax.numpy.float64`,
 `jax.numpy.complex64`, and `jax.numpy.complex128`.
 
-The routines accept ordinary JAX arrays sharded over a two-dimensional mesh.
+The routines accept ordinary JAX arrays sharded over a one- or two-axis device
+mesh.
 The fused C++/CUDA backend converts those arrays into cuSOLVERMp's column-major,
 2D block-cyclic layout and restores the JAX-facing layout before returning.
 

@@ -44,6 +44,7 @@ LOGDET_CASES = (
     pytest.param(4, "column_major_padding", marks=pytest.mark.multi_gpu),
     pytest.param(4, "column_grid_padding", marks=pytest.mark.multi_gpu),
 )
+SINGLE_AXIS_CASES = ("single_axis_row_vector", "single_axis_column_rhs")
 
 
 @pytest.mark.parametrize("requested_procs,case_name", SMOKE_CASES)
@@ -78,6 +79,13 @@ def test_potrs_shardmap_ctx_two_gpu():
         "float32",
         interface="context",
     )
+
+
+@pytest.mark.multi_gpu
+@pytest.mark.parametrize("case_name", SINGLE_AXIS_CASES)
+def test_potrs_single_axis_mesh(case_name):
+    """Validate both orientations of a one-axis mesh on two GPUs."""
+    run_gpu_test(GPU_TEST, 2, case_name, "float32")
 
 
 @pytest.mark.slow

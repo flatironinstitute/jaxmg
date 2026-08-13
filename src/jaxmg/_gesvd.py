@@ -59,15 +59,15 @@ def gesvd(
     disabled independently so JAX does not allocate or redistribute an output
     that the application does not require.
 
-    The input and every requested matrix output use the same two-dimensional
-    JAX mesh and ``PartitionSpec``. Their logical dimensions must therefore be
+    The input and every requested matrix output use the same JAX mesh and
+    ``PartitionSpec``. Their logical dimensions must therefore be
     divisible by the corresponding process-grid dimensions. Tile padding is
     applied separately to A, U, and Vh when their local dimensions are not
     divisible by ``T_A``.
 
     Args:
-        a (Array): A rank-2 real or complex matrix sharded over a two-dimensional
-            device mesh.
+        a (Array): A rank-2 real or complex matrix sharded over a one- or
+            two-axis device mesh.
         T_A (int): Square cuSOLVERMp tile width. GESVD supports rectangular
             matrices but requires equal row and column tile dimensions.
         mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
@@ -231,8 +231,8 @@ def gesvd_shardmap_ctx(
     allocations even when A is donated.
 
     Args:
-        a (Array): A rank-2 real or complex matrix sharded over a two-dimensional
-            device mesh.
+        a (Array): A rank-2 real or complex matrix sharded over a one- or
+            two-axis device mesh.
         T_A (int): Square cuSOLVERMp tile width.
         mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
             inferred from ``a.sharding.mesh``.

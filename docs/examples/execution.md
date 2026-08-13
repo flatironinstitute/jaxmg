@@ -59,9 +59,9 @@ Global devices: [CudaDevice(id=0), ..., CudaDevice(id=7)]
 
 ## 3. Construct the process grid
 
-JAXMg uses an ordinary two-dimensional JAX mesh. For eight ranks, valid grid
-shapes include $(8,1)$, $(4,2)$, $(2,4)$, and $(1,8)$. The following code
-constructs a $4\times2$ grid:
+JAXMg maps an ordinary one- or two-axis JAX mesh onto cuSOLVERMp's process grid.
+For eight ranks, valid grid shapes include $(8,1)$, $(4,2)$, $(2,4)$, and
+$(1,8)$. The following code constructs a $4\times2$ grid:
 
 ```python
 from jax.sharding import PartitionSpec as P
@@ -79,14 +79,16 @@ axis, `pr`, identifies process rows; the second, `pc`, identifies process column
 Calling `jax.set_mesh(mesh)` makes this concrete mesh available while JAX traces
 the explicitly sharded computation.
 
-A degenerate grid, where one matrix dimension is not distributed, is written
-with `None` in place of that mesh axis. A mesh with a single axis is then
-enough, which is convenient when the calling program already has one:
+An existing one-axis mesh can be used directly. To shard matrix rows over its
+axis, use a rank-1 `PartitionSpec`:
 
 ```python
-mesh = jax.make_mesh((8,), ("x",))
-matrix_specs = P("x", None)   # an 8 x 1 process grid; P("x") is equivalent
+single_axis_mesh = jax.make_mesh((8,), ("x",))
+single_axis_specs = P("x")
 ```
+
+For a rank-2 matrix, JAX treats `P("x")` as equivalent to `P("x", None)`.
+To shard columns instead, use `P(None, "x")`.
 
 The mesh passed to a solver does not have to be the one in context: each call
 enters its own mesh, so a program that keeps a different mesh set globally can
@@ -99,8 +101,8 @@ import numpy as np
 
 
 rank_grid = np.asarray(
-    [[device.process_index for device in row] for row in mesh.devices]
-)
+    [device.process_index for device in mesh.devices.flat]
+).reshape(mesh.devices.shape)
 if jax.process_index() == 0:
     print(rank_grid)
 ```
@@ -167,7 +169,7 @@ jax.set_mesh(mesh)
 ## 4. Shard the matrix and solve input
 
 `PartitionSpec` describes how each array dimension maps onto the process-grid
-axes. A matrix is normally sharded over both axes:
+axes. A matrix can be sharded over both axes:
 
 ```python
 import jax.numpy as jnp

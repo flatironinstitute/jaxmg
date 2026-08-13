@@ -275,12 +275,12 @@ def place_rhs_for_native_work(
     mesh: Mesh,
     matrix_specs: P,
 ) -> Array:
-    """Place an RHS in the native backend's regular 2D work sharding.
+    """Place an RHS in the matrix's native work sharding.
 
     The public solvers accept a replicated RHS-column axis, for example
-    ``P('pr', None)`` for an ``N x 1`` solve input. The shard-local native
-    FFI instead receives a regular ``P('pr', 'pc')`` work buffer. JAX has two
-    different APIs for that placement depending on how the mesh was created:
+    ``P('pr', None)`` for an ``N x 1`` solve input. Before the shard-local FFI,
+    the RHS is placed in the matrix's work sharding. JAX has two different APIs
+    for that placement depending on how the mesh was created:
     ``jax.make_mesh`` creates explicit axes and requires ``jax.reshard``,
     while the conventional ``Mesh(...)`` constructor creates auto axes and
     requires ``with_sharding_constraint`` inside a compiled computation.
@@ -291,7 +291,7 @@ def place_rhs_for_native_work(
     Args:
         rhs: Solve input in its user-facing sharding.
         mesh: JAX mesh used by the matrix and native work buffers.
-        matrix_specs: Regular 2D matrix sharding required by the native FFI.
+        matrix_specs: Matrix sharding required by the native FFI.
 
     Returns:
         The solve input placed in ``NamedSharding(mesh, matrix_specs)``.
@@ -317,7 +317,7 @@ def restore_rhs_from_native_work(
 ) -> Array:
     """Restore a solved RHS to its user-facing sharding before shape slicing.
 
-    Native work buffers use the matrix's regular 2D sharding and may contain
+    Native work buffers use the matrix's sharding and may contain
     extra columns so every process column owns data. On explicit mesh axes,
     slicing those columns away while they remain partitioned can produce a
     dimension that is not divisible by the process-column count. Restore the
@@ -328,7 +328,7 @@ def restore_rhs_from_native_work(
         rhs: Solved native work buffer before removal of routing columns.
         reference_rhs: Original solve input whose sharding should be restored.
         mesh: JAX mesh used by the matrix and solve input.
-        matrix_specs: Regular 2D sharding used by the native work buffer.
+        matrix_specs: Matrix sharding used by the native work buffer.
 
     Returns:
         The solved input restored to the original named sharding. If the

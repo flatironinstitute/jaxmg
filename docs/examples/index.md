@@ -9,8 +9,8 @@ Ready-to-run scripts are provided in the repository's
 ## 1. Configure Distributed Execution
 
 Start by initializing distributed JAX,
-assigning one GPU to each process, and constructing the two-dimensional device
-mesh used by the matrix.
+assigning one GPU to each process, and constructing the device mesh used by the
+matrix.
 
 [Configure distributed execution](execution.md)
 

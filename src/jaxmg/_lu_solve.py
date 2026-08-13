@@ -63,8 +63,8 @@ def lu_solve(
         tile size.
 
     Args:
-        a (Array): 2D, nonsingular input matrix. Expected to be sharded
-            across a 2D mesh with a matrix ``PartitionSpec`` such as
+        a (Array): 2D, nonsingular input matrix sharded over a one- or two-axis
+            device mesh, for example with ``P(<row_axis>)`` or
             ``P(<row_axis>, <col_axis>)``.
         b (Array): 1D or 2D solve input. A vector is treated as an
             ``N x 1`` matrix.
@@ -209,8 +209,8 @@ def lu_solve_shardmap_ctx(
     donate ``a`` into an ``A``-sized output.
 
     Args:
-        a (Array): 2D, nonsingular input matrix. Expected to be sharded
-            across a 2D mesh with a matrix ``PartitionSpec`` such as
+        a (Array): 2D, nonsingular input matrix sharded over a one- or two-axis
+            device mesh, for example with ``P(<row_axis>)`` or
             ``P(<row_axis>, <col_axis>)``.
         b (Array): 1D or 2D solve input. A vector is treated as an
             ``N x 1`` matrix.
@@ -471,9 +471,9 @@ def _lu_solve_pipeline(
             b_distribution = jnp.pad(_b, ((0, 0), (0, b_distribution_padding)))
         else:
             b_distribution = _b
-        # The public API permits a replicated RHS-column axis, such as
-        # P("pr", None). Native redistribution instead consumes a regular
-        # 2D work buffer before shard-local tile-capacity padding.
+        # The public API permits RHS sharding that differs from A, such as a
+        # replicated RHS-column axis. Native redistribution consumes the
+        # matrix work sharding before shard-local tile-capacity padding.
         b_distribution = place_rhs_for_native_work(
             b_distribution,
             mesh=mesh,

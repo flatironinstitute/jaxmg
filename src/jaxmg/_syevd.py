@@ -65,8 +65,8 @@ def syevd(
         tile size.
 
     Args:
-        a (Array): A 2D symmetric/Hermitian matrix. Expected to be sharded
-            across a 2D mesh with a matrix ``PartitionSpec`` such as
+        a (Array): A 2D symmetric/Hermitian matrix sharded over a one- or
+            two-axis device mesh, for example with ``P(<row_axis>)`` or
             ``P(<row_axis>, <col_axis>)``.
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
             dimension must be a multiple of ``T_A`` after padding.
@@ -208,8 +208,8 @@ def syevd_shardmap_ctx(
         tile size.
 
     Args:
-        a (Array): A 2D symmetric/Hermitian matrix. Expected to be sharded
-            across a 2D mesh with a matrix ``PartitionSpec`` such as
+        a (Array): A 2D symmetric/Hermitian matrix sharded over a one- or
+            two-axis device mesh, for example with ``P(<row_axis>)`` or
             ``P(<row_axis>, <col_axis>)``.
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
             dimension must be a multiple of ``T_A`` after padding.

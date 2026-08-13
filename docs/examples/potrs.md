@@ -22,8 +22,7 @@ factorization or a separate determinant calculation.
 
 ## Common setup
 
-The following setup uses a degenerate two-dimensional process grid with one
-Python process per GPU:
+The following setup uses a one-axis device mesh with one Python process per GPU:
 
 ```python
 import jax
@@ -37,9 +36,9 @@ from jaxmg import potrs
 
 
 num_processes = jax.process_count()
-mesh = jax.make_mesh((num_processes, 1), ("pr", "pc"))
+mesh = jax.make_mesh((num_processes,), ("pr",))
 jax.set_mesh(mesh)
-matrix_specs = P("pr", "pc")
+matrix_specs = P("pr")
 a_sharding = NamedSharding(mesh, matrix_specs)
 b_sharding = NamedSharding(mesh, P("pr", None))
 

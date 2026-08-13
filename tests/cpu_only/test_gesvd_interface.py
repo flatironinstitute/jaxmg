@@ -23,6 +23,12 @@ def _one_rank_mesh() -> Mesh:
     return Mesh(devices, ("pr", "pc"))
 
 
+def _single_axis_mesh() -> Mesh:
+    """Return a one-axis mesh for row-sharded matrix interface tests."""
+    devices = np.asarray(jax.devices()[:1], dtype=object)
+    return Mesh(devices, ("pr",))
+
+
 def _install_fake_gesvd_backend(monkeypatch):
     """Replace native GESVD factories with shape-correct Python stand-ins."""
     captured = {}
@@ -131,6 +137,23 @@ def test_gesvd_can_append_native_status(monkeypatch):
     )
     assert singular_values.dtype == jnp.float32
     assert status.shape == (_CUSOLVERMP_GESVD_STATUS_SIZE,)
+
+
+def test_gesvd_accepts_rank_1_matrix_specs(monkeypatch):
+    """P('pr') is normalized to the equivalent P('pr', None)."""
+    captured = _install_fake_gesvd_backend(monkeypatch)
+
+    singular_values = gesvd(
+        jnp.ones((6, 4), dtype=jnp.float32),
+        2,
+        mesh=_single_axis_mesh(),
+        matrix_specs=P("pr"),
+        compute_u=False,
+        compute_vh=False,
+    )
+
+    assert singular_values.shape == (4,)
+    assert captured["args"][1] == P("pr", None)
 
 
 def test_gesvd_shardmap_ctx_exposes_work_and_selected_outputs(monkeypatch):

@@ -23,7 +23,7 @@ Documentation for JAXMg `0.0.9` is archived at
 built on NVIDIA's single-node [cuSolverMg](https://docs.nvidia.com/cuda/cusolver/index.html#using-the-cuSolverMg-api)
 API, so its interface differs substantially from this one: it provides `potri`
 and the `cyclic_1d` layout helpers, has no `lu_solve`, and distributes matrices
-over a 1D device mesh rather than a 2D process grid.
+with a 1D block-cyclic layout rather than the 2D block-cyclic layout used here.
 
 ## Supported systems
 

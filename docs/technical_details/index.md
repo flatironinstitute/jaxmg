@@ -1,6 +1,6 @@
 # Native workflow
 
-JAXMg accepts ordinary JAX arrays sharded over a two-dimensional device mesh.
+JAXMg accepts ordinary JAX arrays sharded over a one- or two-axis device mesh.
 However, cuSOLVERMp requires column-major local buffers distributed in a 2D
 block-cyclic layout. The native backend bridges these layouts inside one fused
 C++/CUDA FFI call:
