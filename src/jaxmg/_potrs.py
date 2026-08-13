@@ -48,6 +48,7 @@ def potrs(
     return_status: bool = False,
     return_logdet: bool = False,
     pad: bool = True,
+    donate: bool = True,
 ) -> Union[Array, Tuple[Array, Array], Tuple[Array, Array, Array]]:
     """Solve the linear system A x = B using the multi-GPU potrs native kernel.
 
@@ -84,6 +85,10 @@ def potrs(
         pad (bool, optional): If True (default) apply per-device padding so
             each local shard length is compatible with ``T_A``; if False the
             caller must ensure shapes already match the kernel's requirements.
+        donate (bool, optional): If True (default) the input buffers may be
+            donated to the native call for zero-copy execution, which means
+            they are deleted and cannot be used again. Pass False to keep them,
+            at the cost of an extra copy.
 
     Returns:
         One of ``x``, ``(x, status)``, ``(x, logdet)``, or
@@ -95,8 +100,9 @@ def potrs(
         ValueError: If shapes, tile sizes, or mesh layouts are incompatible.
 
     Notes:
-        - The FFI call may donate the ``a`` and ``b`` buffers for zero-copy
-          interaction with the native library.
+        - Unless ``donate=False``, the ``a`` and ``b`` buffers are donated for
+          zero-copy interaction with the native library, so they are deleted and
+          cannot be used after the call.
         - Native code converts row-major JAX local storage to cuSOLVERMp's
           column-major local layout, redistributes to 2D block-cyclic layout,
           calls ``cusolverMpPotrf``/``cusolverMpPotrs``, and redistributes the
@@ -182,6 +188,7 @@ def potrs(
         b_distribution_cols=b_distribution_cols,
         tile_size=tile_shape.rows,
         return_logdet=return_logdet,
+        donate=donate,
     )
     result = impl(a, b)
     if return_logdet:
@@ -627,6 +634,7 @@ def _potrs_compiled(
     b_distribution_cols: int,
     tile_size: int,
     return_logdet: bool,
+    donate: bool,
 ):
     """Build and cache the internally jitted public POTRS execution pipeline."""
     pipeline = _potrs_pipeline(
@@ -645,7 +653,7 @@ def _potrs_compiled(
         return_logdet=return_logdet,
     )
 
-    @partial(jax.jit, donate_argnums=(0, 1))
+    @partial(jax.jit, donate_argnums=(0, 1) if donate else ())
     def impl(_a: Array, _b: Array):
         """Run the cached POTRS pipeline behind the public convenience API."""
         return pipeline(_a, _b)

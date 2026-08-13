@@ -45,6 +45,7 @@ def syevd(
     return_eigenvectors: bool = True,
     return_status: bool = False,
     pad: bool = True,
+    donate: bool = True,
 ) -> Array | Tuple[Array, Array] | Tuple[Array, Array, Array]:
     """Compute eigenvalues and optionally eigenvectors using multi-GPU SYEVD.
 
@@ -84,6 +85,10 @@ def syevd(
         pad (bool, optional): If True (default) apply per-device padding to
             meet ``T_A`` requirements; if False the caller must supply already
             correct shapes.
+        donate (bool, optional): If True (default) the input buffers may be
+            donated to the native call for zero-copy execution, which means
+            they are deleted and cannot be used again. Pass False to keep them,
+            at the cost of an extra copy.
 
     Returns:
         If ``return_eigenvectors=True``, ``(eigenvalues, eigenvectors)`` or
@@ -95,7 +100,7 @@ def syevd(
         ValueError: If shapes, tile sizes, or mesh layouts are incompatible.
 
     Notes:
-        - The FFI call can donate the input buffer to enable zero-copy
+        - Unless ``donate=False``, the input buffer is donated for zero-copy
           interaction with the native library.
         - Native code converts row-major JAX local storage to cuSOLVERMp's
           column-major local layout and redistributes to 2D block-cyclic
@@ -159,6 +164,7 @@ def syevd(
         tile_size=tile_shape.rows,
         dtype=a.dtype,
         return_eigenvectors=return_eigenvectors,
+        donate=donate,
     )
     outputs = impl(a)
     if not return_eigenvectors:
@@ -552,6 +558,7 @@ def _syevd_compiled(
     tile_size: int,
     dtype,
     return_eigenvectors: bool,
+    donate: bool,
 ):
     """Build and cache the internally jitted public SYEVD pipeline."""
     pipeline = _syevd_pipeline(
@@ -568,7 +575,7 @@ def _syevd_compiled(
         return_eigenvectors=return_eigenvectors,
     )
 
-    @partial(jax.jit, donate_argnums=(0,))
+    @partial(jax.jit, donate_argnums=(0,) if donate else ())
     def impl(_a: Array):
         """Run the cached SYEVD pipeline behind the public convenience API."""
         return pipeline(_a)

@@ -47,6 +47,7 @@ def gesvd(
     full_matrices: bool = False,
     return_status: bool = False,
     pad: bool = True,
+    donate: bool = True,
 ) -> Array | tuple[Array, ...]:
     """Compute a distributed singular-value decomposition with cuSOLVERMp.
 
@@ -89,6 +90,10 @@ def gesvd(
         pad (bool, optional): If True (default), add tile-aligned local capacity
             where required. If False, all participating local matrix shapes
             must already be divisible by ``T_A``.
+        donate (bool, optional): If True (default) the input buffers may be
+            donated to the native call for zero-copy execution, which means
+            they are deleted and cannot be used again. Pass False to keep them,
+            at the cost of an extra copy.
 
     Returns:
         The selected numerical outputs follow NumPy/JAX SVD order:
@@ -181,6 +186,7 @@ def gesvd(
         compute_u=compute_u,
         compute_vh=compute_vh,
         full_matrices=full_matrices,
+        donate=donate,
     )
     outputs = impl(a)
     if compute_u and compute_vh:
@@ -634,6 +640,7 @@ def _gesvd_compiled(
     compute_u: bool,
     compute_vh: bool,
     full_matrices: bool,
+    donate: bool,
 ):
     """Build and cache the internally jitted public GESVD pipeline."""
     pipeline = _gesvd_pipeline(
@@ -655,7 +662,7 @@ def _gesvd_compiled(
         full_matrices=full_matrices,
     )
 
-    @partial(jax.jit, donate_argnums=(0,))
+    @partial(jax.jit, donate_argnums=(0,) if donate else ())
     def impl(_a: Array):
         """Run the cached GESVD pipeline behind the public convenience API."""
         return pipeline(_a)
