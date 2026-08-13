@@ -3,8 +3,8 @@
 `jaxmg.lu_solve` solves $Ax=B$ for a general nonsingular matrix using pivoted
 LU factorization. Its array, mesh, padding, and tile-size interface matches
 `jaxmg.potrs`. For a normal solve, use `lu_solve`. It provides the high-level
-interface and internally handles JIT compilation, buffer donation,
-input/output aliasing, padding, and distributed execution.
+interface and internally handles JIT compilation, padding, distributed
+execution, and result restoration.
 
 ## Common setup
 
@@ -73,19 +73,18 @@ if jax.process_index() == 0:
 A one-dimensional `b` is also accepted; in that case `lu_solve` returns a
 one-dimensional solution.
 
-!!! Warning
-
-     The public wrapper will donate `a` and `b` to the compiled solve. Do not use
-     those input arrays after the call.
+By default, `lu_solve` preserves `a` and `b`, allowing either array to be used
+again after the solve. Set `donate=True` when the inputs are no longer required
+to let JAX reuse their storage and reduce peak memory. Donated arrays must not
+be used after the call.
 
 LU factorization stores a distributed pivot vector internally; users do not
 need to construct or manage it.
 
-There is no need to apply `jax.jit` or specify `donate_argnums`: `lu_solve`
-uses an internally cached jitted wrapper and manages donation and aliasing
-itself. If the solve must be embedded inside a larger jitted calculation, use
-the advanced interface below instead of wrapping `lu_solve` in another
-`jax.jit`.
+There is no need to apply `jax.jit`: `lu_solve` uses an internally cached
+jitted wrapper. The `donate` argument controls this wrapper only. If the solve
+must be embedded inside a larger jitted calculation, use the advanced
+interface below and control donation on the outer `jax.jit`.
 
 ## Advanced: control the outer `jax.jit`
 
@@ -109,9 +108,10 @@ from jaxmg import lu_solve_shardmap_ctx
 
 ### Case 1: `a` and `b` are arguments of the jitted function
 
-When existing arrays enter the outer jitted function as arguments, donate them
-with `donate_argnums`. Return `a_work` so the donated input matrix has an
-$A$-sized output alias at the outer compiled boundary:
+When existing arrays enter the outer jitted function as arguments and are no
+longer needed afterward, donate them with `donate_argnums`. Return `a_work` so
+the donated input matrix has an $A$-sized output alias at the outer compiled
+boundary:
 
 ```python
 @partial(jax.jit, donate_argnums=(0, 1))

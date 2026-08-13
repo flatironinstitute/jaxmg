@@ -45,7 +45,7 @@ def syevd(
     return_eigenvectors: bool = True,
     return_status: bool = False,
     pad: bool = True,
-    donate: bool = True,
+    donate: bool = False,
 ) -> Array | Tuple[Array, Array] | Tuple[Array, Array, Array]:
     """Compute eigenvalues and optionally eigenvectors using multi-GPU SYEVD.
 
@@ -85,10 +85,10 @@ def syevd(
         pad (bool, optional): If True (default) apply per-device padding to
             meet ``T_A`` requirements; if False the caller must supply already
             correct shapes.
-        donate (bool, optional): If True (default) the input buffers may be
-            donated to the native call for zero-copy execution, which means
-            they are deleted and cannot be used again. Pass False to keep them,
-            at the cost of an extra copy.
+        donate (bool, optional): If True, allow JAX to reuse the input matrix
+            buffer for the native eigensolve. The donated array must not be used
+            after the call. Defaults to False, preserving the input at the cost
+            of separate native work storage.
 
     Returns:
         If ``return_eigenvectors=True``, ``(eigenvalues, eigenvectors)`` or
@@ -100,8 +100,8 @@ def syevd(
         ValueError: If shapes, tile sizes, or mesh layouts are incompatible.
 
     Notes:
-        - Unless ``donate=False``, the input buffer is donated for zero-copy
-          interaction with the native library.
+        - Set ``donate=True`` when ``a`` is no longer required after the call to
+          reduce peak memory use.
         - Native code converts row-major JAX local storage to cuSOLVERMp's
           column-major local layout and redistributes to 2D block-cyclic
           layout. The eigenvector mode also redistributes its matrix result

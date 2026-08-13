@@ -3,8 +3,8 @@
 `jaxmg.syevd` computes the eigenvalues $\lambda_i$ and, optionally, eigenvectors
 $v_i$ of a symmetric real or Hermitian complex matrix $A$, satisfying
 $Av_i=\lambda_i v_i$. For a normal eigensolve, use `syevd`. It provides the
-high-level interface and internally handles JIT compilation, buffer donation,
-input/output aliasing, padding, and distributed execution.
+high-level interface and internally handles JIT compilation, padding,
+distributed execution, and result restoration.
 
 ## Common setup
 
@@ -83,15 +83,15 @@ eigenvalues.block_until_ready()
 This mode does not allocate, reverse-redistribute, or restore a matrix-sized
 eigenvector result.
 
-!!! Warning
+By default, `syevd` preserves `a`, allowing the matrix to be used again after
+the eigensolve. Set `donate=True` when it is no longer required to let JAX reuse
+its storage and reduce peak memory. A donated matrix must not be used after the
+call.
 
-     The public wrapper donates `a` to the compiled eigensolve. Do not use the
-     input array after the call.
-
-There is no need to apply `jax.jit` or specify `donate_argnums`: `syevd` uses
-an internally cached jitted wrapper and manages donation and aliasing itself.
-If the eigensolve must be embedded inside a larger jitted calculation, use the
-advanced interface below instead of wrapping `syevd` in another `jax.jit`.
+There is no need to apply `jax.jit`: `syevd` uses an internally cached jitted
+wrapper. The `donate` argument controls this wrapper only. If the eigensolve
+must be embedded inside a larger jitted calculation, use the advanced
+interface below and control donation on the outer `jax.jit`.
 
 When eigenvectors are requested, SYEVD materializes the full distributed
 eigenvector matrix and uses solver-specific workspace. It therefore reaches
@@ -124,9 +124,9 @@ from jaxmg import syevd_shardmap_ctx
 
 ### Case 1: `a` is an argument of the jitted function
 
-When an existing matrix enters the outer jitted function as an argument, donate
-it with `donate_argnums`. Return `a_work` so the donated input has an
-$A$-sized output alias at the outer compiled boundary:
+When an existing matrix enters the outer jitted function as an argument and is
+no longer needed afterward, donate it with `donate_argnums`. Return `a_work` so
+the donated input has an $A$-sized output alias at the outer compiled boundary:
 
 ```python
 @partial(jax.jit, donate_argnums=(0,))

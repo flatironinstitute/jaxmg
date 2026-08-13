@@ -45,8 +45,8 @@ Supply a JAX matrix sharded over a two-dimensional device mesh, and JAXMg
 handles the local memory-layout conversion, redistribution into cuSOLVERMp's 2D
 block-cyclic layout, distributed numerical computation, and restoration of the
 result to its original JAX layout. The matrix data remains GPU-resident
-throughout, with in-place transformations and bounded scratch storage minimizing
-memory overhead.
+throughout, with in-place work-buffer transformations and bounded scratch
+storage minimizing memory overhead.
 
 The operations are implemented using:
 
@@ -117,6 +117,10 @@ b = jax.device_put(b, NamedSharding(mesh, P("pr", None)))
 
 x, logdet = potrs(A, b, T_A=256, return_logdet=True)
 ```
+
+Public solver calls preserve their inputs by default. For memory-limited
+calculations, pass `donate=True` when the inputs are no longer required so JAX
+can reuse their storage. Donated arrays must not be used after the call.
 
 <details>
 <summary>Complete distributed example with validation</summary>

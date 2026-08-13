@@ -38,6 +38,11 @@ within it. They do not allocate a second full local matrix. When more than one
 matrix participates in a fused solver workflow, JAXMg allocates the maximum
 scratch requirement across those matrices and reuses the same buffer.
 
+This bound describes native scratch storage. Public solver calls preserve their
+inputs by default, which requires separate matrix work storage. Setting
+`donate=True` allows XLA to reuse input allocations for that work when the
+caller no longer needs them.
+
 ## Layout terminology
 
 Three different concepts are involved in the redistribution.
@@ -116,8 +121,8 @@ $$
 $$
 
 Asking XLA to materialize a column-major FFI input directly can require an
-additional full-sized local matrix. JAXMg instead converts each donated buffer
-in place using a parallel implementation of the rectangular permutation
+additional full-sized local matrix. JAXMg instead converts each matrix work
+buffer in place using a parallel implementation of the rectangular permutation
 decomposition introduced by Catanzaro, Keller, and Garland in
 [*A Decomposition for In-place Matrix Transposition*](https://research.nvidia.com/sites/default/files/pubs/2014-02_A-Decomposition-for/ppopp2014.pdf).
 The conversion consists of a modular row permutation surrounded, when required
@@ -193,8 +198,8 @@ same-rank rectangles are packed into scratch before being written locally.
 !!! warning "Padding temporarily requires an additional JAX allocation"
 
     The initial capacity padding must be performed by JAX because an existing
-    donated allocation cannot be expanded once assigned. Both the original and
-    padded arrays may therefore coexist temporarily. Choose a tile size that
+    allocation cannot be expanded once assigned. Both the original and padded
+    arrays may therefore coexist temporarily. Choose a tile size that
     divides both local shard dimensions when possible; see
     [Choose a tile size](../examples/choose_tile_size.md).
 
@@ -361,4 +366,3 @@ Native C++/CUDA is responsible for:
 |[src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_syevd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_syevd.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc) |
-

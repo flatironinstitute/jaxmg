@@ -16,6 +16,10 @@ redistribution. Matrix data remains GPU-resident throughout this workflow, and
 the in-place transformations reuse bounded native scratch storage to minimize
 memory overhead.
 
+Public solver calls preserve their input arrays by default, so XLA provides
+separate work storage for this workflow. Setting `donate=True` allows that work
+storage to reuse the input allocation when the caller no longer needs it.
+
 Matrix-valued solver outputs follow the reverse path shown above. The
 eigenvalues-only SYEVD mode returns the replicated eigenvalue array directly
 after solver execution.
