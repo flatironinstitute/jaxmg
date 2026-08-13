@@ -111,7 +111,6 @@ def run_case() -> None:
         a_work, out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
         a_work.block_until_ready()
     else:
-        @partial(jax.jit, static_argnames=("tile_size",))
         def solve(_a, _b, *, tile_size):
             if single_axis:
                 return potrs(
@@ -132,6 +131,10 @@ def run_case() -> None:
                 return_logdet=return_logdet,
                 pad=True,
             )
+
+        # Keep concrete sharding available for the public API's mesh inference.
+        if not single_axis:
+            solve = jax.jit(solve, static_argnames=("tile_size",))
 
         if case_name == "single_axis_row_vector":
             caller_mesh = Mesh(
