@@ -308,10 +308,26 @@ def place_rhs_for_native_work(
     )
 
 
+def infer_rhs_specs(rhs: Array, *, matrix_specs: P) -> P:
+    """Return the RHS sharding to restore after native redistribution.
+
+    Capture this specification before entering an internal ``jax.jit`` because
+    tracing on Auto mesh axes may no longer expose the input array's original
+    ``NamedSharding``.
+    """
+    sharding = getattr(rhs, "sharding", None)
+    if not isinstance(sharding, NamedSharding):
+        sharding = getattr(jax.typeof(rhs), "sharding", None)
+    if isinstance(sharding, NamedSharding):
+        return sharding.spec
+    row_axis, _ = matrix_specs._partitions
+    return P(row_axis, None)
+
+
 def restore_rhs_from_native_work(
     rhs: Array,
     *,
-    reference_rhs: Array,
+    rhs_specs: P,
     mesh: Mesh,
     matrix_specs: P,
 ) -> Array:
@@ -326,31 +342,22 @@ def restore_rhs_from_native_work(
 
     Args:
         rhs: Solved native work buffer before removal of routing columns.
-        reference_rhs: Original solve input whose sharding should be restored.
+        rhs_specs: Original solve-input sharding to restore.
         mesh: JAX mesh used by the matrix and solve input.
         matrix_specs: Matrix sharding used by the native work buffer.
 
     Returns:
-        The solved input restored to the original named sharding. If the
-        reference has no ``NamedSharding``, the row axis remains sharded and
-        the column axis is replicated.
+        The solved input restored to the original named sharding.
 
     Raises:
         ValueError: If the matrix axes are absent or use an unsupported mixture
             of mesh-axis modes.
     """
-    reference_sharding = getattr(jax.typeof(reference_rhs), "sharding", None)
-    if isinstance(reference_sharding, NamedSharding):
-        target_specs = reference_sharding.spec
-    else:
-        row_axis, _ = matrix_specs._partitions
-        target_specs = P(row_axis, None)
-
     return _place_for_matrix_axis_mode(
         rhs,
         mesh=mesh,
         matrix_specs=matrix_specs,
-        target_specs=target_specs,
+        target_specs=rhs_specs,
     )
 
 

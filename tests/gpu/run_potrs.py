@@ -71,6 +71,8 @@ def run_case() -> None:
     b = make_rhs(case.n, case.nrhs, dtype)
     if case.rhs_mode in ("vector_replicated", "vector_row_sharded"):
         b = b[:, 0]
+    a_host = np.asarray(a)
+    b_host = np.asarray(b)
     expected = jnp.linalg.solve(a, b)
 
     a_dev = jax.device_put(a, NamedSharding(mesh, matrix_specs))
@@ -160,8 +162,6 @@ def run_case() -> None:
         assert out.sharding.is_equivalent_to(expected_rhs_sharding, out.ndim)
 
     out_host = global_array_to_numpy(out)
-    a_host = np.asarray(a)
-    b_host = np.asarray(b)
     residual = np.linalg.norm(a_host @ out_host - b_host) / np.linalg.norm(b_host)
     assert float(residual) < 1e-3
     if return_logdet:

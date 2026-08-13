@@ -22,6 +22,7 @@ from ._cusolvermp_layout import (
     _unpad_local_2d,
     cusolvermp_grid_mapping_attr,
     infer_mesh_and_matrix_specs,
+    infer_rhs_specs,
     use_abstract_mesh_decorator,
     place_rhs_for_native_work,
     process_rank_map_from_mesh,
@@ -128,6 +129,7 @@ def potrs(
         matrix_specs=matrix_specs,
         in_specs=in_specs,
     )
+    rhs_specs = infer_rhs_specs(b, matrix_specs=matrix_specs)
     row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
     rank_map = process_rank_map_from_mesh(
         mesh,
@@ -178,6 +180,7 @@ def potrs(
         rank_map.cusolvermp_grid_mapping,
         a_padding,
         b_padding,
+        rhs_specs,
         n=a.shape[0],
         nrhs=nrhs,
         b_distribution_cols=b_distribution_cols,
@@ -293,6 +296,7 @@ def potrs_shardmap_ctx(
         matrix_specs=matrix_specs,
         in_specs=in_specs,
     )
+    rhs_specs = infer_rhs_specs(b, matrix_specs=matrix_specs)
     row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
     rank_map = process_rank_map_from_mesh(
         mesh,
@@ -343,6 +347,7 @@ def potrs_shardmap_ctx(
         rank_map.cusolvermp_grid_mapping,
         a_padding,
         b_padding,
+        rhs_specs,
         n=a.shape[0],
         nrhs=nrhs,
         b_distribution_cols=b_distribution_cols,
@@ -459,6 +464,7 @@ def _potrs_pipeline(
     grid_mapping: int,
     a_padding: MatrixPadding2D,
     b_padding: MatrixPadding2D,
+    rhs_specs: P,
     *,
     n: int,
     nrhs: int,
@@ -602,7 +608,7 @@ def _potrs_pipeline(
         out = unpad_b(b_solved_padded)
         out = restore_rhs_from_native_work(
             out,
-            reference_rhs=_b,
+            rhs_specs=rhs_specs,
             mesh=mesh,
             matrix_specs=matrix_specs,
         )
@@ -623,6 +629,7 @@ def _potrs_compiled(
     grid_mapping: int,
     a_padding: MatrixPadding2D,
     b_padding: MatrixPadding2D,
+    rhs_specs: P,
     *,
     n: int,
     nrhs: int,
@@ -640,6 +647,7 @@ def _potrs_compiled(
         grid_mapping,
         a_padding,
         b_padding,
+        rhs_specs,
         n=n,
         nrhs=nrhs,
         b_distribution_cols=b_distribution_cols,
