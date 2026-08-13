@@ -109,9 +109,8 @@ to let JAX reuse their storage and reduce peak memory. Donated arrays must not
 be used after the call.
 
 There is no need to apply `jax.jit`: `potrs` uses an internally cached jitted
-wrapper. The `donate` argument controls this wrapper only. If the solve must be
-embedded inside a larger jitted calculation, use the advanced interface below
-and control donation on the outer `jax.jit`.
+wrapper. If the solve must be embedded inside a larger jitted calculation, use
+the advanced interface below and control donation on the outer `jax.jit`.
 
 ## Advanced: control the outer `jax.jit`
 

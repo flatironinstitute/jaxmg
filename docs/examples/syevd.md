@@ -89,9 +89,8 @@ its storage and reduce peak memory. A donated matrix must not be used after the
 call.
 
 There is no need to apply `jax.jit`: `syevd` uses an internally cached jitted
-wrapper. The `donate` argument controls this wrapper only. If the eigensolve
-must be embedded inside a larger jitted calculation, use the advanced
-interface below and control donation on the outer `jax.jit`.
+wrapper. If the eigensolve must be embedded inside a larger jitted calculation,
+use the advanced interface below and control donation on the outer `jax.jit`.
 
 When eigenvectors are requested, SYEVD materializes the full distributed
 eigenvector matrix and uses solver-specific workspace. It therefore reaches

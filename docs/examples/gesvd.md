@@ -103,9 +103,9 @@ reuse its storage and reduce peak memory. A donated matrix must not be used
 after the call.
 
 There is no need to apply `jax.jit`: `gesvd` uses an internally cached jitted
-wrapper. The `donate` argument controls this wrapper only. Use the context
-interface below when the decomposition must be embedded in a larger compiled
-calculation, and control donation on the outer `jax.jit`.
+wrapper. Use the context interface below when the decomposition must be
+embedded in a larger compiled calculation, and control donation on the outer
+`jax.jit`.
 
 ## Advanced: control the outer `jax.jit`
 

@@ -82,9 +82,9 @@ LU factorization stores a distributed pivot vector internally; users do not
 need to construct or manage it.
 
 There is no need to apply `jax.jit`: `lu_solve` uses an internally cached
-jitted wrapper. The `donate` argument controls this wrapper only. If the solve
-must be embedded inside a larger jitted calculation, use the advanced
-interface below and control donation on the outer `jax.jit`.
+jitted wrapper. If the solve must be embedded inside a larger jitted
+calculation, use the advanced interface below and control donation on the outer
+`jax.jit`.
 
 ## Advanced: control the outer `jax.jit`
 

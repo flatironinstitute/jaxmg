@@ -118,10 +118,6 @@ b = jax.device_put(b, NamedSharding(mesh, P("pr", None)))
 x, logdet = potrs(A, b, T_A=256, return_logdet=True)
 ```
 
-Public solver calls preserve their inputs by default. For memory-limited
-calculations, pass `donate=True` when the inputs are no longer required so JAX
-can reuse their storage. Donated arrays must not be used after the call.
-
 <details>
 <summary>Complete distributed example with validation</summary>
 
