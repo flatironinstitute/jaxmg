@@ -22,6 +22,8 @@ from ._cusolvermp_layout import (
     _unpad_local_2d,
     cusolvermp_grid_mapping_attr,
     infer_mesh_and_matrix_specs,
+    infer_rhs_specs,
+    use_abstract_mesh_decorator,
     place_rhs_for_native_work,
     process_rank_map_from_mesh,
     restore_rhs_from_native_work,
@@ -63,9 +65,9 @@ def potrs(
         tile size.
 
     Args:
-        a (Array): 2D, symmetric positive-definite input matrix. Expected
-            to be sharded across a 2D mesh with a matrix ``PartitionSpec`` such
-            as ``P(<row_axis>, <col_axis>)``.
+        a (Array): 2D, symmetric positive-definite input matrix sharded over a
+            one- or two-axis device mesh, for example with
+            ``P(<row_axis>)`` or ``P(<row_axis>, <col_axis>)``.
         b (Array): 1D or 2D solve input. A vector is treated as an
             ``N x 1`` matrix.
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
@@ -127,6 +129,7 @@ def potrs(
         matrix_specs=matrix_specs,
         in_specs=in_specs,
     )
+    rhs_specs = infer_rhs_specs(b, matrix_specs=matrix_specs)
     row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
     rank_map = process_rank_map_from_mesh(
         mesh,
@@ -177,6 +180,7 @@ def potrs(
         rank_map.cusolvermp_grid_mapping,
         a_padding,
         b_padding,
+        rhs_specs,
         n=a.shape[0],
         nrhs=nrhs,
         b_distribution_cols=b_distribution_cols,
@@ -228,9 +232,9 @@ def potrs_shardmap_ctx(
         tile size.
 
     Args:
-        a (Array): 2D, symmetric positive-definite input matrix. Expected
-            to be sharded across a 2D mesh with a matrix ``PartitionSpec`` such
-            as ``P(<row_axis>, <col_axis>)``.
+        a (Array): 2D, symmetric positive-definite input matrix sharded over a
+            one- or two-axis device mesh, for example with
+            ``P(<row_axis>)`` or ``P(<row_axis>, <col_axis>)``.
         b (Array): 1D or 2D solve input. A vector is treated as an
             ``N x 1`` matrix.
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
@@ -292,6 +296,7 @@ def potrs_shardmap_ctx(
         matrix_specs=matrix_specs,
         in_specs=in_specs,
     )
+    rhs_specs = infer_rhs_specs(b, matrix_specs=matrix_specs)
     row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
     rank_map = process_rank_map_from_mesh(
         mesh,
@@ -342,6 +347,7 @@ def potrs_shardmap_ctx(
         rank_map.cusolvermp_grid_mapping,
         a_padding,
         b_padding,
+        rhs_specs,
         n=a.shape[0],
         nrhs=nrhs,
         b_distribution_cols=b_distribution_cols,
@@ -458,6 +464,7 @@ def _potrs_pipeline(
     grid_mapping: int,
     a_padding: MatrixPadding2D,
     b_padding: MatrixPadding2D,
+    rhs_specs: P,
     *,
     n: int,
     nrhs: int,
@@ -576,6 +583,7 @@ def _potrs_pipeline(
         check_vma=False,
     )
 
+    @use_abstract_mesh_decorator(mesh)
     def impl(_a: Array, _b: Array):
         """Run padding, fused native POTRS, and unpadding as one compiled path."""
         a_padded = pad_a(_a)
@@ -583,9 +591,9 @@ def _potrs_pipeline(
             b_distribution = jnp.pad(_b, ((0, 0), (0, b_distribution_padding)))
         else:
             b_distribution = _b
-        # The public API permits a replicated RHS-column axis, such as
-        # P("pr", None). Native redistribution instead consumes a regular
-        # 2D work buffer before shard-local tile-capacity padding.
+        # The public API permits RHS sharding that differs from A, such as a
+        # replicated RHS-column axis. Native redistribution consumes the
+        # matrix work sharding before shard-local tile-capacity padding.
         b_distribution = place_rhs_for_native_work(
             b_distribution,
             mesh=mesh,
@@ -600,7 +608,7 @@ def _potrs_pipeline(
         out = unpad_b(b_solved_padded)
         out = restore_rhs_from_native_work(
             out,
-            reference_rhs=_b,
+            rhs_specs=rhs_specs,
             mesh=mesh,
             matrix_specs=matrix_specs,
         )
@@ -621,6 +629,7 @@ def _potrs_compiled(
     grid_mapping: int,
     a_padding: MatrixPadding2D,
     b_padding: MatrixPadding2D,
+    rhs_specs: P,
     *,
     n: int,
     nrhs: int,
@@ -638,6 +647,7 @@ def _potrs_compiled(
         grid_mapping,
         a_padding,
         b_padding,
+        rhs_specs,
         n=n,
         nrhs=nrhs,
         b_distribution_cols=b_distribution_cols,

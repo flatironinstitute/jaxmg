@@ -22,6 +22,12 @@ def _one_rank_mesh() -> Mesh:
     return Mesh(devices, ("pr", "pc"))
 
 
+def _single_axis_mesh() -> Mesh:
+    """Return a mesh with one axis, as used by callers that shard only rows."""
+    devices = np.asarray(jax.devices()[:1], dtype=object)
+    return Mesh(devices, ("pr",))
+
+
 def _install_fake_lu_solve_backend(monkeypatch):
     """Replace native backend entry points with a small Python stand-in."""
     captured = {}
@@ -236,14 +242,49 @@ def test_lu_solve_rejects_ambiguous_spec_arguments():
         )
 
 
-def test_lu_solve_rejects_1d_matrix_specs():
-    with pytest.raises(ValueError, match="both matrix axes"):
+def test_lu_solve_accepts_degenerate_column_grid(monkeypatch):
+    """A P_r x 1 grid leaves the matrix columns undistributed."""
+    captured = _install_fake_lu_solve_backend(monkeypatch)
+    b = jnp.ones((4, 1), dtype=jnp.float32)
+
+    out = lu_solve(
+        jnp.eye(4, dtype=jnp.float32),
+        b,
+        2,
+        mesh=_single_axis_mesh(),
+        matrix_specs=P("pr", None),
+    )
+
+    assert out.shape == b.shape
+    grid = captured["args"][3]
+    assert (grid.process_rows, grid.process_cols) == (1, 1)
+
+
+def test_lu_solve_accepts_rank_1_matrix_specs(monkeypatch):
+    """P('pr') is normalized to the equivalent P('pr', None)."""
+    captured = _install_fake_lu_solve_backend(monkeypatch)
+    b = jnp.ones((4, 1), dtype=jnp.float32)
+
+    out = lu_solve(
+        jnp.eye(4, dtype=jnp.float32),
+        b,
+        2,
+        mesh=_single_axis_mesh(),
+        matrix_specs=P("pr"),
+    )
+
+    assert out.shape == b.shape
+    assert captured["args"][1] == P("pr", None)
+
+
+def test_lu_solve_rejects_fully_replicated_matrix_specs():
+    with pytest.raises(ValueError, match="at least one matrix axis"):
         lu_solve(
             jnp.eye(4),
             jnp.ones((4, 1)),
             2,
             mesh=_one_rank_mesh(),
-            matrix_specs=P("pr", None),
+            matrix_specs=P(None, None),
         )
 
 

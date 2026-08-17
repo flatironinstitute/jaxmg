@@ -15,6 +15,8 @@ C++/CUDA.  The helpers here only describe shapes and sharding to JAX.
 
 from __future__ import annotations
 
+import functools
+
 import jax.numpy as jnp
 import numpy as np
 import jax
@@ -94,15 +96,36 @@ def mesh_axis_size(mesh: Mesh, axis_name: str) -> int:
         raise ValueError(f"mesh does not contain axis {axis_name!r}.") from exc
 
 
+def use_abstract_mesh_decorator(mesh: Mesh):
+    """The decorated function is called within the context of ``use_abstract_mesh``.
+
+    Needed because ``jax.shard_map`` rejects a mesh that is not the context mesh,
+    so a caller keeping its own mesh in context could not call JAXMg at all.
+    """
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            with jax.sharding.use_abstract_mesh(mesh.abstract_mesh):
+                return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
 def validate_2d_matrix_specs(
     mesh: Mesh,
     matrix_specs: P,
-) -> tuple[str, str, ProcessGrid]:
+) -> tuple[str | None, str | None, ProcessGrid]:
     """Validate and describe a two-dimensional matrix sharding.
 
-    cuSOLVERMp requires both logical matrix dimensions to map to named JAX mesh
-    axes. The first ``PartitionSpec`` entry defines the process-row axis and the
-    second defines the process-column axis.
+    The first ``PartitionSpec`` entry defines the process-row axis and the
+    second defines the process-column axis. Either one may be ``None``, which
+    describes a degenerate ``P_r x 1`` or ``1 x P_c`` process grid: the
+    corresponding matrix dimension is then not distributed, and every process
+    owns it whole. That is the natural sharding for callers whose mesh has a
+    single axis, such as ``Mesh(jax.devices(), ('x',))`` with ``P('x', None)``.
 
     Args:
         mesh: JAX mesh used to shard the matrix.
@@ -110,26 +133,34 @@ def validate_2d_matrix_specs(
 
     Returns:
         ``(row_axis, col_axis, grid)``, where ``grid`` contains the extents of
-        the two selected mesh axes.
+        the selected mesh axes, and an axis left unsharded is reported as
+        ``None`` with an extent of one.
 
     Raises:
         TypeError: If ``matrix_specs`` is not a ``PartitionSpec``.
-        ValueError: If the specification is not rank two, either matrix
-            dimension is unsharded, or a referenced axis is absent.
+        ValueError: If the specification is not rank two, both matrix
+            dimensions are unsharded, or a referenced axis is absent.
     """
     if not isinstance(matrix_specs, P):
         raise TypeError("matrix_specs must be a PartitionSpec.")
     if len(matrix_specs._partitions) != 2:
         raise ValueError("matrix_specs must describe a rank-2 sharding.")
     row_axis, col_axis = matrix_specs._partitions
-    if not isinstance(row_axis, str) or not isinstance(col_axis, str):
+    if row_axis is None and col_axis is None:
         raise ValueError(
-            "cuSOLVERMp currently requires both matrix axes to be sharded by "
-            "named mesh axes, for example P('pr', 'pc')."
+            "cuSOLVERMp requires at least one matrix axis to be sharded by a "
+            "named mesh axis, but matrix_specs leaves both unsharded."
         )
+    for axis in (row_axis, col_axis):
+        if not (isinstance(axis, str) or axis is None):
+            raise ValueError(
+                "cuSOLVERMp requires each matrix axis to be sharded by a single "
+                "named mesh axis or left unsharded, for example P('pr', 'pc') "
+                "or P('pr', None)."
+            )
     grid = ProcessGrid(
-        process_rows=mesh_axis_size(mesh, row_axis),
-        process_cols=mesh_axis_size(mesh, col_axis),
+        process_rows=1 if row_axis is None else mesh_axis_size(mesh, row_axis),
+        process_cols=1 if col_axis is None else mesh_axis_size(mesh, col_axis),
     )
     return row_axis, col_axis, grid
 
@@ -218,7 +249,8 @@ def _place_for_matrix_axis_mode(
             axes do not share a supported Explicit or Auto mode.
     """
     axis_types = dict(zip(mesh.axis_names, mesh.axis_types))
-    matrix_axes = tuple(matrix_specs._partitions)
+    # Only axes actually mapped onto the mesh have a mode to agree on.
+    matrix_axes = tuple(x for x in matrix_specs._partitions if x is not None)
     try:
         matrix_axis_types = tuple(axis_types[axis] for axis in matrix_axes)
     except KeyError as exc:
@@ -243,12 +275,12 @@ def place_rhs_for_native_work(
     mesh: Mesh,
     matrix_specs: P,
 ) -> Array:
-    """Place an RHS in the native backend's regular 2D work sharding.
+    """Place an RHS in the matrix's native work sharding.
 
     The public solvers accept a replicated RHS-column axis, for example
-    ``P('pr', None)`` for an ``N x 1`` solve input. The shard-local native
-    FFI instead receives a regular ``P('pr', 'pc')`` work buffer. JAX has two
-    different APIs for that placement depending on how the mesh was created:
+    ``P('pr', None)`` for an ``N x 1`` solve input. Before the shard-local FFI,
+    the RHS is placed in the matrix's work sharding. JAX has two different APIs
+    for that placement depending on how the mesh was created:
     ``jax.make_mesh`` creates explicit axes and requires ``jax.reshard``,
     while the conventional ``Mesh(...)`` constructor creates auto axes and
     requires ``with_sharding_constraint`` inside a compiled computation.
@@ -259,7 +291,7 @@ def place_rhs_for_native_work(
     Args:
         rhs: Solve input in its user-facing sharding.
         mesh: JAX mesh used by the matrix and native work buffers.
-        matrix_specs: Regular 2D matrix sharding required by the native FFI.
+        matrix_specs: Matrix sharding required by the native FFI.
 
     Returns:
         The solve input placed in ``NamedSharding(mesh, matrix_specs)``.
@@ -276,16 +308,32 @@ def place_rhs_for_native_work(
     )
 
 
+def infer_rhs_specs(rhs: Array, *, matrix_specs: P) -> P:
+    """Return the RHS sharding to restore after native redistribution.
+
+    Capture this specification before entering an internal ``jax.jit`` because
+    tracing on Auto mesh axes may no longer expose the input array's original
+    ``NamedSharding``.
+    """
+    sharding = getattr(rhs, "sharding", None)
+    if not isinstance(sharding, NamedSharding):
+        sharding = getattr(jax.typeof(rhs), "sharding", None)
+    if isinstance(sharding, NamedSharding):
+        return sharding.spec
+    row_axis, _ = matrix_specs._partitions
+    return P(row_axis, None)
+
+
 def restore_rhs_from_native_work(
     rhs: Array,
     *,
-    reference_rhs: Array,
+    rhs_specs: P,
     mesh: Mesh,
     matrix_specs: P,
 ) -> Array:
     """Restore a solved RHS to its user-facing sharding before shape slicing.
 
-    Native work buffers use the matrix's regular 2D sharding and may contain
+    Native work buffers use the matrix's sharding and may contain
     extra columns so every process column owns data. On explicit mesh axes,
     slicing those columns away while they remain partitioned can produce a
     dimension that is not divisible by the process-column count. Restore the
@@ -294,31 +342,22 @@ def restore_rhs_from_native_work(
 
     Args:
         rhs: Solved native work buffer before removal of routing columns.
-        reference_rhs: Original solve input whose sharding should be restored.
+        rhs_specs: Original solve-input sharding to restore.
         mesh: JAX mesh used by the matrix and solve input.
-        matrix_specs: Regular 2D sharding used by the native work buffer.
+        matrix_specs: Matrix sharding used by the native work buffer.
 
     Returns:
-        The solved input restored to the original named sharding. If the
-        reference has no ``NamedSharding``, the row axis remains sharded and
-        the column axis is replicated.
+        The solved input restored to the original named sharding.
 
     Raises:
         ValueError: If the matrix axes are absent or use an unsupported mixture
             of mesh-axis modes.
     """
-    reference_sharding = getattr(jax.typeof(reference_rhs), "sharding", None)
-    if isinstance(reference_sharding, NamedSharding):
-        target_specs = reference_sharding.spec
-    else:
-        row_axis, _ = matrix_specs._partitions
-        target_specs = P(row_axis, None)
-
     return _place_for_matrix_axis_mode(
         rhs,
         mesh=mesh,
         matrix_specs=matrix_specs,
-        target_specs=target_specs,
+        target_specs=rhs_specs,
     )
 
 
@@ -385,8 +424,8 @@ def _device_rank_key(device) -> tuple[int, int, int]:
 def process_rank_map_from_mesh(
     mesh: Mesh,
     *,
-    row_axis: str,
-    col_axis: str,
+    row_axis: str | None,
+    col_axis: str | None,
     grid: ProcessGrid,
     caller: str,
 ) -> ProcessRankMap:
@@ -400,8 +439,10 @@ def process_rank_map_from_mesh(
 
     Args:
         mesh: JAX mesh containing the process-grid devices.
-        row_axis: Mesh axis mapped to cuSOLVERMp process rows.
-        col_axis: Mesh axis mapped to cuSOLVERMp process columns.
+        row_axis: Mesh axis mapped to cuSOLVERMp process rows, or ``None`` for a
+            degenerate ``1 x P_c`` grid.
+        col_axis: Mesh axis mapped to cuSOLVERMp process columns, or ``None``
+            for a degenerate ``P_r x 1`` grid.
         grid: Expected two-dimensional process-grid shape.
         caller: Routine name included in validation errors.
 
@@ -415,9 +456,10 @@ def process_rank_map_from_mesh(
             cuSOLVERMp's supported grid mappings.
     """
     axis_names = tuple(mesh.axis_names)
-    if row_axis not in axis_names or col_axis not in axis_names:
+    matrix_axes = tuple(axis for axis in (row_axis, col_axis) if axis is not None)
+    if any(axis not in axis_names for axis in matrix_axes):
         raise ValueError("matrix sharding axes must be present in the mesh.")
-    if row_axis == col_axis:
+    if row_axis is not None and row_axis == col_axis:
         raise ValueError("matrix row and column axes must be distinct.")
 
     devices = np.asarray(mesh.devices, dtype=object)
@@ -428,19 +470,21 @@ def process_rank_map_from_mesh(
     if devices.size != grid.num_processes:
         raise ValueError(
             f"{caller} currently expects the JAX mesh to contain exactly the "
-            "two axes used by the cuSOLVERMp process grid. Got "
+            "axes used by the cuSOLVERMp process grid. Got "
             f"{devices.size} mesh devices for a {grid.process_rows} x "
             f"{grid.process_cols} process grid."
         )
 
-    row_position = axis_names.index(row_axis)
-    col_position = axis_names.index(col_axis)
-    devices_by_matrix_axis = np.moveaxis(
-        devices,
-        (row_position, col_position),
-        (0, 1),
+    # A degenerate grid leaves one matrix dimension unsharded: the mesh has no
+    # axis for it, so neither array below carries that extent-one dimension.
+    positions = tuple(axis_names.index(axis) for axis in matrix_axes)
+    devices_by_matrix_axis = np.moveaxis(devices, positions, range(len(positions)))
+    grid_shape = (grid.process_rows, grid.process_cols)
+    expected_shape = tuple(
+        size
+        for axis, size in zip((row_axis, col_axis), grid_shape)
+        if axis is not None
     )
-    expected_shape = (grid.process_rows, grid.process_cols)
     if devices_by_matrix_axis.shape != expected_shape:
         raise ValueError(
             "mesh device grid does not match the matrix process-grid shape "
@@ -613,7 +657,8 @@ def infer_mesh_and_matrix_specs(
         in_specs: Alias for ``matrix_specs``.
 
     Returns:
-        The resolved ``(mesh, matrix_specs)`` pair.
+        The resolved ``(mesh, matrix_specs)`` pair, with a rank-1
+        specification padded to rank two.
 
     Raises:
         ValueError: If inference is required but ``a`` has no
@@ -621,22 +666,23 @@ def infer_mesh_and_matrix_specs(
         TypeError: If the supplied matrix specification has an invalid type.
     """
     matrix_specs = normalize_matrix_specs(matrix_specs, in_specs=in_specs)
-    if mesh is not None and matrix_specs is not None:
-        return mesh, matrix_specs
+    if mesh is None or matrix_specs is None:
+        sharding = getattr(a, "sharding", None)
+        if not isinstance(sharding, NamedSharding):
+            raise ValueError(
+                "cuSOLVERMp routine could not infer mesh/matrix_specs from A. "
+                "Shard A with jax.sharding.NamedSharding or pass mesh=... and "
+                "matrix_specs=..."
+            )
+        if mesh is None:
+            mesh = sharding.mesh
+        if matrix_specs is None:
+            matrix_specs = sharding.spec
 
-    sharding = getattr(a, "sharding", None)
-    if not isinstance(sharding, NamedSharding):
-        raise ValueError(
-            "cuSOLVERMp routine could not infer mesh/matrix_specs from A. "
-            "Shard A with jax.sharding.NamedSharding or pass mesh=... and "
-            "matrix_specs=..."
-        )
-
-    if mesh is None:
-        mesh = sharding.mesh
-    if matrix_specs is None:
-        matrix_specs = sharding.spec
-    return mesh, matrix_specs
+    # ``P('x')`` and ``P('x', None)`` describe the same layout of a 2D array;
+    # pad the short form so the rest of the layout code stays rank-2 throughout.
+    partitions = matrix_specs._partitions
+    return mesh, P(*partitions, *(None,) * (2 - len(partitions)))
 
 
 # -----------------------------------------------------------------------------
@@ -644,7 +690,9 @@ def infer_mesh_and_matrix_specs(
 # -----------------------------------------------------------------------------
 
 
-def status_specs(row_axis: str, col_axis: str, grid: ProcessGrid) -> P:
+def status_specs(
+    row_axis: str | None, col_axis: str | None, grid: ProcessGrid
+) -> P:
     """Choose the sharding for a per-rank native status vector.
 
     The status vector has one logical axis but must retain one distinct shard per

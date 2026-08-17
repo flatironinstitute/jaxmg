@@ -41,7 +41,7 @@ JAXMg connects JAX to NVIDIA's distributed
 [cuSOLVERMp](https://docs.nvidia.com/cuda/cusolvermp/) routines through a native
 C++/CUDA backend.
 
-Supply a JAX matrix sharded over a two-dimensional device mesh, and JAXMg
+Supply a JAX matrix sharded over a one- or two-axis device mesh, and JAXMg
 handles the local memory-layout conversion, redistribution into cuSOLVERMp's 2D
 block-cyclic layout, distributed numerical computation, and restoration of the
 result to its original JAX layout. The matrix data remains GPU-resident

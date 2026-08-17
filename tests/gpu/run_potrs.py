@@ -10,7 +10,7 @@ if not jax.config.jax_enable_x64:
 import jax.numpy as jnp
 import numpy as np
 from jax.experimental import multihost_utils
-from jax.sharding import NamedSharding, PartitionSpec as P
+from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
 from cusolvermp_case_utils import (
     assert_close_scaled,
@@ -54,18 +54,32 @@ def run_case() -> None:
     """Run one rank-per-GPU POTRS case and emit parser-friendly results."""
     dtype = dtype_from_name(dtype_name)
     case = solver_case(case_name, num_procs, routine="potrs")
-    mesh = make_process_mesh(case)
-    matrix_specs = P("pr", "pc")
+    single_axis = case_name in {
+        "single_axis_row_vector",
+        "single_axis_column_rhs",
+    }
+    if single_axis:
+        mesh = Mesh(np.asarray(jax.devices(), dtype=object), ("x",))
+        matrix_specs = (
+            P("x") if case_name == "single_axis_row_vector" else P(None, "x")
+        )
+    else:
+        mesh = make_process_mesh(case)
+        matrix_specs = P("pr", "pc")
 
     a = make_hermitian_positive_definite(case.n, dtype, seed=1234)
     b = make_rhs(case.n, case.nrhs, dtype)
-    if case.rhs_mode == "vector_replicated":
+    if case.rhs_mode in ("vector_replicated", "vector_row_sharded"):
         b = b[:, 0]
+    a_host = np.asarray(a)
+    b_host = np.asarray(b)
     expected = jnp.linalg.solve(a, b)
 
     a_dev = jax.device_put(a, NamedSharding(mesh, matrix_specs))
     if case.rhs_mode == "vector_replicated":
         rhs_specs = P(None)
+    elif case.rhs_mode == "vector_row_sharded":
+        rhs_specs = P("x")
     elif case.rhs_mode == "matrix_replicated":
         rhs_specs = P(None, None)
     elif case.rhs_mode == "matrix_row_sharded":
@@ -75,6 +89,7 @@ def run_case() -> None:
     else:
         raise ValueError(f"unknown RHS placement mode {case.rhs_mode!r}")
     b_dev = jax.device_put(b, NamedSharding(mesh, rhs_specs))
+    expected_rhs_sharding = b_dev.sharding
 
     if interface == "context":
         if return_logdet:
@@ -98,8 +113,16 @@ def run_case() -> None:
         a_work, out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
         a_work.block_until_ready()
     else:
-        @partial(jax.jit, static_argnames=("tile_size",))
         def solve(_a, _b, *, tile_size):
+            if single_axis:
+                return potrs(
+                    _a,
+                    _b,
+                    tile_size,
+                    return_status=True,
+                    return_logdet=return_logdet,
+                    pad=True,
+                )
             return potrs(
                 _a,
                 _b,
@@ -111,7 +134,18 @@ def run_case() -> None:
                 pad=True,
             )
 
-        result = solve(a_dev, b_dev, tile_size=case.tile_size)
+        # Keep concrete sharding available for the public API's mesh inference.
+        if not single_axis:
+            solve = jax.jit(solve, static_argnames=("tile_size",))
+
+        if case_name == "single_axis_row_vector":
+            caller_mesh = Mesh(
+                np.asarray(jax.devices(), dtype=object), ("caller",)
+            )
+            with jax.sharding.use_abstract_mesh(caller_mesh.abstract_mesh):
+                result = solve(a_dev, b_dev, tile_size=case.tile_size)
+        else:
+            result = solve(a_dev, b_dev, tile_size=case.tile_size)
         if return_logdet:
             out, logdet, status = result
             logdet.block_until_ready()
@@ -124,10 +158,10 @@ def run_case() -> None:
     assert status_words.size % _CUSOLVERMP_POTRS_STATUS_SIZE == 0, status_words
     assert np.all(status_words[::_CUSOLVERMP_POTRS_STATUS_SIZE] == 0), status_words
     assert_close_scaled(out, expected)
+    if single_axis:
+        assert out.sharding.is_equivalent_to(expected_rhs_sharding, out.ndim)
 
     out_host = global_array_to_numpy(out)
-    a_host = np.asarray(a)
-    b_host = np.asarray(b)
     residual = np.linalg.norm(a_host @ out_host - b_host) / np.linalg.norm(b_host)
     assert float(residual) < 1e-3
     if return_logdet:

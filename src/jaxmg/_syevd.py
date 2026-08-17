@@ -23,6 +23,7 @@ from ._cusolvermp_layout import (
     _unpad_local_2d,
     cusolvermp_grid_mapping_attr,
     infer_mesh_and_matrix_specs,
+    use_abstract_mesh_decorator,
     process_rank_map_from_mesh,
     standard_grid_rank_map_attr,
     status_specs,
@@ -64,8 +65,8 @@ def syevd(
         tile size.
 
     Args:
-        a (Array): A 2D symmetric/Hermitian matrix. Expected to be sharded
-            across a 2D mesh with a matrix ``PartitionSpec`` such as
+        a (Array): A 2D symmetric/Hermitian matrix sharded over a one- or
+            two-axis device mesh, for example with ``P(<row_axis>)`` or
             ``P(<row_axis>, <col_axis>)``.
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
             dimension must be a multiple of ``T_A`` after padding.
@@ -207,8 +208,8 @@ def syevd_shardmap_ctx(
         tile size.
 
     Args:
-        a (Array): A 2D symmetric/Hermitian matrix. Expected to be sharded
-            across a 2D mesh with a matrix ``PartitionSpec`` such as
+        a (Array): A 2D symmetric/Hermitian matrix sharded over a one- or
+            two-axis device mesh, for example with ``P(<row_axis>)`` or
             ``P(<row_axis>, <col_axis>)``.
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
             dimension must be a multiple of ``T_A`` after padding.
@@ -524,6 +525,7 @@ def _syevd_pipeline(
         check_vma=False,
     )
 
+    @use_abstract_mesh_decorator(mesh)
     def impl(_a: Array):
         """Run padding, fused native SYEVD, and optional vector unpadding."""
         a_padded = pad_a(_a)

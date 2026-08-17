@@ -1,6 +1,6 @@
 # Memory distribution
 
-JAXMg accepts ordinary JAX arrays sharded over a two-dimensional device mesh.
+JAXMg accepts ordinary JAX arrays sharded over a one- or two-axis device mesh.
 However, cuSOLVERMp expects each local matrix buffer to use column-major memory
 and the global matrix to follow a 2D block-cyclic distribution. JAXMg bridges
 these layouts inside one fused C++/CUDA FFI call.
@@ -361,4 +361,3 @@ Native C++/CUDA is responsible for:
 |[src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_syevd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_syevd.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc) |
-
