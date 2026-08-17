@@ -1261,7 +1261,9 @@ matrix.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p>The public wrapper donates <code>a</code> to the compiled decomposition. Do not use
- the input array after the call.</p>
+ the input array after the call. Use <code>donate=False</code> to preserve it. This is
+ less memory efficient because the original input and working buffer must
+ coexist.</p>
 </div>
 <p>There is no need to apply <code>jax.jit</code> or specify <code>donate_argnums</code>: <code>gesvd</code> uses
 an internally cached jitted wrapper. Use the context interface below when the

@@ -1232,7 +1232,8 @@ eigenvector result.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p>The public wrapper donates <code>a</code> to the compiled eigensolve. Do not use the
- input array after the call.</p>
+ input array after the call. Use <code>donate=False</code> to preserve it. This is less
+ memory efficient because the original input and working buffer must coexist.</p>
 </div>
 <p>There is no need to apply <code>jax.jit</code> or specify <code>donate_argnums</code>: <code>syevd</code> uses
 an internally cached jitted wrapper and manages donation and aliasing itself.

@@ -1250,7 +1250,9 @@ one-dimensional solution.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p>The public wrapper will donate <code>a</code> and <code>b</code> to the compiled solve. Do not use
- those input arrays after the call.</p>
+ those input arrays after the call. Use <code>donate=False</code> to preserve them.
+ This is less memory efficient because the original inputs and working
+ buffers must coexist.</p>
 </div>
 <p>There is no need to apply <code>jax.jit</code> or specify <code>donate_argnums</code>: <code>potrs</code> uses
 an internally cached jitted wrapper and manages donation and aliasing itself.

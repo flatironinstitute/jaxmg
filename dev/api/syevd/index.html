@@ -1111,7 +1111,7 @@ alias target rather than the eigenvector output when vectors are requested.</p>
 
 
 <h4 id="jaxmg.syevd" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">syevd</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">donate</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
 <a href="#jaxmg.syevd" class="headerlink" title="Permanent link">¤</a></h4>
 
@@ -1287,6 +1287,26 @@ correct shapes.</p>
                   <code>True</code>
             </td>
           </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>donate</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True (default) the input buffers may be
+donated to the native call for zero-copy execution, which means
+they are deleted and cannot be used again. Pass False to preserve
+them, at the cost of keeping the original and working buffers in
+memory simultaneously.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
       </tbody>
     </table>
 
@@ -1370,7 +1390,7 @@ correct shapes.</p>
 <details class="notes" open>
   <summary>Notes</summary>
   <ul>
-<li>The FFI call can donate the input buffer to enable zero-copy
+<li>Unless <code>donate=False</code>, the input buffer is donated for zero-copy
   interaction with the native library.</li>
 <li>Native code converts row-major JAX local storage to cuSOLVERMp's
   column-major local layout and redistributes to 2D block-cyclic
