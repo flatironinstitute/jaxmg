@@ -97,15 +97,16 @@ u, singular_values = gesvd(
 Disabling an output avoids allocating and restoring that distributed vector
 matrix.
 
-By default, `gesvd` preserves `a`, allowing the matrix to be used again after
-the decomposition. Set `donate=True` when it is no longer required to let JAX
-reuse its storage and reduce peak memory. A donated matrix must not be used
-after the call.
+!!! Warning
 
-There is no need to apply `jax.jit`: `gesvd` uses an internally cached jitted
-wrapper. Use the context interface below when the decomposition must be
-embedded in a larger compiled calculation, and control donation on the outer
-`jax.jit`.
+     The public wrapper donates `a` to the compiled decomposition. Do not use
+     the input array after the call. Use `donate=False` to preserve it. This is
+     less memory efficient because the original input and working buffer must
+     coexist.
+
+There is no need to apply `jax.jit` or specify `donate_argnums`: `gesvd` uses
+an internally cached jitted wrapper. Use the context interface below when the
+decomposition must be embedded in a larger compiled calculation.
 
 ## Advanced: control the outer `jax.jit`
 
@@ -127,9 +128,9 @@ from jaxmg import gesvd_shardmap_ctx
 
 ### Case 1: `a` is an argument of the jitted function
 
-When an existing matrix enters the outer jitted function as an argument and is
-no longer needed afterward, donate it with `donate_argnums`. Return `a_work` so
-the donated input has an $A$-sized output alias at the outer compiled boundary:
+When an existing matrix enters the outer jitted function as an argument, donate
+it with `donate_argnums`. Return `a_work` so the donated input has an $A$-sized
+output alias at the outer compiled boundary:
 
 ```python
 

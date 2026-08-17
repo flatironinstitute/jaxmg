@@ -2,8 +2,8 @@
 
 `jaxmg.potrs` solves $Ax=B$ for a symmetric or Hermitian positive-definite
 matrix. For a normal solve, use `potrs`. It provides the high-level interface
-and internally handles JIT compilation, padding, distributed execution, and
-result restoration.
+and internally handles JIT compilation, buffer donation, input/output aliasing,
+padding, and distributed execution.
 
 The same Cholesky factorization can also return the log determinant of the
 input matrix:
@@ -103,14 +103,17 @@ if jax.process_index() == 0:
 A one-dimensional `b` is also accepted; in that case `potrs` returns a
 one-dimensional solution.
 
-By default, `potrs` preserves `a` and `b`, allowing either array to be used
-again after the solve. Set `donate=True` when the inputs are no longer required
-to let JAX reuse their storage and reduce peak memory. Donated arrays must not
-be used after the call.
+!!! Warning
 
-There is no need to apply `jax.jit`: `potrs` uses an internally cached jitted
-wrapper. If the solve must be embedded inside a larger jitted calculation, use
-the advanced interface below and control donation on the outer `jax.jit`.
+     The public wrapper will donate `a` and `b` to the compiled solve. Do not use
+     those input arrays after the call. Use `donate=False` to preserve them.
+     This is less memory efficient because the original inputs and working
+     buffers must coexist.
+
+There is no need to apply `jax.jit` or specify `donate_argnums`: `potrs` uses
+an internally cached jitted wrapper and manages donation and aliasing itself.
+If the solve must be embedded inside a larger jitted calculation, use the
+advanced interface below instead of wrapping `potrs` in another `jax.jit`.
 
 ## Advanced: control the outer `jax.jit`
 
@@ -134,10 +137,9 @@ from jaxmg import potrs_shardmap_ctx
 
 ### Case 1: `a` and `b` are arguments of the jitted function
 
-When existing arrays enter the outer jitted function as arguments and are no
-longer needed afterward, donate them with `donate_argnums`. Return `a_work` so
-the donated input matrix has an $A$-sized output alias at the outer compiled
-boundary:
+When existing arrays enter the outer jitted function as arguments, donate them
+with `donate_argnums`. Return `a_work` so the donated input matrix has an
+$A$-sized output alias at the outer compiled boundary:
 
 ```python
 @partial(jax.jit, donate_argnums=(0, 1))

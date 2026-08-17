@@ -47,7 +47,7 @@ def gesvd(
     full_matrices: bool = False,
     return_status: bool = False,
     pad: bool = True,
-    donate: bool = False,
+    donate: bool = True,
 ) -> Array | tuple[Array, ...]:
     """Compute a distributed singular-value decomposition with cuSOLVERMp.
 
@@ -90,10 +90,11 @@ def gesvd(
         pad (bool, optional): If True (default), add tile-aligned local capacity
             where required. If False, all participating local matrix shapes
             must already be divisible by ``T_A``.
-        donate (bool, optional): If True, allow JAX to reuse the input matrix
-            buffer for the native decomposition. The donated array must not be
-            used after the call. Defaults to False, preserving the input at the
-            cost of separate native work storage.
+        donate (bool, optional): If True (default) the input buffers may be
+            donated to the native call for zero-copy execution, which means
+            they are deleted and cannot be used again. Pass False to preserve
+            them, at the cost of keeping the original and working buffers in
+            memory simultaneously.
 
     Returns:
         The selected numerical outputs follow NumPy/JAX SVD order:
@@ -108,8 +109,8 @@ def gesvd(
             layout is incompatible with cuSOLVERMp.
 
     Notes:
-        - Set ``donate=True`` when ``a`` is no longer required after the call to
-          reduce peak memory use.
+        - The internally jitted implementation donates ``a`` to the opaque
+          matrix work result returned by the native call.
         - cuSOLVERMp requires A, U, and Vh to occupy distinct storage. Donation
           therefore removes a second A-sized work allocation but cannot alias
           A to either singular-vector output.

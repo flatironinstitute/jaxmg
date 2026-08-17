@@ -196,29 +196,22 @@ def test_gesvd_rejects_output_shape_not_divisible_by_process_grid():
             caller="gesvd(U)",
         )
 
+def test_gesvd_donates_by_default(monkeypatch):
+    captured = _install_fake_gesvd_backend(monkeypatch)
 
-def test_gesvd_preserves_input_by_default(monkeypatch):
+    gesvd(jnp.eye(4, dtype=jnp.float32), 2, mesh=_one_rank_mesh(), matrix_specs=P("pr", "pc"))
+
+    assert captured["kwargs"]["donate"] is True
+
+
+def test_gesvd_donation_can_be_disabled(monkeypatch):
     captured = _install_fake_gesvd_backend(monkeypatch)
 
     gesvd(
-        jnp.eye(4, dtype=jnp.float32),
-        2,
+        jnp.eye(4, dtype=jnp.float32), 2,
         mesh=_one_rank_mesh(),
         matrix_specs=P("pr", "pc"),
+        donate=False,
     )
 
     assert captured["kwargs"]["donate"] is False
-
-
-def test_gesvd_donation_can_be_enabled(monkeypatch):
-    captured = _install_fake_gesvd_backend(monkeypatch)
-
-    gesvd(
-        jnp.eye(4, dtype=jnp.float32),
-        2,
-        mesh=_one_rank_mesh(),
-        matrix_specs=P("pr", "pc"),
-        donate=True,
-    )
-
-    assert captured["kwargs"]["donate"] is True

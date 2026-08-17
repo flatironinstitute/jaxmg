@@ -47,7 +47,7 @@ def lu_solve(
     in_specs: P | Tuple[P] | List[P] | None = None,
     return_status: bool = False,
     pad: bool = True,
-    donate: bool = False,
+    donate: bool = True,
 ) -> Union[Array, Tuple[Array, Array]]:
     """Solve the linear system A x = B using the multi-GPU LU native kernel.
 
@@ -82,10 +82,11 @@ def lu_solve(
         pad (bool, optional): If True (default) apply per-device padding so
             each local shard length is compatible with ``T_A``; if False the
             caller must ensure shapes already match the kernel's requirements.
-        donate (bool, optional): If True, allow JAX to reuse the ``a`` and ``b``
-            buffers for the native solve. The donated arrays must not be used
-            after the call. Defaults to False, preserving both inputs at the
-            cost of separate native work storage.
+        donate (bool, optional): If True (default) the input buffers may be
+            donated to the native call for zero-copy execution, which means
+            they are deleted and cannot be used again. Pass False to preserve
+            them, at the cost of keeping the original and working buffers in
+            memory simultaneously.
 
     Returns:
         Array or (Array, Array): The solution ``x`` in the same JAX-facing
@@ -97,8 +98,9 @@ def lu_solve(
         ValueError: If shapes, tile sizes, or mesh layouts are incompatible.
 
     Notes:
-        - Set ``donate=True`` when ``a`` and ``b`` are no longer required after
-          the call to reduce peak memory use.
+        - Unless ``donate=False``, the ``a`` and ``b`` buffers are donated for
+          zero-copy interaction with the native library, so they are deleted and
+          cannot be used after the call.
         - Native code converts row-major JAX local storage to cuSOLVERMp's
           column-major local layout, redistributes to 2D block-cyclic layout,
           calls ``cusolverMpGetrf``/``cusolverMpGetrs``, and redistributes the

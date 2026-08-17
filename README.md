@@ -45,8 +45,8 @@ Supply a JAX matrix sharded over a two-dimensional device mesh, and JAXMg
 handles the local memory-layout conversion, redistribution into cuSOLVERMp's 2D
 block-cyclic layout, distributed numerical computation, and restoration of the
 result to its original JAX layout. The matrix data remains GPU-resident
-throughout, with in-place work-buffer transformations and bounded scratch
-storage minimizing memory overhead.
+throughout, with in-place transformations and bounded scratch storage minimizing
+memory overhead.
 
 The operations are implemented using:
 
