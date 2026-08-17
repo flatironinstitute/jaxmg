@@ -78,7 +78,9 @@ one-dimensional solution.
 !!! Warning
 
      The public wrapper will donate `a` and `b` to the compiled solve. Do not use
-     those input arrays after the call.
+     those input arrays after the call. Use `donate=False` to preserve them.
+     This is less memory efficient because the original inputs and working
+     buffers must coexist.
 
 LU factorization stores a distributed pivot vector internally; users do not
 need to construct or manage it.

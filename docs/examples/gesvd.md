@@ -100,7 +100,9 @@ matrix.
 !!! Warning
 
      The public wrapper donates `a` to the compiled decomposition. Do not use
-     the input array after the call.
+     the input array after the call. Use `donate=False` to preserve it. This is
+     less memory efficient because the original input and working buffer must
+     coexist.
 
 There is no need to apply `jax.jit` or specify `donate_argnums`: `gesvd` uses
 an internally cached jitted wrapper. Use the context interface below when the

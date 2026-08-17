@@ -108,7 +108,9 @@ one-dimensional solution.
 !!! Warning
 
      The public wrapper will donate `a` and `b` to the compiled solve. Do not use
-     those input arrays after the call.
+     those input arrays after the call. Use `donate=False` to preserve them.
+     This is less memory efficient because the original inputs and working
+     buffers must coexist.
 
 There is no need to apply `jax.jit` or specify `donate_argnums`: `potrs` uses
 an internally cached jitted wrapper and manages donation and aliasing itself.

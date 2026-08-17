@@ -310,3 +310,23 @@ def test_lu_solve_rejects_required_rhs_padding_when_disabled():
             matrix_specs=P("pr", "pc"),
             pad=False,
         )
+
+def test_lu_solve_donates_by_default(monkeypatch):
+    captured = _install_fake_lu_solve_backend(monkeypatch)
+
+    lu_solve(jnp.eye(4, dtype=jnp.float32), jnp.ones((4, 1), dtype=jnp.float32), 2, mesh=_one_rank_mesh(), matrix_specs=P("pr", "pc"))
+
+    assert captured["kwargs"]["donate"] is True
+
+
+def test_lu_solve_donation_can_be_disabled(monkeypatch):
+    captured = _install_fake_lu_solve_backend(monkeypatch)
+
+    lu_solve(
+        jnp.eye(4, dtype=jnp.float32), jnp.ones((4, 1), dtype=jnp.float32), 2,
+        mesh=_one_rank_mesh(),
+        matrix_specs=P("pr", "pc"),
+        donate=False,
+    )
+
+    assert captured["kwargs"]["donate"] is False

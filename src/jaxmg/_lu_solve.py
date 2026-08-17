@@ -49,6 +49,7 @@ def lu_solve(
     in_specs: P | Tuple[P] | List[P] | None = None,
     return_status: bool = False,
     pad: bool = True,
+    donate: bool = True,
 ) -> Union[Array, Tuple[Array, Array]]:
     """Solve the linear system A x = B using the multi-GPU LU native kernel.
 
@@ -83,6 +84,11 @@ def lu_solve(
         pad (bool, optional): If True (default) apply per-device padding so
             each local shard length is compatible with ``T_A``; if False the
             caller must ensure shapes already match the kernel's requirements.
+        donate (bool, optional): If True (default) the input buffers may be
+            donated to the native call for zero-copy execution, which means
+            they are deleted and cannot be used again. Pass False to preserve
+            them, at the cost of keeping the original and working buffers in
+            memory simultaneously.
 
     Returns:
         Array or (Array, Array): The solution ``x`` in the same JAX-facing
@@ -94,8 +100,9 @@ def lu_solve(
         ValueError: If shapes, tile sizes, or mesh layouts are incompatible.
 
     Notes:
-        - The FFI call may donate the ``a`` and ``b`` buffers for zero-copy
-          interaction with the native library.
+        - Unless ``donate=False``, the ``a`` and ``b`` buffers are donated for
+          zero-copy interaction with the native library, so they are deleted and
+          cannot be used after the call.
         - Native code converts row-major JAX local storage to cuSOLVERMp's
           column-major local layout, redistributes to 2D block-cyclic layout,
           calls ``cusolverMpGetrf``/``cusolverMpGetrs``, and redistributes the
@@ -182,6 +189,7 @@ def lu_solve(
         nrhs=nrhs,
         b_distribution_cols=b_distribution_cols,
         tile_size=tile_shape.rows,
+        donate=donate,
     )
     _, out, native_status = impl(a, b)
     if vector_rhs:
@@ -517,6 +525,7 @@ def _lu_solve_compiled(
     nrhs: int,
     b_distribution_cols: int,
     tile_size: int,
+    donate: bool,
 ):
     """Build and cache the internally jitted public LU-solve pipeline."""
     pipeline = _lu_solve_pipeline(
@@ -535,7 +544,7 @@ def _lu_solve_compiled(
         tile_size=tile_size,
     )
 
-    @partial(jax.jit, donate_argnums=(0, 1))
+    @partial(jax.jit, donate_argnums=(0, 1) if donate else ())
     def impl(_a: Array, _b: Array) -> tuple[Array, Array, Array]:
         """Run the cached LU-solve pipeline behind the public API."""
         return pipeline(_a, _b)

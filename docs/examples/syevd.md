@@ -88,7 +88,8 @@ eigenvector result.
 !!! Warning
 
      The public wrapper donates `a` to the compiled eigensolve. Do not use the
-     input array after the call.
+     input array after the call. Use `donate=False` to preserve it. This is less
+     memory efficient because the original input and working buffer must coexist.
 
 There is no need to apply `jax.jit` or specify `donate_argnums`: `syevd` uses
 an internally cached jitted wrapper and manages donation and aliasing itself.

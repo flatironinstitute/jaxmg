@@ -329,3 +329,23 @@ def test_syevd_shardmap_ctx_rejects_required_padding_when_disabled():
             matrix_specs=P("pr", "pc"),
             pad=False,
         )
+
+def test_syevd_donates_by_default(monkeypatch):
+    captured = _install_fake_syevd_backend(monkeypatch)
+
+    syevd(jnp.eye(4, dtype=jnp.float32), 2, mesh=_one_rank_mesh(), matrix_specs=P("pr", "pc"))
+
+    assert captured["kwargs"]["donate"] is True
+
+
+def test_syevd_donation_can_be_disabled(monkeypatch):
+    captured = _install_fake_syevd_backend(monkeypatch)
+
+    syevd(
+        jnp.eye(4, dtype=jnp.float32), 2,
+        mesh=_one_rank_mesh(),
+        matrix_specs=P("pr", "pc"),
+        donate=False,
+    )
+
+    assert captured["kwargs"]["donate"] is False
