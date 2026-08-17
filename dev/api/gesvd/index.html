@@ -1128,8 +1128,8 @@ returns the reduced decomposition <code>(U, s, Vh)</code> with shapes <code>(m, 
 shape <code>(m, m)</code> and Vh with shape <code>(n, n)</code>. Either vector matrix can be
 disabled independently so JAX does not allocate or redistribute an output
 that the application does not require.</p>
-<p>The input and every requested matrix output use the same two-dimensional
-JAX mesh and <code>PartitionSpec</code>. Their logical dimensions must therefore be
+<p>The input and every requested matrix output use the same JAX mesh and
+<code>PartitionSpec</code>. Their logical dimensions must therefore be
 divisible by the corresponding process-grid dimensions. Tile padding is
 applied separately to A, U, and Vh when their local dimensions are not
 divisible by <code>T_A</code>.</p>
@@ -1155,8 +1155,8 @@ divisible by <code>T_A</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>A rank-2 real or complex matrix sharded over a two-dimensional
-device mesh.</p>
+                <p>A rank-2 real or complex matrix sharded over a one- or
+two-axis device mesh.</p>
               </div>
             </td>
             <td>
@@ -1474,8 +1474,8 @@ allocations even when A is donated.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>A rank-2 real or complex matrix sharded over a two-dimensional
-device mesh.</p>
+                <p>A rank-2 real or complex matrix sharded over a one- or
+two-axis device mesh.</p>
               </div>
             </td>
             <td>

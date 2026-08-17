@@ -1164,11 +1164,11 @@
 high-level interface and internally handles JIT compilation, buffer donation,
 input/output aliasing, padding, and distributed execution.</p>
 <h2 id="common-setup">Common setup<a class="headerlink" href="#common-setup" title="Permanent link">¤</a></h2>
-<p>The following setup uses a degenerate two-dimensional process grid with one
-Python process per GPU:</p>
+<p>The following setup uses an even number of processes arranged as a two-axis
+device mesh, with one Python process per GPU:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
 
-<span class="n">jax</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="s2">&quot;jax_enable_x64&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="s2">"jax_enable_x64"</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
 <span class="n">jax</span><span class="o">.</span><span class="n">distributed</span><span class="o">.</span><span class="n">initialize</span><span class="p">()</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
@@ -1177,9 +1177,11 @@ Python process per GPU:</p>
 
 
 <span class="n">num_processes</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_count</span><span class="p">()</span>
-<span class="n">mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="n">num_processes</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">))</span>
+<span class="k">if</span> <span class="n">num_processes</span> <span class="o">%</span> <span class="mi">2</span><span class="p">:</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"This example requires an even number of processes."</span><span class="p">)</span>
+<span class="n">mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="n">num_processes</span> <span class="o">//</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">))</span>
 <span class="n">jax</span><span class="o">.</span><span class="n">set_mesh</span><span class="p">(</span><span class="n">mesh</span><span class="p">)</span>
-<span class="n">matrix_specs</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">)</span>
+<span class="n">matrix_specs</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">)</span>
 <span class="n">a_sharding</span> <span class="o">=</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="p">)</span>
 
 <span class="n">T_A</span> <span class="o">=</span> <span class="mi">64</span>
@@ -1310,7 +1312,7 @@ from the outer function:</p>
 
 
 <span class="n">diagonal</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">N</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
-<span class="n">diagonal</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">diagonal</span><span class="p">,</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">)))</span>
+<span class="n">diagonal</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">diagonal</span><span class="p">,</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">)))</span>
 <span class="n">shifted_eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">build_and_eigensolve</span><span class="p">(</span><span class="n">diagonal</span><span class="p">)</span>
 <span class="n">eigenvectors</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
 </code></pre></div>

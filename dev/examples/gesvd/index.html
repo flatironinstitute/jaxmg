@@ -1185,7 +1185,7 @@ matrix dimensions are chosen so A and the reduced U and Vh outputs are evenly
 divisible by the process grid and local dimensions are divisible by <code>T_A</code>.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
 
-<span class="n">jax</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="s2">&quot;jax_enable_x64&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="s2">"jax_enable_x64"</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
 <span class="n">jax</span><span class="o">.</span><span class="n">distributed</span><span class="o">.</span><span class="n">initialize</span><span class="p">()</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
@@ -1193,9 +1193,9 @@ divisible by the process grid and local dimensions are divisible by <code>T_A</c
 <span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">gesvd</span>
 
 
-<span class="n">mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">))</span>
+<span class="n">mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">))</span>
 <span class="n">jax</span><span class="o">.</span><span class="n">set_mesh</span><span class="p">(</span><span class="n">mesh</span><span class="p">)</span>
-<span class="n">matrix_specs</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">)</span>
+<span class="n">matrix_specs</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">)</span>
 <span class="n">matrix_sharding</span> <span class="o">=</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="p">)</span>
 
 <span class="n">T_A</span> <span class="o">=</span> <span class="mi">128</span>

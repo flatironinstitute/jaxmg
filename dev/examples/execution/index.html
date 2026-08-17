@@ -1148,7 +1148,7 @@ before constructing the mesh or performing any JAX computation:</p>
 </code></pre></div>
 <p>While JAX supports automatic detection of the distributed configuration, the user can provide the configuration explicitly:</p>
 <div class="highlight"><pre><span></span><code><span class="n">jax</span><span class="o">.</span><span class="n">distributed</span><span class="o">.</span><span class="n">initialize</span><span class="p">(</span>
-    <span class="n">coordinator_address</span><span class="o">=</span><span class="s2">&quot;node-0-hostname:12345&quot;</span><span class="p">,</span>  <span class="c1"># Rank 0 host and shared port.</span>
+    <span class="n">coordinator_address</span><span class="o">=</span><span class="s2">"node-0-hostname:12345"</span><span class="p">,</span>  <span class="c1"># Rank 0 host and shared port.</span>
     <span class="n">num_processes</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>  <span class="c1"># Total number of Python processes.</span>
     <span class="n">process_id</span><span class="o">=</span><span class="n">process_id</span><span class="p">,</span>  <span class="c1"># Unique global rank of this process.</span>
     <span class="n">local_device_ids</span><span class="o">=</span><span class="p">[</span><span class="n">local_device_id</span><span class="p">],</span>  <span class="c1"># Local GPU assigned to this process.</span>
@@ -1156,10 +1156,10 @@ before constructing the mesh or performing any JAX computation:</p>
 </code></pre></div>
 <h2 id="2-check-the-process-and-device-view">2. Check the process and device view<a class="headerlink" href="#2-check-the-process-and-device-view" title="Permanent link">¤</a></h2>
 <p>After initialization, print the process and device information:</p>
-<div class="highlight"><pre><span></span><code><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Process index:&quot;</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_index</span><span class="p">())</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Process count:&quot;</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_count</span><span class="p">())</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Local devices:&quot;</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">local_devices</span><span class="p">())</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Global devices:&quot;</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">devices</span><span class="p">())</span>
+<div class="highlight"><pre><span></span><code><span class="nb">print</span><span class="p">(</span><span class="s2">"Process index:"</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_index</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Process count:"</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_count</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Local devices:"</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">local_devices</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Global devices:"</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">devices</span><span class="p">())</span>
 </code></pre></div>
 <p>On rank 0, the output should have the following form:</p>
 <div class="highlight"><pre><span></span><code>Process index: 0
@@ -1168,29 +1168,42 @@ Local devices: [CudaDevice(id=0)]
 Global devices: [CudaDevice(id=0), ..., CudaDevice(id=7)]
 </code></pre></div>
 <h2 id="3-construct-the-process-grid">3. Construct the process grid<a class="headerlink" href="#3-construct-the-process-grid" title="Permanent link">¤</a></h2>
-<p>JAXMg uses an ordinary two-dimensional JAX mesh. For eight ranks, valid grid
-shapes include <span class="arithmatex">\((8,1)\)</span>, <span class="arithmatex">\((4,2)\)</span>, <span class="arithmatex">\((2,4)\)</span>, and <span class="arithmatex">\((1,8)\)</span>. The following code
-constructs a <span class="arithmatex">\(4\times2\)</span> grid:</p>
+<p>JAXMg maps an ordinary one- or two-axis JAX mesh onto cuSOLVERMp's process grid.
+For eight ranks, valid grid shapes include <span class="arithmatex">\((8,1)\)</span>, <span class="arithmatex">\((4,2)\)</span>, <span class="arithmatex">\((2,4)\)</span>, and
+<span class="arithmatex">\((1,8)\)</span>. The following code constructs a <span class="arithmatex">\(4\times2\)</span> grid:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">jax.sharding</span><span class="w"> </span><span class="kn">import</span> <span class="n">PartitionSpec</span> <span class="k">as</span> <span class="n">P</span>
 
 
 <span class="n">process_rows</span> <span class="o">=</span> <span class="mi">4</span>
 <span class="n">process_cols</span> <span class="o">=</span> <span class="mi">2</span>
-<span class="n">mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="n">process_rows</span><span class="p">,</span> <span class="n">process_cols</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">))</span>
+<span class="n">mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="n">process_rows</span><span class="p">,</span> <span class="n">process_cols</span><span class="p">),</span> <span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">))</span>
 <span class="n">jax</span><span class="o">.</span><span class="n">set_mesh</span><span class="p">(</span><span class="n">mesh</span><span class="p">)</span>
-<span class="n">matrix_specs</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">)</span>
+<span class="n">matrix_specs</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">)</span>
 </code></pre></div>
 <p>These JAX mesh dimensions are used throughout the backend and hence are inherited by cuSOLVERMp process-grid. The first
 axis, <code>pr</code>, identifies process rows; the second, <code>pc</code>, identifies process columns.
 Calling <code>jax.set_mesh(mesh)</code> makes this concrete mesh available while JAX traces
 the explicitly sharded computation.</p>
+<p>For performance, prefer a two-axis process grid where practical because it
+offers more parallelism during redistribution and solver execution. One-axis
+meshes remain useful when they already match the surrounding application.</p>
+<p>An existing one-axis mesh can be used directly. To shard matrix rows over its
+axis, use a rank-1 <code>PartitionSpec</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="n">single_axis_mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="mi">8</span><span class="p">,),</span> <span class="p">(</span><span class="s2">"x"</span><span class="p">,))</span>
+<span class="n">single_axis_specs</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="s2">"x"</span><span class="p">)</span>
+</code></pre></div>
+<p>For a rank-2 matrix, JAX treats <code>P("x")</code> as equivalent to <code>P("x", None)</code>.
+To shard columns instead, use <code>P(None, "x")</code>.</p>
+<p>The mesh passed to a solver does not have to be the one in context: each call
+enters its own mesh, so a program that keeps a different mesh set globally can
+call JAXMg without switching it.</p>
 <p>You can inspect the resultant process-rank mapping selected by JAX:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 
 <span class="n">rank_grid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
-    <span class="p">[[</span><span class="n">device</span><span class="o">.</span><span class="n">process_index</span> <span class="k">for</span> <span class="n">device</span> <span class="ow">in</span> <span class="n">row</span><span class="p">]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">mesh</span><span class="o">.</span><span class="n">devices</span><span class="p">]</span>
-<span class="p">)</span>
+    <span class="p">[</span><span class="n">device</span><span class="o">.</span><span class="n">process_index</span> <span class="k">for</span> <span class="n">device</span> <span class="ow">in</span> <span class="n">mesh</span><span class="o">.</span><span class="n">devices</span><span class="o">.</span><span class="n">flat</span><span class="p">]</span>
+<span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">mesh</span><span class="o">.</span><span class="n">devices</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 <span class="k">if</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_index</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
     <span class="nb">print</span><span class="p">(</span><span class="n">rank_grid</span><span class="p">)</span>
 </code></pre></div>
@@ -1232,12 +1245,12 @@ sorted by process rank:</p>
 <span class="p">)</span>
 
 <span class="n">row_major_mesh</span> <span class="o">=</span> <span class="n">Mesh</span><span class="p">(</span>
-    <span class="n">devices</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">process_rows</span><span class="p">,</span> <span class="n">process_cols</span><span class="p">),</span> <span class="n">order</span><span class="o">=</span><span class="s2">&quot;C&quot;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">),</span>
+    <span class="n">devices</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">process_rows</span><span class="p">,</span> <span class="n">process_cols</span><span class="p">),</span> <span class="n">order</span><span class="o">=</span><span class="s2">"C"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">),</span>
 <span class="p">)</span>
 <span class="n">column_major_mesh</span> <span class="o">=</span> <span class="n">Mesh</span><span class="p">(</span>
-    <span class="n">devices</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">process_rows</span><span class="p">,</span> <span class="n">process_cols</span><span class="p">),</span> <span class="n">order</span><span class="o">=</span><span class="s2">&quot;F&quot;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">),</span>
+    <span class="n">devices</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">process_rows</span><span class="p">,</span> <span class="n">process_cols</span><span class="p">),</span> <span class="n">order</span><span class="o">=</span><span class="s2">"F"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">),</span>
 <span class="p">)</span>
 
 <span class="n">mesh</span> <span class="o">=</span> <span class="n">row_major_mesh</span>  <span class="c1"># Or select column_major_mesh.</span>
@@ -1245,14 +1258,14 @@ sorted by process rank:</p>
 </code></pre></div>
 <h2 id="4-shard-the-matrix-and-solve-input">4. Shard the matrix and solve input<a class="headerlink" href="#4-shard-the-matrix-and-solve-input" title="Permanent link">¤</a></h2>
 <p><code>PartitionSpec</code> describes how each array dimension maps onto the process-grid
-axes. A matrix is normally sharded over both axes:</p>
+axes. A matrix can be sharded over both axes:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">jax.sharding</span><span class="w"> </span><span class="kn">import</span> <span class="n">NamedSharding</span>
 
 
 <span class="n">N</span> <span class="o">=</span> <span class="mi">8192</span>
 <span class="n">a</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="n">N</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
-<span class="n">a_sharding</span> <span class="o">=</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="s2">&quot;pc&quot;</span><span class="p">))</span>
+<span class="n">a_sharding</span> <span class="o">=</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">))</span>
 <span class="n">a</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">a_sharding</span><span class="p">)</span>
 </code></pre></div>
 <p>On the <span class="arithmatex">\(4\times2\)</span> grid, each process initially owns an
@@ -1260,12 +1273,12 @@ axes. A matrix is normally sharded over both axes:</p>
 <p>A vector solve input can be sharded over process rows and replicated across
 process columns:</p>
 <div class="highlight"><pre><span></span><code><span class="n">b_vector</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">N</span><span class="p">,),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">a</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
-<span class="n">b_vector</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">b_vector</span><span class="p">,</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">)))</span>
+<span class="n">b_vector</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">b_vector</span><span class="p">,</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">)))</span>
 </code></pre></div>
 <p>For a solve input with shape <span class="arithmatex">\(N\times\mathrm{NRHS}\)</span>, shard its rows and leave
 its columns replicated:</p>
 <div class="highlight"><pre><span></span><code><span class="n">b_matrix</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">N</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">a</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
-<span class="n">b_matrix</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">b_matrix</span><span class="p">,</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">&quot;pr&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)))</span>
+<span class="n">b_matrix</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">b_matrix</span><span class="p">,</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)))</span>
 </code></pre></div>
 <p>The public solver accepts either representation. JAXMg adds any routing or tile
 padding required for a narrow solve input and redistributes it internally for

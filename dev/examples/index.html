@@ -1116,8 +1116,8 @@ launching a distributed JAX program to running a cuSOLVERMp routine.</p>
 <a href="https://github.com/flatironinstitute/jaxmg/tree/main/examples">examples directory</a>.</p>
 <h2 id="1-configure-distributed-execution">1. Configure Distributed Execution<a class="headerlink" href="#1-configure-distributed-execution" title="Permanent link">¤</a></h2>
 <p>Start by initializing distributed JAX,
-assigning one GPU to each process, and constructing the two-dimensional device
-mesh used by the matrix.</p>
+assigning one GPU to each process, and constructing the device mesh used by the
+matrix.</p>
 <p><a href="execution/">Configure distributed execution</a></p>
 <h2 id="2-choose-a-tile-size">2. Choose a tile size<a class="headerlink" href="#2-choose-a-tile-size" title="Permanent link">¤</a></h2>
 <p>Choose a cuSOLVERMp tile size <span class="arithmatex">\(T_A\)</span> that divides both dimensions of each local matrix

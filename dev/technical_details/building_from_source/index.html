@@ -1205,17 +1205,17 @@ runtime, and enough storage for the JAX checkout and Bazel cache.</p>
 </code></pre></div>
 <p>Configure the workspace for the CUDA major version being built:</p>
 <div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">12</span>
-docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-e<span class="w"> </span><span class="nv">JAXCI_CUDA_VERSION</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$CUDA_MAJOR</span><span class="s2">&quot;</span><span class="w"> </span>jax<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">&#39;</span>
+docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-e<span class="w"> </span><span class="nv">JAXCI_CUDA_VERSION</span><span class="o">=</span><span class="s2">"</span><span class="nv">$CUDA_MAJOR</span><span class="s2">"</span><span class="w"> </span>jax<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">'</span>
 <span class="s1">  source ci/envs/default.env</span>
 <span class="s1">  source ci/utilities/setup_build_environment.sh</span>
 <span class="s1">  arch=$(uname -m)</span>
 <span class="s1">  python build/build.py build \</span>
 <span class="s1">    --wheels=jax-cuda-plugin \</span>
 <span class="s1">    --configure_only \</span>
-<span class="s1">    --bazel_options=--config=&quot;ci_linux_${arch}_cuda${JAXCI_CUDA_VERSION}&quot; \</span>
-<span class="s1">    --python_version=&quot;${JAXCI_HERMETIC_PYTHON_VERSION}&quot; \</span>
-<span class="s1">    --cuda_major_version=&quot;${JAXCI_CUDA_VERSION}&quot; \</span>
-<span class="s1">    --output_path=&quot;${JAXCI_OUTPUT_DIR}&quot;&#39;</span>
+<span class="s1">    --bazel_options=--config="ci_linux_${arch}_cuda${JAXCI_CUDA_VERSION}" \</span>
+<span class="s1">    --python_version="${JAXCI_HERMETIC_PYTHON_VERSION}" \</span>
+<span class="s1">    --cuda_major_version="${JAXCI_CUDA_VERSION}" \</span>
+<span class="s1">    --output_path="${JAXCI_OUTPUT_DIR}"'</span>
 </code></pre></div>
 <p>Use <code>CUDA_MAJOR=13</code> when building the CUDA 13 backend.</p>
 <h2 id="2-copy-the-jaxmg-build-inputs">2. Copy the JAXMg build inputs<a class="headerlink" href="#2-copy-the-jaxmg-build-inputs" title="Permanent link">¤</a></h2>
@@ -1224,14 +1224,14 @@ so Bazel can compile it alongside <code>@xla</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="nv">JAXMG</span><span class="o">=</span>/absolute/path/to/jaxmg
 <span class="nv">JAXCO</span><span class="o">=</span>/absolute/path/to/jax
 
-mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg&quot;</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg"</span>
 cp<span class="w"> </span>-r<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$JAXMG</span><span class="s2">&quot;</span>/src<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$JAXMG</span><span class="s2">&quot;</span>/bazel<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$JAXMG</span><span class="s2">&quot;</span>/build_native_backend.sh<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$JAXMG</span><span class="s2">&quot;</span>/pyproject.toml<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$JAXMG</span><span class="s2">&quot;</span>/setup.py<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg/&quot;</span>
+<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/src<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/bazel<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/build_native_backend.sh<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/pyproject.toml<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/setup.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg/"</span>
 </code></pre></div>
 <h2 id="3-compile">3. Compile<a class="headerlink" href="#3-compile" title="Permanent link">¤</a></h2>
 <p>Choose the values for the backend:</p>
@@ -1244,14 +1244,14 @@ cp<span class="w"> </span>-r<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-e<span class="w"> </span>CUDA_MAJOR<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-e<span class="w"> </span>CUSOLVERMP_PACKAGE<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-e<span class="w"> </span>CAPABILITIES<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>jax<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">&#39;</span>
-<span class="s1">    python -m pip install &quot;$CUSOLVERMP_PACKAGE&quot;</span>
+<span class="w">  </span>jax<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">'</span>
+<span class="s1">    python -m pip install "$CUSOLVERMP_PACKAGE"</span>
 <span class="s1">    JAX_SRC=/jax \</span>
 <span class="s1">    JAXMG_ROOT=/jax/jaxmg \</span>
-<span class="s1">    CUDA_MAJOR=&quot;$CUDA_MAJOR&quot; \</span>
-<span class="s1">    JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES=&quot;$CAPABILITIES&quot; \</span>
+<span class="s1">    CUDA_MAJOR="$CUDA_MAJOR" \</span>
+<span class="s1">    JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$CAPABILITIES" \</span>
 <span class="s1">    JAXMG_XLA_BAZEL_JOBS=$(nproc) \</span>
-<span class="s1">    /jax/jaxmg/build_native_backend.sh&#39;</span>
+<span class="s1">    /jax/jaxmg/build_native_backend.sh'</span>
 </code></pre></div>
 <p>For CUDA 13, use:</p>
 <div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">13</span>
@@ -1262,14 +1262,14 @@ cp<span class="w"> </span>-r<span class="w"> </span><span class="se">\</span>
 library, and installs it under <code>/jax/jaxmg/src/jaxmg/cuXX/</code>.</p>
 <p>Copy the result back to the original checkout:</p>
 <div class="highlight"><pre><span></span><code>cp<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg/src/jaxmg/cu</span><span class="si">${</span><span class="nv">CUDA_MAJOR</span><span class="si">}</span><span class="s2">/libjaxmg_xla_comm_backend.so&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$JAXMG</span><span class="s2">/src/jaxmg/cu</span><span class="si">${</span><span class="nv">CUDA_MAJOR</span><span class="si">}</span><span class="s2">/&quot;</span>
+<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg/src/jaxmg/cu</span><span class="si">${</span><span class="nv">CUDA_MAJOR</span><span class="si">}</span><span class="s2">/libjaxmg_xla_comm_backend.so"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">/src/jaxmg/cu</span><span class="si">${</span><span class="nv">CUDA_MAJOR</span><span class="si">}</span><span class="s2">/"</span>
 </code></pre></div>
 <h2 id="4-install-and-test">4. Install and test<a class="headerlink" href="#4-install-and-test" title="Permanent link">¤</a></h2>
 <p>Install the source tree with the matching runtime extra:</p>
-<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$JAXMG</span><span class="s2">&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>
 python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
-.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[cuda12]&quot;</span>
+.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[cuda12]"</span>
 </code></pre></div>
 <p>Run the <a href="../../examples/potrs/">Cholesky example</a> to verify a solver call. Native
 contributors should then run the GPU smoke suite described in

@@ -1149,7 +1149,7 @@ package, so it will warn you to install a GPU-compatible version of JAX.</p>
 built on NVIDIA's single-node <a href="https://docs.nvidia.com/cuda/cusolver/index.html#using-the-cuSolverMg-api">cuSolverMg</a>
 API, so its interface differs substantially from this one: it provides <code>potri</code>
 and the <code>cyclic_1d</code> layout helpers, has no <code>lu_solve</code>, and distributes matrices
-over a 1D device mesh rather than a 2D process grid.</p>
+with a 1D block-cyclic layout rather than the 2D block-cyclic layout used here.</p>
 <h2 id="supported-systems">Supported systems<a class="headerlink" href="#supported-systems" title="Permanent link">¤</a></h2>
 <p>Prebuilt Linux wheels are provided for <code>x86_64</code> and <code>aarch64</code>. The supported
 NVIDIA GPU families are:</p>
