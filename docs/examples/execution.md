@@ -79,6 +79,10 @@ axis, `pr`, identifies process rows; the second, `pc`, identifies process column
 Calling `jax.set_mesh(mesh)` makes this concrete mesh available while JAX traces
 the explicitly sharded computation.
 
+For performance, prefer a two-axis process grid where practical because it
+offers more parallelism during redistribution and solver execution. One-axis
+meshes remain useful when they already match the surrounding application.
+
 An existing one-axis mesh can be used directly. To shard matrix rows over its
 axis, use a rank-1 `PartitionSpec`:
 
