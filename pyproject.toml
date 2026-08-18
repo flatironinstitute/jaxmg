@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jaxmg"
-version = "1.0.0"
+version = "1.1.0"
 description = "JAXMg provides a jittable C++/CUDA interface between JAX and NVIDIA cuSOLVERMp."
 authors = [{ name = "Jacob Tutt" }, { name = "Roeland Wiersema" }]
 keywords = [
