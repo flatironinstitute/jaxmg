@@ -15,7 +15,7 @@ keywords = [
     "multi-GPU",
 ]
 dependencies = [
-    "jax==0.10.1; sys_platform == 'linux'",
+    "jax>=0.10.1; sys_platform == 'linux'",
 ]
 readme = "README.md"
 requires-python = ">=3.11"
