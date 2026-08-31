@@ -120,7 +120,7 @@ The release build and GPU tests run on separate systems:
 
 1. **GitHub Actions builds** CUDA 12 and CUDA 13 backends for `x86_64` and
    `aarch64`.
-2. **GitHub Actions packages** Python 3.11–3.14 `manylinux_2_28` wheels and
+2. **GitHub Actions packages** Python 3.12–3.14 `manylinux_2_28` wheels and
    checks their metadata and native libraries.
 3. **Jenkins downloads those wheels** and installs the normal
    `jaxmg[cuda12]` dependency path.
