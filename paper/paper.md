@@ -113,7 +113,7 @@ out = potrs(A, b, T_A=T_A, mesh=mesh, matrix_specs=P("pr", "pc"))
 
 The tile size $T_A$ is user-configurable and controls the trade-off between memory usage and
 performance; larger tiles typically improve throughput once the problem is sufficiently large
-(see Figure \ref{fig:benchmark}).
+(see Figure \ref{fig:tile_sweep}).
 
 ## Memory-efficient data redistribution
 
@@ -200,18 +200,6 @@ JAXMg is integrated in the latest version of NetKet [@netket3:2022].
 
 Across computational electromagnetics, general linear solves are central to antenna simulations that model electromagnetic fields and their interaction with complex structures through numerical solutions of Maxwell's equations. A common approach is the method of moments [@Harrington1993], in which the governing integral equations are discretized to produce the dense complex system $ZI=V$, where $Z$ is the impedance matrix, $I$ contains the unknown current coefficients, and $V$ represents one or more excitations. Recovering the current coefficients therefore requires solving this general nonsingular system. One application in which this becomes computationally demanding is the full-wave simulation of mutual coupling across the 320-element core of the Hydrogen Epoch of Reionization Array for 21-cm cosmology [@gueuning2026mutual]. As precision requirements drive larger arrays and finer geometric meshes, the number of basis functions and hence the dimensions of $Z$ grow. JAXMg's distributed LU factorization allows the construction of $Z$, the solution of $ZI=V$, and downstream analysis to remain within a single compiled JAX workflow, supporting efficient end-to-end simulation at increasing model fidelity.
 
-
-### Symmetric eigendecomposition (`syevd`)
-
-The time-dependent variational principle (TDVP) projects Schrödinger evolution onto the tangent space of a parameterized quantum state, producing equations of motion of the form [@Carleo2017,@Schmitt2020QuantumDynamics]
-
-$$
-\dot{\boldsymbol{\theta}}
-= -i\mathbf{S}^+ \mathbf{F},
-$$
-
-where $\mathbf{S}$ and $\mathbf{F}$ are the same objects as in the Cholesky-solve section. In practical time-dependent variational Monte Carlo calculations, redundant parameters, gauge directions, and Monte Carlo noise can make $\mathbf{S}$ singular or severely ill-conditioned. An eigendecomposition $\mathbf{S}=\mathbf{V}\boldsymbol{\Lambda}\mathbf{V}^{\dagger}$ exposes these directions and permits stable spectral regularization, for example by discarding eigenvalues below a threshold or replacing $\boldsymbol{\Lambda}^{-1}$ with a smooth pseudoinverse. Since the decomposition may be required at every stage of an ODE integrator, its memory and computational cost become substantial as the number of variational parameters grows. JAXMg's distributed `syevd` enables full-spectrum regularization and diagnostics to be carried out on matrices exceeding single-GPU memory while keeping state evaluation, Monte Carlo estimation, and time integration inside a compiled JAX program. JAXMg has been used for the t-VMC simulations of [@Wan2026BlurredSampling,@Wiersema2026].
-
 ### Singular-value decomposition (`gesvd`)
 
 Principal component analysis (PCA) uses the singular-value decomposition to identify dominant directions of variation in high-dimensional data. For a centered data matrix $X\in\mathbb{R}^{N_{\mathrm{samples}}\times N_{\mathrm{features}}}$,
@@ -224,22 +212,35 @@ the columns of $V$ are the principal directions, while $U\Sigma$ contains the co
 
 Singular-value decompositions are a central primitive in tensor-network algorithms for quantum many-body systems [@schollwock2011density; @banuls2023tensor]. After applying a local gate, contracting neighbouring tensors, or enlarging an auxiliary bond, the resulting tensor is reshaped into a matrix and decomposed as $X=U\Sigma V^\mathsf{T}$. Retaining the largest singular values yields the optimal low-rank approximation in the Frobenius norm, controls the tensor-network bond dimension, and provides an estimate of the truncation error through the discarded singular-value weight. The SVD is therefore the backbone of modern tensor network algorithms such as the density matrix renormalization group (DMRG), time-evolving block decimation (TEBD) and approximate contraction schemes for hig-dimensional networks. As the physical dimension and bond dimensions grow, the intermediate matrices entering these decompositions can become considerably larger than the tensors retained after truncation and may exceed the memory of one GPU. JAXMg's distributed `gesvd` allows tensor contractions, reshaping, singular-vector construction, and truncation to remain within a JIT-compiled JAX workflow, supporting tensor-network calculations at larger bond dimensions without exporting arrays to an external distributed solver.
 
+
+
+### Symmetric eigendecomposition (`syevd`)
+
+The time-dependent variational principle (TDVP) projects Schrödinger evolution onto the tangent space of a parameterized quantum state, producing equations of motion of the form [@Carleo2017,@Schmitt2020QuantumDynamics]
+
+$$
+\dot{\boldsymbol{\theta}}
+= -i\mathbf{S}^+ \mathbf{F},
+$$
+
+where $\mathbf{S}$ and $\mathbf{F}$ are the same objects as in the Cholesky-solve section. In practical time-dependent variational Monte Carlo calculations, redundant parameters, gauge directions, and Monte Carlo noise can make $\mathbf{S}$ singular or severely ill-conditioned. An eigendecomposition $\mathbf{S}=\mathbf{V}\boldsymbol{\Lambda}\mathbf{V}^{\dagger}$ exposes these directions and permits stable spectral regularization, for example by discarding eigenvalues below a threshold or replacing $\boldsymbol{\Lambda}^{-1}$ with a smooth pseudoinverse. Since the decomposition may be required at every stage of an ODE integrator, its memory and computational cost become substantial as the number of variational parameters grows. JAXMg's distributed `syevd` enables full-spectrum regularization and diagnostics to be carried out on matrices exceeding single-GPU memory while keeping state evaluation, Monte Carlo estimation, and time integration inside a compiled JAX program. JAXMg has been used for the t-VMC simulations of [@Wan2026BlurredSampling,@Wiersema2026].
+
 ## Performance and scaling
 
-To assess performance, we benchmark JAXMg against the single-GPU routines currently available in JAX. These simulations are performed on 16 NVIDIA H100s (94 GB VRAM) connected with SXM5 NVLink and 4x 400Gb InfiniBand connections for inter-node communication.
+To assess performance, we benchmark we benchmark two process-grid layouts at fixed GPU count in the large matrix regime. Our setup is 16 NVIDIA H100s (94 GB VRAM), 4 per node, connected with SXM5 NVLink and 4x 400Gb InfiniBand connections for inter-node communication.
 
 We report four representative cases: `potrs` (float32), `lu_solve` (float64), and `gesvd` (complex64) and `syevd` (complex128).
-For `potrs`, `lu_solve` and `syevd`, we use a diagonal matrix $A=\mathrm{diag}(1,\ldots,N)$, and for `potrs` we set $b=(1,\ldots,1)^\mathsf{T}$. For `gesvd`, we use a random Gaussian matrix with mean zero and unit variance.
-
-We set the tile size $T_A=1024$ and report wall-clock timings in \autoref{fig:benchmark}; the benchmark code is available at [@jaxmg_benchmark].
+For `potrs`, `lu_solve` and `syevd`, we use a diagonal matrix $A=\mathrm{diag}(1,\ldots,N)$, and for `potrs` and `lu_solve` we set $b=(1,\ldots,1)^\mathsf{T}$. For `gesvd`, we use a random Gaussian matrix with mean zero and unit variance. We set the tile size $T_A=256$ and report wall-clock timings in \autoref{fig:benchmark}; the benchmark code is available at [@jaxmg_benchmark].
 We see that JAXMg scales better than the native single-GPU linear algebra routines and surpasses them in performance, especially for larger matrices.
-Both `syevd` and `syevd` require significantly more workspace memory than `potrs` and `lu_solve`, which is reflected in the matrix sizes that can be reached.
+Both `gesvd` and `syevd` require significantly more workspace memory than `potrs` and `lu_solve`, which is reflected in the matrix sizes that can be reached.
 
-![Benchmark comparing the native single-GPU JAX routines (which call cuSOLVERDn) to JAXMg. (a) Comparison of `jaxmg.potrs` with `jax.scipy.linalg.cho_factor` + `jax.scipy.linalg.cho_solve` for a float32 matrix. (b) Comparison of `jaxmg.lu_solve` with `jax.numpy.linalg.inv` for a complex128 matrix. (c) Comparison of `jaxmg.gesvd` for(d) Comparison of `jaxmg.syevd` with `jax.numpy.linalg.eigh`.\label{fig:benchmark}](jaxmg_benchmark_v1.png){ width=100% }
+![Wall-clock solve time against matrix dimension $N$ for JAXMg on 16 NVIDIA H100 GPUs, comparing two process-grid layouts at fixed GPU count and fixed tile size $T_A=256$: a $16\times1$ column grid (dark blue) and a $4\times4$ square grid (orange). There are four panels: (a) `jaxmg.potrs` (float32), (b) `jaxmg.lu_solve` (float64), (c) `jaxmg.gesvd` (complex64) and (d) `jaxmg.syevd` (complex128). The square grid is faster in every case, by a geometric mean of $1.77\times$ for `potrs`, $1.38\times$ for `gesvd`, $1.23\times$ for `lu_solve`, and $1.21\times$ for `syevd`. The two matrix decompositions hold more matrix-sized workspace per GPU than the solves and so terminate at markedly smaller $N$.\label{fig:benchmark}](jaxmg_benchmark.png){ width=100% }
 
-![Benchmark comparing the native single-GPU JAX routines (which call cuSOLVERDn) to JAXMg. (a) Comparison of `jaxmg.potrs` with `jax.scipy.linalg.cho_factor` + `jax.scipy.linalg.cho_solve` for a float32 matrix. (b) Comparison of `jaxmg.lu_solve` with `jax.numpy.linalg.inv` for a complex128 matrix. (c) Comparison of `jaxmg.gesvd` for(d) Comparison of `jaxmg.syevd` with `jax.numpy.linalg.eigh`.\label{fig:benchmark}](tile_sweep.png){ width=100% }
+To investigate the effect of the tile size, we sweep the different tile sizes $T_A$ for all routines and report wall-clock timings in \autoref{fig:tile_sweep}; the benchmark code is available at [@jaxmg_benchmark]. While `potrs` clearly benefits from larger tile sizes, the performance of `lu_solve` is unaffected. `syevd` degrades steadily as the tile grows, while `gesvd` is fastest at an intermediate $T_A=1024$ and slower at both smaller and larger tiles.
 
-To test the limits of what JAXMg can do, we performed a Cholesky solve of a matrix of size $N=1499136$ with $T_A=1024$ on 64 NVIDIA H200s (143 GB VRAM) laid out on an 8x8 grid with. Here, we used 8 GPUs per node with SXM5 NVLink and 8x 400Gb InfiniBand connections for inter-node communication. The average solve time was 666.5 seconds, which was approximately 6 times faster than a calculation of similar size on a 64x1 grid.
+![Effect of the tile size on JAXMg wall-clock solve time, for the $4\times4$ process grid on the same 16 NVIDIA H100 GPUs. Each panel draws one curve per $T_A\in\{256,512,1024,2048,4096\}$, shaded light to dark with increasing tile size. There are four panels: (a)`jaxmg.potrs` (float32), (b) `jaxmg.lu_solve` (float64), (c) `jaxmg.gesvd` (complex64) and (d) `jaxmg.syevd` (complex128). Curves for larger $T_A$ begin at larger $N$ because a dimension must be a whole number of tiles along both grid axes.\label{fig:tile_sweep}](tile_sweep.png){ width=100% }
+
+To test the limits of what JAXMg can do, we performed a Cholesky solve of a matrix of size $N=1499136$ with $T_A=1024$ on 64 NVIDIA H200s (143 GB VRAM) laid out on an 8x8 grid, using 8 GPUs per node with SXM5 NVLink and 8x 400Gb InfiniBand connections for inter-node communication. This matrix occupies 8.2 TiB in aggregate device memory, and the warm solve took 654 seconds. At the largest dimension both layouts completed, $N=1310720$, the 8x8 grid was 6.8 times faster than the 64x1 grid, at 452 against 3065 seconds.
 
 These results highlight JAXMg’s primary impact: enabling dense linear solves and eigendecompositions that are bottlenecked by the memory capacity of a single GPU, while remaining within JAX’s composable and JIT-compiled programming model. On modern multi-GPU nodes, distributed in-node solvers make it possible to tackle matrix sizes that would otherwise be infeasible, and to increase throughput by using aggregate device memory and compute.
 
