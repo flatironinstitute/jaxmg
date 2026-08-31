@@ -15,7 +15,7 @@ keywords = [
     "multi-GPU",
 ]
 dependencies = [
-    "jax~=0.11.0; sys_platform == 'linux'",
+    "jax==0.11.0; sys_platform == 'linux'",
 ]
 readme = "README.md"
 requires-python = ">=3.12"
@@ -60,7 +60,7 @@ docs = [
 
 dev = [
     "matplotlib>=3.10.3",
-    "jax[cuda12]~=0.11.0",
+    "jax[cuda12]==0.11.0",
     "nvidia-cusolvermp-cu12==0.9.0.6427",
     "pytest==8.2.1",
     "mkdocs==1.6.1",
@@ -72,21 +72,21 @@ dev = [
 ]
 
 cuda12 = [
-    "jax[cuda12]~=0.11.0",
+    "jax[cuda12]==0.11.0",
     "nvidia-cusolvermp-cu12==0.9.0.6427",
 ]
 
 cuda13 = [
-    "jax[cuda13]~=0.11.0",
+    "jax[cuda13]==0.11.0",
     "nvidia-cusolvermp-cu13==0.9.0.6427",
 ]
 
 cuda12-local = [
-    "jax[cuda12-local]~=0.11.0",
+    "jax[cuda12-local]==0.11.0",
     "nvidia-cusolvermp-cu12==0.9.0.6427",
 ]
 
 cuda13-local = [
-    "jax[cuda13-local]~=0.11.0",
+    "jax[cuda13-local]==0.11.0",
     "nvidia-cusolvermp-cu13==0.9.0.6427",
 ]
