@@ -66,6 +66,7 @@ jobs:
           CUDA_MAJOR: ${{ matrix.cuda_major }}
           CUDA_ARCHS: ${{ matrix.cuda_archs }}
           CUSOLVERMP: ${{ matrix.cusolvermp }}
+          JAXCI_HERMETIC_PYTHON_VERSION: '3.12'
         run: |
           set -euxo pipefail
           WS="$(pwd)"
