@@ -226,24 +226,26 @@ Singular-value decompositions are a central primitive in tensor-network algorith
 
 ## Performance and scaling
 
-To assess performance, we benchmark JAXMg against the single-GPU routines currently available in JAX.
-All experiments are run on a single node with 8 NVIDIA H200 GPUs (143 GB VRAM each) connected via NVLink.
+To assess performance, we benchmark JAXMg against the single-GPU routines currently available in JAX. These simulations are performed on 16 NVIDIA H100s (94 GB VRAM) connected with SXM5 NVLink and 4x 400Gb InfiniBand connections for inter-node communication.
 
-We report three representative cases: `potrs` (float32), `syevd` (float64), and `potri` (complex128).
-In all cases we use a diagonal matrix $A=\mathrm{diag}(1,\ldots,N)$[^1], and for `potrs` we set $b=(1,\ldots,1)^\mathsf{T}$.
-We vary the tile size $T_A$ and report wall-clock timings in \autoref{fig:benchmark}; the benchmark code is available at [@jaxmg_benchmark].
+We report four representative cases: `potrs` (float32), `lu_solve` (float64), and `gesvd` (complex64) and `syevd` (complex128).
+For `potrs`, `lu_solve` and `syevd`, we use a diagonal matrix $A=\mathrm{diag}(1,\ldots,N)$, and for `potrs` we set $b=(1,\ldots,1)^\mathsf{T}$. For `gesvd`, we use a random Gaussian matrix with mean zero and unit variance.
+
+We set the tile size $T_A=1024$ and report wall-clock timings in \autoref{fig:benchmark}; the benchmark code is available at [@jaxmg_benchmark].
 We see that JAXMg scales better than the native single-GPU linear algebra routines and surpasses them in performance, especially for larger matrices.
-Both `syevd` and `potri` require significantly more workspace memory than `potrs`, which is reflected in the matrix sizes that can be reached.
+Both `syevd` and `syevd` require significantly more workspace memory than `potrs` and `lu_solve`, which is reflected in the matrix sizes that can be reached.
 
-![Benchmark comparing the native single-GPU JAX routines (which call cuSOLVERDn) to JAXMg. Reported timings include array allocation, which is negligible compared to the runtime. Larger tile sizes improve performance only once the problem size is sufficiently large, consistent with a GPU-utilization effect. Tile size has negligible impact for `syevd`, while `potri` shows a strong dependence on $T_A$. (a) Comparison of `jaxmg.potrs` with `jax.scipy.linalg.cho_factor` + `jax.scipy.linalg.cho_solve` for a float32 matrix. The largest solvable problem is `N=524288`, which utilizes >1 TB of memory. (b) Comparison of `jaxmg.potri` with `jax.numpy.linalg.inv` for a complex128 matrix. (c) Comparison of `jaxmg.syevd` with `jax.numpy.linalg.eigh`.\label{fig:benchmark}](jaxmg_benchmark.png){ width=100% }
+![Benchmark comparing the native single-GPU JAX routines (which call cuSOLVERDn) to JAXMg. (a) Comparison of `jaxmg.potrs` with `jax.scipy.linalg.cho_factor` + `jax.scipy.linalg.cho_solve` for a float32 matrix. (b) Comparison of `jaxmg.lu_solve` with `jax.numpy.linalg.inv` for a complex128 matrix. (c) Comparison of `jaxmg.gesvd` for(d) Comparison of `jaxmg.syevd` with `jax.numpy.linalg.eigh`.\label{fig:benchmark}](jaxmg_benchmark_v1.png){ width=100% }
+
+![Benchmark comparing the native single-GPU JAX routines (which call cuSOLVERDn) to JAXMg. (a) Comparison of `jaxmg.potrs` with `jax.scipy.linalg.cho_factor` + `jax.scipy.linalg.cho_solve` for a float32 matrix. (b) Comparison of `jaxmg.lu_solve` with `jax.numpy.linalg.inv` for a complex128 matrix. (c) Comparison of `jaxmg.gesvd` for(d) Comparison of `jaxmg.syevd` with `jax.numpy.linalg.eigh`.\label{fig:benchmark}](tile_sweep.png){ width=100% }
+
+To test the limits of what JAXMg can do, we performed a Cholesky solve of a matrix of size $N=1499136$ with $T_A=1024$ on 64 NVIDIA H200s (143 GB VRAM) laid out on an 8x8 grid with. Here, we used 8 GPUs per node with SXM5 NVLink and 8x 400Gb InfiniBand connections for inter-node communication. The average solve time was 666.5 seconds, which was approximately 6 times faster than a calculation of similar size on a 64x1 grid.
 
 These results highlight JAXMg’s primary impact: enabling dense linear solves and eigendecompositions that are bottlenecked by the memory capacity of a single GPU, while remaining within JAX’s composable and JIT-compiled programming model. On modern multi-GPU nodes, distributed in-node solvers make it possible to tackle matrix sizes that would otherwise be infeasible, and to increase throughput by using aggregate device memory and compute.
 
-[^1]: Random positive definite matrices give the same timings.
-
 # AI usage disclosure
 
-GitHub Copilot was used during software development for code exploration and debugging. Large language models were used to assist with language polishing.
+Claude code was used during software development for code exploration and debugging. Large language models were used to assist with language polishing.
 
 # Acknowledgements
 
