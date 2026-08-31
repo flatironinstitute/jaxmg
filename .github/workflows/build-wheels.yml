@@ -39,7 +39,7 @@ on:
 
 env:
   JAX_GIT_REPOSITORY: https://github.com/jax-ml/jax.git
-  JAX_GIT_TAG: jax-v0.11.1
+  JAX_GIT_TAG: jax-v0.11.0
 
 jobs:
   compile:

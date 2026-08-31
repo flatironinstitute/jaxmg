@@ -161,7 +161,7 @@ silently replace the documentation for a released wheel.
 
 ## Updating JAX or CUDA
 
-JAXMg pins `jax==0.11.1` and builds against its matching internal XLA revision.
+JAXMg pins `jax==0.11.0` and builds against its matching internal XLA revision.
 Updating JAX therefore requires auditing the `@xla` targets, updating the JAX
 source tag and dependencies, and rebuilding both CUDA backends on both
 architectures.
