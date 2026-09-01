@@ -161,10 +161,16 @@ silently replace the documentation for a released wheel.
 
 ## Updating JAX or CUDA
 
-JAXMg pins `jax==0.11.0` and builds against its matching internal XLA revision.
+JAXMg pins `jax==0.11.1` and builds against its matching internal XLA revision.
 Updating JAX therefore requires auditing the `@xla` targets, updating the JAX
 source tag and dependencies, and rebuilding both CUDA backends on both
 architectures.
+
+The pin is exact for a reason. The backend statically links internal `@xla` C++
+targets, which carry no ABI stability guarantee, so a `.so` built at one XLA
+revision embeds that revision's object layout. `JAX_GIT_TAG` in
+`.github/workflows/build-wheels.yml` and the `jax==` pins in `pyproject.toml`
+must always name the same version and move in the same commit.
 
 The same care is required when changing CUDA, cuSOLVERMp, or the supported GPU
 architecture list.
