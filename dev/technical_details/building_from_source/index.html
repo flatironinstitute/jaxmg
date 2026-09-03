@@ -1236,7 +1236,7 @@ cp<span class="w"> </span>-r<span class="w"> </span><span class="se">\</span>
 <h2 id="3-compile">3. Compile<a class="headerlink" href="#3-compile" title="Permanent link">¤</a></h2>
 <p>Choose the values for the backend:</p>
 <div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">12</span>
-<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu12<span class="o">==</span><span class="m">0</span>.9.0.6427
+<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu12<span class="o">==</span><span class="m">0</span>.9.1.9318.post1
 <span class="nv">CAPABILITIES</span><span class="o">=</span>sm_70,sm_80,sm_90,sm_120,compute_90
 </code></pre></div>
 <p>Then run:</p>
@@ -1255,7 +1255,7 @@ cp<span class="w"> </span>-r<span class="w"> </span><span class="se">\</span>
 </code></pre></div>
 <p>For CUDA 13, use:</p>
 <div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">13</span>
-<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu13<span class="o">==</span><span class="m">0</span>.9.0.6427
+<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu13<span class="o">==</span><span class="m">0</span>.9.1.9318.post1
 <span class="nv">CAPABILITIES</span><span class="o">=</span>sm_80,sm_90,sm_120,compute_90
 </code></pre></div>
 <p>The script discovers cuSOLVERMp, stages the Bazel package, compiles the shared
