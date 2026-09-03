@@ -101,7 +101,7 @@ Choose the values for the backend:
 
 ```bash
 CUDA_MAJOR=12
-CUSOLVERMP_PACKAGE=nvidia-cusolvermp-cu12==0.9.0.6427
+CUSOLVERMP_PACKAGE=nvidia-cusolvermp-cu12==0.9.1.9318.post1
 CAPABILITIES=sm_70,sm_80,sm_90,sm_120,compute_90
 ```
 
@@ -126,7 +126,7 @@ For CUDA 13, use:
 
 ```bash
 CUDA_MAJOR=13
-CUSOLVERMP_PACKAGE=nvidia-cusolvermp-cu13==0.9.0.6427
+CUSOLVERMP_PACKAGE=nvidia-cusolvermp-cu13==0.9.1.9318.post1
 CAPABILITIES=sm_80,sm_90,sm_120,compute_90
 ```
 
