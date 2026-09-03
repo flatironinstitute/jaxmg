@@ -829,7 +829,7 @@ absl::Status XlaCusolverMpPotrsDispatchImpl(
 // Standard POTRS entry point. It avoids the diagonal reduction and NCCL scalar
 // collective used by the log-determinant path.
 absl::Status XlaCusolverMpPotrsDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
     int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
@@ -838,7 +838,8 @@ absl::Status XlaCusolverMpPotrsDispatch(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return XlaCusolverMpPotrsDispatchImpl(
-      stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
+      stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
+      n, nrhs,
       b_distribution_cols, tile_size, grid_mapping, rank_map, a, b, a_work,
       b_out, status, /*logdet=*/nullptr, collective_params,
       collective_cliques);
@@ -848,7 +849,7 @@ absl::Status XlaCusolverMpPotrsDispatch(
 // the standard aliases while the additional replicated scalar is computed
 // directly from the distributed Cholesky factor.
 absl::Status XlaCusolverMpPotrsLogdetDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
     int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
@@ -858,7 +859,8 @@ absl::Status XlaCusolverMpPotrsLogdetDispatch(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return XlaCusolverMpPotrsDispatchImpl(
-      stream, comm_stream, cuda_stream, process_rows, process_cols, n, nrhs,
+      stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
+      n, nrhs,
       b_distribution_cols, tile_size, grid_mapping, rank_map, a, b, a_work,
       b_out, status, &logdet, collective_params, collective_cliques);
 }

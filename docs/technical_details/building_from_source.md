@@ -14,7 +14,7 @@ matching JAX source tree; they are not distributed as a standalone library.
 The build therefore combines:
 
 - the JAXMg C++/CUDA sources;
-- the JAX `0.10.1` checkout and its pinned XLA revision;
+- the JAX `0.11.0` checkout and its pinned XLA revision;
 - the selected CUDA and cuSOLVERMp dependencies.
 
 The result is `libjaxmg_xla_comm_backend.so`, installed under
@@ -52,7 +52,7 @@ sm_80,sm_90,sm_120,compute_90
 Clone the JAX version pinned by JAXMg and start its CI container:
 
 ```bash
-git clone --branch jax-v0.10.1 https://github.com/jax-ml/jax.git
+git clone --branch jax-v0.11.0 https://github.com/jax-ml/jax.git
 cd jax
 ./ci/utilities/run_docker_container.sh
 ```
@@ -101,7 +101,7 @@ Choose the values for the backend:
 
 ```bash
 CUDA_MAJOR=12
-CUSOLVERMP_PACKAGE=nvidia-cusolvermp-cu12==0.9.0.6427
+CUSOLVERMP_PACKAGE=nvidia-cusolvermp-cu12==0.9.1.9318.post1
 CAPABILITIES=sm_70,sm_80,sm_90,sm_120,compute_90
 ```
 
@@ -126,7 +126,7 @@ For CUDA 13, use:
 
 ```bash
 CUDA_MAJOR=13
-CUSOLVERMP_PACKAGE=nvidia-cusolvermp-cu13==0.9.0.6427
+CUSOLVERMP_PACKAGE=nvidia-cusolvermp-cu13==0.9.1.9318.post1
 CAPABILITIES=sm_80,sm_90,sm_120,compute_90
 ```
 

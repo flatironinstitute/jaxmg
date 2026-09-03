@@ -27,6 +27,19 @@
 //   4. XLA calls the execute symbol at runtime with streams, buffers,
 //      attributes, scratch allocators, and collective contexts.
 //
+// The execute bindings deliberately do NOT request
+// `ffi::CommunicationStream<N>`. That indexes `CollectiveParams::async_streams`,
+// whose size XLA derives from the async-collective thunks present in the
+// surrounding module. These handlers are synchronous and emit none, so the pool
+// is empty and the binding fails to decode. Through jax 0.11.0 a compatibility
+// floor in `GetNumAdditionalStreams()` allocated the legacy pool for every
+// executable, which is the only reason index 1 used to resolve; jax 0.11.1
+// removed it, and XLA offers no way for a custom call to request one. The raw
+// NCCL work therefore runs on the main compute stream: `ChooseNcclStream` in
+// runtime.cc returns `uses_comm_stream=false` for a null `comm_stream`, and the
+// cross-stream `WaitFor` pairs it guards are unnecessary there because ordering
+// on a single stream is implicit.
+//
 #include "runtime.h"
 #include "../cusolvermp_routines/cusolvermp_routines.h"
 
@@ -54,7 +67,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpPotrsFFI, XlaCusolverMpPotrsDispatch,
     ffi::Ffi::Bind()
         .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
         .Attr<int64_t>("process_rows")
         .Attr<int64_t>("process_cols")
@@ -88,7 +100,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpPotrsLogdetFFI, XlaCusolverMpPotrsLogdetDispatch,
     ffi::Ffi::Bind()
         .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
         .Attr<int64_t>("process_rows")
         .Attr<int64_t>("process_cols")
@@ -121,7 +132,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpLuSolveFFI, XlaCusolverMpLuSolveDispatch,
     ffi::Ffi::Bind()
         .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
         .Ctx<ffi::ScratchAllocator>()
         .Attr<int64_t>("process_rows")
@@ -154,7 +164,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpSyevdFFI, XlaCusolverMpSyevdDispatch,
     ffi::Ffi::Bind()
         .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
         .Attr<int64_t>("process_rows")
         .Attr<int64_t>("process_cols")
@@ -176,7 +185,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpSyevdValuesFFI, XlaCusolverMpSyevdValuesDispatch,
     ffi::Ffi::Bind()
         .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
         .Attr<int64_t>("process_rows")
         .Attr<int64_t>("process_cols")
@@ -203,7 +211,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpGesvdUvFFI, XlaCusolverMpGesvdUvDispatch,
     ffi::Ffi::Bind()
         .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
         .Attr<int64_t>("process_rows")
         .Attr<int64_t>("process_cols")
@@ -227,7 +234,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpGesvdUFFI, XlaCusolverMpGesvdUDispatch,
     ffi::Ffi::Bind()
         .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
         .Attr<int64_t>("process_rows")
         .Attr<int64_t>("process_cols")
@@ -250,7 +256,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpGesvdVhFFI, XlaCusolverMpGesvdVhDispatch,
     ffi::Ffi::Bind()
         .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
         .Attr<int64_t>("process_rows")
         .Attr<int64_t>("process_cols")
@@ -274,7 +279,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpGesvdValuesFFI, XlaCusolverMpGesvdValuesDispatch,
     ffi::Ffi::Bind()
         .Ctx<ffi::Stream>()
-        .Ctx<ffi::CommunicationStream<1>>()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
         .Attr<int64_t>("process_rows")
         .Attr<int64_t>("process_cols")
