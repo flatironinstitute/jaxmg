@@ -2,7 +2,7 @@ name: build-wheels (reusable)
 
 # Reusable workflow: build the CUDA 12 and CUDA 13
 # libjaxmg_xla_comm_backend.so libraries against @xla in the JAX CI container
-# (natively, no QEMU), then package both into cp3.11-cp3.14 manylinux wheels.
+# (natively, no QEMU), then package both into cp3.12-cp3.14 manylinux wheels.
 # Parameterized by arch so the same logic serves x86_64 and aarch64.
 #
 # Build-only: no GPU is available on GitHub runners, so wheels are packaged and
@@ -24,7 +24,7 @@ on:
         required: true
         type: string
       package_image:
-        description: 'manylinux image (ships cp3.11-3.14 + auditwheel) for packaging'
+        description: 'manylinux image (ships cp3.12-3.14 + auditwheel) for packaging'
         required: true
         type: string
       manylinux_plat:
@@ -39,7 +39,7 @@ on:
 
 env:
   JAX_GIT_REPOSITORY: https://github.com/jax-ml/jax.git
-  JAX_GIT_TAG: jax-v0.10.1
+  JAX_GIT_TAG: jax-v0.11.1
 
 jobs:
   compile:
@@ -66,6 +66,7 @@ jobs:
           CUDA_MAJOR: ${{ matrix.cuda_major }}
           CUDA_ARCHS: ${{ matrix.cuda_archs }}
           CUSOLVERMP: ${{ matrix.cusolvermp }}
+          JAXCI_HERMETIC_PYTHON_VERSION: '3.12'
         run: |
           set -euxo pipefail
           WS="$(pwd)"
@@ -133,7 +134,7 @@ jobs:
       fail-fast: false
       matrix:
         # <pip tag> == /opt/python/<cpython dir> in the manylinux image
-        python: ['cp311-cp311', 'cp312-cp312', 'cp313-cp313', 'cp314-cp314']
+        python: ['cp312-cp312', 'cp313-cp313', 'cp314-cp314']
     steps:
       - name: Checkout jaxmg
         uses: actions/checkout@v4
