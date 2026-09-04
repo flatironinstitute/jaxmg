@@ -12,28 +12,28 @@
         <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
-        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/building_from_source/">
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/api/">
       
       
-        <link rel="prev" href="../memory_distribution/">
+        <link rel="prev" href="../examples/gesvd/">
       
       
-        <link rel="next" href="../contributing/">
+        <link rel="next" href="potrs/">
       
       
-      <link rel="icon" href="../../_static/square.png">
+      <link rel="icon" href="../_static/square.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.23">
     
     
       
-        <title>Building from source - JAXMg</title>
+        <title>API reference - JAXMg</title>
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.84d31ad4.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.84d31ad4.min.css">
       
         
-        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
       
       
 
@@ -52,13 +52,13 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="../../assets/_hippogriffe.css">
+      <link rel="stylesheet" href="../assets/_hippogriffe.css">
     
-      <link rel="stylesheet" href="../../_static/custom.css">
+      <link rel="stylesheet" href="../_static/custom.css">
     
-    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -84,7 +84,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#building-the-native-backend" class="md-skip">
+        <a href="#api-reference" class="md-skip">
           Skip to content
         </a>
       
@@ -102,9 +102,9 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="JAXMg" class="md-header__button md-logo" aria-label="JAXMg" data-md-component="logo">
+    <a href=".." title="JAXMg" class="md-header__button md-logo" aria-label="JAXMg" data-md-component="logo">
       
-  <img src="../../_static/square.png" alt="logo">
+  <img src="../_static/square.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Building from source
+              API reference
             
           </span>
         </div>
@@ -234,7 +234,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../.." class="md-tabs__link">
+        <a href=".." class="md-tabs__link">
           
   
   
@@ -254,31 +254,11 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../examples/" class="md-tabs__link">
+        <a href="../examples/" class="md-tabs__link">
           
   
   
   Examples
-
-        </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../../api/" class="md-tabs__link">
-          
-  
-  
-  API
 
         </a>
       </li>
@@ -296,7 +276,27 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="../" class="md-tabs__link">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+  API
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../technical_details/" class="md-tabs__link">
           
   
   
@@ -330,9 +330,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="JAXMg" class="md-nav__button md-logo" aria-label="JAXMg" data-md-component="logo">
+    <a href=".." title="JAXMg" class="md-nav__button md-logo" aria-label="JAXMg" data-md-component="logo">
       
-  <img src="../../_static/square.png" alt="logo">
+  <img src="../_static/square.png" alt="logo">
 
     </a>
     JAXMg
@@ -402,7 +402,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../.." class="md-nav__link">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -425,7 +425,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../install/" class="md-nav__link">
+      <a href="../install/" class="md-nav__link">
         
   
   
@@ -498,7 +498,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/" class="md-nav__link">
+      <a href="../examples/" class="md-nav__link">
         
   
   
@@ -521,7 +521,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/execution/" class="md-nav__link">
+      <a href="../examples/execution/" class="md-nav__link">
         
   
   
@@ -544,7 +544,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/choose_tile_size/" class="md-nav__link">
+      <a href="../examples/choose_tile_size/" class="md-nav__link">
         
   
   
@@ -567,7 +567,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/potrs/" class="md-nav__link">
+      <a href="../examples/potrs/" class="md-nav__link">
         
   
   
@@ -590,7 +590,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/lu_solve/" class="md-nav__link">
+      <a href="../examples/lu_solve/" class="md-nav__link">
         
   
   
@@ -613,7 +613,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/syevd/" class="md-nav__link">
+      <a href="../examples/syevd/" class="md-nav__link">
         
   
   
@@ -636,177 +636,12 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/gesvd/" class="md-nav__link">
+      <a href="../examples/gesvd/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     Singular-value decomposition
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
-        
-          
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    API
-    
-  </span>
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
-            <span class="md-nav__icon md-icon"></span>
-            API
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../api/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    API reference
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../api/potrs/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    jaxmg.potrs
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../api/lu_solve/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    jaxmg.lu_solve
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../api/syevd/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    jaxmg.syevd
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../api/gesvd/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    jaxmg.gesvd
     
   </span>
   
@@ -849,15 +684,15 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
             
   
   
   <span class="md-ellipsis">
-    Technical Details
+    API
     
   </span>
   
@@ -865,58 +700,12 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
-            Technical Details
+            API
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Native workflow
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../memory_distribution/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Memory distribution
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
             
               
                 
@@ -939,7 +728,7 @@
   
   
   <span class="md-ellipsis">
-    Building from source
+    API reference
     
   </span>
   
@@ -952,7 +741,7 @@
   
   
   <span class="md-ellipsis">
-    Building from source
+    API reference
     
   </span>
   
@@ -975,54 +764,36 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-a-separate-native-build-is-needed" class="md-nav__link">
+  <a href="#potrs" class="md-nav__link">
     <span class="md-ellipsis">
-      Why a separate native build is needed
+      potrs
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
+  <a href="#lu_solve" class="md-nav__link">
     <span class="md-ellipsis">
-      Requirements
+      lu_solve
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#1-start-the-jax-build-container" class="md-nav__link">
+  <a href="#syevd" class="md-nav__link">
     <span class="md-ellipsis">
-      1. Start the JAX build container
+      syevd
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-copy-the-jaxmg-build-inputs" class="md-nav__link">
+  <a href="#gesvd" class="md-nav__link">
     <span class="md-ellipsis">
-      2. Copy the JAXMg build inputs
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3-compile" class="md-nav__link">
-    <span class="md-ellipsis">
-      3. Compile
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4-install-and-test" class="md-nav__link">
-    <span class="md-ellipsis">
-      4. Install and test
+      gesvd
     </span>
   </a>
   
@@ -1044,7 +815,218 @@
   
   
     <li class="md-nav__item">
-      <a href="../contributing/" class="md-nav__link">
+      <a href="potrs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.potrs
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="lu_solve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.lu_solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="syevd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.syevd
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="gesvd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.gesvd
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Technical Details
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Technical Details
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical_details/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Native workflow
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical_details/memory_distribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Memory distribution
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical_details/building_from_source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Building from source
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical_details/contributing/" class="md-nav__link">
         
   
   
@@ -1094,54 +1076,36 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-a-separate-native-build-is-needed" class="md-nav__link">
+  <a href="#potrs" class="md-nav__link">
     <span class="md-ellipsis">
-      Why a separate native build is needed
+      potrs
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
+  <a href="#lu_solve" class="md-nav__link">
     <span class="md-ellipsis">
-      Requirements
+      lu_solve
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#1-start-the-jax-build-container" class="md-nav__link">
+  <a href="#syevd" class="md-nav__link">
     <span class="md-ellipsis">
-      1. Start the JAX build container
+      syevd
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-copy-the-jaxmg-build-inputs" class="md-nav__link">
+  <a href="#gesvd" class="md-nav__link">
     <span class="md-ellipsis">
-      2. Copy the JAXMg build inputs
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3-compile" class="md-nav__link">
-    <span class="md-ellipsis">
-      3. Compile
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4-install-and-test" class="md-nav__link">
-    <span class="md-ellipsis">
-      4. Install and test
+      gesvd
     </span>
   </a>
   
@@ -1163,117 +1127,52 @@
 
 
 
-<h1 id="building-the-native-backend">Building the Native Backend<a class="headerlink" href="#building-the-native-backend" title="Permanent link">¤</a></h1>
-<p>Most users should install a prebuilt wheel from the
-<a href="../../install/">Installation</a> page. Build from source when changing the
-C++/CUDA backend, updating JAX or CUDA, or targeting a platform not covered by
-the release wheels.</p>
-<h2 id="why-a-separate-native-build-is-needed">Why a separate native build is needed<a class="headerlink" href="#why-a-separate-native-build-is-needed" title="Permanent link">¤</a></h2>
-<p>JAXMg uses internal XLA C++ interfaces for FFI and GPU communicator access.
-These interfaces are available through Bazel's <code>@xla</code> repository inside the
-matching JAX source tree; they are not distributed as a standalone library.</p>
-<p>The build therefore combines:</p>
-<ul>
-<li>the JAXMg C++/CUDA sources;</li>
-<li>the JAX <code>0.10.1</code> checkout and its pinned XLA revision;</li>
-<li>the selected CUDA and cuSOLVERMp dependencies.</li>
-</ul>
-<p>The result is <code>libjaxmg_xla_comm_backend.so</code>, installed under
-<code>src/jaxmg/cu12/</code> or <code>src/jaxmg/cu13/</code>.</p>
-<div class="highlight"><pre><span></span><code>JAXMg sources + JAX/XLA checkout + cuSOLVERMp
-                        |
-                        v
-               pinned Bazel/CUDA build
-                        |
-                        v
-        src/jaxmg/cuXX/libjaxmg_xla_comm_backend.so
-</code></pre></div>
-<h2 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">¤</a></h2>
-<p>You need Linux on <code>x86_64</code> or <code>aarch64</code>, Git, a Docker-compatible container
-runtime, and enough storage for the JAX checkout and Bazel cache.</p>
-<p>CUDA 12 builds support:</p>
-<div class="highlight"><pre><span></span><code>sm_70,sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<p>CUDA 13 builds omit Volta:</p>
-<div class="highlight"><pre><span></span><code>sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<h2 id="1-start-the-jax-build-container">1. Start the JAX build container<a class="headerlink" href="#1-start-the-jax-build-container" title="Permanent link">¤</a></h2>
-<p>Clone the JAX version pinned by JAXMg and start its CI container:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>jax-v0.10.1<span class="w"> </span>https://github.com/jax-ml/jax.git
-<span class="nb">cd</span><span class="w"> </span>jax
-./ci/utilities/run_docker_container.sh
-</code></pre></div>
-<p>Configure the workspace for the CUDA major version being built:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">12</span>
-docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-e<span class="w"> </span><span class="nv">JAXCI_CUDA_VERSION</span><span class="o">=</span><span class="s2">"</span><span class="nv">$CUDA_MAJOR</span><span class="s2">"</span><span class="w"> </span>jax<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">'</span>
-<span class="s1">  source ci/envs/default.env</span>
-<span class="s1">  source ci/utilities/setup_build_environment.sh</span>
-<span class="s1">  arch=$(uname -m)</span>
-<span class="s1">  python build/build.py build \</span>
-<span class="s1">    --wheels=jax-cuda-plugin \</span>
-<span class="s1">    --configure_only \</span>
-<span class="s1">    --bazel_options=--config="ci_linux_${arch}_cuda${JAXCI_CUDA_VERSION}" \</span>
-<span class="s1">    --python_version="${JAXCI_HERMETIC_PYTHON_VERSION}" \</span>
-<span class="s1">    --cuda_major_version="${JAXCI_CUDA_VERSION}" \</span>
-<span class="s1">    --output_path="${JAXCI_OUTPUT_DIR}"'</span>
-</code></pre></div>
-<p>Use <code>CUDA_MAJOR=13</code> when building the CUDA 13 backend.</p>
-<h2 id="2-copy-the-jaxmg-build-inputs">2. Copy the JAXMg build inputs<a class="headerlink" href="#2-copy-the-jaxmg-build-inputs" title="Permanent link">¤</a></h2>
-<p>The container mounts the JAX checkout at <code>/jax</code>. Copy JAXMg into that checkout
-so Bazel can compile it alongside <code>@xla</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">JAXMG</span><span class="o">=</span>/absolute/path/to/jaxmg
-<span class="nv">JAXCO</span><span class="o">=</span>/absolute/path/to/jax
-
-mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg"</span>
-cp<span class="w"> </span>-r<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/src<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/bazel<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/build_native_backend.sh<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/pyproject.toml<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/setup.py<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg/"</span>
-</code></pre></div>
-<h2 id="3-compile">3. Compile<a class="headerlink" href="#3-compile" title="Permanent link">¤</a></h2>
-<p>Choose the values for the backend:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">12</span>
-<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu12<span class="o">==</span><span class="m">0</span>.9.1.9318.post1
-<span class="nv">CAPABILITIES</span><span class="o">=</span>sm_70,sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<p>Then run:</p>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CUDA_MAJOR<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CUSOLVERMP_PACKAGE<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CAPABILITIES<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>jax<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">'</span>
-<span class="s1">    python -m pip install "$CUSOLVERMP_PACKAGE"</span>
-<span class="s1">    JAX_SRC=/jax \</span>
-<span class="s1">    JAXMG_ROOT=/jax/jaxmg \</span>
-<span class="s1">    CUDA_MAJOR="$CUDA_MAJOR" \</span>
-<span class="s1">    JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$CAPABILITIES" \</span>
-<span class="s1">    JAXMG_XLA_BAZEL_JOBS=$(nproc) \</span>
-<span class="s1">    /jax/jaxmg/build_native_backend.sh'</span>
-</code></pre></div>
-<p>For CUDA 13, use:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">13</span>
-<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu13<span class="o">==</span><span class="m">0</span>.9.1.9318.post1
-<span class="nv">CAPABILITIES</span><span class="o">=</span>sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<p>The script discovers cuSOLVERMp, stages the Bazel package, compiles the shared
-library, and installs it under <code>/jax/jaxmg/src/jaxmg/cuXX/</code>.</p>
-<p>Copy the result back to the original checkout:</p>
-<div class="highlight"><pre><span></span><code>cp<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg/src/jaxmg/cu</span><span class="si">${</span><span class="nv">CUDA_MAJOR</span><span class="si">}</span><span class="s2">/libjaxmg_xla_comm_backend.so"</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">/src/jaxmg/cu</span><span class="si">${</span><span class="nv">CUDA_MAJOR</span><span class="si">}</span><span class="s2">/"</span>
-</code></pre></div>
-<h2 id="4-install-and-test">4. Install and test<a class="headerlink" href="#4-install-and-test" title="Permanent link">¤</a></h2>
-<p>Install the source tree with the matching runtime extra:</p>
-<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>
-python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
-.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[cuda12]"</span>
-</code></pre></div>
-<p>Run the <a href="../../examples/potrs/">Cholesky example</a> to verify a solver call. Native
-contributors should then run the GPU smoke suite described in
-<a href="../contributing/">Contributing</a>.</p>
+<h1 id="api-reference">API reference<a class="headerlink" href="#api-reference" title="Permanent link">¤</a></h1>
+<p>This page highlights the primary public functions from the jaxmg package.
+Supported datatypes are <code>jax.numpy.float32</code>, <code>jax.numpy.float64</code>,
+<code>jax.numpy.complex64</code>, and <code>jax.numpy.complex128</code>.</p>
+<p>The routines accept ordinary JAX arrays sharded over a one- or two-axis device
+mesh.
+The fused C++/CUDA backend converts those arrays into cuSOLVERMp's column-major,
+2D block-cyclic layout and restores the JAX-facing layout before returning.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Each solver requires a tile width <code>T_A</code>. Very small tiles can substantially
+reduce solver performance. If a local shard dimension is not divisible by
+<code>T_A</code>, JAXMg adds tile-aligned capacity before entering native code. Prefer
+<code>T_A &gt;= 128</code> and choose a tile size that divides the local shard dimensions
+when possible. See <a href="../examples/choose_tile_size/">Choosing a Tile Size</a>
+for further guidance.</p>
+</div>
+<h2 id="potrs"><code>potrs</code><a class="headerlink" href="#potrs" title="Permanent link">¤</a></h2>
+<p>Multi-GPU Cholesky linear solver for symmetric (Hermitian) positive-definite matrices.</p>
+<div class="arithmatex">\[
+A x = B, \quad A = L L^{\top} \;\text{(real)} \quad \text{or} \quad A = L L^{\dagger}\;\text{(complex)}
+\]</div>
+<p>Solve for <span class="arithmatex">\(x\)</span> using the Cholesky factors.</p>
+<p><a href="potrs/">POTRS API and usage</a></p>
+<hr />
+<h2 id="lu_solve"><code>lu_solve</code><a class="headerlink" href="#lu_solve" title="Permanent link">¤</a></h2>
+<p>Multi-GPU pivoted LU solver for general nonsingular matrices.</p>
+<div class="arithmatex">\[
+P A = L U, \qquad A x = B.
+\]</div>
+<p><a href="lu_solve/"><code>lu_solve</code> API and usage</a></p>
+<hr />
+<h2 id="syevd"><code>syevd</code><a class="headerlink" href="#syevd" title="Permanent link">¤</a></h2>
+<p>Multi-GPU eigensolver for symmetric (Hermitian) matrices.</p>
+<div class="arithmatex">\[
+A v = \lambda v \quad\Rightarrow\quad A = V \Lambda V^{\top} \;\text{(real)}\quad\text{or}\quad A = V \Lambda V^{\dagger} \;\text{(complex)}
+\]</div>
+<p>Compute eigenvalues <span class="arithmatex">\(\Lambda\)</span> and optionally eigenvectors <span class="arithmatex">\(V\)</span> of a symmetric or
+Hermitian matrix.</p>
+<p><a href="syevd/"><code>syevd</code> API and usage</a></p>
+<hr />
+<h2 id="gesvd"><code>gesvd</code><a class="headerlink" href="#gesvd" title="Permanent link">¤</a></h2>
+<p>Compute the singular-value decomposition of an <span class="arithmatex">\(M \times N\)</span> real or complex
+matrix <span class="arithmatex">\(A\)</span> (<span class="arithmatex">\(A = U \Sigma V^{\dagger}\)</span>), returning the singular values and
+independently selected left and right singular vectors in reduced or full form.</p>
+<p><a href="gesvd/"><code>gesvd</code> API and usage</a></p>
 
 
 
@@ -1328,12 +1227,12 @@ contributors should then run the GPU smoke suite described in
     
     
       
-      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.top", "navigation.instant", "navigation.tabs", "navigation.sections", "header.autohide"], "search": "../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"base": "..", "features": ["navigation.top", "navigation.instant", "navigation.tabs", "navigation.sections", "header.autohide"], "search": "../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      <script src="../assets/javascripts/bundle.f55a23d4.min.js"></script>
       
-        <script src="../../_static/mathjax.js"></script>
+        <script src="../_static/mathjax.js"></script>
       
         <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       

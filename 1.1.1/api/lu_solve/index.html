@@ -12,13 +12,13 @@
         <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
-        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/building_from_source/">
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/api/lu_solve/">
       
       
-        <link rel="prev" href="../memory_distribution/">
+        <link rel="prev" href="../potrs/">
       
       
-        <link rel="next" href="../contributing/">
+        <link rel="next" href="../syevd/">
       
       
       <link rel="icon" href="../../_static/square.png">
@@ -26,7 +26,7 @@
     
     
       
-        <title>Building from source - JAXMg</title>
+        <title>jaxmg.lu_solve - JAXMg</title>
       
     
     
@@ -84,7 +84,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#building-the-native-backend" class="md-skip">
+        <a href="#jaxmglu_solve" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Building from source
+              jaxmg.lu_solve
             
           </span>
         </div>
@@ -270,11 +270,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../api/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
           
   
   
@@ -290,13 +292,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../technical_details/" class="md-tabs__link">
           
   
   
@@ -663,26 +663,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
             
   
   
@@ -695,7 +700,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             API
@@ -709,7 +714,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../api/" class="md-nav__link">
+      <a href="../" class="md-nav__link">
         
   
   
@@ -732,182 +737,12 @@
   
   
     <li class="md-nav__item">
-      <a href="../../api/potrs/" class="md-nav__link">
+      <a href="../potrs/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     jaxmg.potrs
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../api/lu_solve/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    jaxmg.lu_solve
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../api/syevd/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    jaxmg.syevd
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../api/gesvd/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    jaxmg.gesvd
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-    
-  
-  
-  
-    
-    
-    
-    
-      
-        
-        
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
-        
-          
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
-            
-  
-  
-  <span class="md-ellipsis">
-    Technical Details
-    
-  </span>
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_4">
-            <span class="md-nav__icon md-icon"></span>
-            Technical Details
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Native workflow
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../memory_distribution/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Memory distribution
     
   </span>
   
@@ -939,7 +774,7 @@
   
   
   <span class="md-ellipsis">
-    Building from source
+    jaxmg.lu_solve
     
   </span>
   
@@ -952,7 +787,7 @@
   
   
   <span class="md-ellipsis">
-    Building from source
+    jaxmg.lu_solve
     
   </span>
   
@@ -975,54 +810,18 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-a-separate-native-build-is-needed" class="md-nav__link">
+  <a href="#jaxmg.lu_solve" class="md-nav__link">
     <span class="md-ellipsis">
-      Why a separate native build is needed
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;lu_solve
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
+  <a href="#jaxmg.lu_solve_shardmap_ctx" class="md-nav__link">
     <span class="md-ellipsis">
-      Requirements
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#1-start-the-jax-build-container" class="md-nav__link">
-    <span class="md-ellipsis">
-      1. Start the JAX build container
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#2-copy-the-jaxmg-build-inputs" class="md-nav__link">
-    <span class="md-ellipsis">
-      2. Copy the JAXMg build inputs
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3-compile" class="md-nav__link">
-    <span class="md-ellipsis">
-      3. Compile
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4-install-and-test" class="md-nav__link">
-    <span class="md-ellipsis">
-      4. Install and test
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;lu_solve_shardmap_ctx
     </span>
   </a>
   
@@ -1044,7 +843,172 @@
   
   
     <li class="md-nav__item">
-      <a href="../contributing/" class="md-nav__link">
+      <a href="../syevd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.syevd
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gesvd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.gesvd
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Technical Details
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Technical Details
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../technical_details/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Native workflow
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../technical_details/memory_distribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Memory distribution
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../technical_details/building_from_source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Building from source
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../technical_details/contributing/" class="md-nav__link">
         
   
   
@@ -1094,54 +1058,18 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-a-separate-native-build-is-needed" class="md-nav__link">
+  <a href="#jaxmg.lu_solve" class="md-nav__link">
     <span class="md-ellipsis">
-      Why a separate native build is needed
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;lu_solve
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
+  <a href="#jaxmg.lu_solve_shardmap_ctx" class="md-nav__link">
     <span class="md-ellipsis">
-      Requirements
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#1-start-the-jax-build-container" class="md-nav__link">
-    <span class="md-ellipsis">
-      1. Start the JAX build container
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#2-copy-the-jaxmg-build-inputs" class="md-nav__link">
-    <span class="md-ellipsis">
-      2. Copy the JAXMg build inputs
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3-compile" class="md-nav__link">
-    <span class="md-ellipsis">
-      3. Compile
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4-install-and-test" class="md-nav__link">
-    <span class="md-ellipsis">
-      4. Install and test
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;lu_solve_shardmap_ctx
     </span>
   </a>
   
@@ -1163,117 +1091,501 @@
 
 
 
-<h1 id="building-the-native-backend">Building the Native Backend<a class="headerlink" href="#building-the-native-backend" title="Permanent link">¤</a></h1>
-<p>Most users should install a prebuilt wheel from the
-<a href="../../install/">Installation</a> page. Build from source when changing the
-C++/CUDA backend, updating JAX or CUDA, or targeting a platform not covered by
-the release wheels.</p>
-<h2 id="why-a-separate-native-build-is-needed">Why a separate native build is needed<a class="headerlink" href="#why-a-separate-native-build-is-needed" title="Permanent link">¤</a></h2>
-<p>JAXMg uses internal XLA C++ interfaces for FFI and GPU communicator access.
-These interfaces are available through Bazel's <code>@xla</code> repository inside the
-matching JAX source tree; they are not distributed as a standalone library.</p>
-<p>The build therefore combines:</p>
-<ul>
-<li>the JAXMg C++/CUDA sources;</li>
-<li>the JAX <code>0.10.1</code> checkout and its pinned XLA revision;</li>
-<li>the selected CUDA and cuSOLVERMp dependencies.</li>
-</ul>
-<p>The result is <code>libjaxmg_xla_comm_backend.so</code>, installed under
-<code>src/jaxmg/cu12/</code> or <code>src/jaxmg/cu13/</code>.</p>
-<div class="highlight"><pre><span></span><code>JAXMg sources + JAX/XLA checkout + cuSOLVERMp
-                        |
-                        v
-               pinned Bazel/CUDA build
-                        |
-                        v
-        src/jaxmg/cuXX/libjaxmg_xla_comm_backend.so
-</code></pre></div>
-<h2 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">¤</a></h2>
-<p>You need Linux on <code>x86_64</code> or <code>aarch64</code>, Git, a Docker-compatible container
-runtime, and enough storage for the JAX checkout and Bazel cache.</p>
-<p>CUDA 12 builds support:</p>
-<div class="highlight"><pre><span></span><code>sm_70,sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<p>CUDA 13 builds omit Volta:</p>
-<div class="highlight"><pre><span></span><code>sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<h2 id="1-start-the-jax-build-container">1. Start the JAX build container<a class="headerlink" href="#1-start-the-jax-build-container" title="Permanent link">¤</a></h2>
-<p>Clone the JAX version pinned by JAXMg and start its CI container:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>jax-v0.10.1<span class="w"> </span>https://github.com/jax-ml/jax.git
-<span class="nb">cd</span><span class="w"> </span>jax
-./ci/utilities/run_docker_container.sh
-</code></pre></div>
-<p>Configure the workspace for the CUDA major version being built:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">12</span>
-docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-e<span class="w"> </span><span class="nv">JAXCI_CUDA_VERSION</span><span class="o">=</span><span class="s2">"</span><span class="nv">$CUDA_MAJOR</span><span class="s2">"</span><span class="w"> </span>jax<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">'</span>
-<span class="s1">  source ci/envs/default.env</span>
-<span class="s1">  source ci/utilities/setup_build_environment.sh</span>
-<span class="s1">  arch=$(uname -m)</span>
-<span class="s1">  python build/build.py build \</span>
-<span class="s1">    --wheels=jax-cuda-plugin \</span>
-<span class="s1">    --configure_only \</span>
-<span class="s1">    --bazel_options=--config="ci_linux_${arch}_cuda${JAXCI_CUDA_VERSION}" \</span>
-<span class="s1">    --python_version="${JAXCI_HERMETIC_PYTHON_VERSION}" \</span>
-<span class="s1">    --cuda_major_version="${JAXCI_CUDA_VERSION}" \</span>
-<span class="s1">    --output_path="${JAXCI_OUTPUT_DIR}"'</span>
-</code></pre></div>
-<p>Use <code>CUDA_MAJOR=13</code> when building the CUDA 13 backend.</p>
-<h2 id="2-copy-the-jaxmg-build-inputs">2. Copy the JAXMg build inputs<a class="headerlink" href="#2-copy-the-jaxmg-build-inputs" title="Permanent link">¤</a></h2>
-<p>The container mounts the JAX checkout at <code>/jax</code>. Copy JAXMg into that checkout
-so Bazel can compile it alongside <code>@xla</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">JAXMG</span><span class="o">=</span>/absolute/path/to/jaxmg
-<span class="nv">JAXCO</span><span class="o">=</span>/absolute/path/to/jax
+<h1 id="jaxmglu_solve">jaxmg.lu_solve<a class="headerlink" href="#jaxmglu_solve" title="Permanent link">¤</a></h1>
+<p><code>lu_solve</code> is the high-level solver for general nonsingular matrices. It uses
+cuSOLVERMp <code>Getrf</code> followed by <code>Getrs</code>, including distributed pivot storage and
+the same fused memory-distribution path used by <code>potrs</code>.</p>
+<p>Use <code>lu_solve_shardmap_ctx</code> when the solve is part of a larger caller-owned
+<code>jax.jit</code> computation.</p>
 
-mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg"</span>
-cp<span class="w"> </span>-r<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/src<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/bazel<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/build_native_backend.sh<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/pyproject.toml<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/setup.py<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg/"</span>
-</code></pre></div>
-<h2 id="3-compile">3. Compile<a class="headerlink" href="#3-compile" title="Permanent link">¤</a></h2>
-<p>Choose the values for the backend:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">12</span>
-<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu12<span class="o">==</span><span class="m">0</span>.9.1.9318.post1
-<span class="nv">CAPABILITIES</span><span class="o">=</span>sm_70,sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<p>Then run:</p>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CUDA_MAJOR<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CUSOLVERMP_PACKAGE<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CAPABILITIES<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>jax<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">'</span>
-<span class="s1">    python -m pip install "$CUSOLVERMP_PACKAGE"</span>
-<span class="s1">    JAX_SRC=/jax \</span>
-<span class="s1">    JAXMG_ROOT=/jax/jaxmg \</span>
-<span class="s1">    CUDA_MAJOR="$CUDA_MAJOR" \</span>
-<span class="s1">    JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$CAPABILITIES" \</span>
-<span class="s1">    JAXMG_XLA_BAZEL_JOBS=$(nproc) \</span>
-<span class="s1">    /jax/jaxmg/build_native_backend.sh'</span>
-</code></pre></div>
-<p>For CUDA 13, use:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">13</span>
-<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu13<span class="o">==</span><span class="m">0</span>.9.1.9318.post1
-<span class="nv">CAPABILITIES</span><span class="o">=</span>sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<p>The script discovers cuSOLVERMp, stages the Bazel package, compiles the shared
-library, and installs it under <code>/jax/jaxmg/src/jaxmg/cuXX/</code>.</p>
-<p>Copy the result back to the original checkout:</p>
-<div class="highlight"><pre><span></span><code>cp<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg/src/jaxmg/cu</span><span class="si">${</span><span class="nv">CUDA_MAJOR</span><span class="si">}</span><span class="s2">/libjaxmg_xla_comm_backend.so"</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">/src/jaxmg/cu</span><span class="si">${</span><span class="nv">CUDA_MAJOR</span><span class="si">}</span><span class="s2">/"</span>
-</code></pre></div>
-<h2 id="4-install-and-test">4. Install and test<a class="headerlink" href="#4-install-and-test" title="Permanent link">¤</a></h2>
-<p>Install the source tree with the matching runtime extra:</p>
-<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>
-python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
-.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[cuda12]"</span>
-</code></pre></div>
-<p>Run the <a href="../../examples/potrs/">Cholesky example</a> to verify a solver call. Native
-contributors should then run the GPU smoke suite described in
-<a href="../contributing/">Contributing</a>.</p>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="jaxmg.lu_solve" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">lu_solve</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">donate</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+
+<a href="#jaxmg.lu_solve" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+
+        <p>Solve the linear system A x = B using the multi-GPU LU native kernel.</p>
+<p>This is the high-level JAXMg general linear-solve entry point.  It prepares
+a block-sharded JAX array for cuSOLVERMp, calls the fused native backend,
+and returns the solution in the same JAX-facing layout as <code>b</code>.</p>
+
+
+<details class="note" open>
+  <summary>Note</summary>
+  <p>If a local shard dimension is not divisible by <code>T_A</code>, <code>pad=True</code>
+allocates additional tile-aligned capacity before the native call.
+Choosing a tile size that divides the local dimensions avoids this
+allocation. Performance depends on the matrix size, process grid, and
+tile size.</p>
+</details>
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>a</code>
+            </td>
+            <td>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>2D, nonsingular input matrix sharded over a one- or two-axis
+device mesh, for example with <code>P(&lt;row_axis&gt;)</code> or
+<code>P(&lt;row_axis&gt;, &lt;col_axis&gt;)</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>b</code>
+            </td>
+            <td>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>1D or 2D solve input. A vector is treated as an
+<code>N x 1</code> matrix.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>T_A</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Square tile width used by cuSOLVERMp. Each local shard
+dimension must be a multiple of <code>T_A</code> after padding.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mesh</code>
+            </td>
+            <td>
+                  <code><span title="jax._src.mesh.Mesh">Mesh</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>JAX mesh used for <code>jax.shard_map</code>. If omitted,
+inferred from <code>a.sharding.mesh</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>matrix_specs</code>
+            </td>
+            <td>
+                  <code><span title="PartitionSpec">PartitionSpec</span> or <span title="tuple">tuple</span> / <span title="list">list</span>[<span title="PartitionSpec">PartitionSpec</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>PartitionSpec describing the matrix sharding. If omitted, inferred
+from <code>a.sharding.spec</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>in_specs</code>
+            </td>
+            <td>
+                  <code><span title="jax.P">P</span> | <span title="typing.Tuple">Tuple</span>[<span title="jax.P">P</span>] | <span title="typing.List">List</span>[<span title="jax.P">P</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Backwards-compatible alias for <code>matrix_specs</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>return_status</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True return <code>(x, status)</code> where
+<code>status</code> is the native per-rank diagnostic vector. If False
+return <code>x</code> only. Default is False.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pad</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True (default) apply per-device padding so
+each local shard length is compatible with <code>T_A</code>; if False the
+caller must ensure shapes already match the kernel's requirements.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>donate</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True (default) the input buffers may be
+donated to the native call for zero-copy execution, which means
+they are deleted and cannot be used again. Pass False to preserve
+them, at the cost of keeping the original and working buffers in
+memory simultaneously.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Array or (Array, Array): The solution <code>x</code> in the same JAX-facing
+block-sharded layout as <code>b</code>. If <code>return_status=True</code> also
+return the native solver status.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="TypeError">TypeError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If dtypes or <code>PartitionSpec</code> inputs are unsupported.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If shapes, tile sizes, or mesh layouts are incompatible.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<details class="notes" open>
+  <summary>Notes</summary>
+  <ul>
+<li>Unless <code>donate=False</code>, the <code>a</code> and <code>b</code> buffers are donated for
+  zero-copy interaction with the native library, so they are deleted and
+  cannot be used after the call.</li>
+<li>Native code converts row-major JAX local storage to cuSOLVERMp's
+  column-major local layout, redistributes to 2D block-cyclic layout,
+  calls <code>cusolverMpGetrf</code>/<code>cusolverMpGetrs</code>, and redistributes the
+  result back.</li>
+<li>If the native solver fails the returned solution may contain NaNs
+  and <code>status</code> will be non-zero.</li>
+</ul>
+</details>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="jaxmg.lu_solve_shardmap_ctx" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">lu_solve_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+
+<a href="#jaxmg.lu_solve_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+
+        <p>Solve A x = B while exposing the donated matrix work buffer.</p>
+<p>This helper is the lower-level variant of :func:<code>jaxmg.lu_solve</code> intended
+for contexts where the caller wants to control the outer <code>jax.jit</code>
+boundary.  It performs the same validation, local padding, shard-map
+construction, and fused cuSOLVERMp FFI call as the public solver, but it
+does not wrap the pipeline in an internal <code>jax.jit</code>.  Instead, it returns
+the native matrix work buffer alongside the solution so an outer JIT can
+donate <code>a</code> into an <code>A</code>-sized output.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>a</code>
+            </td>
+            <td>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>2D, nonsingular input matrix sharded over a one- or two-axis
+device mesh, for example with <code>P(&lt;row_axis&gt;)</code> or
+<code>P(&lt;row_axis&gt;, &lt;col_axis&gt;)</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>b</code>
+            </td>
+            <td>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>1D or 2D solve input. A vector is treated as an
+<code>N x 1</code> matrix.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>T_A</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Square tile width used by cuSOLVERMp.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mesh</code>
+            </td>
+            <td>
+                  <code><span title="jax._src.mesh.Mesh">Mesh</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>JAX mesh used for <code>jax.shard_map</code>. If omitted,
+inferred from <code>a.sharding.mesh</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>matrix_specs</code>
+            </td>
+            <td>
+                  <code><span title="PartitionSpec">PartitionSpec</span> or <span title="tuple">tuple</span> / <span title="list">list</span>[<span title="PartitionSpec">PartitionSpec</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>PartitionSpec describing the matrix sharding. If omitted, inferred
+from <code>a.sharding.spec</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>in_specs</code>
+            </td>
+            <td>
+                  <code><span title="jax.P">P</span> | <span title="typing.Tuple">Tuple</span>[<span title="jax.P">P</span>] | <span title="typing.List">List</span>[<span title="jax.P">P</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Backwards-compatible alias for <code>matrix_specs</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pad</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True (default) apply per-device padding so
+each local shard length is compatible with <code>T_A</code>; if False the
+caller must ensure shapes already match the kernel's requirements.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>tuple</code></td>            <td>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(a_work, x, status)</code> where <code>a_work</code> is the padded matrix</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>work buffer returned by the native FFI call, <code>x</code> is the solution in</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+                  <code><span title="jax.jaxlib._jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>the same JAX-facing layout as <code>b</code>, and <code>status</code> is the native</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>, <span title="jax.jaxlib._jax.Array">Array</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>per-rank diagnostic vector.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
 
 
 

@@ -12,13 +12,13 @@
         <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
-        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/building_from_source/">
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/examples/execution/">
       
       
-        <link rel="prev" href="../memory_distribution/">
+        <link rel="prev" href="../">
       
       
-        <link rel="next" href="../contributing/">
+        <link rel="next" href="../choose_tile_size/">
       
       
       <link rel="icon" href="../../_static/square.png">
@@ -26,7 +26,7 @@
     
     
       
-        <title>Building from source - JAXMg</title>
+        <title>Distributed Execution - JAXMg</title>
       
     
     
@@ -84,7 +84,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#building-the-native-backend" class="md-skip">
+        <a href="#distributed-execution" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Building from source
+              Distributed Execution
             
           </span>
         </div>
@@ -250,11 +250,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../examples/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
           
   
   
@@ -290,13 +292,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../technical_details/" class="md-tabs__link">
           
   
   
@@ -452,26 +452,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
             
   
   
@@ -484,7 +489,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             Examples
@@ -498,7 +503,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/" class="md-nav__link">
+      <a href="../" class="md-nav__link">
         
   
   
@@ -518,10 +523,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../examples/execution/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Distributed Execution
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -532,6 +559,62 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-initialize-distributed-jax" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Initialize distributed JAX
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-check-the-process-and-device-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Check the process and device view
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-construct-the-process-grid" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Construct the process grid
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-shard-the-matrix-and-solve-input" class="md-nav__link">
+    <span class="md-ellipsis">
+      4. Shard the matrix and solve input
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -544,7 +627,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/choose_tile_size/" class="md-nav__link">
+      <a href="../choose_tile_size/" class="md-nav__link">
         
   
   
@@ -567,7 +650,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/potrs/" class="md-nav__link">
+      <a href="../potrs/" class="md-nav__link">
         
   
   
@@ -590,7 +673,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/lu_solve/" class="md-nav__link">
+      <a href="../lu_solve/" class="md-nav__link">
         
   
   
@@ -613,7 +696,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/syevd/" class="md-nav__link">
+      <a href="../syevd/" class="md-nav__link">
         
   
   
@@ -636,7 +719,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/gesvd/" class="md-nav__link">
+      <a href="../gesvd/" class="md-nav__link">
         
   
   
@@ -828,31 +911,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
             
   
   
@@ -865,7 +943,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Technical Details
@@ -879,7 +957,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../" class="md-nav__link">
+      <a href="../../technical_details/" class="md-nav__link">
         
   
   
@@ -902,7 +980,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../memory_distribution/" class="md-nav__link">
+      <a href="../../technical_details/memory_distribution/" class="md-nav__link">
         
   
   
@@ -922,32 +1000,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    Building from source
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../technical_details/building_from_source/" class="md-nav__link">
         
   
   
@@ -958,80 +1014,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#why-a-separate-native-build-is-needed" class="md-nav__link">
-    <span class="md-ellipsis">
-      Why a separate native build is needed
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
-    <span class="md-ellipsis">
-      Requirements
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#1-start-the-jax-build-container" class="md-nav__link">
-    <span class="md-ellipsis">
-      1. Start the JAX build container
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#2-copy-the-jaxmg-build-inputs" class="md-nav__link">
-    <span class="md-ellipsis">
-      2. Copy the JAXMg build inputs
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3-compile" class="md-nav__link">
-    <span class="md-ellipsis">
-      3. Compile
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4-install-and-test" class="md-nav__link">
-    <span class="md-ellipsis">
-      4. Install and test
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1044,7 +1026,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../contributing/" class="md-nav__link">
+      <a href="../../technical_details/contributing/" class="md-nav__link">
         
   
   
@@ -1094,54 +1076,36 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-a-separate-native-build-is-needed" class="md-nav__link">
+  <a href="#1-initialize-distributed-jax" class="md-nav__link">
     <span class="md-ellipsis">
-      Why a separate native build is needed
+      1. Initialize distributed JAX
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
+  <a href="#2-check-the-process-and-device-view" class="md-nav__link">
     <span class="md-ellipsis">
-      Requirements
+      2. Check the process and device view
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#1-start-the-jax-build-container" class="md-nav__link">
+  <a href="#3-construct-the-process-grid" class="md-nav__link">
     <span class="md-ellipsis">
-      1. Start the JAX build container
+      3. Construct the process grid
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-copy-the-jaxmg-build-inputs" class="md-nav__link">
+  <a href="#4-shard-the-matrix-and-solve-input" class="md-nav__link">
     <span class="md-ellipsis">
-      2. Copy the JAXMg build inputs
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3-compile" class="md-nav__link">
-    <span class="md-ellipsis">
-      3. Compile
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4-install-and-test" class="md-nav__link">
-    <span class="md-ellipsis">
-      4. Install and test
+      4. Shard the matrix and solve input
     </span>
   </a>
   
@@ -1163,117 +1127,164 @@
 
 
 
-<h1 id="building-the-native-backend">Building the Native Backend<a class="headerlink" href="#building-the-native-backend" title="Permanent link">¤</a></h1>
-<p>Most users should install a prebuilt wheel from the
-<a href="../../install/">Installation</a> page. Build from source when changing the
-C++/CUDA backend, updating JAX or CUDA, or targeting a platform not covered by
-the release wheels.</p>
-<h2 id="why-a-separate-native-build-is-needed">Why a separate native build is needed<a class="headerlink" href="#why-a-separate-native-build-is-needed" title="Permanent link">¤</a></h2>
-<p>JAXMg uses internal XLA C++ interfaces for FFI and GPU communicator access.
-These interfaces are available through Bazel's <code>@xla</code> repository inside the
-matching JAX source tree; they are not distributed as a standalone library.</p>
-<p>The build therefore combines:</p>
-<ul>
-<li>the JAXMg C++/CUDA sources;</li>
-<li>the JAX <code>0.10.1</code> checkout and its pinned XLA revision;</li>
-<li>the selected CUDA and cuSOLVERMp dependencies.</li>
-</ul>
-<p>The result is <code>libjaxmg_xla_comm_backend.so</code>, installed under
-<code>src/jaxmg/cu12/</code> or <code>src/jaxmg/cu13/</code>.</p>
-<div class="highlight"><pre><span></span><code>JAXMg sources + JAX/XLA checkout + cuSOLVERMp
-                        |
-                        v
-               pinned Bazel/CUDA build
-                        |
-                        v
-        src/jaxmg/cuXX/libjaxmg_xla_comm_backend.so
+<h1 id="distributed-execution">Distributed Execution<a class="headerlink" href="#distributed-execution" title="Permanent link">¤</a></h1>
+<p>JAXMg requires one Python process per GPU. It checks this requirement during a
+solver call and raises a <code>RuntimeError</code> if the execution setup is unsupported.</p>
+<p>This guide assumes two nodes with four GPUs per node, giving eight global
+devices:</p>
+<div class="highlight"><pre><span></span><code>node 0                              node 1
+-------------------------           -------------------------
+rank 0 -&gt; local GPU 0               rank 4 -&gt; local GPU 0
+rank 1 -&gt; local GPU 1               rank 5 -&gt; local GPU 1
+rank 2 -&gt; local GPU 2               rank 6 -&gt; local GPU 2
+rank 3 -&gt; local GPU 3               rank 7 -&gt; local GPU 3
 </code></pre></div>
-<h2 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">¤</a></h2>
-<p>You need Linux on <code>x86_64</code> or <code>aarch64</code>, Git, a Docker-compatible container
-runtime, and enough storage for the JAX checkout and Bazel cache.</p>
-<p>CUDA 12 builds support:</p>
-<div class="highlight"><pre><span></span><code>sm_70,sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<p>CUDA 13 builds omit Volta:</p>
-<div class="highlight"><pre><span></span><code>sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<h2 id="1-start-the-jax-build-container">1. Start the JAX build container<a class="headerlink" href="#1-start-the-jax-build-container" title="Permanent link">¤</a></h2>
-<p>Clone the JAX version pinned by JAXMg and start its CI container:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>jax-v0.10.1<span class="w"> </span>https://github.com/jax-ml/jax.git
-<span class="nb">cd</span><span class="w"> </span>jax
-./ci/utilities/run_docker_container.sh
-</code></pre></div>
-<p>Configure the workspace for the CUDA major version being built:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">12</span>
-docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-e<span class="w"> </span><span class="nv">JAXCI_CUDA_VERSION</span><span class="o">=</span><span class="s2">"</span><span class="nv">$CUDA_MAJOR</span><span class="s2">"</span><span class="w"> </span>jax<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">'</span>
-<span class="s1">  source ci/envs/default.env</span>
-<span class="s1">  source ci/utilities/setup_build_environment.sh</span>
-<span class="s1">  arch=$(uname -m)</span>
-<span class="s1">  python build/build.py build \</span>
-<span class="s1">    --wheels=jax-cuda-plugin \</span>
-<span class="s1">    --configure_only \</span>
-<span class="s1">    --bazel_options=--config="ci_linux_${arch}_cuda${JAXCI_CUDA_VERSION}" \</span>
-<span class="s1">    --python_version="${JAXCI_HERMETIC_PYTHON_VERSION}" \</span>
-<span class="s1">    --cuda_major_version="${JAXCI_CUDA_VERSION}" \</span>
-<span class="s1">    --output_path="${JAXCI_OUTPUT_DIR}"'</span>
-</code></pre></div>
-<p>Use <code>CUDA_MAJOR=13</code> when building the CUDA 13 backend.</p>
-<h2 id="2-copy-the-jaxmg-build-inputs">2. Copy the JAXMg build inputs<a class="headerlink" href="#2-copy-the-jaxmg-build-inputs" title="Permanent link">¤</a></h2>
-<p>The container mounts the JAX checkout at <code>/jax</code>. Copy JAXMg into that checkout
-so Bazel can compile it alongside <code>@xla</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">JAXMG</span><span class="o">=</span>/absolute/path/to/jaxmg
-<span class="nv">JAXCO</span><span class="o">=</span>/absolute/path/to/jax
+<h2 id="1-initialize-distributed-jax">1. Initialize distributed JAX<a class="headerlink" href="#1-initialize-distributed-jax" title="Permanent link">¤</a></h2>
+<p>Call <a href="https://docs.jax.dev/en/latest/_autosummary/jax.distributed.initialize.html"><code>jax.distributed.initialize()</code></a>
+before constructing the mesh or performing any JAX computation:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
 
-mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg"</span>
-cp<span class="w"> </span>-r<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/src<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/bazel<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/build_native_backend.sh<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/pyproject.toml<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/setup.py<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg/"</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">distributed</span><span class="o">.</span><span class="n">initialize</span><span class="p">()</span>
 </code></pre></div>
-<h2 id="3-compile">3. Compile<a class="headerlink" href="#3-compile" title="Permanent link">¤</a></h2>
-<p>Choose the values for the backend:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">12</span>
-<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu12<span class="o">==</span><span class="m">0</span>.9.1.9318.post1
-<span class="nv">CAPABILITIES</span><span class="o">=</span>sm_70,sm_80,sm_90,sm_120,compute_90
+<p>While JAX supports automatic detection of the distributed configuration, the user can provide the configuration explicitly:</p>
+<div class="highlight"><pre><span></span><code><span class="n">jax</span><span class="o">.</span><span class="n">distributed</span><span class="o">.</span><span class="n">initialize</span><span class="p">(</span>
+    <span class="n">coordinator_address</span><span class="o">=</span><span class="s2">"node-0-hostname:12345"</span><span class="p">,</span>  <span class="c1"># Rank 0 host and shared port.</span>
+    <span class="n">num_processes</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>  <span class="c1"># Total number of Python processes.</span>
+    <span class="n">process_id</span><span class="o">=</span><span class="n">process_id</span><span class="p">,</span>  <span class="c1"># Unique global rank of this process.</span>
+    <span class="n">local_device_ids</span><span class="o">=</span><span class="p">[</span><span class="n">local_device_id</span><span class="p">],</span>  <span class="c1"># Local GPU assigned to this process.</span>
+<span class="p">)</span>
 </code></pre></div>
-<p>Then run:</p>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CUDA_MAJOR<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CUSOLVERMP_PACKAGE<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CAPABILITIES<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>jax<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">'</span>
-<span class="s1">    python -m pip install "$CUSOLVERMP_PACKAGE"</span>
-<span class="s1">    JAX_SRC=/jax \</span>
-<span class="s1">    JAXMG_ROOT=/jax/jaxmg \</span>
-<span class="s1">    CUDA_MAJOR="$CUDA_MAJOR" \</span>
-<span class="s1">    JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$CAPABILITIES" \</span>
-<span class="s1">    JAXMG_XLA_BAZEL_JOBS=$(nproc) \</span>
-<span class="s1">    /jax/jaxmg/build_native_backend.sh'</span>
+<h2 id="2-check-the-process-and-device-view">2. Check the process and device view<a class="headerlink" href="#2-check-the-process-and-device-view" title="Permanent link">¤</a></h2>
+<p>After initialization, print the process and device information:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">print</span><span class="p">(</span><span class="s2">"Process index:"</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_index</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Process count:"</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_count</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Local devices:"</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">local_devices</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Global devices:"</span><span class="p">,</span> <span class="n">jax</span><span class="o">.</span><span class="n">devices</span><span class="p">())</span>
 </code></pre></div>
-<p>For CUDA 13, use:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">13</span>
-<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu13<span class="o">==</span><span class="m">0</span>.9.1.9318.post1
-<span class="nv">CAPABILITIES</span><span class="o">=</span>sm_80,sm_90,sm_120,compute_90
+<p>On rank 0, the output should have the following form:</p>
+<div class="highlight"><pre><span></span><code>Process index: 0
+Process count: 8
+Local devices: [CudaDevice(id=0)]
+Global devices: [CudaDevice(id=0), ..., CudaDevice(id=7)]
 </code></pre></div>
-<p>The script discovers cuSOLVERMp, stages the Bazel package, compiles the shared
-library, and installs it under <code>/jax/jaxmg/src/jaxmg/cuXX/</code>.</p>
-<p>Copy the result back to the original checkout:</p>
-<div class="highlight"><pre><span></span><code>cp<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg/src/jaxmg/cu</span><span class="si">${</span><span class="nv">CUDA_MAJOR</span><span class="si">}</span><span class="s2">/libjaxmg_xla_comm_backend.so"</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">/src/jaxmg/cu</span><span class="si">${</span><span class="nv">CUDA_MAJOR</span><span class="si">}</span><span class="s2">/"</span>
+<h2 id="3-construct-the-process-grid">3. Construct the process grid<a class="headerlink" href="#3-construct-the-process-grid" title="Permanent link">¤</a></h2>
+<p>JAXMg maps an ordinary one- or two-axis JAX mesh onto cuSOLVERMp's process grid.
+For eight ranks, valid grid shapes include <span class="arithmatex">\((8,1)\)</span>, <span class="arithmatex">\((4,2)\)</span>, <span class="arithmatex">\((2,4)\)</span>, and
+<span class="arithmatex">\((1,8)\)</span>. The following code constructs a <span class="arithmatex">\(4\times2\)</span> grid:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">jax.sharding</span><span class="w"> </span><span class="kn">import</span> <span class="n">PartitionSpec</span> <span class="k">as</span> <span class="n">P</span>
+
+
+<span class="n">process_rows</span> <span class="o">=</span> <span class="mi">4</span>
+<span class="n">process_cols</span> <span class="o">=</span> <span class="mi">2</span>
+<span class="n">mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="n">process_rows</span><span class="p">,</span> <span class="n">process_cols</span><span class="p">),</span> <span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">))</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">set_mesh</span><span class="p">(</span><span class="n">mesh</span><span class="p">)</span>
+<span class="n">matrix_specs</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">)</span>
 </code></pre></div>
-<h2 id="4-install-and-test">4. Install and test<a class="headerlink" href="#4-install-and-test" title="Permanent link">¤</a></h2>
-<p>Install the source tree with the matching runtime extra:</p>
-<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>
-python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
-.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[cuda12]"</span>
+<p>These JAX mesh dimensions are used throughout the backend and hence are inherited by cuSOLVERMp process-grid. The first
+axis, <code>pr</code>, identifies process rows; the second, <code>pc</code>, identifies process columns.
+Calling <code>jax.set_mesh(mesh)</code> makes this concrete mesh available while JAX traces
+the explicitly sharded computation.</p>
+<p>For performance, prefer a two-axis process grid where practical because it
+offers more parallelism during redistribution and solver execution. One-axis
+meshes remain useful when they already match the surrounding application.</p>
+<p>An existing one-axis mesh can be used directly. To shard matrix rows over its
+axis, use a rank-1 <code>PartitionSpec</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="n">single_axis_mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="mi">8</span><span class="p">,),</span> <span class="p">(</span><span class="s2">"x"</span><span class="p">,))</span>
+<span class="n">single_axis_specs</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="s2">"x"</span><span class="p">)</span>
 </code></pre></div>
-<p>Run the <a href="../../examples/potrs/">Cholesky example</a> to verify a solver call. Native
-contributors should then run the GPU smoke suite described in
-<a href="../contributing/">Contributing</a>.</p>
+<p>For a rank-2 matrix, JAX treats <code>P("x")</code> as equivalent to <code>P("x", None)</code>.
+To shard columns instead, use <code>P(None, "x")</code>.</p>
+<p>The mesh passed to a solver does not have to be the one in context: each call
+enters its own mesh, so a program that keeps a different mesh set globally can
+call JAXMg without switching it.</p>
+<p>You can inspect the resultant process-rank mapping selected by JAX:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+
+<span class="n">rank_grid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+    <span class="p">[</span><span class="n">device</span><span class="o">.</span><span class="n">process_index</span> <span class="k">for</span> <span class="n">device</span> <span class="ow">in</span> <span class="n">mesh</span><span class="o">.</span><span class="n">devices</span><span class="o">.</span><span class="n">flat</span><span class="p">]</span>
+<span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">mesh</span><span class="o">.</span><span class="n">devices</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="k">if</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_index</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">rank_grid</span><span class="p">)</span>
+</code></pre></div>
+<p>For the row-major <span class="arithmatex">\(4\times2\)</span> mesh used in this example, rank 0 prints</p>
+<div class="highlight"><pre><span></span><code>[[0 1]
+ [2 3]
+ [4 5]
+ [6 7]]
+</code></pre></div>
+<p>JAXMg accepts regular row-major and column-major rank mappings. For a
+<span class="arithmatex">\(4\times2\)</span> grid these are</p>
+<div class="arithmatex">\[
+\text{row-major}
+=
+\begin{bmatrix}
+0 &amp; 1\\
+2 &amp; 3\\
+4 &amp; 5\\
+6 &amp; 7
+\end{bmatrix},
+\qquad
+\text{column-major}
+=
+\begin{bmatrix}
+0 &amp; 4\\
+1 &amp; 5\\
+2 &amp; 6\\
+3 &amp; 7
+\end{bmatrix}.
+\]</div>
+<p>To request an explicit regular mapping, construct the JAX mesh from devices
+sorted by process rank:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">jax.sharding</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mesh</span>
+
+
+<span class="n">devices</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+    <span class="nb">sorted</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">devices</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">device</span><span class="p">:</span> <span class="n">device</span><span class="o">.</span><span class="n">process_index</span><span class="p">),</span>
+    <span class="n">dtype</span><span class="o">=</span><span class="nb">object</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">row_major_mesh</span> <span class="o">=</span> <span class="n">Mesh</span><span class="p">(</span>
+    <span class="n">devices</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">process_rows</span><span class="p">,</span> <span class="n">process_cols</span><span class="p">),</span> <span class="n">order</span><span class="o">=</span><span class="s2">"C"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">column_major_mesh</span> <span class="o">=</span> <span class="n">Mesh</span><span class="p">(</span>
+    <span class="n">devices</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">process_rows</span><span class="p">,</span> <span class="n">process_cols</span><span class="p">),</span> <span class="n">order</span><span class="o">=</span><span class="s2">"F"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">),</span>
+<span class="p">)</span>
+
+<span class="n">mesh</span> <span class="o">=</span> <span class="n">row_major_mesh</span>  <span class="c1"># Or select column_major_mesh.</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">set_mesh</span><span class="p">(</span><span class="n">mesh</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="4-shard-the-matrix-and-solve-input">4. Shard the matrix and solve input<a class="headerlink" href="#4-shard-the-matrix-and-solve-input" title="Permanent link">¤</a></h2>
+<p><code>PartitionSpec</code> describes how each array dimension maps onto the process-grid
+axes. A matrix can be sharded over both axes:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jax.sharding</span><span class="w"> </span><span class="kn">import</span> <span class="n">NamedSharding</span>
+
+
+<span class="n">N</span> <span class="o">=</span> <span class="mi">8192</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="n">N</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">jnp</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">a_sharding</span> <span class="o">=</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">))</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">a_sharding</span><span class="p">)</span>
+</code></pre></div>
+<p>On the <span class="arithmatex">\(4\times2\)</span> grid, each process initially owns an
+<span class="arithmatex">\((N/4)\times(N/2)\)</span> rectangular shard of <code>a</code>.</p>
+<p>A vector solve input can be sharded over process rows and replicated across
+process columns:</p>
+<div class="highlight"><pre><span></span><code><span class="n">b_vector</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">N</span><span class="p">,),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">a</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+<span class="n">b_vector</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">b_vector</span><span class="p">,</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">)))</span>
+</code></pre></div>
+<p>For a solve input with shape <span class="arithmatex">\(N\times\mathrm{NRHS}\)</span>, shard its rows and leave
+its columns replicated:</p>
+<div class="highlight"><pre><span></span><code><span class="n">b_matrix</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">N</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">a</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+<span class="n">b_matrix</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">b_matrix</span><span class="p">,</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)))</span>
+</code></pre></div>
+<p>The public solver accepts either representation. JAXMg adds any routing or tile
+padding required for a narrow solve input and redistributes it internally for
+cuSOLVERMp.</p>
+<p>With distributed execution configured, continue to <a href="../choose_tile_size/">Choose a tile size
+<span class="arithmatex">\(T_A\)</span></a> before selecting a solver example.</p>
 
 
 

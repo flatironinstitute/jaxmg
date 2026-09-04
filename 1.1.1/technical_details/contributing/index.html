@@ -12,13 +12,11 @@
         <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
-        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/building_from_source/">
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/contributing/">
       
       
-        <link rel="prev" href="../memory_distribution/">
+        <link rel="prev" href="../building_from_source/">
       
-      
-        <link rel="next" href="../contributing/">
       
       
       <link rel="icon" href="../../_static/square.png">
@@ -26,7 +24,7 @@
     
     
       
-        <title>Building from source - JAXMg</title>
+        <title>Contributing - JAXMg</title>
       
     
     
@@ -84,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#building-the-native-backend" class="md-skip">
+        <a href="#contributing" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +119,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Building from source
+              Contributing
             
           </span>
         </div>
@@ -922,6 +920,29 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../building_from_source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Building from source
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -939,7 +960,7 @@
   
   
   <span class="md-ellipsis">
-    Building from source
+    Contributing
     
   </span>
   
@@ -952,7 +973,7 @@
   
   
   <span class="md-ellipsis">
-    Building from source
+    Contributing
     
   </span>
   
@@ -975,54 +996,90 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-a-separate-native-build-is-needed" class="md-nav__link">
+  <a href="#current-development-priority" class="md-nav__link">
     <span class="md-ellipsis">
-      Why a separate native build is needed
+      Current development priority
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
+  <a href="#pull-a-clean-copy" class="md-nav__link">
     <span class="md-ellipsis">
-      Requirements
+      Pull a clean copy
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#1-start-the-jax-build-container" class="md-nav__link">
+  <a href="#set-up-an-environment" class="md-nav__link">
     <span class="md-ellipsis">
-      1. Start the JAX build container
+      Set up an environment
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-copy-the-jaxmg-build-inputs" class="md-nav__link">
+  <a href="#make-your-changes" class="md-nav__link">
     <span class="md-ellipsis">
-      2. Copy the JAXMg build inputs
+      Make your changes
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-compile" class="md-nav__link">
+  <a href="#test-your-changes" class="md-nav__link">
     <span class="md-ellipsis">
-      3. Compile
+      Test your changes
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-install-and-test" class="md-nav__link">
+  <a href="#open-a-pull-request" class="md-nav__link">
     <span class="md-ellipsis">
-      4. Install and test
+      Open a pull request
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#continuous-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Continuous integration
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#versioned-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Versioned documentation
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#updating-jax-or-cuda" class="md-nav__link">
+    <span class="md-ellipsis">
+      Updating JAX or CUDA
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#release-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      Release process
     </span>
   </a>
   
@@ -1032,29 +1089,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../contributing/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Contributing
-    
-  </span>
-  
-
-      </a>
     </li>
   
 
@@ -1094,54 +1128,90 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-a-separate-native-build-is-needed" class="md-nav__link">
+  <a href="#current-development-priority" class="md-nav__link">
     <span class="md-ellipsis">
-      Why a separate native build is needed
+      Current development priority
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
+  <a href="#pull-a-clean-copy" class="md-nav__link">
     <span class="md-ellipsis">
-      Requirements
+      Pull a clean copy
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#1-start-the-jax-build-container" class="md-nav__link">
+  <a href="#set-up-an-environment" class="md-nav__link">
     <span class="md-ellipsis">
-      1. Start the JAX build container
+      Set up an environment
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-copy-the-jaxmg-build-inputs" class="md-nav__link">
+  <a href="#make-your-changes" class="md-nav__link">
     <span class="md-ellipsis">
-      2. Copy the JAXMg build inputs
+      Make your changes
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-compile" class="md-nav__link">
+  <a href="#test-your-changes" class="md-nav__link">
     <span class="md-ellipsis">
-      3. Compile
+      Test your changes
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-install-and-test" class="md-nav__link">
+  <a href="#open-a-pull-request" class="md-nav__link">
     <span class="md-ellipsis">
-      4. Install and test
+      Open a pull request
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#continuous-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Continuous integration
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#versioned-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Versioned documentation
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#updating-jax-or-cuda" class="md-nav__link">
+    <span class="md-ellipsis">
+      Updating JAX or CUDA
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#release-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      Release process
     </span>
   </a>
   
@@ -1163,117 +1233,196 @@
 
 
 
-<h1 id="building-the-native-backend">Building the Native Backend<a class="headerlink" href="#building-the-native-backend" title="Permanent link">¤</a></h1>
-<p>Most users should install a prebuilt wheel from the
-<a href="../../install/">Installation</a> page. Build from source when changing the
-C++/CUDA backend, updating JAX or CUDA, or targeting a platform not covered by
-the release wheels.</p>
-<h2 id="why-a-separate-native-build-is-needed">Why a separate native build is needed<a class="headerlink" href="#why-a-separate-native-build-is-needed" title="Permanent link">¤</a></h2>
-<p>JAXMg uses internal XLA C++ interfaces for FFI and GPU communicator access.
-These interfaces are available through Bazel's <code>@xla</code> repository inside the
-matching JAX source tree; they are not distributed as a standalone library.</p>
-<p>The build therefore combines:</p>
+<h1 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">¤</a></h1>
+<p>Please help us improve JAXMg. You can contribute by
+<a href="https://github.com/flatironinstitute/jaxmg/issues">reporting a bug or suggesting a feature</a>,
+improving the documentation, or
+<a href="https://github.com/flatironinstitute/jaxmg/pulls">opening a pull request</a>
+with a code change. Contributions of any size are welcome.</p>
+<p>A typical contribution follows five steps:</p>
+<ol>
+<li>pull a clean copy of the repository and create a branch;</li>
+<li>set up a development environment;</li>
+<li>make a focused change;</li>
+<li>run the checks relevant to that change;</li>
+<li>open a pull request describing the change and its validation.</li>
+</ol>
+<h2 id="current-development-priority">Current development priority<a class="headerlink" href="#current-development-priority" title="Permanent link">¤</a></h2>
+<ol>
+<li>
+<p>Some native failures still use <code>std::runtime_error</code>. Contributions that
+   express these consistently through XLA FFI error handling are particularly
+   useful.</p>
+</li>
+<li>
+<p>We would like to make the JAXMg solver routines differentiable. This will
+   require custom JVP and VJP rules that tell JAX how to propagate derivatives
+   through the FFI-backed distributed calculations.</p>
+</li>
+<li>
+<p>Provide users with a small tool to check their compute fabric and HPC setup.
+   This will make it easier for users to debug and for us to provide support.</p>
+</li>
+</ol>
+<h2 id="pull-a-clean-copy">Pull a clean copy<a class="headerlink" href="#pull-a-clean-copy" title="Permanent link">¤</a></h2>
+<p>Fork the repository first if you do not have write access. Then clone your fork
+or the main repository, update <code>main</code>, and create a branch:</p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/flatironinstitute/jaxmg.git
+<span class="nb">cd</span><span class="w"> </span>jaxmg
+git<span class="w"> </span>switch<span class="w"> </span>main
+git<span class="w"> </span>pull<span class="w"> </span>--ff-only
+git<span class="w"> </span>switch<span class="w"> </span>-c<span class="w"> </span>my-change
+</code></pre></div>
+<h2 id="set-up-an-environment">Set up an environment<a class="headerlink" href="#set-up-an-environment" title="Permanent link">¤</a></h2>
+<p>Create a virtual environment and install the development dependencies:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
+<span class="nb">source</span><span class="w"> </span>.venv/bin/activate
+python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[dev]"</span>
+</code></pre></div>
+<p>For documentation-only work on a system without CUDA, install <code>.[docs]</code> and
+pytest instead.</p>
+<h2 id="make-your-changes">Make your changes<a class="headerlink" href="#make-your-changes" title="Permanent link">¤</a></h2>
+<p>The main areas of the repository are:</p>
 <ul>
-<li>the JAXMg C++/CUDA sources;</li>
-<li>the JAX <code>0.10.1</code> checkout and its pinned XLA revision;</li>
-<li>the selected CUDA and cuSOLVERMp dependencies.</li>
+<li><code>src/jaxmg/</code> for the public Python interface and JAX integration;</li>
+<li><code>src/cuda/</code> for memory redistribution and cuSOLVERMp routines;</li>
+<li><code>tests/</code> for interface and distributed numerical tests;</li>
+<li><code>docs/</code> for user guides, examples, and technical documentation;</li>
+<li><code>.github/</code>, <code>.jenkins/</code>, and <code>pyproject.toml</code> for building and packaging.</li>
 </ul>
-<p>The result is <code>libjaxmg_xla_comm_backend.so</code>, installed under
-<code>src/jaxmg/cu12/</code> or <code>src/jaxmg/cu13/</code>.</p>
-<div class="highlight"><pre><span></span><code>JAXMg sources + JAX/XLA checkout + cuSOLVERMp
-                        |
-                        v
-               pinned Bazel/CUDA build
-                        |
-                        v
-        src/jaxmg/cuXX/libjaxmg_xla_comm_backend.so
+<p>Changes under <code>src/cuda/</code>, <code>bazel/</code>, or <code>build_native_backend.sh</code> require a
+native rebuild. Follow
+<a href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/building_from_source/">Building the native backend</a>
+before running the GPU tests.</p>
+<p>Public behavior changes should include corresponding tests and documentation.</p>
+<h2 id="test-your-changes">Test your changes<a class="headerlink" href="#test-your-changes" title="Permanent link">¤</a></h2>
+<p>Run the checks relevant to the change:</p>
+<table>
+<thead>
+<tr>
+<th>Change</th>
+<th>Check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python API, validation, or layout metadata</td>
+<td><code>python -m pytest -q -m "not gpu" tests</code></td>
+</tr>
+<tr>
+<td>Documentation</td>
+<td><code>python -m mkdocs build --strict</code></td>
+</tr>
+<tr>
+<td>Native solver or redistribution code</td>
+<td>Rebuild the backend and run the GPU tests</td>
+</tr>
+<tr>
+<td>Packaging or dependencies</td>
+<td>Build and install a wheel through the matching CUDA extra</td>
+</tr>
+</tbody>
+</table>
+<p>The GPU suite distinguishes between <code>single_gpu</code> and <code>multi_gpu</code> tests. The
+multi-GPU tests launch one Python process per GPU. On a workstation with two
+GPUs, run the complete smoke suite with:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">CUDA_VISIBLE_DEVICES</span><span class="o">=</span><span class="m">0</span>,1<span class="w"> </span><span class="se">\</span>
+<span class="nv">JAXMG_GPU_TEST_LAUNCHER</span><span class="o">=</span>subprocess<span class="w"> </span><span class="se">\</span>
+python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>-m<span class="w"> </span><span class="s2">"gpu and not slow"</span><span class="w"> </span>tests/gpu
 </code></pre></div>
-<h2 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">¤</a></h2>
-<p>You need Linux on <code>x86_64</code> or <code>aarch64</code>, Git, a Docker-compatible container
-runtime, and enough storage for the JAX checkout and Bazel cache.</p>
-<p>CUDA 12 builds support:</p>
-<div class="highlight"><pre><span></span><code>sm_70,sm_80,sm_90,sm_120,compute_90
+<p>The two smoke groups can also be selected independently with
+<code>-m "single_gpu and not slow"</code> or <code>-m "multi_gpu and not slow"</code>. Tests
+requiring more GPUs than are visible are skipped. On Slurm systems, the test
+helper can use <code>srun</code> across the current allocation.</p>
+<h2 id="open-a-pull-request">Open a pull request<a class="headerlink" href="#open-a-pull-request" title="Permanent link">¤</a></h2>
+<p>Push your branch and
+<a href="https://github.com/flatironinstitute/jaxmg/compare">open a pull request</a>:</p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>push<span class="w"> </span>-u<span class="w"> </span>origin<span class="w"> </span>my-change
 </code></pre></div>
-<p>CUDA 13 builds omit Volta:</p>
-<div class="highlight"><pre><span></span><code>sm_80,sm_90,sm_120,compute_90
+<p>In the pull-request description, explain:</p>
+<ul>
+<li>what changed and why;</li>
+<li>any user-visible or compatibility effects;</li>
+<li>which tests were run;</li>
+<li>any hardware-dependent checks that could not be run locally.</li>
+</ul>
+<p>Generated build outputs should not be committed.</p>
+<h2 id="continuous-integration">Continuous integration<a class="headerlink" href="#continuous-integration" title="Permanent link">¤</a></h2>
+<p>The release build and GPU tests run on separate systems:</p>
+<ol>
+<li><strong>GitHub Actions builds</strong> CUDA 12 and CUDA 13 backends for <code>x86_64</code> and
+   <code>aarch64</code>.</li>
+<li><strong>GitHub Actions packages</strong> Python 3.11–3.14 <code>manylinux_2_28</code> wheels and
+   checks their metadata and native libraries.</li>
+<li><strong>Jenkins downloads those wheels</strong> and installs the normal
+   <code>jaxmg[cuda12]</code> dependency path.</li>
+<li><strong>Jenkins tests them</strong> on two physical A100 GPUs using the interface and GPU
+   smoke suites.</li>
+</ol>
+<p>This ensures that Jenkins tests the wheel produced by GitHub Actions rather
+than rebuilding it. AArch64 and CUDA 13 are currently build-validated but are
+not runtime-tested by Jenkins.</p>
+<p>The implementation is in:</p>
+<ul>
+<li><code>.github/workflows/build-wheels.yml</code>;</li>
+<li><code>.github/workflows/ci.yml</code>;</li>
+<li><code>.github/workflows/jenkins-test.yml</code>;</li>
+<li><code>.jenkins/Jenkinsfile</code>.</li>
+</ul>
+<h2 id="versioned-documentation">Versioned documentation<a class="headerlink" href="#versioned-documentation" title="Permanent link">¤</a></h2>
+<p>The site is published per release with <a href="https://github.com/jimporter/mike">mike</a>
+on the <code>gh-pages</code> branch, so documentation for an older release keeps matching
+the wheel that shipped it:</p>
+<table>
+<thead>
+<tr>
+<th>Trigger</th>
+<th>Published as</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pull request</td>
+<td>nothing — <code>mkdocs build --strict</code> runs as a check only</td>
+</tr>
+<tr>
+<td>Push to <code>main</code></td>
+<td><code>dev</code>, a mutable build of the development tree</td>
+</tr>
+<tr>
+<td>Release tag <code>vX.Y.Z</code></td>
+<td><code>X.Y.Z</code>, and takes over the <code>latest</code> alias</td>
+</tr>
+</tbody>
+</table>
+<p>The bare site URL redirects to whatever <code>latest</code> points at, so links in the
+README and in <code>pyproject.toml</code> should use <code>/latest/…</code> rather than a version
+number. <code>0.0.9</code> is archived because it wrapped the older single-node cuSolverMg
+API; do not redeploy it.</p>
+<p>Numbered versions are written only by <code>release.yml</code>. Never run
+<code>mike deploy X.Y.Z</code> by hand for a version that has already shipped — that would
+silently replace the documentation for a released wheel.</p>
+<h2 id="updating-jax-or-cuda">Updating JAX or CUDA<a class="headerlink" href="#updating-jax-or-cuda" title="Permanent link">¤</a></h2>
+<p>JAXMg pins <code>jax==0.10.1</code> and builds against its matching internal XLA revision.
+Updating JAX therefore requires auditing the <code>@xla</code> targets, updating the JAX
+source tag and dependencies, and rebuilding both CUDA backends on both
+architectures.</p>
+<p>The same care is required when changing CUDA, cuSOLVERMp, or the supported GPU
+architecture list.</p>
+<h2 id="release-process">Release process<a class="headerlink" href="#release-process" title="Permanent link">¤</a></h2>
+<p>This section is for maintainers.</p>
+<p>Before a final release, run <code>.github/workflows/release.yml</code> manually with a
+release candidate such as <code>1.0.0rc1</code>. The workflow builds all wheels, runs the
+Jenkins GPU tests, and publishes to TestPyPI.</p>
+<p>After checking the TestPyPI installation, create the final tag:</p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>tag<span class="w"> </span>v1.0.0
+git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>v1.0.0
 </code></pre></div>
-<h2 id="1-start-the-jax-build-container">1. Start the JAX build container<a class="headerlink" href="#1-start-the-jax-build-container" title="Permanent link">¤</a></h2>
-<p>Clone the JAX version pinned by JAXMg and start its CI container:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>jax-v0.10.1<span class="w"> </span>https://github.com/jax-ml/jax.git
-<span class="nb">cd</span><span class="w"> </span>jax
-./ci/utilities/run_docker_container.sh
-</code></pre></div>
-<p>Configure the workspace for the CUDA major version being built:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">12</span>
-docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-e<span class="w"> </span><span class="nv">JAXCI_CUDA_VERSION</span><span class="o">=</span><span class="s2">"</span><span class="nv">$CUDA_MAJOR</span><span class="s2">"</span><span class="w"> </span>jax<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">'</span>
-<span class="s1">  source ci/envs/default.env</span>
-<span class="s1">  source ci/utilities/setup_build_environment.sh</span>
-<span class="s1">  arch=$(uname -m)</span>
-<span class="s1">  python build/build.py build \</span>
-<span class="s1">    --wheels=jax-cuda-plugin \</span>
-<span class="s1">    --configure_only \</span>
-<span class="s1">    --bazel_options=--config="ci_linux_${arch}_cuda${JAXCI_CUDA_VERSION}" \</span>
-<span class="s1">    --python_version="${JAXCI_HERMETIC_PYTHON_VERSION}" \</span>
-<span class="s1">    --cuda_major_version="${JAXCI_CUDA_VERSION}" \</span>
-<span class="s1">    --output_path="${JAXCI_OUTPUT_DIR}"'</span>
-</code></pre></div>
-<p>Use <code>CUDA_MAJOR=13</code> when building the CUDA 13 backend.</p>
-<h2 id="2-copy-the-jaxmg-build-inputs">2. Copy the JAXMg build inputs<a class="headerlink" href="#2-copy-the-jaxmg-build-inputs" title="Permanent link">¤</a></h2>
-<p>The container mounts the JAX checkout at <code>/jax</code>. Copy JAXMg into that checkout
-so Bazel can compile it alongside <code>@xla</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">JAXMG</span><span class="o">=</span>/absolute/path/to/jaxmg
-<span class="nv">JAXCO</span><span class="o">=</span>/absolute/path/to/jax
-
-mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg"</span>
-cp<span class="w"> </span>-r<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/src<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/bazel<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/build_native_backend.sh<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/pyproject.toml<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/setup.py<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg/"</span>
-</code></pre></div>
-<h2 id="3-compile">3. Compile<a class="headerlink" href="#3-compile" title="Permanent link">¤</a></h2>
-<p>Choose the values for the backend:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">12</span>
-<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu12<span class="o">==</span><span class="m">0</span>.9.1.9318.post1
-<span class="nv">CAPABILITIES</span><span class="o">=</span>sm_70,sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<p>Then run:</p>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CUDA_MAJOR<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CUSOLVERMP_PACKAGE<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CAPABILITIES<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>jax<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">'</span>
-<span class="s1">    python -m pip install "$CUSOLVERMP_PACKAGE"</span>
-<span class="s1">    JAX_SRC=/jax \</span>
-<span class="s1">    JAXMG_ROOT=/jax/jaxmg \</span>
-<span class="s1">    CUDA_MAJOR="$CUDA_MAJOR" \</span>
-<span class="s1">    JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$CAPABILITIES" \</span>
-<span class="s1">    JAXMG_XLA_BAZEL_JOBS=$(nproc) \</span>
-<span class="s1">    /jax/jaxmg/build_native_backend.sh'</span>
-</code></pre></div>
-<p>For CUDA 13, use:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">13</span>
-<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu13<span class="o">==</span><span class="m">0</span>.9.1.9318.post1
-<span class="nv">CAPABILITIES</span><span class="o">=</span>sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<p>The script discovers cuSOLVERMp, stages the Bazel package, compiles the shared
-library, and installs it under <code>/jax/jaxmg/src/jaxmg/cuXX/</code>.</p>
-<p>Copy the result back to the original checkout:</p>
-<div class="highlight"><pre><span></span><code>cp<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg/src/jaxmg/cu</span><span class="si">${</span><span class="nv">CUDA_MAJOR</span><span class="si">}</span><span class="s2">/libjaxmg_xla_comm_backend.so"</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">/src/jaxmg/cu</span><span class="si">${</span><span class="nv">CUDA_MAJOR</span><span class="si">}</span><span class="s2">/"</span>
-</code></pre></div>
-<h2 id="4-install-and-test">4. Install and test<a class="headerlink" href="#4-install-and-test" title="Permanent link">¤</a></h2>
-<p>Install the source tree with the matching runtime extra:</p>
-<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>
-python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
-.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[cuda12]"</span>
-</code></pre></div>
-<p>Run the <a href="../../examples/potrs/">Cholesky example</a> to verify a solver call. Native
-contributors should then run the GPU smoke suite described in
-<a href="../contributing/">Contributing</a>.</p>
+<p>The tagged workflow repeats the build and test process, publishes to TestPyPI,
+waits for approval, then publishes to PyPI and creates the GitHub release.</p>
+<p>Publishing requires the Jenkins secrets, PyPI Trusted Publishers, and
+<code>testpypi</code> and <code>pypi</code> GitHub environments described in
+<code>.github/workflows/release.yml</code>.</p>
 
 
 

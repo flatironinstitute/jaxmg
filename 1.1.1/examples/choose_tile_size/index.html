@@ -12,13 +12,13 @@
         <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
-        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/building_from_source/">
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/examples/choose_tile_size/">
       
       
-        <link rel="prev" href="../memory_distribution/">
+        <link rel="prev" href="../execution/">
       
       
-        <link rel="next" href="../contributing/">
+        <link rel="next" href="../potrs/">
       
       
       <link rel="icon" href="../../_static/square.png">
@@ -26,7 +26,7 @@
     
     
       
-        <title>Building from source - JAXMg</title>
+        <title>Choosing a Tile Size - JAXMg</title>
       
     
     
@@ -84,7 +84,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#building-the-native-backend" class="md-skip">
+        <a href="#choosing-a-tile-size" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Building from source
+              Choosing a Tile Size
             
           </span>
         </div>
@@ -250,11 +250,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../examples/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
           
   
   
@@ -290,13 +292,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../technical_details/" class="md-tabs__link">
           
   
   
@@ -452,26 +452,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
             
   
   
@@ -484,7 +489,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             Examples
@@ -498,7 +503,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/" class="md-nav__link">
+      <a href="../" class="md-nav__link">
         
   
   
@@ -521,7 +526,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/execution/" class="md-nav__link">
+      <a href="../execution/" class="md-nav__link">
         
   
   
@@ -541,10 +546,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../examples/choose_tile_size/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Choosing a Tile Size
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -555,6 +582,62 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-no-padding-condition" class="md-nav__link">
+    <span class="md-ellipsis">
+      The no-padding condition
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-happens-when-the-tile-size-does-not-divide" class="md-nav__link">
+    <span class="md-ellipsis">
+      What happens when the tile size does not divide
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#worked-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      Worked example
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-and-memory-trade-off" class="md-nav__link">
+    <span class="md-ellipsis">
+      Performance and memory trade-off
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -567,7 +650,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/potrs/" class="md-nav__link">
+      <a href="../potrs/" class="md-nav__link">
         
   
   
@@ -590,7 +673,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/lu_solve/" class="md-nav__link">
+      <a href="../lu_solve/" class="md-nav__link">
         
   
   
@@ -613,7 +696,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/syevd/" class="md-nav__link">
+      <a href="../syevd/" class="md-nav__link">
         
   
   
@@ -636,7 +719,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/gesvd/" class="md-nav__link">
+      <a href="../gesvd/" class="md-nav__link">
         
   
   
@@ -828,31 +911,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
             
   
   
@@ -865,7 +943,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Technical Details
@@ -879,7 +957,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../" class="md-nav__link">
+      <a href="../../technical_details/" class="md-nav__link">
         
   
   
@@ -902,7 +980,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../memory_distribution/" class="md-nav__link">
+      <a href="../../technical_details/memory_distribution/" class="md-nav__link">
         
   
   
@@ -922,32 +1000,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    Building from source
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../technical_details/building_from_source/" class="md-nav__link">
         
   
   
@@ -958,80 +1014,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#why-a-separate-native-build-is-needed" class="md-nav__link">
-    <span class="md-ellipsis">
-      Why a separate native build is needed
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
-    <span class="md-ellipsis">
-      Requirements
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#1-start-the-jax-build-container" class="md-nav__link">
-    <span class="md-ellipsis">
-      1. Start the JAX build container
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#2-copy-the-jaxmg-build-inputs" class="md-nav__link">
-    <span class="md-ellipsis">
-      2. Copy the JAXMg build inputs
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3-compile" class="md-nav__link">
-    <span class="md-ellipsis">
-      3. Compile
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4-install-and-test" class="md-nav__link">
-    <span class="md-ellipsis">
-      4. Install and test
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1044,7 +1026,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../contributing/" class="md-nav__link">
+      <a href="../../technical_details/contributing/" class="md-nav__link">
         
   
   
@@ -1094,54 +1076,36 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-a-separate-native-build-is-needed" class="md-nav__link">
+  <a href="#the-no-padding-condition" class="md-nav__link">
     <span class="md-ellipsis">
-      Why a separate native build is needed
+      The no-padding condition
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
+  <a href="#what-happens-when-the-tile-size-does-not-divide" class="md-nav__link">
     <span class="md-ellipsis">
-      Requirements
+      What happens when the tile size does not divide
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#1-start-the-jax-build-container" class="md-nav__link">
+  <a href="#worked-example" class="md-nav__link">
     <span class="md-ellipsis">
-      1. Start the JAX build container
+      Worked example
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-copy-the-jaxmg-build-inputs" class="md-nav__link">
+  <a href="#performance-and-memory-trade-off" class="md-nav__link">
     <span class="md-ellipsis">
-      2. Copy the JAXMg build inputs
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3-compile" class="md-nav__link">
-    <span class="md-ellipsis">
-      3. Compile
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4-install-and-test" class="md-nav__link">
-    <span class="md-ellipsis">
-      4. Install and test
+      Performance and memory trade-off
     </span>
   </a>
   
@@ -1163,117 +1127,114 @@
 
 
 
-<h1 id="building-the-native-backend">Building the Native Backend<a class="headerlink" href="#building-the-native-backend" title="Permanent link">¤</a></h1>
-<p>Most users should install a prebuilt wheel from the
-<a href="../../install/">Installation</a> page. Build from source when changing the
-C++/CUDA backend, updating JAX or CUDA, or targeting a platform not covered by
-the release wheels.</p>
-<h2 id="why-a-separate-native-build-is-needed">Why a separate native build is needed<a class="headerlink" href="#why-a-separate-native-build-is-needed" title="Permanent link">¤</a></h2>
-<p>JAXMg uses internal XLA C++ interfaces for FFI and GPU communicator access.
-These interfaces are available through Bazel's <code>@xla</code> repository inside the
-matching JAX source tree; they are not distributed as a standalone library.</p>
-<p>The build therefore combines:</p>
-<ul>
-<li>the JAXMg C++/CUDA sources;</li>
-<li>the JAX <code>0.10.1</code> checkout and its pinned XLA revision;</li>
-<li>the selected CUDA and cuSOLVERMp dependencies.</li>
-</ul>
-<p>The result is <code>libjaxmg_xla_comm_backend.so</code>, installed under
-<code>src/jaxmg/cu12/</code> or <code>src/jaxmg/cu13/</code>.</p>
-<div class="highlight"><pre><span></span><code>JAXMg sources + JAX/XLA checkout + cuSOLVERMp
-                        |
-                        v
-               pinned Bazel/CUDA build
-                        |
-                        v
-        src/jaxmg/cuXX/libjaxmg_xla_comm_backend.so
-</code></pre></div>
-<h2 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">¤</a></h2>
-<p>You need Linux on <code>x86_64</code> or <code>aarch64</code>, Git, a Docker-compatible container
-runtime, and enough storage for the JAX checkout and Bazel cache.</p>
-<p>CUDA 12 builds support:</p>
-<div class="highlight"><pre><span></span><code>sm_70,sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<p>CUDA 13 builds omit Volta:</p>
-<div class="highlight"><pre><span></span><code>sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<h2 id="1-start-the-jax-build-container">1. Start the JAX build container<a class="headerlink" href="#1-start-the-jax-build-container" title="Permanent link">¤</a></h2>
-<p>Clone the JAX version pinned by JAXMg and start its CI container:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>jax-v0.10.1<span class="w"> </span>https://github.com/jax-ml/jax.git
-<span class="nb">cd</span><span class="w"> </span>jax
-./ci/utilities/run_docker_container.sh
-</code></pre></div>
-<p>Configure the workspace for the CUDA major version being built:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">12</span>
-docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-e<span class="w"> </span><span class="nv">JAXCI_CUDA_VERSION</span><span class="o">=</span><span class="s2">"</span><span class="nv">$CUDA_MAJOR</span><span class="s2">"</span><span class="w"> </span>jax<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">'</span>
-<span class="s1">  source ci/envs/default.env</span>
-<span class="s1">  source ci/utilities/setup_build_environment.sh</span>
-<span class="s1">  arch=$(uname -m)</span>
-<span class="s1">  python build/build.py build \</span>
-<span class="s1">    --wheels=jax-cuda-plugin \</span>
-<span class="s1">    --configure_only \</span>
-<span class="s1">    --bazel_options=--config="ci_linux_${arch}_cuda${JAXCI_CUDA_VERSION}" \</span>
-<span class="s1">    --python_version="${JAXCI_HERMETIC_PYTHON_VERSION}" \</span>
-<span class="s1">    --cuda_major_version="${JAXCI_CUDA_VERSION}" \</span>
-<span class="s1">    --output_path="${JAXCI_OUTPUT_DIR}"'</span>
-</code></pre></div>
-<p>Use <code>CUDA_MAJOR=13</code> when building the CUDA 13 backend.</p>
-<h2 id="2-copy-the-jaxmg-build-inputs">2. Copy the JAXMg build inputs<a class="headerlink" href="#2-copy-the-jaxmg-build-inputs" title="Permanent link">¤</a></h2>
-<p>The container mounts the JAX checkout at <code>/jax</code>. Copy JAXMg into that checkout
-so Bazel can compile it alongside <code>@xla</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">JAXMG</span><span class="o">=</span>/absolute/path/to/jaxmg
-<span class="nv">JAXCO</span><span class="o">=</span>/absolute/path/to/jax
-
-mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg"</span>
-cp<span class="w"> </span>-r<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/src<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/bazel<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/build_native_backend.sh<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/pyproject.toml<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>/setup.py<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg/"</span>
-</code></pre></div>
-<h2 id="3-compile">3. Compile<a class="headerlink" href="#3-compile" title="Permanent link">¤</a></h2>
-<p>Choose the values for the backend:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">12</span>
-<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu12<span class="o">==</span><span class="m">0</span>.9.1.9318.post1
-<span class="nv">CAPABILITIES</span><span class="o">=</span>sm_70,sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<p>Then run:</p>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CUDA_MAJOR<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CUSOLVERMP_PACKAGE<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span>CAPABILITIES<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>jax<span class="w"> </span>bash<span class="w"> </span>-lc<span class="w"> </span><span class="s1">'</span>
-<span class="s1">    python -m pip install "$CUSOLVERMP_PACKAGE"</span>
-<span class="s1">    JAX_SRC=/jax \</span>
-<span class="s1">    JAXMG_ROOT=/jax/jaxmg \</span>
-<span class="s1">    CUDA_MAJOR="$CUDA_MAJOR" \</span>
-<span class="s1">    JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$CAPABILITIES" \</span>
-<span class="s1">    JAXMG_XLA_BAZEL_JOBS=$(nproc) \</span>
-<span class="s1">    /jax/jaxmg/build_native_backend.sh'</span>
-</code></pre></div>
-<p>For CUDA 13, use:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_MAJOR</span><span class="o">=</span><span class="m">13</span>
-<span class="nv">CUSOLVERMP_PACKAGE</span><span class="o">=</span>nvidia-cusolvermp-cu13<span class="o">==</span><span class="m">0</span>.9.1.9318.post1
-<span class="nv">CAPABILITIES</span><span class="o">=</span>sm_80,sm_90,sm_120,compute_90
-</code></pre></div>
-<p>The script discovers cuSOLVERMp, stages the Bazel package, compiles the shared
-library, and installs it under <code>/jax/jaxmg/src/jaxmg/cuXX/</code>.</p>
-<p>Copy the result back to the original checkout:</p>
-<div class="highlight"><pre><span></span><code>cp<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXCO</span><span class="s2">/jaxmg/src/jaxmg/cu</span><span class="si">${</span><span class="nv">CUDA_MAJOR</span><span class="si">}</span><span class="s2">/libjaxmg_xla_comm_backend.so"</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">/src/jaxmg/cu</span><span class="si">${</span><span class="nv">CUDA_MAJOR</span><span class="si">}</span><span class="s2">/"</span>
-</code></pre></div>
-<h2 id="4-install-and-test">4. Install and test<a class="headerlink" href="#4-install-and-test" title="Permanent link">¤</a></h2>
-<p>Install the source tree with the matching runtime extra:</p>
-<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span><span class="s2">"</span><span class="nv">$JAXMG</span><span class="s2">"</span>
-python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
-.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[cuda12]"</span>
-</code></pre></div>
-<p>Run the <a href="../../examples/potrs/">Cholesky example</a> to verify a solver call. Native
-contributors should then run the GPU smoke suite described in
-<a href="../contributing/">Contributing</a>.</p>
+<h1 id="choosing-a-tile-size">Choosing a Tile Size<a class="headerlink" href="#choosing-a-tile-size" title="Permanent link">¤</a></h1>
+<p>JAXMg divides a matrix into square <span class="arithmatex">\(T_A\times T_A\)</span> tiles and redistributes
+them into the 2D block-cyclic layout required by cuSOLVERMp. Whenever
+possible, choose <span class="arithmatex">\(T_A\)</span> so that each local JAX shard contains a whole number
+of tiles. This avoids allocating a padded copy of the input matrix and
+reduces the work required before native redistribution.</p>
+<h2 id="the-no-padding-condition">The no-padding condition<a class="headerlink" href="#the-no-padding-condition" title="Permanent link">¤</a></h2>
+<p>Consider a square <span class="arithmatex">\(N\times N\)</span> matrix distributed over a
+<span class="arithmatex">\(P_r\times P_c\)</span> process grid. Each process initially owns a rectangular JAX
+shard with shape</p>
+<div class="arithmatex">\[
+N_{\mathrm{local\ rows}}=\frac{N}{P_r},
+\qquad
+N_{\mathrm{local\ cols}}=\frac{N}{P_c}.
+\]</div>
+<p>For the regular 2D block sharding used here, the global dimension must first
+be divisible by both process-grid dimensions:</p>
+<div class="arithmatex">\[
+N\bmod P_r=0,
+\qquad
+N\bmod P_c=0.
+\]</div>
+<p>No input-matrix padding is required if <span class="arithmatex">\(T_A\)</span> also divides both local
+shard dimensions:</p>
+<div class="arithmatex">\[
+\frac{N}{P_r}\bmod T_A=0,
+\qquad
+\frac{N}{P_c}\bmod T_A=0.
+\]</div>
+<p>In this case, JAXMg can proceed to the native redistribution without first
+allocating a padded copy of each local shard.</p>
+<h2 id="what-happens-when-the-tile-size-does-not-divide">What happens when the tile size does not divide<a class="headerlink" href="#what-happens-when-the-tile-size-does-not-divide" title="Permanent link">¤</a></h2>
+<p>If either local dimension is not divisible by <span class="arithmatex">\(T_A\)</span>, the tile-aligned local
+capacity required by the downstream 2D redistribution is larger than the
+initial JAX shard. JAXMg therefore pads each local matrix to the next tile
+boundary:</p>
+<div class="arithmatex">\[
+\Delta_r
+=
+\left(-N_{\mathrm{local\ rows}}\right)\bmod T_A,
+\qquad
+\Delta_c
+=
+\left(-N_{\mathrm{local\ cols}}\right)\bmod T_A.
+\]</div>
+<p>The padded local shape is</p>
+<div class="arithmatex">\[
+\left(
+N_{\mathrm{local\ rows}}+\Delta_r,
+N_{\mathrm{local\ cols}}+\Delta_c
+\right).
+\]</div>
+<p>Creating the padded array requires a new allocation while the original local
+shard remains live. During this step, the input-matrix storage per
+process can therefore reach</p>
+<div class="arithmatex">\[
+N_{\mathrm{local\ rows}}N_{\mathrm{local\ cols}}
++
+\left(N_{\mathrm{local\ rows}}+\Delta_r\right)
+\left(N_{\mathrm{local\ cols}}+\Delta_c\right)
+\]</div>
+<p>elements, before accounting for native redistribution scratch or cuSOLVERMp
+workspace. Padding is fully supported, but avoiding it is particularly
+important for matrices close to the available GPU-memory limit.</p>
+<h2 id="worked-example">Worked example<a class="headerlink" href="#worked-example" title="Permanent link">¤</a></h2>
+<p>For <span class="arithmatex">\(N=98{,}304\)</span> and a <span class="arithmatex">\(4\times2\)</span> process grid, every process starts with</p>
+<div class="arithmatex">\[
+\left(
+\frac{98{,}304}{4},
+\frac{98{,}304}{2}
+\right)
+=
+(24{,}576, 49{,}152)
+\]</div>
+<p>matrix entries. Tile sizes such as</p>
+<div class="arithmatex">\[
+T_A\in\{256,512,1024,2048,4096\}
+\]</div>
+<p>divide both local dimensions, so no input-matrix padding is required.
+For example, <span class="arithmatex">\(T_A=1024\)</span> gives a local tile grid of</p>
+<div class="arithmatex">\[
+24\times48.
+\]</div>
+<h2 id="performance-and-memory-trade-off">Performance and memory trade-off<a class="headerlink" href="#performance-and-memory-trade-off" title="Permanent link">¤</a></h2>
+<p>A tile size should normally satisfy three requirements:</p>
+<ol>
+<li>Use <span class="arithmatex">\(T_A\ge128\)</span> as a practical starting point; very small tiles create
+   additional solver and communication work.</li>
+<li>Choose a divisor of both local matrix dimensions to avoid padding <span class="arithmatex">\(A\)</span>.</li>
+<li>Ensure that the resulting redistribution scratch allocation fits in local
+   GPU memory alongside the matrix and cuSOLVERMp workspace.</li>
+</ol>
+<p>For square tiles, JAXMg bounds the native redistribution scratch allocation
+on each process by</p>
+<div class="arithmatex">\[
+N_{\mathrm{scratch}}
+=
+3T_A\max\left(
+N_{\mathrm{local\ rows}},
+N_{\mathrm{local\ cols}}
+\right)
+\]</div>
+<p>elements. Increasing <span class="arithmatex">\(T_A\)</span> therefore increases scratch memory
+linearly, so the best tile size balances solver performance against memory
+availability.</p>
+<p>See <a href="../../technical_details/memory_distribution/">Memory distribution</a> for the
+layout conversion, padding alignment, 2D block-cyclic redistribution, and
+scratch-buffer implementation.</p>
 
 
 
