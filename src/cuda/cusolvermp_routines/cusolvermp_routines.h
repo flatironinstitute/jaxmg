@@ -36,7 +36,7 @@ absl::Status XlaCusolverMpPotrsPrepare(
 // cuSOLVERMp POTRF/POTRS, reverse redistribution, and output layout restore in
 // one FFI dispatch.
 absl::Status XlaCusolverMpPotrsDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
     int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
@@ -49,7 +49,7 @@ absl::Status XlaCusolverMpPotrsDispatch(
 // returns the replicated real Cholesky log determinant in the matrix's real
 // component precision.
 absl::Status XlaCusolverMpPotrsLogdetDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
     int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
@@ -69,7 +69,7 @@ absl::Status XlaCusolverMpLuSolvePrepare(
 // cuSOLVERMp GETRF/GETRS, reverse redistribution, and output layout restore in
 // one FFI dispatch.
 absl::Status XlaCusolverMpLuSolveDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     se::OwningScratchAllocator<> scratch, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t nrhs,
     int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
@@ -89,7 +89,7 @@ absl::Status XlaCusolverMpSyevdPrepare(
 // vector-producing cuSOLVERMp SYEVD, reverse eigenvector redistribution, and
 // output layout restore in one FFI dispatch.
 absl::Status XlaCusolverMpSyevdDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
     int64_t grid_mapping, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues,
@@ -102,7 +102,7 @@ absl::Status XlaCusolverMpSyevdDispatch(
 // and cuSOLVERMp setup with vector-producing SYEVD, but omits the eigenvector
 // output and its reverse redistribution.
 absl::Status XlaCusolverMpSyevdValuesDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
     int64_t grid_mapping, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues,
@@ -121,7 +121,7 @@ absl::Status XlaCusolverMpGesvdPrepare(
 // The four public dispatches select distinct FFI result lists so unrequested
 // matrix-sized outputs are never allocated by XLA.
 absl::Status XlaCusolverMpGesvdUvDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
     int64_t tile_size, int64_t grid_mapping, int64_t full_matrices,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
@@ -134,7 +134,7 @@ absl::Status XlaCusolverMpGesvdUvDispatch(
 
 // Runtime GESVD hook for singular values and left singular vectors.
 absl::Status XlaCusolverMpGesvdUDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
     int64_t tile_size, int64_t grid_mapping, int64_t full_matrices,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
@@ -146,7 +146,7 @@ absl::Status XlaCusolverMpGesvdUDispatch(
 
 // Runtime GESVD hook for singular values and right singular vectors.
 absl::Status XlaCusolverMpGesvdVhDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
     int64_t tile_size, int64_t grid_mapping, int64_t full_matrices,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
@@ -159,7 +159,7 @@ absl::Status XlaCusolverMpGesvdVhDispatch(
 // Runtime values-only GESVD hook. It omits both singular-vector outputs and
 // ends after the distributed factorization has produced the singular values.
 absl::Status XlaCusolverMpGesvdValuesDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
     int64_t tile_size, int64_t grid_mapping, int64_t full_matrices,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,

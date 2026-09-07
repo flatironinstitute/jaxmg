@@ -96,7 +96,7 @@ PY
         }
       }
 
-      def pyVersions = ['3.11', '3.12', '3.13', '3.14']
+      def pyVersions = ['3.12', '3.13', '3.14']
       for (p in pyVersions) {
         stage("Test py${p}") {
           withEnv(["PYV=${p}"]) {

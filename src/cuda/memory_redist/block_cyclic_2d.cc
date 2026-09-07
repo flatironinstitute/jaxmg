@@ -655,7 +655,10 @@ absl::Status ExecutePadded2DNativePlanRawImpl(
     se::DeviceAddressBase scratch_base, int64_t scratch_elements,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
-  if (stream == nullptr || comm_stream == nullptr || cuda_stream == nullptr) {
+  // `comm_stream` is optional: XLA only supplies a communication stream when
+  // the surrounding module allocates one, so ChooseNcclStream falls back to the
+  // main compute stream when it is null.
+  if (stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         absl::StrFormat("%s requires XLA and CUDA stream contexts", caller));
   }

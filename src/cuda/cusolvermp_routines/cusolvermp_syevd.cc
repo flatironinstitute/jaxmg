@@ -749,7 +749,7 @@ absl::Status RunCusolverMpSyevdDispatch(
 // The overwritten matrix work buffer remains distinct from the eigenvector
 // output required by the cuSOLVERMp API.
 absl::Status XlaCusolverMpSyevdDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
     int64_t grid_mapping, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues,
@@ -759,7 +759,8 @@ absl::Status XlaCusolverMpSyevdDispatch(
     const CollectiveCliques* collective_cliques) {
   ffi::AnyBuffer vector_buffer = *vectors;
   return RunCusolverMpSyevdDispatch(
-      stream, comm_stream, cuda_stream, process_rows, process_cols, n,
+      stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
+      n,
       tile_size, grid_mapping, rank_map, a, eigenvalues, work, &vector_buffer,
       /*compute_eigenvectors=*/true, status, collective_params,
       collective_cliques);
@@ -768,7 +769,7 @@ absl::Status XlaCusolverMpSyevdDispatch(
 // Executes eigenvalues-only SYEVD without allocating or restoring a
 // matrix-sized eigenvector output.
 absl::Status XlaCusolverMpSyevdValuesDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
     int64_t grid_mapping, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues,
@@ -777,7 +778,8 @@ absl::Status XlaCusolverMpSyevdValuesDispatch(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return RunCusolverMpSyevdDispatch(
-      stream, comm_stream, cuda_stream, process_rows, process_cols, n,
+      stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
+      n,
       tile_size, grid_mapping, rank_map, a, eigenvalues, work,
       /*vectors=*/nullptr, /*compute_eigenvectors=*/false, status,
       collective_params, collective_cliques);
