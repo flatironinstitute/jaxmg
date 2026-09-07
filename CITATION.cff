@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "JAXMg: A multi-GPU linear solver in JAX"
+authors:
+  - family-names: "Tutt"
+    given-names: "Jacob Lewis"
+    orcid: "https://orcid.org/0009-0002-5358-4292"
+  - family-names: "Wiersema"
+    given-names: "Roeland"
+    orcid: "https://orcid.org/0000-0002-0839-4265"
+repository-code: "https://github.com/flatironinstitute/jaxmg"
+license: "Apache-2.0"
+version: "1.1.1"
