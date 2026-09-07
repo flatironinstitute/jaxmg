@@ -1352,7 +1352,7 @@ helper can use <code>srun</code> across the current allocation.</p>
 <ol>
 <li><strong>GitHub Actions builds</strong> CUDA 12 and CUDA 13 backends for <code>x86_64</code> and
    <code>aarch64</code>.</li>
-<li><strong>GitHub Actions packages</strong> Python 3.11–3.14 <code>manylinux_2_28</code> wheels and
+<li><strong>GitHub Actions packages</strong> Python 3.12–3.14 <code>manylinux_2_28</code> wheels and
    checks their metadata and native libraries.</li>
 <li><strong>Jenkins downloads those wheels</strong> and installs the normal
    <code>jaxmg[cuda12]</code> dependency path.</li>
@@ -1403,7 +1403,7 @@ API; do not redeploy it.</p>
 <code>mike deploy X.Y.Z</code> by hand for a version that has already shipped — that would
 silently replace the documentation for a released wheel.</p>
 <h2 id="updating-jax-or-cuda">Updating JAX or CUDA<a class="headerlink" href="#updating-jax-or-cuda" title="Permanent link">¤</a></h2>
-<p>JAXMg pins <code>jax==0.10.1</code> and builds against its matching internal XLA revision.
+<p>JAXMg pins <code>jax==0.11.0</code> and builds against its matching internal XLA revision.
 Updating JAX therefore requires auditing the <code>@xla</code> targets, updating the JAX
 source tag and dependencies, and rebuilding both CUDA backends on both
 architectures.</p>
