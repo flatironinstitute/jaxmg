@@ -52,8 +52,7 @@ compilation and automatic differentiation. The JAX ecosystem has expanded rapidl
 variational Monte Carlo [@netket3:2022],
 and full physics simulation environments [@brax2021github]. These workflows
 frequently solve linear systems or compute eigendecompositions, either inside a
-larger simulation loop or inside differentiable optimization, and the size of
-those matrices is often what limits the science that can be done. Within the JAX ecosystem, Lineax [@lineax2023] provides composable linear-operator abstractions and direct and iterative solvers.
+larger simulation loop or inside differentiable optimization, and matrix size often limits the scale of feasible simulations. Within the JAX ecosystem, Lineax [@lineax2023] provides composable linear-operator abstractions and direct and iterative solvers.
 
 Despite this growth, the ecosystem still lacks distributed dense linear
 solver routines that scale across multiple GPUs while remaining usable
@@ -61,13 +60,7 @@ from idiomatic JAX programs. A dedicated backend package makes this integration 
 
 # State of the field
 
-Mature distributed dense linear algebra libraries are well established.
-ScaLAPACK [@blackford1997scalapack] set the standard for block-cyclic
-distributed factorizations on CPU clusters; SLATE [@gates2019slate] is its
-modern, GPU-aware successor; MAGMA [@abdelfattah2024magma] targets hybrid
-CPU-GPU nodes; and cuSOLVERMp [@cusolver] provides NVIDIA's multi-GPU,
-multi-node implementations. All of these are driven from C, C++ or Fortran
-programs that own their own MPI communicator and data distribution. 
+Distributed dense linear algebra is supported by several established libraries. ScaLAPACK [@blackford1997scalapack] provides distributed factorizations for CPU clusters, SLATE [@gates2019slate] targets distributed systems with hardware accelerators, and MAGMA [@abdelfattah2024magma] provides algorithms for heterogeneous CPU–GPU systems. NVIDIA’s cuSOLVERMp [@cusolver] supplies distributed dense solvers for multi-GPU and multi-node execution. Their native C, C++, or Fortran interfaces, together with their execution models and data-layout requirements, complicate integration into Python-based scientific workflows.
 
 # Software design
 
@@ -82,7 +75,7 @@ The first stage reconciles the physical memory layouts used by JAX and cuSOLVERM
 
 ### Edge-padding alignment
 
-Due to the 2D block-cyclic layout required by the cuSOLVERMp backend, JAXMg pads a local JAX shard before it enters the native backend if either dimension is not divisible by the corresponding tile dimension. This provides enough local capacity for the solver layout, but leaves padding between neighbouring shards in the global process grid. As a result, the destination of a solver tile may still contain part of another tile, so the block-cyclic redistribution described below cannot yet move complete tile slabs directly. JAXMg therefore compacts the logical matrix towards the global top-left, leaving the padding on the global right and bottom edges, as illustrated in Figure \ref{fig:padding-alignment}.
+Due to the 2D block-cyclic layout required by the cuSOLVERMp backend, JAXMg pads a local JAX shard before it enters the native backend if either dimension is not divisible by the corresponding tile dimension $T_A$. This provides enough local capacity for the solver layout, but leaves padding between neighbouring shards in the global process grid. As a result, the destination of a solver tile may still contain part of another tile, so the block-cyclic redistribution described below cannot yet move complete tile slabs directly. JAXMg therefore compacts the logical matrix towards the global top-left, leaving the padding on the global right and bottom edges, as illustrated in Figure \ref{fig:padding-alignment}.
 
 The compaction proceeds in two passes. Column slabs are first shifted left within each process row, after which row slabs are shifted upwards within each process column. Since the padding provides empty destinations, these movements form open chains and do not require an additional temporary buffer for preserving overwritten data. Dependencies between movements prevent an entire pass from being executed at once, so each pass is divided into ordered waves. Within each wave, the largest slabs that fit in the shared scratch allocation are moved concurrently across independent process rows or columns.
 
@@ -110,7 +103,7 @@ Simply pass JAXMg an ordinary JAX array sharded over a two-dimensional device me
 
 JAXMg is integrated into NetKet [@netket3:2022], one of the most widely used open-source frameworks for variational Monte Carlo, where it backs the distributed linear solve at the heart of stochastic reconfiguration [@sorella1998green]. Distributing it removes the ceiling on how large an ansatz NetKet users can optimize. Additionally, JAXMg produced the time-dependent variational Monte Carlo [@Carleo2017;@Schmitt2020QuantumDynamics] results of
 [@Wiersema2026,@Wan2026BlurredSampling]. A future release of jVMC [@jVMC],
-will also feature support for JAXMg. In a series of benchmark experiments, we also illustrate the power of JAXMg by investigating the scalability of the currently implemented routines across a large number of GPUs. As a highlight, we perform a successful Cholesky solve of a float32 matrix of size $1.5\times10^6 \times 1.5\times10^6$ across 64 NVIDIA H200s in approximately 11 minutes [@jaxmg_benchmark].
+will also feature support for JAXMg. In a series of benchmark experiments, we also evaluate the power of JAXMg scalability by investigating the currently implemented routines across a large number of GPUs. As a highlight, we perform a successful Cholesky solve of a float32 matrix of size $1.5\times10^6 \times 1.5\times10^6$ across 64 NVIDIA H200s in approximately 11 minutes [@jaxmg_benchmark].
 
 **21-cm results**
 [@gueuning2026mutual]. 
