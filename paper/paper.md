@@ -78,26 +78,10 @@ programs that own their own MPI communicator and data distribution.
 
 # Software design
 
-JAXMg connects JAX to NVIDIA's distributed dense linear algebra library cuSOLVERMp [@cusolver] via an XLA Foreign Function Interface (FFI) C++/CUDA extension. This design enables writing complex, JIT-compatible JAX programs while delegating the computationally intensive components to a compiled backend.
+JAXMg connects JAX to NVIDIA's distributed dense linear algebra library cuSOLVERMp [@cusolver] via an XLA Foreign Function Interface (FFI) C++/CUDA extension. All supported cuSOLVERMp routines support the JAX dtypes float32, float64, complex64, and complex128, with CUDA 12 and CUDA 13 backends available for both x86_64 and aarch64 systems. Parallelized linear algebra algorithms, like the ones implemented by cuSOLVERMp, require a distributed data layout to ensure proper load balancing of the available computational power [@dongarra1994].
 
-Simply pass JAXMg an ordinary JAX array sharded over a two-dimensional device mesh. The native backend handles the local memory-layout conversion, 2D block-cyclic redistribution, distributed solver execution, and restoration of the result to its original JAX layout.
-
-The current release provides a JIT-compatible interface to four workflows:
-
-- `potrs`: Solves $Ax=b$ for symmetric (Hermitian) positive-definite $A$ using a Cholesky
-  factorization (`cusolverMpPotrf` and `cusolverMpPotrs`). The same factorization can optionally
-  return $\log\det(A)$.
-- `lu_solve`: Solves $Ax=b$ for general nonsingular $A$ using a pivoted LU factorization
-  (`cusolverMpGetrf` and `cusolverMpGetrs`).
-- `syevd`: Computes the eigenvalues $\lambda_i$ and eigenvectors $v_i$ of a symmetric
-  (Hermitian) matrix $A$, satisfying $Av_i=\lambda_i v_i$ (`cusolverMpSyevd`).
-- `gesvd`: Computes the singular-value decomposition of an $M\times N$ matrix
-  $A=U\Sigma V^\dagger$, returning the singular values and optional left and right singular
-  vectors (`cusolverMpGesvd`).
-
-All four routines support the JAX dtypes float32, float64, complex64, and complex128, with CUDA 12 and CUDA 13 backends available for both x86_64 and aarch64 systems.
-
-Parallelized linear algebra algorithms require a distributed data layout to ensure proper load balancing of the available computational power [@dongarra1994]. For JAXMg, the central challenge is constructing this layout without reducing the matrix sizes that can be held in aggregate GPU memory. JAXMg therefore transforms the donated matrix buffers in place and reuses a single bounded scratch allocation across all stages. Minimizing memory overhead alone, however, is not sufficient: the redistribution must also use the available interconnect bandwidth efficiently. Although arbitrary permutations can be decomposed into fine-grained cycles, repeated small transfers introduce synchronization and transfer overheads, leading to poor utilization of the bandwidth available from modern GPU interconnects [@li2020interconnect]. JAXMg addresses both requirements through a three-stage redistribution. Each stage moves the largest contiguous regions that fit within a shared scratch allocation and performs independent transfers concurrently wherever dependencies allow. The size of this allocation is determined by the tile slabs used in the final 2D block-cyclic stage, described in Section \ref{sec:block-cyclic}, and is reused throughout. The following sections describe the three forward redistribution stages used to prepare the matrix for distributed solver execution; after the solver completes, these stages are reversed to restore the original JAX layout. An important design feature of JAXMg is that the complete forward redistribution, solver operation, and reverse redistribution are performed with a single fused C++/CUDA FFI call that the user never has to interact with. 
+ For JAXMg, the central challenge is constructing this layout in a fast and memory efficient manner. JAXMg transforms the matrix buffers that are donated through the FFI in place and reuses a single bounded scratch allocation across all stages. 
+ To efficiently carry out the required data redistribution JAXMG utilizes a three-stage algorithm to transfer the data.
 
 
 ### Local memory-layout conversion
@@ -116,6 +100,7 @@ The compaction proceeds in two passes. Column slabs are first shifted left withi
 
 Unlike the in-place redistribution handled by the native backend, this initial capacity padding must be performed by JAX because an existing donated allocation cannot be expanded once assigned. Materializing the padded array thus temporarily requires both the original and padded buffers, reducing the matrix size that fits in available GPU memory. Padding should therefore be avoided where possible by choosing a tile size that divides both dimensions of every local matrix shard.
 
+
 ### 2D block-cyclic redistribution
 
 Finally, JAXMg constructs the 2D block-cyclic layout required by cuSOLVERMp. For a process grid with $P_r$ rows and $P_c$ columns, tiles are distributed in round-robin order over both axes, such that the tile at global tile coordinate $(i,j)$ is assigned to $\operatorname{owner}(i,j)=\left(i \bmod P_r,\;j \bmod P_c\right)$.
@@ -125,6 +110,10 @@ JAXMg constructs an explicit mapping from every source tile to its destination a
 ![Demonstration of the redistribution from the compacted JAX block-sharded layout to the 2D block-cyclic layout required by cuSOLVERMp across a $2 \times 4$ GPU process grid. (a) The top-left-aligned matrix is partitioned into $T_A \times T_A$ tiles. (b) Tile-column slabs are redistributed cyclically within each process row, assigning global tile column $j$ to process column $j \bmod P_c$. (c) Tile-row slabs are subsequently redistributed within each process column, assigning global tile row $i$ to process row $i \bmod P_r$. Colours indicate the original GPU ownership of each matrix entry, while grey cells denote padding.\label{fig:block-cyclic-redistribution}](tikz/block_cyclic_redistribution.pdf){ width=100% }
 
 During each cycle, a slab is packed into the send scratch slot, transferred into the receive scratch slot, and unpacked into its destination, while a third saved slot preserves data that would otherwise be overwritten before it is forwarded. This results in a highly memory efficient implementation of the memory remapping.
+
+### Solver orchestration
+An important design feature of JAXMg is that this entire pipeline is performed within a single fused C++/CUDA FFI call that the user never has to interact with. This design enables writing complex, JIT-compatible JAX programs while delegating the computationally intensive components to a compiled backend.
+Simply pass JAXMg an ordinary JAX array sharded over a two-dimensional device mesh. The native backend handles the local memory-layout conversion, 2D block-cyclic redistribution, distributed solver execution, and restoration of the result to its original JAX layout. 
 
 # Research impact statement
 
@@ -136,7 +125,8 @@ will also feature support for JAXMg.
 [@gueuning2026mutual]. 
 
 We envision future scientific applications in areas such as Bayesian inference[@liu2026gpr;@burba2023allsky], tensor networks[@schollwock2011density;@banuls2023tensor], computational electromagnetics [@Harrington1993;@gueuning2026mutual].
-## Performance and scaling
+
+<!-- ## Performance and scaling
 
 Performance in distributed matrix routines depends not only on the available GPU resources, but also on how the calculation is divided between them. To quantify this dependence and provide practical guidance for users, we investigate the effects of the process-grid layout and matrix tile dimension, $T_A$, on wall-clock runtime in Figures \ref{fig:benchmark} and \ref{fig:tile_sweep}, respectively.
 
@@ -152,7 +142,7 @@ Having established the performance advantage of the $4\times4$ process grid, we 
 
 We finally demonstrate the large-scale performance of JAXMg using 64 NVIDIA H200 SXM5 GPUs (143 GB each) across eight nodes, with eight NVLink-connected GPUs and eight 400 Gb/s InfiniBand links per node. By reducing the redistribution scratch required for a fixed tile dimension relative to the $64\times1$ layout, the balanced $8\times8$ process grid enabled a Cholesky solve with $N=1{,}499{,}136$ and $T_A=1024$. The distributed matrix occupied 8.2 TiB in aggregate, while each local shard and its redistribution scratch used 94.7\% of the available device memory. The warm solve completed in 654 seconds. At $N=1{,}310{,}720$, the largest dimension completed by both layouts, the $8\times8$ grid was also $6.8\times$ faster, requiring 452 seconds compared with 3065 seconds for $64\times1$.
 
-These results highlight JAXMg's primary impact: enabling dense matrix solves and decompositions that are bottlenecked by the memory capacity of a single GPU, while remaining within JAX's composable and JIT-compiled programming model. On modern multi-GPU systems, distributed solvers make it possible to tackle matrix sizes that would otherwise be infeasible, and to increase throughput by using aggregate device memory and compute.
+These results highlight JAXMg's primary impact: enabling dense matrix solves and decompositions that are bottlenecked by the memory capacity of a single GPU, while remaining within JAX's composable and JIT-compiled programming model. On modern multi-GPU systems, distributed solvers make it possible to tackle matrix sizes that would otherwise be infeasible, and to increase throughput by using aggregate device memory and compute. -->
 
 # AI usage disclosure
 
