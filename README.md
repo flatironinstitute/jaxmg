@@ -78,8 +78,8 @@ Install the package with the extra matching your CUDA setup:
 | CUDA 13 | `pip install "jaxmg[cuda13]"` |
 | Local CUDA 13 | `pip install "jaxmg[cuda13-local]"` |
 
-Prebuilt Linux wheels are provided for `x86_64` and `aarch64`. The supported
-NVIDIA GPU families are:
+Prebuilt Linux wheels are provided for `x86_64` and `aarch64` and build for CUDA architecures `sm_70`, `sm_80`, `sm_90`, `sm_120` and `compute_90`
+. The supported NVIDIA GPU families are:
 
 | CUDA setup | Supported GPUs |
 |---|---|
