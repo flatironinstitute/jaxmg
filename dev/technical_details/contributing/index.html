@@ -1423,10 +1423,15 @@ API; do not redeploy it.</p>
 <code>mike deploy X.Y.Z</code> by hand for a version that has already shipped — that would
 silently replace the documentation for a released wheel.</p>
 <h2 id="updating-jax-or-cuda">Updating JAX or CUDA<a class="headerlink" href="#updating-jax-or-cuda" title="Permanent link">¤</a></h2>
-<p>JAXMg pins <code>jax==0.11.0</code> and builds against its matching internal XLA revision.
+<p>JAXMg pins <code>jax==0.11.1</code> and builds against its matching internal XLA revision.
 Updating JAX therefore requires auditing the <code>@xla</code> targets, updating the JAX
 source tag and dependencies, and rebuilding both CUDA backends on both
 architectures.</p>
+<p>The pin is exact for a reason. The backend statically links internal <code>@xla</code> C++
+targets, which carry no ABI stability guarantee, so a <code>.so</code> built at one XLA
+revision embeds that revision's object layout. <code>JAX_GIT_TAG</code> in
+<code>.github/workflows/build-wheels.yml</code> and the <code>jax==</code> pins in <code>pyproject.toml</code>
+must always name the same version and move in the same commit.</p>
 <p>The same care is required when changing CUDA, cuSOLVERMp, or the supported GPU
 architecture list.</p>
 <h2 id="release-process">Release process<a class="headerlink" href="#release-process" title="Permanent link">¤</a></h2>

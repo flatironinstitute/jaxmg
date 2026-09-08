@@ -1175,7 +1175,7 @@ matching JAX source tree; they are not distributed as a standalone library.</p>
 <p>The build therefore combines:</p>
 <ul>
 <li>the JAXMg C++/CUDA sources;</li>
-<li>the JAX <code>0.11.0</code> checkout and its pinned XLA revision;</li>
+<li>the JAX <code>0.11.1</code> checkout and its pinned XLA revision;</li>
 <li>the selected CUDA and cuSOLVERMp dependencies.</li>
 </ul>
 <p>The result is <code>libjaxmg_xla_comm_backend.so</code>, installed under
@@ -1199,7 +1199,7 @@ runtime, and enough storage for the JAX checkout and Bazel cache.</p>
 </code></pre></div>
 <h2 id="1-start-the-jax-build-container">1. Start the JAX build container<a class="headerlink" href="#1-start-the-jax-build-container" title="Permanent link">¤</a></h2>
 <p>Clone the JAX version pinned by JAXMg and start its CI container:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>jax-v0.11.0<span class="w"> </span>https://github.com/jax-ml/jax.git
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>jax-v0.11.1<span class="w"> </span>https://github.com/jax-ml/jax.git
 <span class="nb">cd</span><span class="w"> </span>jax
 ./ci/utilities/run_docker_container.sh
 </code></pre></div>
