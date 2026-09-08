@@ -51,7 +51,7 @@ extra:
     # the selector when provider is literally "mike"; versions.json alone is not
     # enough. `default` is the alias the root URL redirects to and the one the
     # "outdated version" check compares against; `alias` shows the alias name
-    # next to the version in the button (e.g. "1.0.0 · latest").
+    # next to the version in the button (e.g. "1.2.0 · latest").
     version:
         provider: mike
         default: latest

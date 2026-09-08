@@ -14,6 +14,9 @@ A typical contribution follows five steps:
 4. run the checks relevant to that change;
 5. open a pull request describing the change and its validation.
 
+## AI Agents
+The use of an AI agent that autonomously writes code and submits pull requests is not permitted in the JAXMg project. A human must check any generated contribution content according to the License and Responsibility sections above.
+
 ## Current development priority
 
 1. Some native failures still use `std::runtime_error`. Contributions that
@@ -180,14 +183,14 @@ architecture list.
 This section is for maintainers.
 
 Before a final release, run `.github/workflows/release.yml` manually with a
-release candidate such as `1.0.0rc1`. The workflow builds all wheels, runs the
+release candidate such as `1.2.0rc1`. The workflow builds all wheels, runs the
 Jenkins GPU tests, and publishes to TestPyPI.
 
 After checking the TestPyPI installation, create the final tag:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
 The tagged workflow repeats the build and test process, publishes to TestPyPI,
