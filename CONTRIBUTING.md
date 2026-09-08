@@ -162,16 +162,6 @@ Numbered versions are written only by `release.yml`. Never run
 `mike deploy X.Y.Z` by hand for a version that has already shipped — that would
 silently replace the documentation for a released wheel.
 
-## Updating JAX or CUDA
-
-JAXMg pins `jax==0.11.0` and builds against its matching internal XLA revision.
-Updating JAX therefore requires auditing the `@xla` targets, updating the JAX
-source tag and dependencies, and rebuilding both CUDA backends on both
-architectures.
-
-The same care is required when changing CUDA, cuSOLVERMp, or the supported GPU
-architecture list.
-
 ## Release process
 
 This section is for maintainers.
@@ -193,3 +183,25 @@ waits for approval, then publishes to PyPI and creates the GitHub release.
 Publishing requires the Jenkins secrets, PyPI Trusted Publishers, and
 `testpypi` and `pypi` GitHub environments described in
 `.github/workflows/release.yml`.
+
+## Versioning
+
+To ensure compatibility with JAX, we compile the the native backend of JAXMg against the exact internal XLA revision that JAX is build against. This backend changes with each JAX release, so we have rebuild even when there are no source code changes to JAXMg. This forces us to follow JAX' release schedule.
+
+JAXMg releases are `MAJOR.MINOR.PATCH`, where the minor number tracks JAX.
+
+| Component | Meaning |
+|---|---|
+| `MAJOR` | Reserved for a major rewrite of JAXMg. |
+| `MINOR` | One per tracked JAX release, so a new JAX always means a new minor. |
+| `PATCH` | JAXMg fixes against the same JAX release. |
+
+Released so far:
+
+| JAX | JAXMg |
+|---|---|
+| `0.10.1` | `1.0.0`, `1.1.0`, `1.1.1` |
+| `0.11.0` | `1.2.0` |
+| `0.11.1` | `1.3.0` |
+
+The result of this is that each JAXMg release must pin a JAX version in `pyproject.toml`, for example "jax==0.11.1".
