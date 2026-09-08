@@ -12,11 +12,13 @@
         <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
-        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/contributing/">
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/memory_distribution/">
       
       
-        <link rel="prev" href="../building_from_source/">
+        <link rel="prev" href="../">
       
+      
+        <link rel="next" href="../building_from_source/">
       
       
       <link rel="icon" href="../../_static/square.png">
@@ -24,7 +26,7 @@
     
     
       
-        <title>Contributing - JAXMg</title>
+        <title>Memory distribution - JAXMg</title>
       
     
     
@@ -82,7 +84,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#contributing" class="md-skip">
+        <a href="#memory-distribution" class="md-skip">
           Skip to content
         </a>
       
@@ -119,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Contributing
+              Memory distribution
             
           </span>
         </div>
@@ -897,10 +899,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../memory_distribution/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Memory distribution
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -911,6 +935,203 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#memory-bound" class="md-nav__link">
+    <span class="md-ellipsis">
+      Memory bound
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layout-terminology" class="md-nav__link">
+    <span class="md-ellipsis">
+      Layout terminology
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Layout terminology">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#logical-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      Logical matrix
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#local-memory-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      Local memory layout
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#process-grid-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      Process-grid mapping
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-1-local-layout-conversion" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stage 1: local layout conversion
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stage 1: local layout conversion">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#parallelism" class="md-nav__link">
+    <span class="md-ellipsis">
+      Parallelism
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-2-top-left-edge-padding-alignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stage 2: top-left edge-padding alignment
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stage 2: top-left edge-padding alignment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dependency-waves" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dependency waves
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-3-2d-block-cyclic-redistribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stage 3: 2D block-cyclic redistribution
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stage 3: 2D block-cyclic redistribution">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#permutation-cycles" class="md-nav__link">
+    <span class="md-ellipsis">
+      Permutation cycles
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slab-movement-and-scratch-size" class="md-nav__link">
+    <span class="md-ellipsis">
+      Slab movement and scratch size
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#communication-and-orchestration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Communication and orchestration
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reverse-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      Reverse path
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#solver-specific-native-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      Solver-specific native work
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#python-and-native-responsibilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      Python and native responsibilities
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      Code map
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -943,32 +1164,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    Contributing
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
         
   
   
@@ -979,125 +1178,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#ai-agents" class="md-nav__link">
-    <span class="md-ellipsis">
-      AI Agents
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#current-development-priority" class="md-nav__link">
-    <span class="md-ellipsis">
-      Current development priority
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#pull-a-clean-copy" class="md-nav__link">
-    <span class="md-ellipsis">
-      Pull a clean copy
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#set-up-an-environment" class="md-nav__link">
-    <span class="md-ellipsis">
-      Set up an environment
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#make-your-changes" class="md-nav__link">
-    <span class="md-ellipsis">
-      Make your changes
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#test-your-changes" class="md-nav__link">
-    <span class="md-ellipsis">
-      Test your changes
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#open-a-pull-request" class="md-nav__link">
-    <span class="md-ellipsis">
-      Open a pull request
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#continuous-integration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Continuous integration
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#versioned-documentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      Versioned documentation
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#release-process" class="md-nav__link">
-    <span class="md-ellipsis">
-      Release process
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#versioning" class="md-nav__link">
-    <span class="md-ellipsis">
-      Versioning
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1137,99 +1217,177 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#ai-agents" class="md-nav__link">
+  <a href="#memory-bound" class="md-nav__link">
     <span class="md-ellipsis">
-      AI Agents
+      Memory bound
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#current-development-priority" class="md-nav__link">
+  <a href="#layout-terminology" class="md-nav__link">
     <span class="md-ellipsis">
-      Current development priority
+      Layout terminology
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Layout terminology">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#logical-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      Logical matrix
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#local-memory-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      Local memory layout
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#process-grid-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      Process-grid mapping
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-1-local-layout-conversion" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stage 1: local layout conversion
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stage 1: local layout conversion">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#parallelism" class="md-nav__link">
+    <span class="md-ellipsis">
+      Parallelism
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-2-top-left-edge-padding-alignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stage 2: top-left edge-padding alignment
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stage 2: top-left edge-padding alignment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dependency-waves" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dependency waves
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stage-3-2d-block-cyclic-redistribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stage 3: 2D block-cyclic redistribution
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stage 3: 2D block-cyclic redistribution">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#permutation-cycles" class="md-nav__link">
+    <span class="md-ellipsis">
+      Permutation cycles
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slab-movement-and-scratch-size" class="md-nav__link">
+    <span class="md-ellipsis">
+      Slab movement and scratch size
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#communication-and-orchestration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Communication and orchestration
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#pull-a-clean-copy" class="md-nav__link">
+  <a href="#reverse-path" class="md-nav__link">
     <span class="md-ellipsis">
-      Pull a clean copy
+      Reverse path
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#set-up-an-environment" class="md-nav__link">
+  <a href="#solver-specific-native-work" class="md-nav__link">
     <span class="md-ellipsis">
-      Set up an environment
+      Solver-specific native work
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#make-your-changes" class="md-nav__link">
+  <a href="#python-and-native-responsibilities" class="md-nav__link">
     <span class="md-ellipsis">
-      Make your changes
+      Python and native responsibilities
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#test-your-changes" class="md-nav__link">
+  <a href="#code-map" class="md-nav__link">
     <span class="md-ellipsis">
-      Test your changes
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#open-a-pull-request" class="md-nav__link">
-    <span class="md-ellipsis">
-      Open a pull request
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#continuous-integration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Continuous integration
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#versioned-documentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      Versioned documentation
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#release-process" class="md-nav__link">
-    <span class="md-ellipsis">
-      Release process
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#versioning" class="md-nav__link">
-    <span class="md-ellipsis">
-      Versioning
+      Code map
     </span>
   </a>
   
@@ -1251,240 +1409,364 @@
 
 
 
-<h1 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">¤</a></h1>
-<p>Please help us improve JAXMg. You can contribute by
-<a href="https://github.com/flatironinstitute/jaxmg/issues">reporting a bug or suggesting a feature</a>,
-improving the documentation, or
-<a href="https://github.com/flatironinstitute/jaxmg/pulls">opening a pull request</a>
-with a code change. Contributions of any size are welcome.</p>
-<p>A typical contribution follows five steps:</p>
+<h1 id="memory-distribution">Memory distribution<a class="headerlink" href="#memory-distribution" title="Permanent link">¤</a></h1>
+<p>JAXMg accepts ordinary JAX arrays sharded over a one- or two-axis device mesh.
+However, cuSOLVERMp expects each local matrix buffer to use column-major memory
+and the global matrix to follow a 2D block-cyclic distribution. JAXMg bridges
+these layouts inside one fused C++/CUDA FFI call.</p>
+<p>The forward path used before a distributed solver is:</p>
+<figure class="memory-distribution-figure">
+  <a href="../../_static/flowcharts/ffi_to_cusolvermp.svg"><img alt="Three stages of edge-padding alignment over a two-by-four GPU process grid." class="memory-distribution-image" src="../../_static/flowcharts/ffi_to_cusolvermp.svg" /></a>
+</figure>
+<p>The sections below describe the three forward redistribution stages. After a
+matrix-valued solver output is produced, the stages are reversed to restore the
+original JAX layout. Values-only <code>syevd</code> and <code>gesvd</code> return replicated vectors
+directly and do not need reverse matrix redistribution.</p>
+<h2 id="memory-bound">Memory bound<a class="headerlink" href="#memory-bound" title="Permanent link">¤</a></h2>
+<p>The native redistribution uses one scratch allocation per FFI call. Its size is
+set by the largest tile slab moved during the final 2D block-cyclic stage.
+For a matrix with local capacities <span class="arithmatex">\(N_r \times N_c\)</span> and solver tile dimensions
+<span class="arithmatex">\(T_r \times T_c\)</span>,</p>
+<div class="arithmatex">\[
+S_{\mathrm{scratch}}
+=
+3\max\left(T_cN_r,\;T_rN_c\right)
+\]</div>
+<p>elements are required. For the square tiles used by the public solvers,
+<span class="arithmatex">\(T_r=T_c=T_A\)</span>. The factor of three is derived in
+<a href="#stage-3-2d-block-cyclic-redistribution">Stage 3</a>.</p>
+<p>Stages 1 and 2 reuse this allocation and process the largest batches that fit
+within it. They do not allocate a second full local matrix. When more than one
+matrix participates in a fused solver workflow, JAXMg allocates the maximum
+scratch requirement across those matrices and reuses the same buffer.</p>
+<h2 id="layout-terminology">Layout terminology<a class="headerlink" href="#layout-terminology" title="Permanent link">¤</a></h2>
+<p>Three different concepts are involved in the redistribution.</p>
+<h3 id="logical-matrix">Logical matrix<a class="headerlink" href="#logical-matrix" title="Permanent link">¤</a></h3>
+<p>The logical matrix describes which value appears at each matrix coordinate.
+Changing the physical memory order or the GPU that owns a value does not change
+the logical matrix.</p>
+<h3 id="local-memory-layout">Local memory layout<a class="headerlink" href="#local-memory-layout" title="Permanent link">¤</a></h3>
+<p>This is the physical order of elements within each GPU buffer:</p>
+<div class="highlight"><pre><span></span><code>row-major:    consecutive elements belong to the same logical row
+column-major: consecutive elements belong to the same logical column
+</code></pre></div>
+<p>JAX presents the local matrix shards in row-major order, whereas cuSOLVERMp
+requires column-major local buffers.</p>
+<h3 id="process-grid-mapping">Process-grid mapping<a class="headerlink" href="#process-grid-mapping" title="Permanent link">¤</a></h3>
+<p>This determines how communicator ranks are placed in the two-dimensional
+cuSOLVERMp process grid. For a <span class="arithmatex">\(2 \times 3\)</span> grid, the supported row-major rank
+map is</p>
+<div class="arithmatex">\[
+\begin{bmatrix}
+r_0 &amp; r_1 &amp; r_2 \\
+r_3 &amp; r_4 &amp; r_5
+\end{bmatrix},
+\qquad
+\mathrm{rank}=p_rP_c+p_c,
+\]</div>
+<p>while the supported column-major rank map is</p>
+<div class="arithmatex">\[
+\begin{bmatrix}
+r_0 &amp; r_2 &amp; r_4 \\
+r_1 &amp; r_3 &amp; r_5
+\end{bmatrix},
+\qquad
+\mathrm{rank}=p_cP_r+p_r.
+\]</div>
+<p>Here, <span class="arithmatex">\((p_r,p_c)\)</span> is a process-grid coordinate and <span class="arithmatex">\((P_r,P_c)\)</span> is the process
+grid shape. JAXMg accepts these regular row-major and column-major mappings.
+Arbitrary rank maps are rejected because cuSOLVERMp exposes these two standard
+grid-mapping modes rather than a general rank-to-coordinate table.</p>
+<h2 id="stage-1-local-layout-conversion">Stage 1: local layout conversion<a class="headerlink" href="#stage-1-local-layout-conversion" title="Permanent link">¤</a></h2>
+<p>The first stage reconciles the local physical memory layouts used by JAX and
+cuSOLVERMp. The logical matrix is not transposed. For example,</p>
+<div class="arithmatex">\[
+A=
+\begin{bmatrix}
+a_{00} &amp; a_{01} &amp; a_{02} \\
+a_{10} &amp; a_{11} &amp; a_{12}
+\end{bmatrix}
+\]</div>
+<p>has the following physical memory vectors:</p>
+<div class="arithmatex">\[
+\begin{aligned}
+\operatorname{row\_major}(A)
+  &amp;= [a_{00},a_{01},a_{02},a_{10},a_{11},a_{12}], \\
+\operatorname{column\_major}(A)
+  &amp;= [a_{00},a_{10},a_{01},a_{11},a_{02},a_{12}].
+\end{aligned}
+\]</div>
+<p>Asking XLA to materialize a column-major FFI input directly can require an
+additional full-sized local matrix. JAXMg instead converts each donated buffer
+in place using a parallel implementation of the rectangular permutation
+decomposition introduced by Catanzaro, Keller, and Garland in
+<a href="https://research.nvidia.com/sites/default/files/pubs/2014-02_A-Decomposition-for/ppopp2014.pdf"><em>A Decomposition for In-place Matrix Transposition</em></a>.
+The conversion consists of a modular row permutation surrounded, when required
+by the local dimensions, by column pre- and post-shuffles:</p>
+<figure class="memory-distribution-figure">
+  <a href="../../_static/flowcharts/inplace_transpose.svg"><img alt="Three stages of edge-padding alignment over a two-by-four GPU process grid." class="memory-distribution-image" src="../../_static/flowcharts/inplace_transpose.svg" /></a>
+</figure>
+<p>The required shuffles are determined from the local row and column counts and
+their greatest common divisor. Each kernel copies a batch of complete rows or
+columns into scratch before writing the permuted values back. The shared scratch
+size therefore controls the number of rows or columns processed in one launch.</p>
+<h3 id="parallelism">Parallelism<a class="headerlink" href="#parallelism" title="Permanent link">¤</a></h3>
+<p>Layout conversion is entirely local. Every GPU processes its shard concurrently
+on its XLA-provided CUDA stream, with no inter-rank communication. Within each
+GPU, the kernels batch as many independent rows or columns as the shared scratch
+allocation permits.</p>
+<h2 id="stage-2-top-left-edge-padding-alignment">Stage 2: top-left edge-padding alignment<a class="headerlink" href="#stage-2-top-left-edge-padding-alignment" title="Permanent link">¤</a></h2>
+<p>If a local shard dimension is not divisible by the corresponding tile
+dimension, JAXMg first pads that shard to provide enough capacity for the
+cuSOLVERMp layout. This leaves padding between neighbouring shards in the global
+process grid. A destination tile may consequently overlap both real entries and
+padding, preventing Stage 3 from moving complete contiguous tile slabs.</p>
+<p>The native backend therefore compacts the real matrix towards the global
+top-left, consolidating padding on the global right and bottom edges.</p>
+<figure class="memory-distribution-figure">
+  <a href="../../_static/memory_distribution/block_cyclic_padding_alignment.svg"><img alt="Three stages of edge-padding alignment over a two-by-four GPU process grid." class="memory-distribution-image" src="../../_static/memory_distribution/block_cyclic_padding_alignment.svg" /></a>
+<br />
+<figcaption>
+    Edge-padding alignment over a 2 &times; 4 process grid. Colours identify
+    the GPU that originally owned each entry; grey cells are padding. Column
+    slabs first move left within each process row, then row slabs move upwards
+    within each process column.
+  </figcaption>
+</figure>
+<p>The compaction is an open-chain permutation: padding provides empty
+destinations, so the source data can be moved without preserving an additional
+live slab. It proceeds in two passes:</p>
 <ol>
-<li>pull a clean copy of the repository and create a branch;</li>
-<li>set up a development environment;</li>
-<li>make a focused change;</li>
-<li>run the checks relevant to that change;</li>
-<li>open a pull request describing the change and its validation.</li>
+<li><strong>Horizontal pass:</strong> shift valid column slabs left within each process row.</li>
+<li><strong>Vertical pass:</strong> shift valid row slabs upwards within each process column.</li>
 </ol>
-<h2 id="ai-agents">AI Agents<a class="headerlink" href="#ai-agents" title="Permanent link">¤</a></h2>
-<p>The use of an AI agent that autonomously writes code and submits pull requests is not permitted in the JAXMg project. A human must check any generated contribution content according to the License and Responsibility sections above.</p>
-<h2 id="current-development-priority">Current development priority<a class="headerlink" href="#current-development-priority" title="Permanent link">¤</a></h2>
+<h3 id="dependency-waves">Dependency waves<a class="headerlink" href="#dependency-waves" title="Permanent link">¤</a></h3>
+<p>Within either pass, a movement can depend on a previous movement creating its
+destination space. The schedule is therefore divided into ordered waves. Waves
+execute sequentially, but every transfer in one wave is independent across the
+orthogonal process-grid axis:</p>
+<table>
+<thead>
+<tr>
+<th>Pass</th>
+<th>Movement within</th>
+<th>Concurrent across</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Horizontal</td>
+<td>each process row</td>
+<td>process rows</td>
+</tr>
+<tr>
+<td>Vertical</td>
+<td>each process column</td>
+<td>process columns</td>
+</tr>
+</tbody>
+</table>
+<p>For example, one horizontal wave can move matching column slabs simultaneously
+across all process rows. A later wave may then shift the remaining data locally
+within each rank. The vertical pass applies the same scheduling rule across
+process columns.</p>
+<p>Unlike the closed cycles in Stage 3, edge-padding alignment can use the entire
+shared scratch allocation as one temporary transfer buffer. Moves larger than
+that allocation are divided into the largest contiguous rectangles that fit.
+Cross-rank rectangles use the borrowed communicator, while overlapping
+same-rank rectangles are packed into scratch before being written locally.</p>
+<div class="admonition warning">
+<p class="admonition-title">Padding temporarily requires an additional JAX allocation</p>
+<p>The initial capacity padding must be performed by JAX because an existing
+donated allocation cannot be expanded once assigned. Both the original and
+padded arrays may therefore coexist temporarily. Choose a tile size that
+divides both local shard dimensions when possible; see
+<a href="../../examples/choose_tile_size/">Choose a tile size</a>.</p>
+</div>
+<h2 id="stage-3-2d-block-cyclic-redistribution">Stage 3: 2D block-cyclic redistribution<a class="headerlink" href="#stage-3-2d-block-cyclic-redistribution" title="Permanent link">¤</a></h2>
+<p>After edge-padding alignment, the global matrix is a regular array of complete
+tiles. cuSOLVERMp distributes these tiles cyclically over both process-grid
+axes. For a process grid with <span class="arithmatex">\(P_r\)</span> rows and <span class="arithmatex">\(P_c\)</span> columns, the tile at global
+tile coordinate <span class="arithmatex">\((i,j)\)</span> belongs to</p>
+<div class="arithmatex">\[
+\operatorname{owner}(i,j)
+=
+\left(i\bmod P_r,\;j\bmod P_c\right).
+\]</div>
+<p>JAXMg constructs an explicit source-to-destination mapping for the complete
+tile array and applies it in two separable phases:</p>
 <ol>
-<li>
-<p>Some native failures still use <code>std::runtime_error</code>. Contributions that
-   express these consistently through XLA FFI error handling are particularly
-   useful.</p>
-</li>
-<li>
-<p>We would like to make the JAXMg solver routines differentiable. This will
-   require custom JVP and VJP rules that tell JAX how to propagate derivatives
-   through the FFI-backed distributed calculations.</p>
-</li>
-<li>
-<p>Provide users with a small tool to check their compute fabric and HPC setup.
-   This will make it easier for users to debug and for us to provide support.</p>
-</li>
+<li><strong>Column-owner phase:</strong> complete tile-column slabs are permuted within each
+   process row until every tile has the correct process-column owner.</li>
+<li><strong>Row-owner phase:</strong> complete tile-row slabs are then permuted within each
+   process column until every tile has the correct process-row owner.</li>
 </ol>
-<h2 id="pull-a-clean-copy">Pull a clean copy<a class="headerlink" href="#pull-a-clean-copy" title="Permanent link">¤</a></h2>
-<p>Fork the repository first if you do not have write access. Then clone your fork
-or the main repository, update <code>main</code>, and create a branch:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/flatironinstitute/jaxmg.git
-<span class="nb">cd</span><span class="w"> </span>jaxmg
-git<span class="w"> </span>switch<span class="w"> </span>main
-git<span class="w"> </span>pull<span class="w"> </span>--ff-only
-git<span class="w"> </span>switch<span class="w"> </span>-c<span class="w"> </span>my-change
-</code></pre></div>
-<h2 id="set-up-an-environment">Set up an environment<a class="headerlink" href="#set-up-an-environment" title="Permanent link">¤</a></h2>
-<p>Create a virtual environment and install the development dependencies:</p>
-<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
-<span class="nb">source</span><span class="w"> </span>.venv/bin/activate
-python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[dev]"</span>
-</code></pre></div>
-<p>For documentation-only work on a system without CUDA, install <code>.[docs]</code> and
-pytest instead.</p>
-<h2 id="make-your-changes">Make your changes<a class="headerlink" href="#make-your-changes" title="Permanent link">¤</a></h2>
-<p>The main areas of the repository are:</p>
-<ul>
-<li><code>src/jaxmg/</code> for the public Python interface and JAX integration;</li>
-<li><code>src/cuda/</code> for memory redistribution and cuSOLVERMp routines;</li>
-<li><code>tests/</code> for interface and distributed numerical tests;</li>
-<li><code>docs/</code> for user guides, examples, and technical documentation;</li>
-<li><code>.github/</code>, <code>.jenkins/</code>, and <code>pyproject.toml</code> for building and packaging.</li>
-</ul>
-<p>Changes under <code>src/cuda/</code>, <code>bazel/</code>, or <code>build_native_backend.sh</code> require a
-native rebuild. Follow
-<a href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/building_from_source/">Building the native backend</a>
-before running the GPU tests.</p>
-<p>Public behavior changes should include corresponding tests and documentation.</p>
-<h2 id="test-your-changes">Test your changes<a class="headerlink" href="#test-your-changes" title="Permanent link">¤</a></h2>
-<p>Run the checks relevant to the change:</p>
-<table>
-<thead>
-<tr>
-<th>Change</th>
-<th>Check</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Python API, validation, or layout metadata</td>
-<td><code>python -m pytest -q -m "not gpu" tests</code></td>
-</tr>
-<tr>
-<td>Documentation</td>
-<td><code>python -m mkdocs build --strict</code></td>
-</tr>
-<tr>
-<td>Native solver or redistribution code</td>
-<td>Rebuild the backend and run the GPU tests</td>
-</tr>
-<tr>
-<td>Packaging or dependencies</td>
-<td>Build and install a wheel through the matching CUDA extra</td>
-</tr>
-</tbody>
-</table>
-<p>The GPU suite distinguishes between <code>single_gpu</code> and <code>multi_gpu</code> tests. The
-multi-GPU tests launch one Python process per GPU. On a workstation with two
-GPUs, run the complete smoke suite with:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_VISIBLE_DEVICES</span><span class="o">=</span><span class="m">0</span>,1<span class="w"> </span><span class="se">\</span>
-<span class="nv">JAXMG_GPU_TEST_LAUNCHER</span><span class="o">=</span>subprocess<span class="w"> </span><span class="se">\</span>
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>-m<span class="w"> </span><span class="s2">"gpu and not slow"</span><span class="w"> </span>tests/gpu
-</code></pre></div>
-<p>The two smoke groups can also be selected independently with
-<code>-m "single_gpu and not slow"</code> or <code>-m "multi_gpu and not slow"</code>. Tests
-requiring more GPUs than are visible are skipped. On Slurm systems, the test
-helper can use <code>srun</code> across the current allocation.</p>
-<h2 id="open-a-pull-request">Open a pull request<a class="headerlink" href="#open-a-pull-request" title="Permanent link">¤</a></h2>
-<p>Push your branch and
-<a href="https://github.com/flatironinstitute/jaxmg/compare">open a pull request</a>:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>push<span class="w"> </span>-u<span class="w"> </span>origin<span class="w"> </span>my-change
-</code></pre></div>
-<p>In the pull-request description, explain:</p>
-<ul>
-<li>what changed and why;</li>
-<li>any user-visible or compatibility effects;</li>
-<li>which tests were run;</li>
-<li>any hardware-dependent checks that could not be run locally.</li>
-</ul>
-<p>Generated build outputs should not be committed.</p>
-<h2 id="continuous-integration">Continuous integration<a class="headerlink" href="#continuous-integration" title="Permanent link">¤</a></h2>
-<p>The release build and GPU tests run on separate systems:</p>
+<figure class="memory-distribution-figure">
+  <a href="../../_static/memory_distribution/block_cyclic_redistribution.svg"><img alt="Three stages of the two-dimensional block-cyclic redistribution over a two-by-four GPU process grid." class="memory-distribution-image" src="../../_static/memory_distribution/block_cyclic_redistribution.svg" /></a>
+<br />
+<figcaption>
+    Construction of the 2D block-cyclic layout over a 2 &times; 4 process
+    grid. The aligned matrix is partitioned into complete tiles, tile-column
+    slabs are distributed cyclically, and tile-row slabs are then distributed
+    cyclically. Colours show each entry's original GPU ownership.
+  </figcaption>
+</figure>
+<p>The first phase can run independently across all process rows; the second can
+run independently across all process columns. This separable construction moves
+full-height or full-width tile slabs instead of transferring individual tiles.</p>
+<h3 id="permutation-cycles">Permutation cycles<a class="headerlink" href="#permutation-cycles" title="Permanent link">¤</a></h3>
+<p>Within one process row or column, the source-to-destination mapping is a
+bijection. JAXMg decomposes that mapping into disjoint closed permutation
+cycles, skipping fixed points that already occupy their target slot. Each cycle
+is applied in place by:</p>
 <ol>
-<li><strong>GitHub Actions builds</strong> CUDA 12 and CUDA 13 backends for <code>x86_64</code> and
-   <code>aarch64</code>.</li>
-<li><strong>GitHub Actions packages</strong> Python 3.12–3.14 <code>manylinux_2_28</code> wheels and
-   checks their metadata and native libraries.</li>
-<li><strong>Jenkins downloads those wheels</strong> and installs the normal
-   <code>jaxmg[cuda12]</code> dependency path.</li>
-<li><strong>Jenkins tests them</strong> on two physical A100 GPUs using the interface and GPU
-   smoke suites.</li>
+<li>Saving one live slab;</li>
+<li>Rotating the remaining slabs from the end of the cycle towards the vacated
+   slot;</li>
+<li>Restoring the saved slab into its final destination.</li>
 </ol>
-<p>This ensures that Jenkins tests the wheel produced by GitHub Actions rather
-than rebuilding it. AArch64 and CUDA 13 are currently build-validated but are
-not runtime-tested by Jenkins.</p>
-<p>The implementation is in:</p>
+<p>Dependent steps within a process-row or process-column group are serialized.
+Matching steps from independent groups are assigned the same sequence number
+and can participate in one communication round, provided their ranks do not
+conflict. Larger process grids may require more rounds, but the amount of live
+temporary data remains bounded.</p>
+<h3 id="slab-movement-and-scratch-size">Slab movement and scratch size<a class="headerlink" href="#slab-movement-and-scratch-size" title="Permanent link">¤</a></h3>
+<p>Each cycle uses three scratch slots:</p>
+<figure class="memory-distribution-figure">
+  <a href="../../_static/flowcharts/send_recv.svg"><img alt="Three stages of edge-padding alignment over a two-by-four GPU process grid." class="memory-distribution-image" src="../../_static/flowcharts/send_recv.svg" /></a>
+</figure>
+<p>A tile-column slab contains at most <span class="arithmatex">\(T_cN_r\)</span> elements, while a tile-row slab
+contains at most <span class="arithmatex">\(T_rN_c\)</span> elements. The largest possible slab therefore has</p>
+<div class="arithmatex">\[
+S_{\mathrm{slab}}=\max\left(T_cN_r,\;T_rN_c\right)
+\]</div>
+<p>elements. Providing one send, receive, and saved slot gives the fixed bound</p>
+<div class="arithmatex">\[
+S_{\mathrm{scratch}}
+=3S_{\mathrm{slab}}
+=3\max\left(T_cN_r,\;T_rN_c\right).
+\]</div>
+<p>The movement schedule is fixed by the process grid, rank mapping, tile size,
+and padded local shape. These values are static for a compiled JAX call, so the
+same native schedule is reused on every execution.</p>
+<h2 id="communication-and-orchestration">Communication and orchestration<a class="headerlink" href="#communication-and-orchestration" title="Permanent link">¤</a></h2>
+<p>JAXMg builds the native backend against the matching XLA source through Bazel.
+This gives the FFI handler access to XLA's underlying NCCL communicator handle
+(<code>ncclComm_t</code>). The same communicator is borrowed for the inter-rank
+redistribution and passed to cuSOLVERMp for solver execution. Movements that
+remain on one rank use local CUDA operations on the XLA-provided stream.</p>
+<p>The forward redistribution, solver operation, and reverse redistribution
+therefore share one communication context inside a single fused C++/CUDA FFI
+call. JAXMg does not create a second independent communicator or return matrix
+data to Python between stages.</p>
+<h2 id="reverse-path">Reverse path<a class="headerlink" href="#reverse-path" title="Permanent link">¤</a></h2>
+<p>Matrix-valued solver outputs are produced in cuSOLVERMp's column-major,
+2D block-cyclic layout. Before returning to JAX, the native call applies the
+inverse block-cyclic cycles, reverses edge-padding alignment when needed, and
+restores row-major local memory. Python then removes visible capacity padding.</p>
+<p>For <code>potrs</code> and <code>lu_solve</code>, a vector solve input is represented internally as
+an <span class="arithmatex">\(N \times 1\)</span> matrix. The public wrappers restore the original vector rank
+before returning the result.</p>
+<h2 id="solver-specific-native-work">Solver-specific native work<a class="headerlink" href="#solver-specific-native-work" title="Permanent link">¤</a></h2>
+<p>The redistribution stages are shared by every solver workflow. Their main
+differences are the cuSOLVERMp call sequence and solver workspace:</p>
 <ul>
-<li><code>.github/workflows/build-wheels.yml</code>;</li>
-<li><code>.github/workflows/ci.yml</code>;</li>
-<li><code>.github/workflows/jenkins-test.yml</code>;</li>
-<li><code>.jenkins/Jenkinsfile</code>.</li>
+<li><code>potrs</code> calls <code>cusolverMpPotrf</code> followed by <code>cusolverMpPotrs</code>. If
+  <code>return_logdet=True</code>, each process reads the Cholesky diagonal entries it owns
+  and the rank-local sums are combined by an in-place NCCL all-reduce.</li>
+<li><code>lu_solve</code> calls <code>cusolverMpGetrf</code> followed by <code>cusolverMpGetrs</code> and allocates
+  a pivot vector according to the local cuSOLVERMp column ownership.</li>
+<li><code>syevd</code> calls <code>cusolverMpSyevd</code>. Its eigenvector-producing mode materializes a
+  full distributed eigenvector matrix and reverses the redistribution for that
+  output. Its eigenvalues-only mode omits both operations.</li>
+<li><code>gesvd</code> calls <code>cusolverMpGesvd</code> for rectangular matrices. U and Vh are
+  selected independently in reduced or full form, and only requested vector
+  matrices are allocated and reverse-redistributed. The shared scratch buffer
+  is sized to the largest requirement among A and those outputs.</li>
 </ul>
-<h2 id="versioned-documentation">Versioned documentation<a class="headerlink" href="#versioned-documentation" title="Permanent link">¤</a></h2>
-<p>The site is published per release with <a href="https://github.com/jimporter/mike">mike</a>
-on the <code>gh-pages</code> branch, so documentation for an older release keeps matching
-the wheel that shipped it:</p>
+<h2 id="python-and-native-responsibilities">Python and native responsibilities<a class="headerlink" href="#python-and-native-responsibilities" title="Permanent link">¤</a></h2>
+<p>Python is responsible for:</p>
+<ul>
+<li>validating dtypes, shapes, meshes, rank maps, and tile sizes;</li>
+<li>requiring one Python process per GPU for cuSOLVERMp execution;</li>
+<li>calculating and applying local capacity padding;</li>
+<li>constructing and caching the FFI wrapper.</li>
+</ul>
+<p>Native C++/CUDA is responsible for:</p>
+<ul>
+<li>local row-major/column-major conversion;</li>
+<li>top-left edge-padding alignment;</li>
+<li>2D block-cyclic redistribution;</li>
+<li>cuSOLVERMp handles, descriptors, workspace, and solver calls;</li>
+<li>reverse redistribution for matrix-valued outputs.</li>
+</ul>
+<h2 id="code-map">Code map<a class="headerlink" href="#code-map" title="Permanent link">¤</a></h2>
 <table>
 <thead>
 <tr>
-<th>Trigger</th>
-<th>Published as</th>
+<th>Stage 1: local layout conversion</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Pull request</td>
-<td>nothing — <code>mkdocs build --strict</code> runs as a check only</td>
-</tr>
-<tr>
-<td>Push to <code>main</code></td>
-<td><code>dev</code>, a mutable build of the development tree</td>
-</tr>
-<tr>
-<td>Release tag <code>vX.Y.Z</code></td>
-<td><code>X.Y.Z</code>, and takes over the <code>latest</code> alias</td>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/memory_redist/layout_convert.cu.cc">src/cuda/memory_redist/layout_convert.cu.cc</a></td>
 </tr>
 </tbody>
 </table>
-<p>The bare site URL redirects to whatever <code>latest</code> points at, so links in the
-README and in <code>pyproject.toml</code> should use <code>/latest/…</code> rather than a version
-number. <code>0.0.9</code> is archived because it wrapped the older single-node cuSolverMg
-API; do not redeploy it.</p>
-<p>Numbered versions are written only by <code>release.yml</code>. Never run
-<code>mike deploy X.Y.Z</code> by hand for a version that has already shipped — that would
-silently replace the documentation for a released wheel.</p>
-<h2 id="release-process">Release process<a class="headerlink" href="#release-process" title="Permanent link">¤</a></h2>
-<p>This section is for maintainers.</p>
-<p>Before a final release, run <code>.github/workflows/release.yml</code> manually with a
-release candidate such as <code>1.2.0rc1</code>. The workflow builds all wheels, runs the
-Jenkins GPU tests, and publishes to TestPyPI.</p>
-<p>After checking the TestPyPI installation, create the final tag:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>tag<span class="w"> </span>v1.2.0
-git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>v1.2.0
-</code></pre></div>
-<p>The tagged workflow repeats the build and test process, publishes to TestPyPI,
-waits for approval, then publishes to PyPI and creates the GitHub release.</p>
-<p>Publishing requires the Jenkins secrets, PyPI Trusted Publishers, and
-<code>testpypi</code> and <code>pypi</code> GitHub environments described in
-<code>.github/workflows/release.yml</code>.</p>
-<h2 id="versioning">Versioning<a class="headerlink" href="#versioning" title="Permanent link">¤</a></h2>
-<p>To ensure compatibility with JAX, we compile the the native backend of JAXMg against the exact internal XLA revision that JAX is build against. This backend changes with each JAX release, so we have rebuild even when there are no source code changes to JAXMg. This forces us to follow JAX' release schedule.</p>
-<p>JAXMg releases are <code>MAJOR.MINOR.PATCH</code>, where the minor number tracks JAX.</p>
 <table>
 <thead>
 <tr>
-<th>Component</th>
-<th>Meaning</th>
+<th>Stage 2: edge-padding alignment</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>MAJOR</code></td>
-<td>Reserved for a major rewrite of JAXMg.</td>
-</tr>
-<tr>
-<td><code>MINOR</code></td>
-<td>One per tracked JAX release, so a new JAX always means a new minor.</td>
-</tr>
-<tr>
-<td><code>PATCH</code></td>
-<td>JAXMg fixes against the same JAX release.</td>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/memory_redist/edge_padding_2d.cc">src/cuda/memory_redist/edge_padding_2d.cc</a></td>
 </tr>
 </tbody>
 </table>
-<p>Released so far:</p>
 <table>
 <thead>
 <tr>
-<th>JAX</th>
-<th>JAXMg</th>
+<th>Stage 3: 2D block-cyclic redistribution</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>0.10.1</code></td>
-<td><code>1.0.0</code>, <code>1.1.0</code>, <code>1.1.1</code></td>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/memory_redist/block_cyclic_2d.cc">src/cuda/memory_redist/block_cyclic_2d.cc</a></td>
 </tr>
 <tr>
-<td><code>0.11.0</code></td>
-<td><code>1.2.0</code></td>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/memory_redist/rectangle_pack.cc">src/cuda/memory_redist/rectangle_pack.cc</a></td>
 </tr>
 <tr>
-<td><code>0.11.1</code></td>
-<td><code>1.3.0</code></td>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/memory_redist/scratch.cc">src/cuda/memory_redist/scratch.cc</a></td>
 </tr>
 </tbody>
 </table>
-<p>The result of this is that each JAXMg release must pin a JAX version in <code>pyproject.toml</code>, for example "jax==0.11.1".</p>
+<table>
+<thead>
+<tr>
+<th>Solver orchestration</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_potrs.cc">src/cuda/cusolvermp_routines/cusolvermp_potrs.cc</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/potrs_logdet.cu.cc">src/cuda/cusolvermp_routines/potrs_logdet.cu.cc</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc">src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_syevd.cc">src/cuda/cusolvermp_routines/cusolvermp_syevd.cc</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc">src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc</a></td>
+</tr>
+</tbody>
+</table>
 
 
 

@@ -12,11 +12,13 @@
         <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
-        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/contributing/">
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/examples/syevd/">
       
       
-        <link rel="prev" href="../building_from_source/">
+        <link rel="prev" href="../lu_solve/">
       
+      
+        <link rel="next" href="../gesvd/">
       
       
       <link rel="icon" href="../../_static/square.png">
@@ -24,7 +26,7 @@
     
     
       
-        <title>Contributing - JAXMg</title>
+        <title>Symmetric or Hermitian eigensolve - JAXMg</title>
       
     
     
@@ -82,7 +84,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#contributing" class="md-skip">
+        <a href="#symmetric-or-hermitian-eigensolve" class="md-skip">
           Skip to content
         </a>
       
@@ -119,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Contributing
+              Symmetric or Hermitian eigensolve
             
           </span>
         </div>
@@ -248,11 +250,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../examples/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
           
   
   
@@ -288,13 +292,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../technical_details/" class="md-tabs__link">
           
   
   
@@ -450,26 +452,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
             
   
   
@@ -482,7 +489,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             Examples
@@ -496,7 +503,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/" class="md-nav__link">
+      <a href="../" class="md-nav__link">
         
   
   
@@ -519,7 +526,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/execution/" class="md-nav__link">
+      <a href="../execution/" class="md-nav__link">
         
   
   
@@ -542,7 +549,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/choose_tile_size/" class="md-nav__link">
+      <a href="../choose_tile_size/" class="md-nav__link">
         
   
   
@@ -565,7 +572,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/potrs/" class="md-nav__link">
+      <a href="../potrs/" class="md-nav__link">
         
   
   
@@ -588,7 +595,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/lu_solve/" class="md-nav__link">
+      <a href="../lu_solve/" class="md-nav__link">
         
   
   
@@ -608,10 +615,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../examples/syevd/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Symmetric or Hermitian eigensolve
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -622,6 +651,77 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#common-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common setup
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#solve-with-syevd" class="md-nav__link">
+    <span class="md-ellipsis">
+      Solve with syevd
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#advanced-control-the-outer-jaxjit" class="md-nav__link">
+    <span class="md-ellipsis">
+      Advanced: control the outer jax.jit
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Advanced: control the outer jax.jit">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#case-1-a-is-an-argument-of-the-jitted-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      Case 1: a is an argument of the jitted function
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#case-2-a-is-created-inside-the-jitted-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      Case 2: a is created inside the jitted function
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -634,7 +734,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/gesvd/" class="md-nav__link">
+      <a href="../gesvd/" class="md-nav__link">
         
   
   
@@ -826,31 +926,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
             
   
   
@@ -863,7 +958,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Technical Details
@@ -877,7 +972,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../" class="md-nav__link">
+      <a href="../../technical_details/" class="md-nav__link">
         
   
   
@@ -900,7 +995,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../memory_distribution/" class="md-nav__link">
+      <a href="../../technical_details/memory_distribution/" class="md-nav__link">
         
   
   
@@ -923,7 +1018,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../building_from_source/" class="md-nav__link">
+      <a href="../../technical_details/building_from_source/" class="md-nav__link">
         
   
   
@@ -943,32 +1038,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    Contributing
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../technical_details/contributing/" class="md-nav__link">
         
   
   
@@ -979,125 +1052,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#ai-agents" class="md-nav__link">
-    <span class="md-ellipsis">
-      AI Agents
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#current-development-priority" class="md-nav__link">
-    <span class="md-ellipsis">
-      Current development priority
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#pull-a-clean-copy" class="md-nav__link">
-    <span class="md-ellipsis">
-      Pull a clean copy
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#set-up-an-environment" class="md-nav__link">
-    <span class="md-ellipsis">
-      Set up an environment
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#make-your-changes" class="md-nav__link">
-    <span class="md-ellipsis">
-      Make your changes
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#test-your-changes" class="md-nav__link">
-    <span class="md-ellipsis">
-      Test your changes
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#open-a-pull-request" class="md-nav__link">
-    <span class="md-ellipsis">
-      Open a pull request
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#continuous-integration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Continuous integration
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#versioned-documentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      Versioned documentation
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#release-process" class="md-nav__link">
-    <span class="md-ellipsis">
-      Release process
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#versioning" class="md-nav__link">
-    <span class="md-ellipsis">
-      Versioning
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1137,101 +1091,53 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#ai-agents" class="md-nav__link">
+  <a href="#common-setup" class="md-nav__link">
     <span class="md-ellipsis">
-      AI Agents
+      Common setup
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#current-development-priority" class="md-nav__link">
+  <a href="#solve-with-syevd" class="md-nav__link">
     <span class="md-ellipsis">
-      Current development priority
+      Solve with syevd
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#pull-a-clean-copy" class="md-nav__link">
+  <a href="#advanced-control-the-outer-jaxjit" class="md-nav__link">
     <span class="md-ellipsis">
-      Pull a clean copy
+      Advanced: control the outer jax.jit
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Advanced: control the outer jax.jit">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#case-1-a-is-an-argument-of-the-jitted-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      Case 1: a is an argument of the jitted function
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#set-up-an-environment" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#case-2-a-is-created-inside-the-jitted-function" class="md-nav__link">
     <span class="md-ellipsis">
-      Set up an environment
+      Case 2: a is created inside the jitted function
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#make-your-changes" class="md-nav__link">
-    <span class="md-ellipsis">
-      Make your changes
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#test-your-changes" class="md-nav__link">
-    <span class="md-ellipsis">
-      Test your changes
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#open-a-pull-request" class="md-nav__link">
-    <span class="md-ellipsis">
-      Open a pull request
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#continuous-integration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Continuous integration
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#versioned-documentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      Versioned documentation
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#release-process" class="md-nav__link">
-    <span class="md-ellipsis">
-      Release process
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#versioning" class="md-nav__link">
-    <span class="md-ellipsis">
-      Versioning
-    </span>
-  </a>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1251,240 +1157,171 @@
 
 
 
-<h1 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">¤</a></h1>
-<p>Please help us improve JAXMg. You can contribute by
-<a href="https://github.com/flatironinstitute/jaxmg/issues">reporting a bug or suggesting a feature</a>,
-improving the documentation, or
-<a href="https://github.com/flatironinstitute/jaxmg/pulls">opening a pull request</a>
-with a code change. Contributions of any size are welcome.</p>
-<p>A typical contribution follows five steps:</p>
-<ol>
-<li>pull a clean copy of the repository and create a branch;</li>
-<li>set up a development environment;</li>
-<li>make a focused change;</li>
-<li>run the checks relevant to that change;</li>
-<li>open a pull request describing the change and its validation.</li>
-</ol>
-<h2 id="ai-agents">AI Agents<a class="headerlink" href="#ai-agents" title="Permanent link">¤</a></h2>
-<p>The use of an AI agent that autonomously writes code and submits pull requests is not permitted in the JAXMg project. A human must check any generated contribution content according to the License and Responsibility sections above.</p>
-<h2 id="current-development-priority">Current development priority<a class="headerlink" href="#current-development-priority" title="Permanent link">¤</a></h2>
-<ol>
-<li>
-<p>Some native failures still use <code>std::runtime_error</code>. Contributions that
-   express these consistently through XLA FFI error handling are particularly
-   useful.</p>
-</li>
-<li>
-<p>We would like to make the JAXMg solver routines differentiable. This will
-   require custom JVP and VJP rules that tell JAX how to propagate derivatives
-   through the FFI-backed distributed calculations.</p>
-</li>
-<li>
-<p>Provide users with a small tool to check their compute fabric and HPC setup.
-   This will make it easier for users to debug and for us to provide support.</p>
-</li>
-</ol>
-<h2 id="pull-a-clean-copy">Pull a clean copy<a class="headerlink" href="#pull-a-clean-copy" title="Permanent link">¤</a></h2>
-<p>Fork the repository first if you do not have write access. Then clone your fork
-or the main repository, update <code>main</code>, and create a branch:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/flatironinstitute/jaxmg.git
-<span class="nb">cd</span><span class="w"> </span>jaxmg
-git<span class="w"> </span>switch<span class="w"> </span>main
-git<span class="w"> </span>pull<span class="w"> </span>--ff-only
-git<span class="w"> </span>switch<span class="w"> </span>-c<span class="w"> </span>my-change
+<h1 id="symmetric-or-hermitian-eigensolve">Symmetric or Hermitian eigensolve<a class="headerlink" href="#symmetric-or-hermitian-eigensolve" title="Permanent link">¤</a></h1>
+<p><code>jaxmg.syevd</code> computes the eigenvalues <span class="arithmatex">\(\lambda_i\)</span> and, optionally, eigenvectors
+<span class="arithmatex">\(v_i\)</span> of a symmetric real or Hermitian complex matrix <span class="arithmatex">\(A\)</span>, satisfying
+<span class="arithmatex">\(Av_i=\lambda_i v_i\)</span>. For a normal eigensolve, use <code>syevd</code>. It provides the
+high-level interface and internally handles JIT compilation, buffer donation,
+input/output aliasing, padding, and distributed execution.</p>
+<h2 id="common-setup">Common setup<a class="headerlink" href="#common-setup" title="Permanent link">¤</a></h2>
+<p>The following setup uses an even number of processes arranged as a two-axis
+device mesh, with one Python process per GPU:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
+
+<span class="n">jax</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="s2">"jax_enable_x64"</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">distributed</span><span class="o">.</span><span class="n">initialize</span><span class="p">()</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jax.sharding</span><span class="w"> </span><span class="kn">import</span> <span class="n">NamedSharding</span><span class="p">,</span> <span class="n">PartitionSpec</span> <span class="k">as</span> <span class="n">P</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">syevd</span>
+
+
+<span class="n">num_processes</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_count</span><span class="p">()</span>
+<span class="k">if</span> <span class="n">num_processes</span> <span class="o">%</span> <span class="mi">2</span><span class="p">:</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"This example requires an even number of processes."</span><span class="p">)</span>
+<span class="n">mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="n">num_processes</span> <span class="o">//</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">))</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">set_mesh</span><span class="p">(</span><span class="n">mesh</span><span class="p">)</span>
+<span class="n">matrix_specs</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">)</span>
+<span class="n">a_sharding</span> <span class="o">=</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="p">)</span>
+
+<span class="n">T_A</span> <span class="o">=</span> <span class="mi">64</span>
+<span class="n">N</span> <span class="o">=</span> <span class="n">T_A</span> <span class="o">*</span> <span class="n">num_processes</span>
+<span class="n">dtype</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">float64</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">make_problem</span><span class="p">():</span>
+    <span class="n">expected_eigenvalues</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">N</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">expected_eigenvalues</span><span class="p">)</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">a_sharding</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">a</span><span class="p">,</span> <span class="n">expected_eigenvalues</span>
 </code></pre></div>
-<h2 id="set-up-an-environment">Set up an environment<a class="headerlink" href="#set-up-an-environment" title="Permanent link">¤</a></h2>
-<p>Create a virtual environment and install the development dependencies:</p>
-<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
-<span class="nb">source</span><span class="w"> </span>.venv/bin/activate
-python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[dev]"</span>
+<h2 id="solve-with-syevd">Solve with <code>syevd</code><a class="headerlink" href="#solve-with-syevd" title="Permanent link">¤</a></h2>
+<p>Pass the sharded matrix directly to <code>syevd</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="n">a</span><span class="p">,</span> <span class="n">expected_eigenvalues</span> <span class="o">=</span> <span class="n">make_problem</span><span class="p">()</span>
+
+<span class="n">eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span> <span class="o">=</span> <span class="n">syevd</span><span class="p">(</span>
+    <span class="n">a</span><span class="p">,</span>
+    <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
+    <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
+    <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">eigenvectors</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+
+<span class="n">correct</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">eigenvalues</span><span class="p">,</span> <span class="n">expected_eigenvalues</span><span class="p">)</span>
+<span class="n">correct</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+
+<span class="k">if</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_index</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">correct</span><span class="p">)</span>
 </code></pre></div>
-<p>For documentation-only work on a system without CUDA, install <code>.[docs]</code> and
-pytest instead.</p>
-<h2 id="make-your-changes">Make your changes<a class="headerlink" href="#make-your-changes" title="Permanent link">¤</a></h2>
-<p>The main areas of the repository are:</p>
-<ul>
-<li><code>src/jaxmg/</code> for the public Python interface and JAX integration;</li>
-<li><code>src/cuda/</code> for memory redistribution and cuSOLVERMp routines;</li>
-<li><code>tests/</code> for interface and distributed numerical tests;</li>
-<li><code>docs/</code> for user guides, examples, and technical documentation;</li>
-<li><code>.github/</code>, <code>.jenkins/</code>, and <code>pyproject.toml</code> for building and packaging.</li>
-</ul>
-<p>Changes under <code>src/cuda/</code>, <code>bazel/</code>, or <code>build_native_backend.sh</code> require a
-native rebuild. Follow
-<a href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/building_from_source/">Building the native backend</a>
-before running the GPU tests.</p>
-<p>Public behavior changes should include corresponding tests and documentation.</p>
-<h2 id="test-your-changes">Test your changes<a class="headerlink" href="#test-your-changes" title="Permanent link">¤</a></h2>
-<p>Run the checks relevant to the change:</p>
-<table>
-<thead>
-<tr>
-<th>Change</th>
-<th>Check</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Python API, validation, or layout metadata</td>
-<td><code>python -m pytest -q -m "not gpu" tests</code></td>
-</tr>
-<tr>
-<td>Documentation</td>
-<td><code>python -m mkdocs build --strict</code></td>
-</tr>
-<tr>
-<td>Native solver or redistribution code</td>
-<td>Rebuild the backend and run the GPU tests</td>
-</tr>
-<tr>
-<td>Packaging or dependencies</td>
-<td>Build and install a wheel through the matching CUDA extra</td>
-</tr>
-</tbody>
-</table>
-<p>The GPU suite distinguishes between <code>single_gpu</code> and <code>multi_gpu</code> tests. The
-multi-GPU tests launch one Python process per GPU. On a workstation with two
-GPUs, run the complete smoke suite with:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">CUDA_VISIBLE_DEVICES</span><span class="o">=</span><span class="m">0</span>,1<span class="w"> </span><span class="se">\</span>
-<span class="nv">JAXMG_GPU_TEST_LAUNCHER</span><span class="o">=</span>subprocess<span class="w"> </span><span class="se">\</span>
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>-m<span class="w"> </span><span class="s2">"gpu and not slow"</span><span class="w"> </span>tests/gpu
+<p>The eigenvalues are returned as a real array. The eigenvectors have the input
+dtype and are returned in the same JAX-facing matrix layout as <code>a</code>.</p>
+<p>When eigenvectors are not required, select the shorter values-only workflow:</p>
+<div class="highlight"><pre><span></span><code><span class="n">a</span><span class="p">,</span> <span class="n">expected_eigenvalues</span> <span class="o">=</span> <span class="n">make_problem</span><span class="p">()</span>
+
+<span class="n">eigenvalues</span> <span class="o">=</span> <span class="n">syevd</span><span class="p">(</span>
+    <span class="n">a</span><span class="p">,</span>
+    <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
+    <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
+    <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
+    <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">eigenvalues</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
 </code></pre></div>
-<p>The two smoke groups can also be selected independently with
-<code>-m "single_gpu and not slow"</code> or <code>-m "multi_gpu and not slow"</code>. Tests
-requiring more GPUs than are visible are skipped. On Slurm systems, the test
-helper can use <code>srun</code> across the current allocation.</p>
-<h2 id="open-a-pull-request">Open a pull request<a class="headerlink" href="#open-a-pull-request" title="Permanent link">¤</a></h2>
-<p>Push your branch and
-<a href="https://github.com/flatironinstitute/jaxmg/compare">open a pull request</a>:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>push<span class="w"> </span>-u<span class="w"> </span>origin<span class="w"> </span>my-change
+<p>This mode does not allocate, reverse-redistribute, or restore a matrix-sized
+eigenvector result.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The public wrapper donates <code>a</code> to the compiled eigensolve. Do not use the
+ input array after the call. Use <code>donate=False</code> to preserve it. This is less
+ memory efficient because the original input and working buffer must coexist.</p>
+</div>
+<p>There is no need to apply <code>jax.jit</code> or specify <code>donate_argnums</code>: <code>syevd</code> uses
+an internally cached jitted wrapper and manages donation and aliasing itself.
+If the eigensolve must be embedded inside a larger jitted calculation, use the
+advanced interface below instead of wrapping <code>syevd</code> in another <code>jax.jit</code>.</p>
+<p>When eigenvectors are requested, SYEVD materializes the full distributed
+eigenvector matrix and uses solver-specific workspace. It therefore reaches
+the GPU memory limit at a smaller matrix size than <code>potrs</code> or <code>lu_solve</code> on the
+same process grid.</p>
+<h2 id="advanced-control-the-outer-jaxjit">Advanced: control the outer <code>jax.jit</code><a class="headerlink" href="#advanced-control-the-outer-jaxjit" title="Permanent link">¤</a></h2>
+<p><code>syevd_shardmap_ctx</code> runs the same selected eigensolver workflow as <code>syevd</code>.
+The difference is that it does not create an internal <code>jax.jit</code>, allowing the
+eigensolve to become one stage of a larger function compiled by the caller.</p>
+<p>The context interface returns
+<code>(a_work, eigenvalues, eigenvectors, status)</code>. cuSOLVERMp uses separate
+distributed buffers for its overwritten input matrix and eigenvector output,
+so <code>a_work</code> is returned to give the outer compiled function an <span class="arithmatex">\(A\)</span>-sized alias
+target for the donated input. The eigenvectors still require a separate
+matrix-sized allocation.</p>
+<p>With <code>return_eigenvectors=False</code>, the context interface instead returns
+<code>(a_work, eigenvalues, status)</code>.</p>
+<p>The advanced examples additionally use:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">syevd_shardmap_ctx</span>
 </code></pre></div>
-<p>In the pull-request description, explain:</p>
-<ul>
-<li>what changed and why;</li>
-<li>any user-visible or compatibility effects;</li>
-<li>which tests were run;</li>
-<li>any hardware-dependent checks that could not be run locally.</li>
-</ul>
-<p>Generated build outputs should not be committed.</p>
-<h2 id="continuous-integration">Continuous integration<a class="headerlink" href="#continuous-integration" title="Permanent link">¤</a></h2>
-<p>The release build and GPU tests run on separate systems:</p>
-<ol>
-<li><strong>GitHub Actions builds</strong> CUDA 12 and CUDA 13 backends for <code>x86_64</code> and
-   <code>aarch64</code>.</li>
-<li><strong>GitHub Actions packages</strong> Python 3.12–3.14 <code>manylinux_2_28</code> wheels and
-   checks their metadata and native libraries.</li>
-<li><strong>Jenkins downloads those wheels</strong> and installs the normal
-   <code>jaxmg[cuda12]</code> dependency path.</li>
-<li><strong>Jenkins tests them</strong> on two physical A100 GPUs using the interface and GPU
-   smoke suites.</li>
-</ol>
-<p>This ensures that Jenkins tests the wheel produced by GitHub Actions rather
-than rebuilding it. AArch64 and CUDA 13 are currently build-validated but are
-not runtime-tested by Jenkins.</p>
-<p>The implementation is in:</p>
-<ul>
-<li><code>.github/workflows/build-wheels.yml</code>;</li>
-<li><code>.github/workflows/ci.yml</code>;</li>
-<li><code>.github/workflows/jenkins-test.yml</code>;</li>
-<li><code>.jenkins/Jenkinsfile</code>.</li>
-</ul>
-<h2 id="versioned-documentation">Versioned documentation<a class="headerlink" href="#versioned-documentation" title="Permanent link">¤</a></h2>
-<p>The site is published per release with <a href="https://github.com/jimporter/mike">mike</a>
-on the <code>gh-pages</code> branch, so documentation for an older release keeps matching
-the wheel that shipped it:</p>
-<table>
-<thead>
-<tr>
-<th>Trigger</th>
-<th>Published as</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Pull request</td>
-<td>nothing — <code>mkdocs build --strict</code> runs as a check only</td>
-</tr>
-<tr>
-<td>Push to <code>main</code></td>
-<td><code>dev</code>, a mutable build of the development tree</td>
-</tr>
-<tr>
-<td>Release tag <code>vX.Y.Z</code></td>
-<td><code>X.Y.Z</code>, and takes over the <code>latest</code> alias</td>
-</tr>
-</tbody>
-</table>
-<p>The bare site URL redirects to whatever <code>latest</code> points at, so links in the
-README and in <code>pyproject.toml</code> should use <code>/latest/…</code> rather than a version
-number. <code>0.0.9</code> is archived because it wrapped the older single-node cuSolverMg
-API; do not redeploy it.</p>
-<p>Numbered versions are written only by <code>release.yml</code>. Never run
-<code>mike deploy X.Y.Z</code> by hand for a version that has already shipped — that would
-silently replace the documentation for a released wheel.</p>
-<h2 id="release-process">Release process<a class="headerlink" href="#release-process" title="Permanent link">¤</a></h2>
-<p>This section is for maintainers.</p>
-<p>Before a final release, run <code>.github/workflows/release.yml</code> manually with a
-release candidate such as <code>1.2.0rc1</code>. The workflow builds all wheels, runs the
-Jenkins GPU tests, and publishes to TestPyPI.</p>
-<p>After checking the TestPyPI installation, create the final tag:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>tag<span class="w"> </span>v1.2.0
-git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>v1.2.0
+<h3 id="case-1-a-is-an-argument-of-the-jitted-function">Case 1: <code>a</code> is an argument of the jitted function<a class="headerlink" href="#case-1-a-is-an-argument-of-the-jitted-function" title="Permanent link">¤</a></h3>
+<p>When an existing matrix enters the outer jitted function as an argument, donate
+it with <code>donate_argnums</code>. Return <code>a_work</code> so the donated input has an
+<span class="arithmatex">\(A\)</span>-sized output alias at the outer compiled boundary:</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">donate_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">compiled_eigensolve</span><span class="p">(</span><span class="n">a</span><span class="p">):</span>
+    <span class="n">a_work</span><span class="p">,</span> <span class="n">eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">syevd_shardmap_ctx</span><span class="p">(</span>
+        <span class="n">a</span><span class="p">,</span>
+        <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
+        <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
+        <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Further JAX operations can be part of this compiled function.</span>
+    <span class="n">shifted_eigenvalues</span> <span class="o">=</span> <span class="n">eigenvalues</span> <span class="o">+</span> <span class="mf">1.0</span>
+    <span class="k">return</span> <span class="n">a_work</span><span class="p">,</span> <span class="n">shifted_eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span><span class="p">,</span> <span class="n">status</span>
+
+
+<span class="n">a</span><span class="p">,</span> <span class="n">expected_eigenvalues</span> <span class="o">=</span> <span class="n">make_problem</span><span class="p">()</span>
+<span class="n">a_work</span><span class="p">,</span> <span class="n">shifted_eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">compiled_eigensolve</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+<span class="n">eigenvectors</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+
+<span class="n">correct</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">shifted_eigenvalues</span><span class="p">,</span> <span class="n">expected_eigenvalues</span> <span class="o">+</span> <span class="mf">1.0</span><span class="p">)</span>
+<span class="n">correct</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+
+<span class="k">if</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_index</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">correct</span><span class="p">)</span>
 </code></pre></div>
-<p>The tagged workflow repeats the build and test process, publishes to TestPyPI,
-waits for approval, then publishes to PyPI and creates the GitHub release.</p>
-<p>Publishing requires the Jenkins secrets, PyPI Trusted Publishers, and
-<code>testpypi</code> and <code>pypi</code> GitHub environments described in
-<code>.github/workflows/release.yml</code>.</p>
-<h2 id="versioning">Versioning<a class="headerlink" href="#versioning" title="Permanent link">¤</a></h2>
-<p>To ensure compatibility with JAX, we compile the the native backend of JAXMg against the exact internal XLA revision that JAX is build against. This backend changes with each JAX release, so we have rebuild even when there are no source code changes to JAXMg. This forces us to follow JAX' release schedule.</p>
-<p>JAXMg releases are <code>MAJOR.MINOR.PATCH</code>, where the minor number tracks JAX.</p>
-<table>
-<thead>
-<tr>
-<th>Component</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>MAJOR</code></td>
-<td>Reserved for a major rewrite of JAXMg.</td>
-</tr>
-<tr>
-<td><code>MINOR</code></td>
-<td>One per tracked JAX release, so a new JAX always means a new minor.</td>
-</tr>
-<tr>
-<td><code>PATCH</code></td>
-<td>JAXMg fixes against the same JAX release.</td>
-</tr>
-</tbody>
-</table>
-<p>Released so far:</p>
-<table>
-<thead>
-<tr>
-<th>JAX</th>
-<th>JAXMg</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>0.10.1</code></td>
-<td><code>1.0.0</code>, <code>1.1.0</code>, <code>1.1.1</code></td>
-</tr>
-<tr>
-<td><code>0.11.0</code></td>
-<td><code>1.2.0</code></td>
-</tr>
-<tr>
-<td><code>0.11.1</code></td>
-<td><code>1.3.0</code></td>
-</tr>
-</tbody>
-</table>
-<p>The result of this is that each JAXMg release must pin a JAX version in <code>pyproject.toml</code>, for example "jax==0.11.1".</p>
+<p>Returning <code>a_work</code> from the outer jitted function is required when <code>a</code> is
+donated. It is an opaque native work buffer and should remain in the returned
+pytree until the compiled computation has completed. It is not the eigenvector
+matrix.</p>
+<h3 id="case-2-a-is-created-inside-the-jitted-function">Case 2: <code>a</code> is created inside the jitted function<a class="headerlink" href="#case-2-a-is-created-inside-the-jitted-function" title="Permanent link">¤</a></h3>
+<p>If the outer compiled function constructs <code>a</code> itself, the matrix is an internal
+temporary. XLA controls its lifetime, so <code>a_work</code> does not need to be returned
+from the outer function:</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@jax</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">build_and_eigensolve</span><span class="p">(</span><span class="n">diagonal</span><span class="p">):</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">diagonal</span><span class="p">)</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">reshard</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">a_sharding</span><span class="p">)</span>
+
+    <span class="n">_</span><span class="p">,</span> <span class="n">eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">syevd_shardmap_ctx</span><span class="p">(</span>
+        <span class="n">a</span><span class="p">,</span>
+        <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
+        <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
+        <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="c1"># a_work remains internal because a was created inside this function.</span>
+    <span class="k">return</span> <span class="n">eigenvalues</span> <span class="o">+</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">eigenvectors</span><span class="p">,</span> <span class="n">status</span>
+
+
+<span class="n">diagonal</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">N</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+<span class="n">diagonal</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">device_put</span><span class="p">(</span><span class="n">diagonal</span><span class="p">,</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">)))</span>
+<span class="n">shifted_eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">build_and_eigensolve</span><span class="p">(</span><span class="n">diagonal</span><span class="p">)</span>
+<span class="n">eigenvectors</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+</code></pre></div>
+<p><code>donate_argnums</code> is not needed for the internally created <code>a</code>. It only applies
+to arguments of the outer jitted function. Donate an outer argument such as
+<code>diagonal</code> only when the caller no longer needs it after the call.</p>
+<p>See the <a href="../../api/syevd/"><code>syevd</code> API reference</a> for the complete argument and
+return-value documentation.</p>
 
 
 
