@@ -996,6 +996,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#ai-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      AI Agents
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#current-development-priority" class="md-nav__link">
     <span class="md-ellipsis">
       Current development priority
@@ -1128,6 +1137,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#ai-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      AI Agents
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#current-development-priority" class="md-nav__link">
     <span class="md-ellipsis">
       Current development priority
@@ -1247,6 +1265,8 @@ with a code change. Contributions of any size are welcome.</p>
 <li>run the checks relevant to that change;</li>
 <li>open a pull request describing the change and its validation.</li>
 </ol>
+<h2 id="ai-agents">AI Agents<a class="headerlink" href="#ai-agents" title="Permanent link">¤</a></h2>
+<p>The use of an AI agent that autonomously writes code and submits pull requests is not permitted in the JAXMg project. A human must check any generated contribution content according to the License and Responsibility sections above.</p>
 <h2 id="current-development-priority">Current development priority<a class="headerlink" href="#current-development-priority" title="Permanent link">¤</a></h2>
 <ol>
 <li>
@@ -1412,11 +1432,11 @@ architecture list.</p>
 <h2 id="release-process">Release process<a class="headerlink" href="#release-process" title="Permanent link">¤</a></h2>
 <p>This section is for maintainers.</p>
 <p>Before a final release, run <code>.github/workflows/release.yml</code> manually with a
-release candidate such as <code>1.0.0rc1</code>. The workflow builds all wheels, runs the
+release candidate such as <code>1.2.0rc1</code>. The workflow builds all wheels, runs the
 Jenkins GPU tests, and publishes to TestPyPI.</p>
 <p>After checking the TestPyPI installation, create the final tag:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>tag<span class="w"> </span>v1.0.0
-git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>v1.0.0
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>tag<span class="w"> </span>v1.2.0
+git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>v1.2.0
 </code></pre></div>
 <p>The tagged workflow repeats the build and test process, publishes to TestPyPI,
 waits for approval, then publishes to PyPI and creates the GitHub release.</p>
