@@ -15,7 +15,8 @@ A typical contribution follows five steps:
 5. open a pull request describing the change and its validation.
 
 ## AI Agents
-The use of an AI agent that autonomously writes code and submits pull requests is not permitted in the JAXMg project. A human must check any generated contribution content according to the License and Responsibility sections above.
+The use of an AI agent that autonomously writes code and submits pull requests or issues is not permitted in the JAXMg project. 
+A human must check any generated contribution content according to the License and Responsibility sections above.
 
 ## Current development priority
 
