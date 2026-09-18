@@ -79,6 +79,42 @@ absl::Status XlaCusolverMpLuSolveDispatch(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 
+// Prepare hook for least squares. Requests the communicator used by native
+// redistribution and the cuSOLVERMp GELS process grid.
+absl::Status XlaCusolverMpGelsPrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests);
+
+// Runtime least-squares hook. It redistributes rectangular A and B, runs
+// cuSOLVERMp GELS, and restores the overwritten B work buffer for JAX.
+absl::Status XlaCusolverMpGelsDispatch(
+    se::Stream* stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
+    int64_t nrhs, int64_t b_distribution_cols, int64_t tile_size,
+    int64_t grid_mapping, absl::Span<const int64_t> rank_map,
+    ffi::AnyBuffer a, ffi::AnyBuffer b,
+    ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
+// Prepare hook for reduced QR. Requests the communicator used by native
+// redistribution and the cuSOLVERMp process grid.
+absl::Status XlaCusolverMpQrPrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests);
+
+// Runtime reduced-QR hook. It redistributes A, computes GEQRF, preserves R,
+// generates Q with ORGQR, and restores both factors to JAX layouts.
+absl::Status XlaCusolverMpQrDispatch(
+    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
+    int64_t grid_mapping, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> q, ffi::Result<ffi::AnyBuffer> r,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
 // Prepare hook for SYEVD. Requests the same all-assigned communicator used by
 // both native redistribution and the cuSOLVERMp device grid.
 absl::Status XlaCusolverMpSyevdPrepare(
@@ -165,6 +201,34 @@ absl::Status XlaCusolverMpGesvdValuesDispatch(
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> singular_values,
     ffi::Result<ffi::AnyBuffer> work,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
+// Prepare hook for polar decomposition. Requests the all-assigned communicator
+// shared by rectangular redistribution and the cuSOLVERMp device grid.
+absl::Status XlaCusolverMpPolarPrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests);
+
+// Runtime polar-decomposition hook returning both Up and H.
+absl::Status XlaCusolverMpPolarUhDispatch(
+    se::Stream* stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
+    int64_t tile_size, int64_t grid_mapping,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> up, ffi::Result<ffi::AnyBuffer> h,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
+// Runtime polar-decomposition hook returning only Up.
+absl::Status XlaCusolverMpPolarUDispatch(
+    se::Stream* stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
+    int64_t tile_size, int64_t grid_mapping,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> up,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);

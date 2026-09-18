@@ -1,7 +1,7 @@
 """Shared Python layout helpers for the cuSOLVERMp backend.
 
 This module defines four parts of the Python-to-native layout contract shared
-by the POTRS, LU-solve, and SYEVD wrappers:
+by the JAXMg solver and decomposition wrappers:
 
 1. infer and validate the JAX ``Mesh`` and matrix ``PartitionSpec``;
 2. place solve inputs in the regular native work layout and restore outputs to
@@ -24,8 +24,12 @@ from jax import Array
 from jax.sharding import AxisType, Mesh, NamedSharding, PartitionSpec as P
 
 from ._layout_types import (
+    MatrixPadding2D,
     ProcessGrid,
     ProcessRankMap,
+    TileShape,
+    calculate_2d_padding,
+    validate_nonempty_block_cyclic_ownership,
 )
 
 
@@ -173,13 +177,10 @@ def validate_2d_matrix_specs(
 def rhs_distribution_columns(nrhs: int, *, process_cols: int, pad: bool) -> int:
     """Choose the JAX-visible RHS width used before local tile padding.
 
-    cuSOLVERMp accepts a skinny solve-input matrix ``B`` with ``NRHS``
-    columns, even when ``NRHS`` is smaller than the process-grid column count.
-    In that ScaLAPACK-style layout, some process columns simply own zero real
-    RHS columns. The JAX-facing block-sharded input cannot express that zero
-    ownership with the simple ``PartitionSpec(row_axis, col_axis)`` contract
-    used by this backend, because the global column dimension must first be
-    splittable over ``process_cols``.
+    cuSOLVERMp represents a skinny solve input ``B`` using its logical
+    ``NRHS`` columns, whose block-cyclic ownership need not match JAX's even
+    block sharding. The JAX-facing input must first have a global column
+    dimension that is divisible by ``process_cols``.
 
     To bridge the two models, JAXMg pads the JAX-visible RHS width to the next
     multiple of the process-column count before applying local tile padding.
@@ -743,3 +744,90 @@ def _unpad_local_2d(block: Array, *, local_rows: int, local_cols: int) -> Array:
         The leading ``(local_rows, local_cols)`` logical region.
     """
     return block[:local_rows, :local_cols]
+
+
+def prepare_rectangular_matrix_layout(
+    logical_rows: int,
+    logical_cols: int,
+    grid: ProcessGrid,
+    tile_shape: TileShape,
+    *,
+    pad: bool,
+    caller: str,
+) -> MatrixPadding2D:
+    """Validate a distributed matrix and return its uniform local capacity.
+
+    Args:
+        logical_rows: Global logical row count.
+        logical_cols: Global logical column count.
+        grid: cuSOLVERMp process-grid shape.
+        tile_shape: Native block-cyclic tile dimensions.
+        pad: Whether local shards may be padded to tile-aligned capacity.
+        caller: Routine-specific matrix label used in validation errors.
+
+    Returns:
+        The logical and physical local dimensions required on every rank.
+
+    Raises:
+        ValueError: If a process owns no output tile, the global shape cannot
+            be represented by the JAX sharding, or padding is required while
+            ``pad=False``.
+    """
+    validate_nonempty_block_cyclic_ownership(
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
+        grid=grid,
+        tile_shape=tile_shape,
+        caller=caller,
+    )
+    try:
+        padding = calculate_2d_padding(
+            logical_rows=logical_rows,
+            logical_cols=logical_cols,
+            grid=grid,
+            tile_shape=tile_shape,
+        )
+    except ValueError as exc:
+        raise ValueError(
+            f"{caller} shape ({logical_rows}, {logical_cols}) must be divisible "
+            f"by process grid ({grid.process_rows}, {grid.process_cols}) "
+            "before local tile padding."
+        ) from exc
+    if not pad and padding.needs_padding:
+        raise ValueError(
+            f"{caller} requires tile-aligned local shards when pad=False. "
+            "Use a tile size that divides both local dimensions or set pad=True."
+        )
+    return padding
+
+
+def make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
+    """Build the shard-local bottom/right padding transform for a matrix."""
+    if not padding.needs_padding:
+        return lambda block: block
+    return jax.shard_map(
+        functools.partial(
+            _pad_local_2d,
+            row_padding=padding.row_padding_per_process,
+            col_padding=padding.col_padding_per_process,
+        ),
+        mesh=mesh,
+        in_specs=matrix_specs,
+        out_specs=matrix_specs,
+        check_vma=True,
+    )
+
+
+def make_local_unpad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
+    """Build the shard-local slice that restores a matrix's logical shape."""
+    return jax.shard_map(
+        functools.partial(
+            _unpad_local_2d,
+            local_rows=padding.local_logical_rows,
+            local_cols=padding.local_logical_cols,
+        ),
+        mesh=mesh,
+        in_specs=matrix_specs,
+        out_specs=matrix_specs,
+        check_vma=True,
+    )

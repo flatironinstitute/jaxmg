@@ -19,10 +19,11 @@ from jax import Array
 from jax.sharding import Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
-    _pad_local_2d,
-    _unpad_local_2d,
     cusolvermp_grid_mapping_attr,
     infer_mesh_and_matrix_specs,
+    make_local_pad_fn,
+    make_local_unpad_fn,
+    prepare_rectangular_matrix_layout,
     use_abstract_mesh_decorator,
     process_rank_map_from_mesh,
     standard_grid_rank_map_attr,
@@ -31,8 +32,6 @@ from ._cusolvermp_layout import (
 )
 from ._cusolvermp_status import _CUSOLVERMP_GESVD_STATUS_SIZE
 from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap, TileShape
-from ._layout_types import calculate_2d_padding
-from ._layout_types import validate_nonempty_block_cyclic_ownership
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -152,18 +151,18 @@ def gesvd(
     u_shape = (m, m if full_matrices else k)
     vh_shape = (n if full_matrices else k, n)
 
-    a_padding = _prepare_gesvd_matrix_layout(
+    a_padding = prepare_rectangular_matrix_layout(
         m, n, grid, tile_shape, pad=pad, caller="gesvd(A)"
     )
     u_padding = (
-        _prepare_gesvd_matrix_layout(
+        prepare_rectangular_matrix_layout(
             *u_shape, grid, tile_shape, pad=pad, caller="gesvd(U)"
         )
         if compute_u
         else None
     )
     vh_padding = (
-        _prepare_gesvd_matrix_layout(
+        prepare_rectangular_matrix_layout(
             *vh_shape, grid, tile_shape, pad=pad, caller="gesvd(Vh)"
         )
         if compute_vh
@@ -300,11 +299,11 @@ def gesvd_shardmap_ctx(
     u_shape = (m, m if full_matrices else k)
     vh_shape = (n if full_matrices else k, n)
 
-    a_padding = _prepare_gesvd_matrix_layout(
+    a_padding = prepare_rectangular_matrix_layout(
         m, n, grid, tile_shape, pad=pad, caller="gesvd_shardmap_ctx(A)"
     )
     u_padding = (
-        _prepare_gesvd_matrix_layout(
+        prepare_rectangular_matrix_layout(
             *u_shape,
             grid,
             tile_shape,
@@ -315,7 +314,7 @@ def gesvd_shardmap_ctx(
         else None
     )
     vh_padding = (
-        _prepare_gesvd_matrix_layout(
+        prepare_rectangular_matrix_layout(
             *vh_shape,
             grid,
             tile_shape,
@@ -384,86 +383,6 @@ def _real_dtype_for_singular_values(dtype):
     )
 
 
-def _prepare_gesvd_matrix_layout(
-    logical_rows: int,
-    logical_cols: int,
-    grid: ProcessGrid,
-    tile_shape: TileShape,
-    *,
-    pad: bool,
-    caller: str,
-) -> MatrixPadding2D:
-    """Validate one GESVD matrix and return its uniform local capacity.
-
-    A and each requested vector output participate independently in the 2D
-    block-cyclic workflow. This helper enforces non-empty tile ownership,
-    checks that the logical shape can be represented by the JAX block sharding,
-    and applies the caller's padding policy consistently to all matrices.
-    """
-    validate_nonempty_block_cyclic_ownership(
-        logical_rows=logical_rows,
-        logical_cols=logical_cols,
-        grid=grid,
-        tile_shape=tile_shape,
-        caller=caller,
-    )
-    try:
-        padding = calculate_2d_padding(
-            logical_rows=logical_rows,
-            logical_cols=logical_cols,
-            grid=grid,
-            tile_shape=tile_shape,
-        )
-    except ValueError as exc:
-        raise ValueError(
-            f"{caller} shape ({logical_rows}, {logical_cols}) must be divisible "
-            f"by process grid ({grid.process_rows}, {grid.process_cols}) "
-            "before local tile padding."
-        ) from exc
-    if not pad and padding.needs_padding:
-        raise ValueError(
-            f"{caller} requires tile-aligned local shards when pad=False. "
-            "Use a tile size that divides both local dimensions or set pad=True."
-        )
-    return padding
-
-
-def _make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
-    """Build the shard-local bottom/right padding transform for A."""
-    if not padding.needs_padding:
-        return lambda block: block
-    return jax.shard_map(
-        partial(
-            _pad_local_2d,
-            row_padding=padding.row_padding_per_process,
-            col_padding=padding.col_padding_per_process,
-        ),
-        mesh=mesh,
-        in_specs=matrix_specs,
-        out_specs=matrix_specs,
-        check_vma=True,
-    )
-
-
-def _make_local_unpad_fn(
-    mesh: Mesh,
-    matrix_specs: P,
-    padding: MatrixPadding2D,
-):
-    """Build the shard-local slice that restores a requested vector shape."""
-    return jax.shard_map(
-        partial(
-            _unpad_local_2d,
-            local_rows=padding.local_logical_rows,
-            local_cols=padding.local_logical_cols,
-        ),
-        mesh=mesh,
-        in_specs=matrix_specs,
-        out_specs=matrix_specs,
-        check_vma=True,
-    )
-
-
 @lru_cache(maxsize=None)
 def _gesvd_pipeline(
     mesh: Mesh,
@@ -505,14 +424,14 @@ def _gesvd_pipeline(
         process_cols=process_cols,
         caller="cusolvermp_gesvd",
     )
-    pad_a = _make_local_pad_fn(mesh, matrix_specs, a_padding)
+    pad_a = make_local_pad_fn(mesh, matrix_specs, a_padding)
     unpad_u = (
-        _make_local_unpad_fn(mesh, matrix_specs, u_padding)
+        make_local_unpad_fn(mesh, matrix_specs, u_padding)
         if u_padding is not None
         else None
     )
     unpad_vh = (
-        _make_local_unpad_fn(mesh, matrix_specs, vh_padding)
+        make_local_unpad_fn(mesh, matrix_specs, vh_padding)
         if vh_padding is not None
         else None
     )

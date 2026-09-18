@@ -49,7 +49,7 @@ namespace xla::gpu {
 // Fused solver handlers.
 // ---------------------------------------------------------------------------
 //
-// Python-facing `potrs`, `lu_solve`, `syevd`, and `gesvd` register here. Each call
+// Python-facing solver and decomposition routines register here. Each call
 // performs local layout conversion, edge-padding compaction, 2D block-cyclic
 // redistribution, cuSOLVERMp execution, reverse redistribution, and local
 // layout restore inside one FFI dispatch.
@@ -143,6 +143,64 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<int64_t>("grid_mapping")
         .Attr<absl::Span<const int64_t>>("rank_map")
         .Arg<ffi::AnyBuffer>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+// Registers the GELS prepare target for the shared XLA communicator.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpGelsPrepareFFI, XlaCusolverMpGelsPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+// Registers the rectangular least-squares target. A is returned as opaque
+// work storage, while B is overwritten with the solution in its first N rows.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpGelsFFI, XlaCusolverMpGelsDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("m")
+        .Attr<int64_t>("n")
+        .Attr<int64_t>("nrhs")
+        .Attr<int64_t>("b_distribution_cols")
+        .Attr<int64_t>("tile_size")
+        .Attr<int64_t>("grid_mapping")
+        .Attr<absl::Span<const int64_t>>("rank_map")
+        .Arg<ffi::AnyBuffer>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+// Registers the reduced-QR prepare target for the shared XLA communicator.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpQrPrepareFFI, XlaCusolverMpQrPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+// Registers reduced QR with explicit Q and R outputs.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpQrFFI, XlaCusolverMpQrDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("m")
+        .Attr<int64_t>("n")
+        .Attr<int64_t>("tile_size")
+        .Attr<int64_t>("grid_mapping")
+        .Attr<absl::Span<const int64_t>>("rank_map")
         .Arg<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
@@ -290,6 +348,52 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<absl::Span<const int64_t>>("rank_map")
         .Arg<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+// Registers the polar prepare target shared by both output modes.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpPolarPrepareFFI, XlaCusolverMpPolarPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+// Registers polar decomposition with both Up and H outputs.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpPolarUhFFI, XlaCusolverMpPolarUhDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("m")
+        .Attr<int64_t>("n")
+        .Attr<int64_t>("tile_size")
+        .Attr<int64_t>("grid_mapping")
+        .Attr<absl::Span<const int64_t>>("rank_map")
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+// Registers polar decomposition without the optional H output.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpPolarUFFI, XlaCusolverMpPolarUDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("m")
+        .Attr<int64_t>("n")
+        .Attr<int64_t>("tile_size")
+        .Attr<int64_t>("grid_mapping")
+        .Attr<absl::Span<const int64_t>>("rank_map")
+        .Arg<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
         .Ret<ffi::BufferR1<S32>>()
         .Ctx<ffi::CollectiveParams>()

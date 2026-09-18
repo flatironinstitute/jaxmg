@@ -7,3 +7,4 @@ def pytest_configure(config):
         "markers", "multi_gpu: rank-per-GPU tests that require multiple GPUs"
     )
     config.addinivalue_line("markers", "slow: longer validation sweeps")
+    config.addinivalue_line("markers", "examples: runs the shipped scripts in examples/")
