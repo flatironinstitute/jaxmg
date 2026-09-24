@@ -142,7 +142,28 @@ def run_case() -> None:
         emit_ok(case, return_logdet=return_logdet)
         return
 
-    if interface == "abstract_mesh":
+    if interface == "inferred":
+        # Neither mesh nor matrix_specs: inside the caller's jit, JAXMg reads
+        # them off the type of A and the abstract context mesh.
+        @partial(jax.jit, static_argnames=("tile_size",))
+        def solve_inferred(_a, _b, *, tile_size):
+            return potrs(
+                _a,
+                _b,
+                tile_size,
+                return_status=True,
+                return_logdet=return_logdet,
+                pad=True,
+            )
+
+        with jax.set_mesh(mesh):
+            result = solve_inferred(a_dev, b_dev, tile_size=case.tile_size)
+        if return_logdet:
+            out, logdet, status = result
+            logdet.block_until_ready()
+        else:
+            out, status = result
+    elif interface == "abstract_mesh":
         # Inside the caller's jit only the abstract mesh is available, which is
         # all JAXMg needs: devices are resolved at run time.
         @partial(jax.jit, static_argnames=("tile_size",))
@@ -232,7 +253,7 @@ def run_case() -> None:
     assert status_words.size % _CUSOLVERMP_POTRS_STATUS_SIZE == 0, status_words
     assert np.all(status_words[::_CUSOLVERMP_POTRS_STATUS_SIZE] == 0), status_words
     assert_close_scaled(out, expected)
-    if interface == "abstract_mesh":
+    if interface in ("abstract_mesh", "inferred"):
         # The native backend chose the grid mapping from the device assignment:
         # status word 39 is 1 for row-major and 0 for column-major.
         expected_mapping = 1 if case.grid_order == "row_major" else 0

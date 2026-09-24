@@ -67,11 +67,12 @@ def lu_solve(
             ``N x 1`` matrix.
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
             dimension must be a multiple of ``T_A`` after padding.
-        mesh (Mesh, optional): JAX mesh used for ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used for ``jax.shard_map``.
+            If omitted, read off the sharding of ``a`` (its type inside
+            ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            PartitionSpec describing the matrix sharding. If omitted, inferred
-            from ``a.sharding.spec``.
+            PartitionSpec describing the matrix sharding. If omitted, read
+            off the sharding of ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         return_status (bool, optional): If True return ``(x, status)`` where
             ``status`` is the native per-rank diagnostic vector. If False
@@ -171,11 +172,12 @@ def lu_solve_shardmap_ctx(
         b (Array): 1D or 2D solve input. A vector is treated as an
             ``N x 1`` matrix.
         T_A (int): Square tile width used by cuSOLVERMp.
-        mesh (Mesh, optional): JAX mesh used for ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used for ``jax.shard_map``.
+            If omitted, read off the sharding of ``a`` (its type inside
+            ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            PartitionSpec describing the matrix sharding. If omitted, inferred
-            from ``a.sharding.spec``.
+            PartitionSpec describing the matrix sharding. If omitted, read
+            off the sharding of ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         pad (bool, optional): If True (default) apply per-device padding so
             each local shard length is compatible with ``T_A``; if False the

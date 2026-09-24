@@ -66,11 +66,12 @@ def gesvd(
             two-axis device mesh.
         T_A (int): Square cuSOLVERMp tile width. GESVD supports rectangular
             matrices but requires equal row and column tile dimensions.
-        mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used by ``jax.shard_map``.
+            If omitted, read off the sharding of ``a`` (its type inside
+            ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            Rank-2 matrix sharding. If omitted, inferred from
-            ``a.sharding.spec``.
+            Rank-2 matrix sharding. If omitted, read off the sharding of
+            ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         compute_u (bool, optional): Whether to compute and return left singular
             vectors. Default is True. This must be a Python ``bool`` fixed
@@ -197,11 +198,12 @@ def gesvd_shardmap_ctx(
         a (Array): A rank-2 real or complex matrix sharded over a one- or
             two-axis device mesh.
         T_A (int): Square cuSOLVERMp tile width.
-        mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used by ``jax.shard_map``.
+            If omitted, read off the sharding of ``a`` (its type inside
+            ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            Rank-2 matrix sharding. If omitted, inferred from
-            ``a.sharding.spec``.
+            Rank-2 matrix sharding. If omitted, read off the sharding of
+            ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         compute_u (bool, optional): Whether to compute left singular vectors.
         compute_vh (bool, optional): Whether to compute right singular vectors

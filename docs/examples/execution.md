@@ -98,6 +98,17 @@ The mesh passed to a solver does not have to be the one in context: each call
 enters its own mesh, so a program that keeps a different mesh set globally can
 call JAXMg without switching it.
 
+The `mesh` and `matrix_specs` arguments of the solvers are optional. When they
+are omitted, JAXMg reads them off the sharding of the input matrix, falling
+back to the mesh set with `jax.set_mesh`, both eagerly and inside `jax.jit`.
+Inside `jax.jit` only the abstract mesh is available, which is all JAXMg needs:
+as for `jax.lax.axis_index`, the devices are resolved when the program runs.
+With `Auto` mesh axes the sharding of the matrix is not known inside `jax.jit`,
+so it then defaults to the mesh axes in order, `P("pr", "pc")` above or
+`P("x", None)` for a one-axis mesh. If the matrix is actually sharded
+differently, JAX redistributes it to that layout first; pass `matrix_specs`
+to avoid it.
+
 You can inspect the resultant process-rank mapping selected by JAX:
 
 ```python
