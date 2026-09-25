@@ -210,7 +210,7 @@ def test_gesvd_rejects_required_padding_when_disabled():
 def test_gesvd_rejects_output_shape_not_divisible_by_process_grid():
     """Reject a requested thin output that the shared JAX sharding cannot hold."""
     with pytest.raises(ValueError, match="must be divisible by process grid"):
-        gesvd_module._prepare_gesvd_matrix_layout(
+        gesvd_module.prepare_rectangular_matrix_layout(
             8,
             3,
             ProcessGrid(2, 2),

@@ -43,6 +43,33 @@ $$
 
 ---
 
+## `least_squares`
+
+Multi-GPU least-squares solver for overdetermined systems.
+
+$$
+X = \underset{X}{\operatorname{argmin}}\;\lVert A X-B\rVert_2,
+\qquad A\in\mathbb{F}^{M\times N},\quad M\geq N.
+$$
+
+[`least_squares` API and usage](least_squares.md)
+
+---
+
+## `qr`
+
+Compute the reduced QR decomposition of a tall or square matrix:
+
+$$
+A = Q R, \qquad Q^{\dagger}Q=I,
+$$
+
+where $Q$ is $M\times N$ and $R$ is $N\times N$ and upper triangular.
+
+[`qr` API and usage](qr.md)
+
+---
+
 ## `syevd`
 
 Multi-GPU eigensolver for symmetric (Hermitian) matrices.
@@ -65,3 +92,18 @@ matrix $A$ ($A = U \Sigma V^{\dagger}$), returning the singular values and
 independently selected left and right singular vectors in reduced or full form.
 
 [`gesvd` API and usage](gesvd.md)
+
+---
+
+## `polar`
+
+Compute the polar decomposition of a tall or square matrix $A$:
+
+$$
+A = U_p H,
+$$
+
+returning the polar factor $U_p$ and optionally the Hermitian
+positive-semidefinite factor $H$.
+
+[`polar` API and usage](polar.md)

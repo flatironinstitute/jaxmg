@@ -18,12 +18,21 @@ JAXMg currently provides a jittable API for the following routines:
 - [`lu_solve`](api/lu_solve.md): Solves the system of linear equations $Ax=B$,
   where $A$ is an $N \times N$ general nonsingular matrix, using a pivoted LU
   decomposition.
+- [`least_squares`](api/least_squares.md): Solves the overdetermined system
+  $\min_X\lVert AX-B\rVert_2$ for an $M \times N$ matrix with $M\geq N$ using
+  a distributed QR factorization.
+- [`qr`](api/qr.md): Computes the reduced QR decomposition $A=QR$ of a tall or
+  square matrix, returning an orthonormal basis $Q$ and upper-triangular factor
+  $R$.
 - [`syevd`](api/syevd.md): Computes the eigenvalues $\lambda_i$ and optional
   eigenvectors $v_i$ of an $N \times N$ symmetric or Hermitian matrix $A$,
   satisfying $Av_i=\lambda_i v_i$.
 - [`gesvd`](api/gesvd.md): Computes the singular-value decomposition of an
   $M \times N$ real or complex matrix $A$ ($A = U \Sigma V^{\dagger}$),
   returning the singular values and optional left and right singular vectors.
+- [`polar`](api/polar.md): Computes the polar decomposition of a tall or square
+  matrix $A$ ($A=U_pH$), returning the polar factor $U_p$ and optional Hermitian
+  positive-semidefinite factor $H$.
 
 ## How JAXMg works
 
@@ -44,8 +53,12 @@ The operations are implemented using:
   and [`cusolverMpPotrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrs)
 - `lu_solve`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
   and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)
+- `least_squares`: [`cusolverMpGels`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgels)
+- `qr`: [`cusolverMpGeqrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgeqrf)
+  and [`cusolverMpOrgqr`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermporgqr)
 - `syevd`: [`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)
 - `gesvd`: [`cusolverMpGesvd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgesvd)
+- `polar`: [`cusolverMpPolar`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppolar)
 
 For more details, see the [API reference](api/index.md) and the accompanying
 [paper](https://arxiv.org/abs/2601.14466).

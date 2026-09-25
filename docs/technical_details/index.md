@@ -87,11 +87,18 @@ The redistribution stages are shared by all public routines:
   all-reduce to return `log(det(A))`.
 - `lu_solve` calls `cusolverMpGetrf` followed by `cusolverMpGetrs` and manages
   the distributed pivot allocation.
+- `least_squares` calls `cusolverMpGels` for overdetermined rectangular systems
+  and restores the solution from the overwritten solve-input buffer.
+- `qr` calls `cusolverMpGeqrf`, preserves the upper-triangular factor, and then
+  calls `cusolverMpOrgqr` to form the reduced orthonormal factor.
 - `syevd` calls `cusolverMpSyevd` and materializes distributed eigenvalues plus
   eigenvectors when requested.
 - `gesvd` calls `cusolverMpGesvd` for rectangular matrices and restores only
   the requested U and Vh outputs. Its shared scratch allocation is sized to the
   largest redistribution requirement among A and those requested outputs.
+- `polar` calls `cusolverMpPolar` for tall or square matrices. The donated A
+  allocation is overwritten by the polar factor, and the optional H output is
+  allocated and restored only when requested.
 
 Each Python process owns one GPU and contributes one rank to the XLA/NCCL and
 cuSOLVERMp communicators. See [Distributed execution](../examples/execution.md)
