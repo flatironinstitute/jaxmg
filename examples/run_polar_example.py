@@ -76,7 +76,7 @@ def main() -> None:
     a, expected_up, expected_h = make_matrix()
 
     # Run the distributed JAXMg polar decomposition.
-    up, h = polar(a, T_A=T_A, mesh=mesh, matrix_specs=matrix_specs)
+    up, h = polar(a, T_A=T_A)
     h.block_until_ready()
 
     # Validate both factors against the known solution.

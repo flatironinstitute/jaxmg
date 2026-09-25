@@ -5,6 +5,8 @@ launching a distributed JAX program to running a cuSOLVERMp routine.
 
 Ready-to-run scripts are provided in the repository's
 [examples directory](https://github.com/flatironinstitute/jaxmg/tree/main/examples).
+They establish the mesh and input sharding once, after which each solver infers
+that layout directly from its input matrix.
 
 ## 1. Configure Distributed Execution
 

@@ -75,8 +75,6 @@ def main() -> None:
         _, u, singular_values, vh, _ = gesvd_shardmap_ctx(
             a,
             T_A=T_A,
-            mesh=mesh,
-            matrix_specs=matrix_specs,
         )
         return u, singular_values, vh, expected_singular_values
 

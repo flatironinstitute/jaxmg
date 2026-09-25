@@ -54,8 +54,6 @@ x = least_squares(
     a,
     b,
     T_A=T_A,
-    mesh=mesh,
-    matrix_specs=matrix_specs,
 )
 x.block_until_ready()
 
@@ -107,8 +105,6 @@ def compiled_solve(a, b):
         a,
         b,
         T_A=T_A,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
     )
     return a_work, b_work, 2.0 * x, status
 
@@ -139,8 +135,6 @@ def build_and_solve():
         a,
         b,
         T_A=T_A,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
     )
     return x, status
 

@@ -77,8 +77,6 @@ def main() -> None:
         up, h, _ = polar_shardmap_ctx(
             a,
             T_A=T_A,
-            mesh=mesh,
-            matrix_specs=matrix_specs,
         )
         return up, h, expected_up, expected_h
 

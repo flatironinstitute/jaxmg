@@ -80,8 +80,6 @@ def main() -> None:
             a,
             b,
             T_A=T_A,
-            mesh=mesh,
-            matrix_specs=matrix_specs,
         )
         return x
 
