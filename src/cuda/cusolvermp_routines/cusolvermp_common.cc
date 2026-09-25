@@ -26,7 +26,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <optional>
 #include <vector>
+
+#include "absl/strings/str_join.h"
 
 namespace xla::gpu {
 
@@ -92,6 +95,82 @@ absl::Status ValidateStandardRankMapForGridMapping(
   return absl::OkStatus();
 }
 
+absl::StatusOr<ResolvedProcessGrid> ResolveProcessGrid(
+    const char* caller, const CollectiveParams* collective_params,
+    absl::Span<const int64_t> partition_slots, int64_t process_rows,
+    int64_t process_cols) {
+  if (collective_params == nullptr ||
+      collective_params->device_assn == nullptr) {
+    return absl::FailedPreconditionError(absl::StrFormat(
+        "%s requires XLA's device assignment to place the process grid",
+        caller));
+  }
+  const DeviceAssignment& assignment = *collective_params->device_assn;
+  // JAXMg runs under jax.jit's SPMD partitioner: one replica, and one
+  // computation (partition) per device.
+  if (assignment.replica_count() != 1) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s expects a single replica, got %d", caller,
+        assignment.replica_count()));
+  }
+  const int64_t num_logical_devices = assignment.computation_count();
+  const int64_t num_ranks = process_rows * process_cols;
+  if (process_rows <= 0 || process_cols <= 0 ||
+      partition_slots.size() != static_cast<size_t>(num_ranks) ||
+      num_logical_devices != num_ranks) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s expects one process-grid slot per device, got %d slots and %d "
+        "devices for a %d x %d process grid",
+        caller, partition_slots.size(), num_logical_devices, process_rows,
+        process_cols));
+  }
+
+  // The communicator ranks are those of the clique borrowed from XLA.
+  absl::StatusOr<GpuCliqueKey> clique_key =
+      AllAssignedDevicesP2PCliqueKey(*collective_params);
+  if (!clique_key.ok()) {
+    return clique_key.status();
+  }
+
+  ResolvedProcessGrid resolved;
+  resolved.rank_map.assign(num_ranks, -1);
+  for (int64_t logical_id = 0; logical_id < num_logical_devices; ++logical_id) {
+    // Partition `logical_id` runs on the device XLA assigns to it, which is
+    // how XLA's `partition-id` (and hence `jax.lax.axis_index`) number the
+    // devices.
+    const GlobalDeviceId device(assignment(0, logical_id));
+    const std::optional<RankId> rank = clique_key->rank(device);
+    if (!rank.has_value()) {
+      return absl::InternalError(absl::StrFormat(
+          "%s could not find device %d in the communicator clique", caller,
+          device.value()));
+    }
+    const int64_t slot = partition_slots[logical_id];
+    if (slot < 0 || slot >= num_ranks || resolved.rank_map[slot] != -1) {
+      return absl::InvalidArgumentError(
+          absl::StrFormat("%s partition_slots must be a permutation of [0, %d)",
+                          caller, num_ranks));
+    }
+    resolved.rank_map[slot] = rank->value();
+  }
+
+  for (const cusolverMpGridMapping_t grid_mapping :
+       {kCusolverMpGridMappingRowMajor, kCusolverMpGridMappingColMajor}) {
+    if (ValidateStandardRankMapForGridMapping(
+            caller, resolved.rank_map, process_rows, process_cols, grid_mapping)
+            .ok()) {
+      resolved.grid_mapping = grid_mapping;
+      return resolved;
+    }
+  }
+  return absl::UnimplementedError(absl::StrFormat(
+      "%s requires the devices of the JAX mesh to follow the row-major or "
+      "column-major order of their ids over the process grid, the only two "
+      "layouts cuSOLVERMp supports. Got communicator ranks [%s] on the "
+      "row-major process-grid slots.",
+      caller, absl::StrJoin(resolved.rank_map, ", ")));
+}
+
 // Converts the communicator rank reported by NCCL into a cuSOLVERMp process
 // coordinate under the selected grid mapping.
 std::pair<int32_t, int32_t> ProcessCoordFromRank(int nccl_rank,
@@ -154,6 +233,32 @@ absl::Status CopySyevdStatusToDevice(
 // Writes the GESVD per-rank status words into the rank-1 device output buffer.
 absl::Status CopyGesvdStatusToDevice(
     se::Stream* stream, const std::array<int32_t, kGesvdStatusSize>& status,
+    ffi::Result<ffi::BufferR1<S32>> out) {
+  se::DeviceAddress<int32_t> dst = out->device_memory();
+  return stream->MemcpyH2D(absl::MakeConstSpan(status), &dst);
+}
+
+// Writes the polar-decomposition per-rank status words into the rank-1 device
+// output buffer.
+absl::Status CopyPolarStatusToDevice(
+    se::Stream* stream, const std::array<int32_t, kPolarStatusSize>& status,
+    ffi::Result<ffi::BufferR1<S32>> out) {
+  se::DeviceAddress<int32_t> dst = out->device_memory();
+  return stream->MemcpyH2D(absl::MakeConstSpan(status), &dst);
+}
+
+// Writes the least-squares per-rank status words into the rank-1 device
+// output buffer.
+absl::Status CopyGelsStatusToDevice(
+    se::Stream* stream, const std::array<int32_t, kGelsStatusSize>& status,
+    ffi::Result<ffi::BufferR1<S32>> out) {
+  se::DeviceAddress<int32_t> dst = out->device_memory();
+  return stream->MemcpyH2D(absl::MakeConstSpan(status), &dst);
+}
+
+// Writes the QR per-rank status words into the rank-1 device output buffer.
+absl::Status CopyQrStatusToDevice(
+    se::Stream* stream, const std::array<int32_t, kQrStatusSize>& status,
     ffi::Result<ffi::BufferR1<S32>> out) {
   se::DeviceAddress<int32_t> dst = out->device_memory();
   return stream->MemcpyH2D(absl::MakeConstSpan(status), &dst);

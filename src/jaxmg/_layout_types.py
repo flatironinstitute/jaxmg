@@ -1,7 +1,6 @@
 """Runtime layout types for the cuSOLVERMp Python wrappers.
 
-This module describes process-grid dimensions, supported cuSOLVERMp rank
-mappings, tile geometry, and the local capacity required for tile-aligned
+This module describes process-grid dimensions, tile geometry, and the local capacity required for tile-aligned
 padding. The solver wrappers use these values to establish the static layout
 contract passed to the native backend.
 """
@@ -9,10 +8,6 @@ contract passed to the native backend.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
-
-
-ProcessGridMapping = Literal["row_major", "column_major"]
 
 
 @dataclass(frozen=True)
@@ -41,107 +36,6 @@ class ProcessGrid:
         if not 0 <= process_col < self.process_cols:
             raise ValueError("process_col out of range.")
         return process_row * self.process_cols + process_col
-
-
-@dataclass(frozen=True)
-class ProcessRankMap:
-    """Supported process-grid slot to communicator-rank mapping.
-
-    ``ranks`` is indexed by row-major process-grid slot:
-
-        process_rank = process_row * process_cols + process_col
-
-    and stores the communicator rank at that grid coordinate.  JAXMg supports
-    only the two mappings cuSOLVERMp can describe in a grid descriptor:
-    row-major and column-major.
-    """
-
-    grid: ProcessGrid
-    ranks: tuple[int, ...]
-
-    def __post_init__(self) -> None:
-        """Validate and normalize a process-grid rank permutation."""
-        ranks = tuple(int(rank) for rank in self.ranks)
-        object.__setattr__(self, "ranks", ranks)
-        if len(ranks) != self.grid.num_processes:
-            raise ValueError(
-                "rank map length must match the process-grid size "
-                f"{self.grid.num_processes}, got {len(ranks)}."
-            )
-        expected = set(range(self.grid.num_processes))
-        actual = set(ranks)
-        if actual != expected:
-            raise ValueError(
-                "rank map must be a permutation of communicator ranks "
-                f"0..{self.grid.num_processes - 1}, got {ranks}."
-            )
-
-    @classmethod
-    def row_major(cls, grid: ProcessGrid) -> "ProcessRankMap":
-        """Construct cuSOLVERMp's row-major rank mapping for a grid."""
-        return cls(grid=grid, ranks=tuple(range(grid.num_processes)))
-
-    @classmethod
-    def column_major(cls, grid: ProcessGrid) -> "ProcessRankMap":
-        """Construct cuSOLVERMp's column-major rank mapping for a grid."""
-        return cls(
-            grid=grid,
-            ranks=tuple(
-                process_col * grid.process_rows + process_row
-                for process_row in range(grid.process_rows)
-                for process_col in range(grid.process_cols)
-            ),
-        )
-
-    def rank(self, process_row: int, process_col: int) -> int:
-        """Return the communicator rank at one process-grid coordinate."""
-        return self.ranks[self.grid.rank(process_row, process_col)]
-
-    @property
-    def is_row_major_identity(self) -> bool:
-        """Return True when the rank map matches row-major grid order."""
-        return self.ranks == tuple(range(self.grid.num_processes))
-
-    @property
-    def is_column_major_identity(self) -> bool:
-        """Return True when the rank map matches column-major grid order."""
-        return self.ranks == ProcessRankMap.column_major(self.grid).ranks
-
-    @property
-    def grid_mapping(self) -> ProcessGridMapping | None:
-        """Return the cuSOLVERMp mapping name, or None for unsupported maps."""
-        if self.is_row_major_identity:
-            return "row_major"
-        if self.is_column_major_identity:
-            return "column_major"
-        return None
-
-    @property
-    def cusolvermp_grid_mapping(self) -> int:
-        """cuSOLVERMp enum value for this rank map.
-
-        NVIDIA's headers define ``CUSOLVERMP_GRID_MAPPING_COL_MAJOR = 0`` and
-        ``CUSOLVERMP_GRID_MAPPING_ROW_MAJOR = 1``.  The integer is passed as an
-        FFI attribute so native code can select the same cuSOLVERMp grid
-        mapping as the JAX mesh.
-        """
-        mapping = self.grid_mapping
-        if mapping == "column_major":
-            return 0
-        if mapping == "row_major":
-            return 1
-        raise ValueError("rank map is not a cuSOLVERMp-supported grid mapping.")
-
-    def require_cusolvermp_grid_mapping(self, caller: str) -> None:
-        """Raise if the rank map cannot be represented by cuSOLVERMp."""
-        if self.grid_mapping is None:
-            raise ValueError(
-                f"{caller} requires the JAX mesh device order to match either "
-                "cuSOLVERMp row-major or column-major communicator rank order. "
-                f"Got process-grid rank map {self.ranks}. Construct the mesh "
-                "with a regular row-major or column-major device layout; "
-                "arbitrary mesh permutations are not supported."
-            )
 
 
 @dataclass(frozen=True)

@@ -650,14 +650,21 @@ absl::Status RunCusolverMpGesvdSolver(
 absl::Status RunCusolverMpGesvdDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
-    int64_t tile_size, int64_t grid_mapping, int64_t full_matrices,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    int64_t tile_size, int64_t full_matrices,
+    absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> singular_values,
     ffi::Result<ffi::AnyBuffer> work, ffi::AnyBuffer* u, ffi::AnyBuffer* vh,
-    bool compute_u, bool compute_vh,
-    ffi::Result<ffi::BufferR1<S32>> status,
+    bool compute_u, bool compute_vh, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
+  absl::StatusOr<ResolvedProcessGrid> process_grid =
+      ResolveProcessGrid("cusolvermp_gesvd", collective_params, partition_slots,
+                         process_rows, process_cols);
+  if (!process_grid.ok()) {
+    return process_grid.status();
+  }
+  const int64_t grid_mapping = process_grid->grid_mapping;
+  const absl::Span<const int64_t> rank_map = process_grid->rank_map;
   // Stage 1: validate the matrix buffers needed by the selected output mode.
   // Python has already padded each logical matrix to the local capacity needed
   // by the process grid and tile size.
@@ -846,33 +853,29 @@ absl::Status XlaCusolverMpGesvdPrepare(
 
 // Executes GESVD with both left and right singular vectors.
 absl::Status XlaCusolverMpGesvdUvDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream,
-    int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
-    int64_t tile_size, int64_t grid_mapping, int64_t full_matrices,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
-    ffi::Result<ffi::AnyBuffer> singular_values,
+    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
+    int64_t full_matrices, absl::Span<const int64_t> partition_slots,
+    ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> singular_values,
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> u,
-    ffi::Result<ffi::AnyBuffer> vh,
-    ffi::Result<ffi::BufferR1<S32>> status,
+    ffi::Result<ffi::AnyBuffer> vh, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   ffi::AnyBuffer u_buffer = *u;
   ffi::AnyBuffer vh_buffer = *vh;
   return RunCusolverMpGesvdDispatch(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
-      m, n,
-      tile_size, grid_mapping, full_matrices, rank_map, a, singular_values,
-      work, &u_buffer, &vh_buffer, /*compute_u=*/true, /*compute_vh=*/true,
-      status, collective_params, collective_cliques);
+      m, n, tile_size, full_matrices, partition_slots, a, singular_values, work,
+      &u_buffer, &vh_buffer, /*compute_u=*/true, /*compute_vh=*/true, status,
+      collective_params, collective_cliques);
 }
 
 // Executes GESVD with left singular vectors only.
 absl::Status XlaCusolverMpGesvdUDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream,
-    int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
-    int64_t tile_size, int64_t grid_mapping, int64_t full_matrices,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
-    ffi::Result<ffi::AnyBuffer> singular_values,
+    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
+    int64_t full_matrices, absl::Span<const int64_t> partition_slots,
+    ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> singular_values,
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> u,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
@@ -880,19 +883,17 @@ absl::Status XlaCusolverMpGesvdUDispatch(
   ffi::AnyBuffer u_buffer = *u;
   return RunCusolverMpGesvdDispatch(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
-      m, n,
-      tile_size, grid_mapping, full_matrices, rank_map, a, singular_values,
-      work, &u_buffer, /*vh=*/nullptr, /*compute_u=*/true,
+      m, n, tile_size, full_matrices, partition_slots, a, singular_values, work,
+      &u_buffer, /*vh=*/nullptr, /*compute_u=*/true,
       /*compute_vh=*/false, status, collective_params, collective_cliques);
 }
 
 // Executes GESVD with right singular vectors only.
 absl::Status XlaCusolverMpGesvdVhDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream,
-    int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
-    int64_t tile_size, int64_t grid_mapping, int64_t full_matrices,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
-    ffi::Result<ffi::AnyBuffer> singular_values,
+    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
+    int64_t full_matrices, absl::Span<const int64_t> partition_slots,
+    ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> singular_values,
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> vh,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
@@ -900,28 +901,24 @@ absl::Status XlaCusolverMpGesvdVhDispatch(
   ffi::AnyBuffer vh_buffer = *vh;
   return RunCusolverMpGesvdDispatch(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
-      m, n,
-      tile_size, grid_mapping, full_matrices, rank_map, a, singular_values,
-      work, /*u=*/nullptr, &vh_buffer, /*compute_u=*/false,
+      m, n, tile_size, full_matrices, partition_slots, a, singular_values, work,
+      /*u=*/nullptr, &vh_buffer, /*compute_u=*/false,
       /*compute_vh=*/true, status, collective_params, collective_cliques);
 }
 
 // Executes values-only GESVD without allocating singular-vector outputs.
 absl::Status XlaCusolverMpGesvdValuesDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream,
-    int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
-    int64_t tile_size, int64_t grid_mapping, int64_t full_matrices,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
-    ffi::Result<ffi::AnyBuffer> singular_values,
-    ffi::Result<ffi::AnyBuffer> work,
-    ffi::Result<ffi::BufferR1<S32>> status,
+    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
+    int64_t full_matrices, absl::Span<const int64_t> partition_slots,
+    ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> singular_values,
+    ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return RunCusolverMpGesvdDispatch(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
-      m, n,
-      tile_size, grid_mapping, full_matrices, rank_map, a, singular_values,
-      work, /*u=*/nullptr, /*vh=*/nullptr, /*compute_u=*/false,
+      m, n, tile_size, full_matrices, partition_slots, a, singular_values, work,
+      /*u=*/nullptr, /*vh=*/nullptr, /*compute_u=*/false,
       /*compute_vh=*/false, status, collective_params, collective_cliques);
 }
 

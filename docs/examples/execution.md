@@ -121,7 +121,9 @@ For the row-major $4\times2$ mesh used in this example, rank 0 prints
 ```
 
 
-JAXMg accepts regular row-major and column-major rank mappings. For a
+JAXMg reads this mapping from XLA's device assignment when the solver runs,
+and accepts regular row-major and column-major rank mappings; other device
+orders make the solver call fail when it runs. For a
 $4\times2$ grid these are
 
 $$
@@ -205,9 +207,10 @@ b_matrix = jnp.ones((N, 1), dtype=a.dtype)
 b_matrix = jax.device_put(b_matrix, NamedSharding(mesh, P("pr", None)))
 ```
 
-The public solver accepts either representation. JAXMg adds any routing or tile
-padding required for a narrow solve input and redistributes it internally for
-cuSOLVERMp.
+The public solvers accept either representation and restore the same rank on
+output. For `least_squares`, every process-grid column must own at least one
+block-cyclic tile of the solve input, so a vector input requires a process grid
+with one column.
 
 With distributed execution configured, continue to [Choose a tile size
 $T_A$](choose_tile_size.md) before selecting a solver example.
