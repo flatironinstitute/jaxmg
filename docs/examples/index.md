@@ -28,8 +28,14 @@ reduce memory use.
   linear system with `potrs`.
 - [LU solve](lu_solve.md) solves a general nonsingular linear system with
   `lu_solve`.
+- [Least-squares solve](least_squares.md) solves an overdetermined rectangular
+  system with `least_squares`.
+- [Reduced QR decomposition](qr.md) computes an orthonormal basis and
+  upper-triangular factor with `qr`.
 - [Symmetric or Hermitian eigensolve](syevd.md) computes eigenvalues and
   optional eigenvectors with `syevd`.
 - [Singular-value decomposition](gesvd.md) computes the singular values and
   optional left and right singular vectors of a real or complex matrix with
   `gesvd`.
+- [Polar decomposition](polar.md) computes the polar factor and optional
+  Hermitian factor with `polar`.

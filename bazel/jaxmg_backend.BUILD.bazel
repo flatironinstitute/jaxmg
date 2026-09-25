@@ -29,6 +29,17 @@ cuda_library(
     ],
 )
 
+cuda_library(
+    name = "qr_extract_cuda",
+    srcs = ["cusolvermp_routines/qr_extract.cu.cc"],
+    hdrs = ["cusolvermp_routines/qr_extract.h"],
+    alwayslink = True,
+    tags = ["cuda-only"],
+    deps = [
+        "@local_config_cuda//cuda:cuda_headers",
+    ],
+)
+
 cc_binary(
     name = "libjaxmg_xla_comm_backend.so",
     # Declare the complete staged include tree. CUDA 13 uses transitive .hpp
@@ -37,10 +48,14 @@ cc_binary(
     srcs = glob(["cusolvermp_include/**/*"]) + [
         "cusolvermp_routines/cusolvermp_common.cc",
         "cusolvermp_routines/cusolvermp_common.h",
+        "cusolvermp_routines/cusolvermp_gels.cc",
         "cusolvermp_routines/cusolvermp_gesvd.cc",
         "cusolvermp_routines/cusolvermp_lu_solve.cc",
         "cusolvermp_routines/cusolvermp_potrs.cc",
+        "cusolvermp_routines/cusolvermp_polar.cc",
         "cusolvermp_routines/potrs_logdet.h",
+        "cusolvermp_routines/qr_extract.h",
+        "cusolvermp_routines/cusolvermp_qr.cc",
         "cusolvermp_routines/cusolvermp_routines.h",
         "cusolvermp_routines/cusolvermp_syevd.cc",
         "memory_redist/block_cyclic_2d.cc",
@@ -83,6 +98,7 @@ cc_binary(
     deps = [
         ":layout_convert_cuda",
         ":potrs_logdet_cuda",
+        ":qr_extract_cuda",
         "@local_config_cuda//cuda:cuda_headers",
         "@cuda_cudart//:cudart",
         "@cuda_cusolver//:cusolver",

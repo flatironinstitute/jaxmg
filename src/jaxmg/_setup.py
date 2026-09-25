@@ -51,6 +51,20 @@ _PRODUCTION_FFI_TARGETS = (
         },
     ),
     (
+        "cusolvermp_gels",
+        {
+            "prepare": "XlaCusolverMpGelsPrepareFFI",
+            "execute": "XlaCusolverMpGelsFFI",
+        },
+    ),
+    (
+        "cusolvermp_qr",
+        {
+            "prepare": "XlaCusolverMpQrPrepareFFI",
+            "execute": "XlaCusolverMpQrFFI",
+        },
+    ),
+    (
         "cusolvermp_syevd",
         {
             "prepare": "XlaCusolverMpSyevdPrepareFFI",
@@ -90,6 +104,20 @@ _PRODUCTION_FFI_TARGETS = (
         {
             "prepare": "XlaCusolverMpGesvdPrepareFFI",
             "execute": "XlaCusolverMpGesvdValuesFFI",
+        },
+    ),
+    (
+        "cusolvermp_polar_uh",
+        {
+            "prepare": "XlaCusolverMpPolarPrepareFFI",
+            "execute": "XlaCusolverMpPolarUhFFI",
+        },
+    ),
+    (
+        "cusolvermp_polar_u",
+        {
+            "prepare": "XlaCusolverMpPolarPrepareFFI",
+            "execute": "XlaCusolverMpPolarUFFI",
         },
     ),
 )

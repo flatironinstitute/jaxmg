@@ -19,20 +19,15 @@ from jax import Array
 from jax.sharding import Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
-    _pad_local_2d,
-    _unpad_local_2d,
     cusolvermp_grid_mapping_attr,
-    infer_mesh_and_matrix_specs,
+    make_local_pad_fn,
+    make_local_unpad_fn,
+    prepare_input_matrix_layout,
     use_abstract_mesh_decorator,
-    process_rank_map_from_mesh,
     standard_grid_rank_map_attr,
-    status_specs,
-    validate_2d_matrix_specs,
 )
 from ._cusolvermp_status import _CUSOLVERMP_SYEVD_STATUS_SIZE
-from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap, TileShape
-from ._layout_types import calculate_2d_padding
-from ._layout_types import validate_nonempty_block_cyclic_ownership
+from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -111,59 +106,29 @@ def syevd(
         - If the native solver fails the outputs may contain NaNs and the
           status, when requested, will be non-zero.
     """
-    if a.ndim != 2:
-        raise ValueError("syevd expects a rank-2 matrix A.")
-    _check_supported_syevd_dtype(a.dtype)
-    if a.shape[0] != a.shape[1]:
-        raise ValueError("syevd expects A to be square.")
-    if int(T_A) <= 0:
-        raise ValueError("T_A must be positive.")
-    if not isinstance(return_eigenvectors, bool):
-        raise TypeError("return_eigenvectors must be a Python bool.")
-
-    mesh, matrix_specs = infer_mesh_and_matrix_specs(
+    layout = _prepare_syevd_call(
         a,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
-        in_specs=in_specs,
-    )
-    row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
-    rank_map = process_rank_map_from_mesh(
+        T_A,
         mesh,
-        row_axis=row_axis,
-        col_axis=col_axis,
-        grid=grid,
+        matrix_specs,
+        in_specs=in_specs,
+        return_eigenvectors=return_eigenvectors,
+        pad=pad,
         caller="syevd",
     )
-    native_status_specs = status_specs(row_axis, col_axis, grid)
-    tile_shape = TileShape(rows=int(T_A), cols=int(T_A))
-    validate_nonempty_block_cyclic_ownership(
-        logical_rows=a.shape[0],
-        logical_cols=a.shape[1],
-        grid=grid,
-        tile_shape=tile_shape,
-        caller="syevd(A)",
-    )
-    a_padding = calculate_2d_padding(
-        logical_rows=a.shape[0],
-        logical_cols=a.shape[1],
-        grid=grid,
-        tile_shape=tile_shape,
-    )
-    _check_padding_allowed(a_padding, pad=pad, caller="syevd")
 
     ensure_init_jaxmg_backend()
 
     impl = _syevd_compiled(
-        mesh,
-        matrix_specs,
-        native_status_specs,
-        grid,
-        rank_map,
-        rank_map.cusolvermp_grid_mapping,
-        a_padding,
+        layout.mesh,
+        layout.matrix_specs,
+        layout.native_status_specs,
+        layout.grid,
+        layout.rank_map,
+        layout.rank_map.cusolvermp_grid_mapping,
+        layout.padding,
         n=a.shape[0],
-        tile_size=tile_shape.rows,
+        tile_size=layout.tile_shape.rows,
         dtype=a.dtype,
         return_eigenvectors=return_eigenvectors,
         donate=donate,
@@ -257,59 +222,29 @@ def syevd_shardmap_ctx(
           calls ``cusolverMpSyevd``, and redistributes eigenvectors back when
           requested.
     """
-    if a.ndim != 2:
-        raise ValueError("syevd_shardmap_ctx expects a rank-2 matrix A.")
-    _check_supported_syevd_dtype(a.dtype)
-    if a.shape[0] != a.shape[1]:
-        raise ValueError("syevd_shardmap_ctx expects A to be square.")
-    if int(T_A) <= 0:
-        raise ValueError("T_A must be positive.")
-    if not isinstance(return_eigenvectors, bool):
-        raise TypeError("return_eigenvectors must be a Python bool.")
-
-    mesh, matrix_specs = infer_mesh_and_matrix_specs(
+    layout = _prepare_syevd_call(
         a,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
-        in_specs=in_specs,
-    )
-    row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
-    rank_map = process_rank_map_from_mesh(
+        T_A,
         mesh,
-        row_axis=row_axis,
-        col_axis=col_axis,
-        grid=grid,
+        matrix_specs,
+        in_specs=in_specs,
+        return_eigenvectors=return_eigenvectors,
+        pad=pad,
         caller="syevd_shardmap_ctx",
     )
-    native_status_specs = status_specs(row_axis, col_axis, grid)
-    tile_shape = TileShape(rows=int(T_A), cols=int(T_A))
-    validate_nonempty_block_cyclic_ownership(
-        logical_rows=a.shape[0],
-        logical_cols=a.shape[1],
-        grid=grid,
-        tile_shape=tile_shape,
-        caller="syevd_shardmap_ctx(A)",
-    )
-    a_padding = calculate_2d_padding(
-        logical_rows=a.shape[0],
-        logical_cols=a.shape[1],
-        grid=grid,
-        tile_shape=tile_shape,
-    )
-    _check_padding_allowed(a_padding, pad=pad, caller="syevd_shardmap_ctx")
 
     ensure_init_jaxmg_backend()
 
     impl = _syevd_pipeline(
-        mesh,
-        matrix_specs,
-        native_status_specs,
-        grid,
-        rank_map,
-        rank_map.cusolvermp_grid_mapping,
-        a_padding,
+        layout.mesh,
+        layout.matrix_specs,
+        layout.native_status_specs,
+        layout.grid,
+        layout.rank_map,
+        layout.rank_map.cusolvermp_grid_mapping,
+        layout.padding,
         n=a.shape[0],
-        tile_size=tile_shape.rows,
+        tile_size=layout.tile_shape.rows,
         dtype=a.dtype,
         return_eigenvectors=return_eigenvectors,
     )
@@ -322,7 +257,44 @@ def syevd_shardmap_ctx(
     return a_work, eigenvalues, eigenvectors, native_status
 
 
-_ROW_MAJOR_JAX_LAYOUT = (0, 1)
+def _prepare_syevd_call(
+    a: Array,
+    tile_size: int,
+    mesh: Mesh | None,
+    matrix_specs: P | Tuple[P] | List[P] | None,
+    *,
+    in_specs: P | Tuple[P] | List[P] | None,
+    return_eigenvectors: bool,
+    pad: bool,
+    caller: str,
+):
+    """Validate an eigensolver call and derive its distributed layout.
+
+    Preparation proceeds as follows:
+
+    1. Validate that A is a square matrix with a supported dtype.
+    2. Validate the tile size and static ``return_eigenvectors`` mode.
+    3. Resolve the mesh, process grid, rank map, and tile-aligned layout shared
+       by A and the optional eigenvector output.
+    """
+    if a.ndim != 2:
+        raise ValueError(f"{caller} expects a rank-2 matrix A.")
+    _check_supported_syevd_dtype(a.dtype)
+    if a.shape[0] != a.shape[1]:
+        raise ValueError(f"{caller} expects A to be square.")
+    if int(tile_size) <= 0:
+        raise ValueError("T_A must be positive.")
+    if not isinstance(return_eigenvectors, bool):
+        raise TypeError("return_eigenvectors must be a Python bool.")
+    return prepare_input_matrix_layout(
+        a,
+        tile_size,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+        in_specs=in_specs,
+        pad=pad,
+        caller=caller,
+    )
 
 
 def _check_supported_syevd_dtype(dtype) -> None:
@@ -353,70 +325,7 @@ def _real_dtype_for_eigenvalues(dtype):
     )
 
 
-def _check_padding_allowed(
-    padding: MatrixPadding2D,
-    *,
-    pad: bool,
-    caller: str,
-) -> None:
-    """Enforce the public ``pad`` policy for a padded matrix argument.
-
-    SYEVD uses a square matrix, so there is only one padding record to check.
-    When ``pad=False`` the user is promising that the local shards are already
-    tile-aligned; if that is not true, the native backend would receive invalid
-    local capacity and the wrapper raises before tracing.
-    """
-    if not pad and padding.needs_padding:
-        raise ValueError(
-            f"{caller} requires tile-aligned local shards when pad=False. "
-            "Use a tile size that divides each local shard or set pad=True."
-        )
-
-
-def _make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
-    """Build the shard-local bottom/right padding transform.
-
-    The returned callable has the same sharding contract as the input matrix.
-    If padding is unnecessary it is an identity function; otherwise it applies
-    the local padding through ``jax.shard_map`` so the visible global mesh layout
-    remains unchanged.
-    """
-    if not padding.needs_padding:
-        return lambda block: block
-    return jax.shard_map(
-        partial(
-            _pad_local_2d,
-            row_padding=padding.row_padding_per_process,
-            col_padding=padding.col_padding_per_process,
-        ),
-        mesh=mesh,
-        in_specs=matrix_specs,
-        out_specs=matrix_specs,
-        check_vma=True,
-    )
-
-
-def _make_local_unpad_fn(
-    mesh: Mesh,
-    matrix_specs: P,
-    *,
-    local_rows: int,
-    local_cols: int,
-):
-    """Build the shard-local slice transform for eigenvector output.
-
-    cuSOLVERMp operates on padded local capacity, while users expect
-    eigenvectors shaped like the original matrix.  This helper creates the
-    reverse local slice used after native code has moved the eigenvectors back
-    into the JAX-facing layout.
-    """
-    return jax.shard_map(
-        partial(_unpad_local_2d, local_rows=local_rows, local_cols=local_cols),
-        mesh=mesh,
-        in_specs=matrix_specs,
-        out_specs=matrix_specs,
-        check_vma=True,
-    )
+_ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
 @lru_cache(maxsize=None)
@@ -457,14 +366,9 @@ def _syevd_pipeline(
         process_cols=process_cols,
         caller="cusolvermp_syevd",
     )
-    pad_a = _make_local_pad_fn(mesh, matrix_specs, a_padding)
+    pad_a = make_local_pad_fn(mesh, matrix_specs, a_padding)
     if return_eigenvectors:
-        unpad_vectors = _make_local_unpad_fn(
-            mesh,
-            matrix_specs,
-            local_rows=a_padding.local_logical_rows,
-            local_cols=a_padding.local_logical_cols,
-        )
+        unpad_vectors = make_local_unpad_fn(mesh, matrix_specs, a_padding)
         ffi_target = "cusolvermp_syevd"
         out_specs = (
             P(None),

@@ -205,9 +205,10 @@ b_matrix = jnp.ones((N, 1), dtype=a.dtype)
 b_matrix = jax.device_put(b_matrix, NamedSharding(mesh, P("pr", None)))
 ```
 
-The public solver accepts either representation. JAXMg adds any routing or tile
-padding required for a narrow solve input and redistributes it internally for
-cuSOLVERMp.
+The public solvers accept either representation and restore the same rank on
+output. For `least_squares`, every process-grid column must own at least one
+block-cyclic tile of the solve input, so a vector input requires a process grid
+with one column.
 
 With distributed execution configured, continue to [Choose a tile size
 $T_A$](choose_tile_size.md) before selecting a solver example.
