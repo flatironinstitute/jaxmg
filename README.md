@@ -92,6 +92,19 @@ Install the package with the extra matching your CUDA setup:
 | CUDA 13 | `pip install "jaxmg[cuda13]"` |
 | Local CUDA 13 | `pip install "jaxmg[cuda13-local]"` |
 
+JAXMg uses internal JAX/XLA interfaces, so each release supports specific JAX
+versions:
+
+| JAXMg | JAX |
+|---|---|
+| `1.0.0` to `1.1.1` | `0.10.1` |
+| `1.2.0` | `0.11.0` |
+| `1.3.0` | `0.11.1` |
+| `1.4.0` | `0.11.1`, `0.11.2` |
+
+See the [installation guide](https://flatironinstitute.github.io/jaxmg/latest/install/)
+for supported systems and older releases.
+
 Prebuilt Linux wheels are provided for `x86_64` and `aarch64` and build for CUDA architecures `sm_70`, `sm_80`, `sm_90`, `sm_120` and `compute_90`
 . The supported NVIDIA GPU families are:
 

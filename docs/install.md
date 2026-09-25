@@ -14,6 +14,18 @@ Install the package with the extra matching your CUDA setup:
     `pip install jaxmg` installs a CPU-only version of JAX. JAXMg is a GPU-only
     package, so it will warn you to install a GPU-compatible version of JAX.
 
+## JAX compatibility
+
+JAXMg uses internal JAX/XLA interfaces, so each release supports specific JAX
+versions:
+
+| JAXMg | JAX |
+|---|---|
+| `1.0.0` to `1.1.1` | `0.10.1` |
+| `1.2.0` | `0.11.0` |
+| `1.3.0` | `0.11.1` |
+| `1.4.0` | `0.11.1`, `0.11.2` |
+
 ## Older releases
 
 Use the version selector next to the site title to switch between releases.
@@ -35,8 +47,7 @@ NVIDIA GPU families are:
 | CUDA 12 | V100, A100, H100/H200, and Blackwell GPUs |
 | CUDA 13 | A100, H100/H200, and Blackwell GPUs |
 
-The binaries support JAX `0.11.1` and `0.11.2` and use cuSOLVERMp
-`0.9.1.9318.post1`. See
+The prebuilt binaries use cuSOLVERMp `0.9.1.9318.post1`. See
 [Building from source](technical_details/building_from_source.md) for the native
 build procedure.
 
