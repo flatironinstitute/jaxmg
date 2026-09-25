@@ -77,8 +77,6 @@ def main() -> None:
     u, singular_values, vh = gesvd(
         a,
         T_A=T_A,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
     )
     vh.block_until_ready()
 

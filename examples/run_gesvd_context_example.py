@@ -72,24 +72,19 @@ def main() -> None:
         a = jax.reshard(a, matrix_sharding)
 
         # a_work stays internal because A is created inside this function.
-        _, u, singular_values, vh, status = gesvd_shardmap_ctx(
+        _, u, singular_values, vh, _ = gesvd_shardmap_ctx(
             a,
             T_A=T_A,
-            mesh=mesh,
-            matrix_specs=matrix_specs,
         )
-        return u, singular_values, vh, status, expected_singular_values
+        return u, singular_values, vh, expected_singular_values
 
-    u, singular_values, vh, status, expected_singular_values = (
-        build_and_decompose()
-    )
+    u, singular_values, vh, expected_singular_values = build_and_decompose()
     vh.block_until_ready()
 
     # Validate the singular values against the known solution.
     correct = (
         u.shape == (m, n)
         and vh.shape == (n, n)
-        and jnp.all(status == 0)
         and jnp.allclose(singular_values, expected_singular_values)
     )
     if hasattr(correct, "block_until_ready"):

@@ -88,8 +88,12 @@ $$
 
 Here, $(p_r,p_c)$ is a process-grid coordinate and $(P_r,P_c)$ is the process
 grid shape. JAXMg accepts these regular row-major and column-major mappings.
-Arbitrary rank maps are rejected because cuSOLVERMp exposes these two standard
-grid-mapping modes rather than a general rank-to-coordinate table.
+The native backend derives the rank map when the solver runs, from XLA's device
+assignment: the shard of mesh partition $p$ runs on the device assigned to $p$,
+exactly as XLA resolves `partition-id`, and that device's communicator rank is
+its rank in the communicator JAXMg borrows from XLA. Arbitrary rank maps are rejected
+because cuSOLVERMp exposes these two standard grid-mapping modes rather than a
+general rank-to-coordinate table.
 
 ## Stage 1: local layout conversion
 
@@ -298,9 +302,11 @@ Matrix-valued solver outputs are produced in cuSOLVERMp's column-major,
 inverse block-cyclic cycles, reverses edge-padding alignment when needed, and
 restores row-major local memory. Python then removes visible capacity padding.
 
-For `potrs` and `lu_solve`, a vector solve input is represented internally as
-an $N \times 1$ matrix. The public wrappers restore the original vector rank
-before returning the result.
+For `potrs`, `lu_solve`, and `least_squares`, a vector solve input is represented
+internally as a one-column matrix. The public wrappers restore the original
+vector rank before returning the result. Since `cusolverMpGels` requires every
+process-grid column to own solve-input data, a vector passed to `least_squares`
+uses a process grid with one column.
 
 ## Solver-specific native work
 
@@ -312,6 +318,12 @@ differences are the cuSOLVERMp call sequence and solver workspace:
   and the rank-local sums are combined by an in-place NCCL all-reduce.
 - `lu_solve` calls `cusolverMpGetrf` followed by `cusolverMpGetrs` and allocates
   a pivot vector according to the local cuSOLVERMp column ownership.
+- `least_squares` calls `cusolverMpGels`. The solve input has $M$ rows on entry
+  and is overwritten in place, with the $N$ solution rows restored to their
+  original JAX-facing sharding.
+- `qr` calls `cusolverMpGeqrf`, copies the distributed upper triangle into the
+  $R$ output, and calls `cusolverMpOrgqr` to overwrite the donated input with
+  reduced $Q$. Both factors are then reverse-redistributed.
 - `syevd` calls `cusolverMpSyevd`. Its eigenvector-producing mode materializes a
   full distributed eigenvector matrix and reverses the redistribution for that
   output. Its eigenvalues-only mode omits both operations.
@@ -319,6 +331,9 @@ differences are the cuSOLVERMp call sequence and solver workspace:
   selected independently in reduced or full form, and only requested vector
   matrices are allocated and reverse-redistributed. The shared scratch buffer
   is sized to the largest requirement among A and those outputs.
+- `polar` calls `cusolverMpPolar` for tall or square matrices. A is overwritten
+  by the polar factor, while the optional H matrix is allocated and
+  reverse-redistributed only when requested.
 
 ## Python and native responsibilities
 
@@ -359,5 +374,8 @@ Native C++/CUDA is responsible for:
 |[src/cuda/cusolvermp_routines/cusolvermp_potrs.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_potrs.cc) |
 |[src/cuda/cusolvermp_routines/potrs_logdet.cu.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/potrs_logdet.cu.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc) |
+|[src/cuda/cusolvermp_routines/cusolvermp_gels.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gels.cc) |
+|[src/cuda/cusolvermp_routines/cusolvermp_qr.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_qr.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_syevd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_syevd.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc) |
+|[src/cuda/cusolvermp_routines/cusolvermp_polar.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_polar.cc) |

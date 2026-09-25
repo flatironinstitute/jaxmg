@@ -74,8 +74,6 @@ def main() -> None:
         _, eigenvalues, eigenvectors, _ = syevd_shardmap_ctx(
             a,
             T_A=T_A,
-            mesh=mesh,
-            matrix_specs=matrix_specs,
         )
         return eigenvalues, eigenvectors
 

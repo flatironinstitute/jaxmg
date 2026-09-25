@@ -121,14 +121,22 @@ nav:
         - "examples/choose_tile_size.md"
         - "examples/potrs.md"
         - "examples/lu_solve.md"
+        - "examples/least_squares.md"
+        - "examples/qr.md"
         - "examples/syevd.md"
         - "examples/gesvd.md"
+        - "examples/polar.md"
     - API:
         - "api/index.md"
         - "api/potrs.md"
         - "api/lu_solve.md"
+        - "api/least_squares.md"
+        - "api/qr.md"
         - "api/syevd.md"
         - "api/gesvd.md"
+        - "api/polar.md"
+    - Benchmarks:
+        - "benchmarks/index.md"
     - Technical Details:
         - Native workflow: "technical_details/index.md"
         - Memory distribution: "technical_details/memory_distribution.md"

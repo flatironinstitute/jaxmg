@@ -50,6 +50,33 @@ from jaxmg import potrs, potrs_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_POTRS_STATUS_SIZE
 
 
+def emit_ok(case, *, return_logdet: bool) -> None:
+    """Report a successful case and wait for every rank to finish it."""
+    emit(
+        "GPU_TEST_RESULT",
+        {
+            "proc": proc_id,
+            "name": case_name,
+            "dtype": dtype_name,
+            "status": "ok",
+            "interface": interface,
+            "return_logdet": return_logdet,
+            "params": {
+                "n": case.n,
+                "nrhs": case.nrhs,
+                "tile_size": case.tile_size,
+                "process_rows": case.process_rows,
+                "process_cols": case.process_cols,
+                "grid_order": case.grid_order,
+                "rhs_mode": case.rhs_mode,
+            },
+        },
+    )
+    multihost_utils.sync_global_devices(
+        f"potrs_{case_name}_{dtype_name}_{num_procs}_complete"
+    )
+
+
 def run_case() -> None:
     """Run one rank-per-GPU POTRS case and emit parser-friendly results."""
     dtype = dtype_from_name(dtype_name)
@@ -89,9 +116,77 @@ def run_case() -> None:
     else:
         raise ValueError(f"unknown RHS placement mode {case.rhs_mode!r}")
     b_dev = jax.device_put(b, NamedSharding(mesh, rhs_specs))
-    expected_rhs_sharding = b_dev.sharding
+    if case.axis_types == "explicit" or single_axis:
+        output_specs = rhs_specs
+    else:
+        row_axis = matrix_specs._partitions[0]
+        output_specs = P(row_axis) if b.ndim == 1 else P(row_axis, None)
+    expected_output_sharding = NamedSharding(mesh, output_specs)
 
-    if interface == "context":
+    if interface == "invalid_order":
+        # Swap the first two devices of the mesh: a device order that is
+        # neither row- nor column-major, which the native backend must reject
+        # from XLA's device assignment when the solver runs.
+        devices = np.asarray(mesh.devices).reshape(-1).copy()
+        devices[[0, 1]] = devices[[1, 0]]
+        bad_mesh = Mesh(devices.reshape(mesh.devices.shape), mesh.axis_names)
+        a_bad = jax.device_put(a, NamedSharding(bad_mesh, matrix_specs))
+        b_bad = jax.device_put(b, NamedSharding(bad_mesh, rhs_specs))
+        try:
+            # The native error surfaces when the result is awaited.
+            jax.block_until_ready(potrs(a_bad, b_bad, case.tile_size))
+        except Exception as error:  # noqa: BLE001 - XLA wraps the native error.
+            assert "row-major or" in str(error), error
+        else:
+            raise AssertionError("potrs accepted an unsupported device order")
+        emit_ok(case, return_logdet=return_logdet)
+        return
+
+    if interface == "inferred":
+        # Neither mesh nor matrix_specs: inside the caller's jit, JAXMg reads
+        # them off the type of A and the abstract context mesh.
+        @partial(jax.jit, static_argnames=("tile_size",))
+        def solve_inferred(_a, _b, *, tile_size):
+            return potrs(
+                _a,
+                _b,
+                tile_size,
+                return_status=True,
+                return_logdet=return_logdet,
+                pad=True,
+            )
+
+        with jax.set_mesh(mesh):
+            result = solve_inferred(a_dev, b_dev, tile_size=case.tile_size)
+        if return_logdet:
+            out, logdet, status = result
+            logdet.block_until_ready()
+        else:
+            out, status = result
+    elif interface == "abstract_mesh":
+        # Inside the caller's jit only the abstract mesh is available, which is
+        # all JAXMg needs: devices are resolved at run time.
+        @partial(jax.jit, static_argnames=("tile_size",))
+        def solve_abstract(_a, _b, *, tile_size):
+            return potrs(
+                _a,
+                _b,
+                tile_size,
+                mesh=jax.sharding.get_abstract_mesh(),
+                matrix_specs=matrix_specs,
+                return_status=True,
+                return_logdet=return_logdet,
+                pad=True,
+            )
+
+        with jax.set_mesh(mesh):
+            result = solve_abstract(a_dev, b_dev, tile_size=case.tile_size)
+        if return_logdet:
+            out, logdet, status = result
+            logdet.block_until_ready()
+        else:
+            out, status = result
+    elif interface == "context":
         if return_logdet:
             raise ValueError("the context smoke test does not request logdet")
 
@@ -158,8 +253,14 @@ def run_case() -> None:
     assert status_words.size % _CUSOLVERMP_POTRS_STATUS_SIZE == 0, status_words
     assert np.all(status_words[::_CUSOLVERMP_POTRS_STATUS_SIZE] == 0), status_words
     assert_close_scaled(out, expected)
-    if single_axis:
-        assert out.sharding.is_equivalent_to(expected_rhs_sharding, out.ndim)
+    if interface in ("abstract_mesh", "inferred"):
+        # The native backend chose the grid mapping from the device assignment:
+        # status word 39 is 1 for row-major and 0 for column-major.
+        expected_mapping = 1 if case.grid_order == "row_major" else 0
+        assert np.all(
+            status_words[39::_CUSOLVERMP_POTRS_STATUS_SIZE] == expected_mapping
+        ), status_words
+    assert out.sharding.is_equivalent_to(expected_output_sharding, out.ndim)
 
     out_host = global_array_to_numpy(out)
     residual = np.linalg.norm(a_host @ out_host - b_host) / np.linalg.norm(b_host)
@@ -177,29 +278,7 @@ def run_case() -> None:
         )
         assert np.all(status_words[33::_CUSOLVERMP_POTRS_STATUS_SIZE] == 1)
 
-    emit(
-        "GPU_TEST_RESULT",
-        {
-            "proc": proc_id,
-            "name": case_name,
-            "dtype": dtype_name,
-            "status": "ok",
-            "interface": interface,
-            "return_logdet": return_logdet,
-            "params": {
-                "n": case.n,
-                "nrhs": case.nrhs,
-                "tile_size": case.tile_size,
-                "process_rows": case.process_rows,
-                "process_cols": case.process_cols,
-                "grid_order": case.grid_order,
-                "rhs_mode": case.rhs_mode,
-            },
-        },
-    )
-    multihost_utils.sync_global_devices(
-        f"potrs_{case_name}_{dtype_name}_{num_procs}_complete"
-    )
+    emit_ok(case, return_logdet=return_logdet)
 
 
 def main() -> None:

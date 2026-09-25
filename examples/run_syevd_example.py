@@ -76,8 +76,6 @@ def main() -> None:
     eigenvalues, eigenvectors = syevd(
         a,
         T_A=T_A,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
     )
     eigenvectors.block_until_ready()
 

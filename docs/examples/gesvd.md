@@ -51,8 +51,6 @@ a, expected_singular_values = make_matrix()
 u, singular_values, vh = gesvd(
     a,
     T_A=T_A,
-    mesh=mesh,
-    matrix_specs=matrix_specs,
 )
 vh.block_until_ready()
 
@@ -77,8 +75,6 @@ a, _ = make_matrix()
 singular_values = gesvd(
     a,
     T_A=T_A,
-    mesh=mesh,
-    matrix_specs=matrix_specs,
     compute_u=False,
     compute_vh=False,
 )
@@ -88,8 +84,6 @@ a, _ = make_matrix()
 u, singular_values = gesvd(
     a,
     T_A=T_A,
-    mesh=mesh,
-    matrix_specs=matrix_specs,
     compute_vh=False,
 )
 ```
@@ -140,8 +134,6 @@ def compiled_svd(a):
     a_work, u, singular_values, vh, status = gesvd_shardmap_ctx(
         a,
         T_A=T_A,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
     )
 
     # Further JAX operations can be part of this compiled function.
@@ -185,8 +177,6 @@ def build_and_decompose(scale):
     _, u, singular_values, vh, status = gesvd_shardmap_ctx(
         a,
         T_A=T_A,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
     )
 
     # a_work remains internal because a was created inside this function.

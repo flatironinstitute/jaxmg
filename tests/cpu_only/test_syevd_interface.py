@@ -308,7 +308,7 @@ def test_syevd_rejects_fully_replicated_matrix_specs():
 
 
 def test_syevd_rejects_required_padding_when_disabled():
-    with pytest.raises(ValueError, match="syevd requires tile-aligned"):
+    with pytest.raises(ValueError, match=r"syevd\(A\) requires tile-aligned"):
         syevd(
             jnp.eye(3),
             2,
@@ -320,7 +320,7 @@ def test_syevd_rejects_required_padding_when_disabled():
 
 def test_syevd_shardmap_ctx_rejects_required_padding_when_disabled():
     with pytest.raises(
-        ValueError, match="syevd_shardmap_ctx requires tile-aligned"
+        ValueError, match=r"syevd_shardmap_ctx\(A\) requires tile-aligned"
     ):
         syevd_shardmap_ctx(
             jnp.eye(3),

@@ -52,8 +52,6 @@ a, expected_eigenvalues = make_problem()
 eigenvalues, eigenvectors = syevd(
     a,
     T_A=T_A,
-    mesh=mesh,
-    matrix_specs=matrix_specs,
 )
 eigenvectors.block_until_ready()
 
@@ -75,8 +73,6 @@ a, expected_eigenvalues = make_problem()
 eigenvalues = syevd(
     a,
     T_A=T_A,
-    mesh=mesh,
-    matrix_specs=matrix_specs,
     return_eigenvectors=False,
 )
 eigenvalues.block_until_ready()
@@ -137,8 +133,6 @@ def compiled_eigensolve(a):
     a_work, eigenvalues, eigenvectors, status = syevd_shardmap_ctx(
         a,
         T_A=T_A,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
     )
 
     # Further JAX operations can be part of this compiled function.
@@ -177,8 +171,6 @@ def build_and_eigensolve(diagonal):
     _, eigenvalues, eigenvectors, status = syevd_shardmap_ctx(
         a,
         T_A=T_A,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
     )
 
     # a_work remains internal because a was created inside this function.
