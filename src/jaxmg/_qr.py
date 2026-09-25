@@ -50,11 +50,12 @@ def qr(
         a (Array): A rank-2 real or complex tall or square matrix sharded over
             a one- or two-axis device mesh.
         T_A (int): Square cuSOLVERMp tile width.
-        mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used by
+            ``jax.shard_map``. If omitted, read from the sharding of ``a``
+            (its type inside ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            Rank-2 matrix sharding. If omitted, inferred from
-            ``a.sharding.spec``.
+            Rank-2 matrix sharding. If omitted, read from the sharding of
+            ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         return_status (bool, optional): If True, return the native per-rank
             diagnostic status vector after ``Q`` and ``R``.
@@ -123,11 +124,12 @@ def qr_shardmap_ctx(
         a (Array): A rank-2 real or complex tall or square matrix sharded over
             a one- or two-axis device mesh.
         T_A (int): Square cuSOLVERMp tile width.
-        mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used by
+            ``jax.shard_map``. If omitted, read from the sharding of ``a``
+            (its type inside ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            Rank-2 matrix sharding. If omitted, inferred from
-            ``a.sharding.spec``.
+            Rank-2 matrix sharding. If omitted, read from the sharding of
+            ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         pad (bool, optional): If True (default), add tile-aligned local capacity
             where required. If False, all participating local matrix shapes

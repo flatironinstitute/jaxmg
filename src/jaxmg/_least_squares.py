@@ -64,11 +64,12 @@ def least_squares(
             mesh.
         b (Array): Rank-1 or rank-2 solve input with ``M`` rows.
         T_A (int): Square cuSOLVERMp tile width.
-        mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used by
+            ``jax.shard_map``. If omitted, read from the sharding of ``a``
+            (its type inside ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            Rank-2 matrix sharding. If omitted, inferred from
-            ``a.sharding.spec``.
+            Rank-2 matrix sharding. If omitted, read from the sharding of
+            ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         return_status (bool, optional): If True return ``(x, status)``.
         pad (bool, optional): If True (default), add tile-aligned local
@@ -145,11 +146,12 @@ def least_squares_shardmap_ctx(
             mesh.
         b (Array): Rank-1 or rank-2 solve input with ``M`` rows.
         T_A (int): Square cuSOLVERMp tile width.
-        mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used by
+            ``jax.shard_map``. If omitted, read from the sharding of ``a``
+            (its type inside ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            Rank-2 matrix sharding. If omitted, inferred from
-            ``a.sharding.spec``.
+            Rank-2 matrix sharding. If omitted, read from the sharding of
+            ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         pad (bool, optional): If True (default), add tile-aligned local
             capacity where required.
