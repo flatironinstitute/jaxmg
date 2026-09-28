@@ -290,6 +290,26 @@
   
   
   
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../benchmarks/" class="md-tabs__link">
+          
+  
+  
+  Benchmarks
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
     
   
   
@@ -613,6 +633,52 @@
   
   
     <li class="md-nav__item">
+      <a href="../../examples/least_squares/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Least-squares solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/qr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Reduced QR decomposition
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../examples/syevd/" class="md-nav__link">
         
   
@@ -642,6 +708,29 @@
   
   <span class="md-ellipsis">
     Singular-value decomposition
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/polar/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Polar decomposition
     
   </span>
   
@@ -778,6 +867,52 @@
   
   
     <li class="md-nav__item">
+      <a href="../../api/least_squares/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.least_squares
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/qr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.qr
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../api/syevd/" class="md-nav__link">
         
   
@@ -807,6 +942,102 @@
   
   <span class="md-ellipsis">
     jaxmg.gesvd
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/polar/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.polar
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Benchmarks
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Benchmarks
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Performance and scaling
     
   </span>
   
@@ -849,10 +1080,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -865,8 +1096,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             Technical Details
           </label>
@@ -1664,9 +1895,11 @@ data to Python between stages.</p>
 2D block-cyclic layout. Before returning to JAX, the native call applies the
 inverse block-cyclic cycles, reverses edge-padding alignment when needed, and
 restores row-major local memory. Python then removes visible capacity padding.</p>
-<p>For <code>potrs</code> and <code>lu_solve</code>, a vector solve input is represented internally as
-an <span class="arithmatex">\(N \times 1\)</span> matrix. The public wrappers restore the original vector rank
-before returning the result.</p>
+<p>For <code>potrs</code>, <code>lu_solve</code>, and <code>least_squares</code>, a vector solve input is represented
+internally as a one-column matrix. The public wrappers restore the original
+vector rank before returning the result. Since <code>cusolverMpGels</code> requires every
+process-grid column to own solve-input data, a vector passed to <code>least_squares</code>
+uses a process grid with one column.</p>
 <h2 id="solver-specific-native-work">Solver-specific native work<a class="headerlink" href="#solver-specific-native-work" title="Permanent link">¤</a></h2>
 <p>The redistribution stages are shared by every solver workflow. Their main
 differences are the cuSOLVERMp call sequence and solver workspace:</p>
@@ -1676,6 +1909,12 @@ differences are the cuSOLVERMp call sequence and solver workspace:</p>
   and the rank-local sums are combined by an in-place NCCL all-reduce.</li>
 <li><code>lu_solve</code> calls <code>cusolverMpGetrf</code> followed by <code>cusolverMpGetrs</code> and allocates
   a pivot vector according to the local cuSOLVERMp column ownership.</li>
+<li><code>least_squares</code> calls <code>cusolverMpGels</code>. The solve input has <span class="arithmatex">\(M\)</span> rows on entry
+  and is overwritten in place, with the <span class="arithmatex">\(N\)</span> solution rows restored to their
+  original JAX-facing sharding.</li>
+<li><code>qr</code> calls <code>cusolverMpGeqrf</code>, copies the distributed upper triangle into the
+  <span class="arithmatex">\(R\)</span> output, and calls <code>cusolverMpOrgqr</code> to overwrite the donated input with
+  reduced <span class="arithmatex">\(Q\)</span>. Both factors are then reverse-redistributed.</li>
 <li><code>syevd</code> calls <code>cusolverMpSyevd</code>. Its eigenvector-producing mode materializes a
   full distributed eigenvector matrix and reverses the redistribution for that
   output. Its eigenvalues-only mode omits both operations.</li>
@@ -1683,6 +1922,9 @@ differences are the cuSOLVERMp call sequence and solver workspace:</p>
   selected independently in reduced or full form, and only requested vector
   matrices are allocated and reverse-redistributed. The shared scratch buffer
   is sized to the largest requirement among A and those outputs.</li>
+<li><code>polar</code> calls <code>cusolverMpPolar</code> for tall or square matrices. A is overwritten
+  by the polar factor, while the optional H matrix is allocated and
+  reverse-redistributed only when requested.</li>
 </ul>
 <h2 id="python-and-native-responsibilities">Python and native responsibilities<a class="headerlink" href="#python-and-native-responsibilities" title="Permanent link">¤</a></h2>
 <p>Python is responsible for:</p>
@@ -1760,10 +2002,19 @@ differences are the cuSOLVERMp call sequence and solver workspace:</p>
 <td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc">src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gels.cc">src/cuda/cusolvermp_routines/cusolvermp_gels.cc</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_qr.cc">src/cuda/cusolvermp_routines/cusolvermp_qr.cc</a></td>
+</tr>
+<tr>
 <td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_syevd.cc">src/cuda/cusolvermp_routines/cusolvermp_syevd.cc</a></td>
 </tr>
 <tr>
 <td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc">src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_polar.cc">src/cuda/cusolvermp_routines/cusolvermp_polar.cc</a></td>
 </tr>
 </tbody>
 </table>

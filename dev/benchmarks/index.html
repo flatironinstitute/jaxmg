@@ -12,13 +12,13 @@
         <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
-        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/">
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/benchmarks/">
       
       
-        <link rel="prev" href="../benchmarks/">
+        <link rel="prev" href="../api/polar/">
       
       
-        <link rel="next" href="memory_distribution/">
+        <link rel="next" href="../technical_details/">
       
       
       <link rel="icon" href="../_static/square.png">
@@ -26,7 +26,7 @@
     
     
       
-        <title>Native workflow - JAXMg</title>
+        <title>Performance and scaling - JAXMg</title>
       
     
     
@@ -84,7 +84,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#native-workflow" class="md-skip">
+        <a href="#performance-and-scaling" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Native workflow
+              Performance and scaling
             
           </span>
         </div>
@@ -290,11 +290,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../benchmarks/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
           
   
   
@@ -310,13 +312,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="./" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../technical_details/" class="md-tabs__link">
           
   
   
@@ -986,79 +986,6 @@
       
   
   
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
-        
-          
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    Benchmarks
-    
-  </span>
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4">
-            <span class="md-nav__icon md-icon"></span>
-            Benchmarks
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../benchmarks/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Performance and scaling
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
     
   
   
@@ -1080,15 +1007,15 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
   <span class="md-ellipsis">
-    Technical Details
+    Benchmarks
     
   </span>
   
@@ -1096,10 +1023,10 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
-            Technical Details
+            Benchmarks
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
@@ -1124,7 +1051,7 @@
   
   
   <span class="md-ellipsis">
-    Native workflow
+    Performance and scaling
     
   </span>
   
@@ -1137,7 +1064,7 @@
   
   
   <span class="md-ellipsis">
-    Native workflow
+    Performance and scaling
     
   </span>
   
@@ -1160,69 +1087,36 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#scratch-allocation" class="md-nav__link">
+  <a href="#benchmark-configuration" class="md-nav__link">
     <span class="md-ellipsis">
-      Scratch allocation
+      Benchmark configuration
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#memory-distribution-stages" class="md-nav__link">
+  <a href="#process-grid-layout" class="md-nav__link">
     <span class="md-ellipsis">
-      Memory-distribution stages
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Memory-distribution stages">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#stage-1-local-memory-layout-conversion" class="md-nav__link">
-    <span class="md-ellipsis">
-      Stage 1: local memory layout conversion
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#stage-2-top-left-and-edge-padding-alignment" class="md-nav__link">
-    <span class="md-ellipsis">
-      Stage 2: top-left and edge-padding alignment
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#stage-3-2d-block-cyclic-redistribution" class="md-nav__link">
-    <span class="md-ellipsis">
-      Stage 3: 2D block-cyclic redistribution
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#solver-workflows" class="md-nav__link">
-    <span class="md-ellipsis">
-      Solver workflows
+      Process-grid layout
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#detailed-implementation" class="md-nav__link">
+  <a href="#tile-dimension" class="md-nav__link">
     <span class="md-ellipsis">
-      Detailed implementation
+      Tile dimension
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#large-scale-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      Large-scale execution
     </span>
   </a>
   
@@ -1237,6 +1131,56 @@
 
               
             
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Technical Details
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Technical Details
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
               
                 
   
@@ -1244,7 +1188,30 @@
   
   
     <li class="md-nav__item">
-      <a href="memory_distribution/" class="md-nav__link">
+      <a href="../technical_details/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Native workflow
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../technical_details/memory_distribution/" class="md-nav__link">
         
   
   
@@ -1267,7 +1234,7 @@
   
   
     <li class="md-nav__item">
-      <a href="building_from_source/" class="md-nav__link">
+      <a href="../technical_details/building_from_source/" class="md-nav__link">
         
   
   
@@ -1290,7 +1257,7 @@
   
   
     <li class="md-nav__item">
-      <a href="contributing/" class="md-nav__link">
+      <a href="../technical_details/contributing/" class="md-nav__link">
         
   
   
@@ -1340,69 +1307,36 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#scratch-allocation" class="md-nav__link">
+  <a href="#benchmark-configuration" class="md-nav__link">
     <span class="md-ellipsis">
-      Scratch allocation
+      Benchmark configuration
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#memory-distribution-stages" class="md-nav__link">
+  <a href="#process-grid-layout" class="md-nav__link">
     <span class="md-ellipsis">
-      Memory-distribution stages
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Memory-distribution stages">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#stage-1-local-memory-layout-conversion" class="md-nav__link">
-    <span class="md-ellipsis">
-      Stage 1: local memory layout conversion
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#stage-2-top-left-and-edge-padding-alignment" class="md-nav__link">
-    <span class="md-ellipsis">
-      Stage 2: top-left and edge-padding alignment
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#stage-3-2d-block-cyclic-redistribution" class="md-nav__link">
-    <span class="md-ellipsis">
-      Stage 3: 2D block-cyclic redistribution
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#solver-workflows" class="md-nav__link">
-    <span class="md-ellipsis">
-      Solver workflows
+      Process-grid layout
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#detailed-implementation" class="md-nav__link">
+  <a href="#tile-dimension" class="md-nav__link">
     <span class="md-ellipsis">
-      Detailed implementation
+      Tile dimension
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#large-scale-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      Large-scale execution
     </span>
   </a>
   
@@ -1424,92 +1358,97 @@
 
 
 
-<h1 id="native-workflow">Native workflow<a class="headerlink" href="#native-workflow" title="Permanent link">¤</a></h1>
-<p>JAXMg accepts ordinary JAX arrays sharded over a one- or two-axis device mesh.
-However, cuSOLVERMp requires column-major local buffers distributed in a 2D
-block-cyclic layout. The native backend bridges these layouts inside one fused
-C++/CUDA FFI call:</p>
-<figure class="memory-distribution-figure">
-  <a href="../_static/flowcharts/jaxmg_general.svg"><img alt="Three stages of edge-padding alignment over a two-by-four GPU process grid." class="memory-distribution-image" src="../_static/flowcharts/jaxmg_general.svg" /></a>
-</figure>
-<p>Python calculates static metadata such as the process grid, rank map, logical
-matrix size, tile size, and padded local capacity. C++/CUDA owns the data
-movement, cuSOLVERMp descriptors and workspace, solver calls, and reverse
-redistribution. Matrix data remains GPU-resident throughout this workflow, and
-the in-place transformations reuse bounded native scratch storage to minimize
-memory overhead.</p>
-<p>Matrix-valued solver outputs follow the reverse path shown above. The
-eigenvalues-only SYEVD mode returns the replicated eigenvalue array directly
-after solver execution.</p>
-<h2 id="scratch-allocation">Scratch allocation<a class="headerlink" href="#scratch-allocation" title="Permanent link">¤</a></h2>
-<p>The redistribution path uses one native scratch allocation per FFI call. Its
-size is determined by the largest tile slab used by the 2D block-cyclic stage:</p>
-<div class="arithmatex">\[
-N_{\mathrm{scratch}}
-=
-3\max\left(
-  T_c N_{\mathrm{local\ rows}},
-  T_r N_{\mathrm{local\ cols}}
-\right).
-\]</div>
-<p>For square solver tiles, <span class="arithmatex">\(T_r=T_c=T_A\)</span>. The layout-conversion and edge-padding
-stages reuse this allocation and process data in bounded batches. They do not
-allocate a second full local matrix.</p>
-<h2 id="memory-distribution-stages">Memory-distribution stages<a class="headerlink" href="#memory-distribution-stages" title="Permanent link">¤</a></h2>
-<p>The memory redistribution is performed in three stages.</p>
-<h3 id="stage-1-local-memory-layout-conversion">Stage 1: local memory layout conversion<a class="headerlink" href="#stage-1-local-memory-layout-conversion" title="Permanent link">¤</a></h3>
-<p>JAX presents each local matrix shard in row-major physical memory.
-  cuSOLVERMp expects column-major local memory. CUDA kernels apply an in-place
-  rectangular permutation using bounded scratch; the logical matrix is not
-  transposed. This stage is local to each GPU and requires no communicator
-  traffic.</p>
-<p><a href="memory_distribution/#stage-1-local-layout-conversion">Layout-conversion details</a></p>
-<h3 id="stage-2-top-left-and-edge-padding-alignment">Stage 2: top-left and edge-padding alignment<a class="headerlink" href="#stage-2-top-left-and-edge-padding-alignment" title="Permanent link">¤</a></h3>
-<p>Python provides tile-aligned local capacity. Native horizontal compaction
-  moves real column slabs toward the global left edge, then vertical
-  compaction moves real row slabs toward the global top edge. Padding is
-  consolidated on the global right and bottom edges.</p>
-<p>Moves in one horizontal wave are independent across process rows. Moves in
-  one vertical wave are independent across process columns.</p>
-<p><a href="../_static/memory_distribution/block_cyclic_padding_alignment.svg"><img alt="Three stages of edge-padding alignment over a two-by-four GPU process grid." class="memory-distribution-image" src="../_static/memory_distribution/block_cyclic_padding_alignment.svg" /></a></p>
-<p><a href="memory_distribution/#stage-2-top-left-edge-padding-alignment">Edge-padding details</a></p>
-<h3 id="stage-3-2d-block-cyclic-redistribution">Stage 3: 2D block-cyclic redistribution<a class="headerlink" href="#stage-3-2d-block-cyclic-redistribution" title="Permanent link">¤</a></h3>
-<p>Whole tile slabs are redistributed in two separable phases. The
-  column-owner phase assigns each tile to the correct process column; the
-  row-owner phase then assigns each tile to the correct process row.</p>
-<p>Same-rank moves use local CUDA operations. Cross-rank moves use the
-  NCCL-backed communicator borrowed from XLA. The same communicator supplies
-  the <code>ncclComm_t</code> used by cuSOLVERMp.</p>
-<p><a href="../_static/memory_distribution/block_cyclic_redistribution.svg"><img alt="Three stages of the two-dimensional block-cyclic redistribution over a two-by-four GPU process grid." class="memory-distribution-image" src="../_static/memory_distribution/block_cyclic_redistribution.svg" /></a></p>
-<p><a href="memory_distribution/#stage-3-2d-block-cyclic-redistribution">2D block-cyclic details</a></p>
-<h2 id="solver-workflows">Solver workflows<a class="headerlink" href="#solver-workflows" title="Permanent link">¤</a></h2>
-<p>The redistribution stages are shared by all public routines:</p>
+<h1 id="performance-and-scaling">Performance and scaling<a class="headerlink" href="#performance-and-scaling" title="Permanent link">¤</a></h1>
+<p>This page presents the performance and scaling of JAXMg across multiple GPUs
+and compute nodes. Performance in distributed matrix routines depends not only
+on the available GPU resources, but also on how the calculation is divided
+between them. We therefore examine the two principal configuration choices
+available in JAXMg: the process-grid layout and the matrix tile dimension,
+<span class="arithmatex">\(T_A\)</span>.</p>
+<p>The results provide practical guidance for configuring JAXMg, rather than
+hardware-independent performance guarantees. Complete benchmark scripts and
+results are available in the
+<a href="https://github.com/therooler/jaxmg_benchmark">JAXMg benchmark repository</a>.</p>
+<h2 id="benchmark-configuration">Benchmark configuration<a class="headerlink" href="#benchmark-configuration" title="Permanent link">¤</a></h2>
+<p>We consider four representative combinations of routine and data type:</p>
 <ul>
-<li><code>potrs</code> calls <code>cusolverMpPotrf</code> followed by <code>cusolverMpPotrs</code>. When requested,
-  it reads the distributed factor diagonal and performs a one-scalar NCCL
-  all-reduce to return <code>log(det(A))</code>.</li>
-<li><code>lu_solve</code> calls <code>cusolverMpGetrf</code> followed by <code>cusolverMpGetrs</code> and manages
-  the distributed pivot allocation.</li>
-<li><code>least_squares</code> calls <code>cusolverMpGels</code> for overdetermined rectangular systems
-  and restores the solution from the overwritten solve-input buffer.</li>
-<li><code>qr</code> calls <code>cusolverMpGeqrf</code>, preserves the upper-triangular factor, and then
-  calls <code>cusolverMpOrgqr</code> to form the reduced orthonormal factor.</li>
-<li><code>syevd</code> calls <code>cusolverMpSyevd</code> and materializes distributed eigenvalues plus
-  eigenvectors when requested.</li>
-<li><code>gesvd</code> calls <code>cusolverMpGesvd</code> for rectangular matrices and restores only
-  the requested U and Vh outputs. Its shared scratch allocation is sized to the
-  largest redistribution requirement among A and those requested outputs.</li>
-<li><code>polar</code> calls <code>cusolverMpPolar</code> for tall or square matrices. The donated A
-  allocation is overwritten by the polar factor, and the optional H output is
-  allocated and restored only when requested.</li>
+<li><code>potrs</code> with <code>float32</code>;</li>
+<li><code>lu_solve</code> with <code>float64</code>;</li>
+<li><code>gesvd</code> with <code>complex64</code>;</li>
+<li><code>syevd</code> with <code>complex128</code>.</li>
 </ul>
-<p>Each Python process owns one GPU and contributes one rank to the XLA/NCCL and
-cuSOLVERMp communicators. See <a href="../examples/execution/">Distributed execution</a>
-for the required launch model.</p>
-<h2 id="detailed-implementation">Detailed implementation<a class="headerlink" href="#detailed-implementation" title="Permanent link">¤</a></h2>
-<p><a href="memory_distribution/">Memory distribution</a> gives the complete diagrams,
-layout definitions, dependency waves, permutation cycles, reverse path, and
-source-code map.</p>
+<p>For <code>potrs</code>, <code>lu_solve</code>, and <code>syevd</code>, the input is the diagonal matrix
+<span class="arithmatex">\(A=\operatorname{diag}(1,\ldots,N)\)</span>. The two linear solves additionally use
+<span class="arithmatex">\(b=(1,\ldots,1)^\mathsf{T}\)</span>. For <code>gesvd</code>, the input is a random Gaussian
+matrix with zero mean and unit variance.</p>
+<p>Both configuration studies use 16 NVIDIA H100 SXM5 GPUs, each with 94 GB of
+memory, across four nodes. Each node contains four GPUs connected by NVLink
+and four 400 Gb/s InfiniBand links for inter-node communication.</p>
+<h2 id="process-grid-layout">Process-grid layout<a class="headerlink" href="#process-grid-layout" title="Permanent link">¤</a></h2>
+<p>The first benchmark compares a one-dimensional <span class="arithmatex">\(16\times1\)</span> process grid with
+a two-dimensional <span class="arithmatex">\(4\times4\)</span> grid at a fixed tile dimension <span class="arithmatex">\(T_A=256\)</span>.</p>
+<figure class="benchmark-figure">
+  <a href="../_static/benchmarks/process_grid_comparison.png"><img alt="Wall-clock runtime comparison between 16 by 1 and 4 by 4 process grids for four JAXMg routines." class="benchmark-image" src="../_static/benchmarks/process_grid_comparison.png" /></a>
+<br />
+<figcaption>
+    Wall-clock runtime against matrix dimension <span class="arithmatex">\(N\)</span> on 16 NVIDIA H100 GPUs.
+    The <span class="arithmatex">\(16\times1\)</span> grid is shown in dark blue, the <span class="arithmatex">\(4\times4\)</span> grid in orange,
+    and native single-GPU JAX in dashed green. Curves for the <span class="arithmatex">\(16\times1\)</span> grid
+    begin at larger <span class="arithmatex">\(N\)</span> because avoiding padding requires <span class="arithmatex">\(N\)</span> to be divisible
+    by <span class="arithmatex">\(16T_A\)</span>, compared with <span class="arithmatex">\(4T_A\)</span> for the <span class="arithmatex">\(4\times4\)</span> grid.
+  </figcaption>
+</figure>
+<p>Under the <a href="../technical_details/memory_distribution/#stage-3-2d-block-cyclic-redistribution">2D block-cyclic
+redistribution</a>,
+moving from the <span class="arithmatex">\(16\times1\)</span> to the <span class="arithmatex">\(4\times4\)</span> grid introduces a second
+inter-rank redistribution phase, but provides a more balanced distribution
+during cuSOLVERMp execution. The process-grid layout therefore determines the
+balance between redistribution overhead and distributed solver efficiency.</p>
+<p>Across every routine, the solver-side benefit outweighs the additional
+communication. Over matrix dimensions completed by both layouts, the
+<span class="arithmatex">\(4\times4\)</span> grid achieves geometric-mean speed-ups of <span class="arithmatex">\(1.77\times\)</span> for
+<code>potrs</code>, <span class="arithmatex">\(1.23\times\)</span> for <code>lu_solve</code>, <span class="arithmatex">\(1.38\times\)</span> for <code>gesvd</code>, and
+<span class="arithmatex">\(1.21\times\)</span> for <code>syevd</code> relative to the <span class="arithmatex">\(16\times1\)</span> grid.</p>
+<p>The smaller maximum matrix dimensions reached by <code>gesvd</code> and <code>syevd</code> reflect
+the substantially larger cuSOLVERMp workspaces required by these
+decompositions. At sufficiently large <span class="arithmatex">\(N\)</span>, both distributed layouts also
+outperform the corresponding native single-GPU JAX implementation. The
+computational benefit of distributed execution therefore exceeds its
+redistribution overhead before single-GPU memory becomes limiting.</p>
+<h2 id="tile-dimension">Tile dimension<a class="headerlink" href="#tile-dimension" title="Permanent link">¤</a></h2>
+<p>Having established the performance advantage of the <span class="arithmatex">\(4\times4\)</span> process grid,
+we next hold this layout fixed and vary <span class="arithmatex">\(T_A\)</span> from 256 to 4096.</p>
+<figure class="benchmark-figure">
+  <a href="../_static/benchmarks/tile_size_comparison.png"><img alt="Wall-clock runtime over five tile dimensions for four JAXMg routines on a 4 by 4 process grid." class="benchmark-image" src="../_static/benchmarks/tile_size_comparison.png" /></a>
+<br />
+<figcaption>
+    Effect of tile dimension on wall-clock runtime for a <span class="arithmatex">\(4\times4\)</span> process
+    grid using the same 16 NVIDIA H100 GPUs. Curves are shaded from light to
+    dark as <span class="arithmatex">\(T_A\)</span> increases through 256, 512, 1024, 2048, and 4096. Larger
+    tiles begin at larger <span class="arithmatex">\(N\)</span> because each matrix dimension must contain a
+    whole number of tiles along both process-grid axes.
+  </figcaption>
+</figure>
+<p>The response is strongly routine-dependent. Increasing <span class="arithmatex">\(T_A\)</span> reduces the
+runtime of <code>potrs</code>, leaves <code>lu_solve</code> broadly unchanged, and increases the
+runtime of <code>syevd</code>. The <code>gesvd</code> response is non-monotonic, with the shortest
+runtime at the intermediate value <span class="arithmatex">\(T_A=1024\)</span> and slower execution for both
+smaller and larger tiles. Tile selection should therefore be benchmarked for
+the routine and matrix sizes of interest while also satisfying the
+<a href="../examples/choose_tile_size/#the-no-padding-condition">no-padding condition</a>.</p>
+<h2 id="large-scale-execution">Large-scale execution<a class="headerlink" href="#large-scale-execution" title="Permanent link">¤</a></h2>
+<p>To demonstrate the larger scaling limit, we ran JAXMg on 64 NVIDIA H200 SXM5
+GPUs, each with 143 GB of memory, across eight nodes. Each node contained eight
+NVLink-connected GPUs and eight 400 Gb/s InfiniBand links.</p>
+<p>Using an <span class="arithmatex">\(8\times8\)</span> process grid and <span class="arithmatex">\(T_A=1024\)</span>, JAXMg completed a Cholesky
+solve with <span class="arithmatex">\(N=1{,}499{,}136\)</span>. The distributed matrix occupied 8.2 TiB in
+aggregate, while each local shard and its redistribution scratch used 94.7%
+of the available device memory. The warm solve completed in 654 seconds.</p>
+<p>At <span class="arithmatex">\(N=1{,}310{,}720\)</span>, the largest dimension completed by both tested layouts,
+the <span class="arithmatex">\(8\times8\)</span> grid was <span class="arithmatex">\(6.8\times\)</span> faster than the <span class="arithmatex">\(64\times1\)</span> grid: 452
+seconds compared with 3065 seconds. The balanced grid both reduces the
+redistribution scratch required for a fixed tile dimension and distributes the
+solver computation more evenly.</p>
 
 
 

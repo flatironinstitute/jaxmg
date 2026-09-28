@@ -12,13 +12,13 @@
         <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
-        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/api/gesvd/">
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/api/least_squares/">
       
       
-        <link rel="prev" href="../syevd/">
+        <link rel="prev" href="../lu_solve/">
       
       
-        <link rel="next" href="../polar/">
+        <link rel="next" href="../qr/">
       
       
       <link rel="icon" href="../../_static/square.png">
@@ -26,7 +26,7 @@
     
     
       
-        <title>jaxmg.gesvd - JAXMg</title>
+        <title>jaxmg.least_squares - JAXMg</title>
       
     
     
@@ -84,7 +84,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#jaxmggesvd" class="md-skip">
+        <a href="#jaxmgleast_squares" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              jaxmg.gesvd
+              jaxmg.least_squares
             
           </span>
         </div>
@@ -869,10 +869,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../least_squares/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.least_squares
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -883,6 +905,44 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#jaxmg.least_squares" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;least_squares
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#jaxmg.least_squares_shardmap_ctx" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;least_squares_shardmap_ctx
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -938,32 +998,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    jaxmg.gesvd
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../gesvd/" class="md-nav__link">
         
   
   
@@ -974,44 +1012,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#jaxmg.gesvd" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;gesvd
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#jaxmg.gesvd_shardmap_ctx" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;gesvd_shardmap_ctx
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1289,18 +1289,18 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#jaxmg.gesvd" class="md-nav__link">
+  <a href="#jaxmg.least_squares" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;gesvd
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;least_squares
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#jaxmg.gesvd_shardmap_ctx" class="md-nav__link">
+  <a href="#jaxmg.least_squares_shardmap_ctx" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;gesvd_shardmap_ctx
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;least_squares_shardmap_ctx
     </span>
   </a>
   
@@ -1322,48 +1322,40 @@
 
 
 
-<h1 id="jaxmggesvd">jaxmg.gesvd<a class="headerlink" href="#jaxmggesvd" title="Permanent link">¤</a></h1>
-<p><code>gesvd</code> computes the singular-value decomposition of an <span class="arithmatex">\(M \times N\)</span> real or
-complex matrix <span class="arithmatex">\(A\)</span>:</p>
+<h1 id="jaxmgleast_squares">jaxmg.least_squares<a class="headerlink" href="#jaxmgleast_squares" title="Permanent link">¤</a></h1>
+<p><code>least_squares</code> solves an overdetermined linear system using distributed QR
+factorization:</p>
 <div class="arithmatex">\[
-A = U \Sigma V^{\dagger}.
+X = \underset{X}{\operatorname{argmin}}\;\lVert A X-B\rVert_2,
+\qquad A\in\mathbb{F}^{M\times N},\quad M\geq N.
 \]</div>
-<p>By default, <code>gesvd</code> returns the reduced decomposition <code>(U, s, Vh)</code>, following
-<code>jax.numpy.linalg.svd</code>. Set <code>full_matrices=True</code> to return full-sized
-singular-vector matrices. The left and right singular vectors can be requested
-independently with <code>compute_u</code> and <code>compute_vh</code>; outputs that are not requested
-are neither allocated nor redistributed.</p>
-<p>Use <code>gesvd</code> for a direct decomposition. Use <code>gesvd_shardmap_ctx</code> when the SVD
-is part of a larger caller-owned <code>jax.jit</code>. The context interface returns the
-overwritten input-matrix work buffer so an outer compiled function can preserve
-the donated input alias. cuSOLVERMp requires separate storage for A, U, and Vh,
-so requested singular-vector matrices cannot alias the donated input.</p>
+<p>The solve input <span class="arithmatex">\(B\)</span> may be a vector or a matrix containing multiple columns.
+The returned solution has shape <code>(N,)</code> or <code>(N, K)</code>, respectively.
+Each process-grid column must own at least one block-cyclic tile of <span class="arithmatex">\(B\)</span>; a
+vector input therefore requires a process grid with one column.</p>
+<p>Use <code>least_squares</code> for a direct solve. Use <code>least_squares_shardmap_ctx</code> when
+the solve is part of a larger caller-owned <code>jax.jit</code>. Since cuSOLVERMp
+overwrites both distributed inputs, the context interface returns <code>a_work</code> and
+<code>b_work</code> as shape-compatible alias targets for donated arguments.</p>
 
 
 <div class="doc doc-object doc-function">
 
 
-<h4 id="jaxmg.gesvd" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">gesvd</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">compute_u</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">compute_vh</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">full_matrices</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">donate</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+<h4 id="jaxmg.least_squares" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">least_squares</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_status</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">donate</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
-<a href="#jaxmg.gesvd" class="headerlink" title="Permanent link">¤</a></h4>
+<a href="#jaxmg.least_squares" class="headerlink" title="Permanent link">¤</a></h4>
 
 
     <div class="doc doc-contents first">
 
-        <p>Compute a distributed singular-value decomposition with cuSOLVERMp.</p>
-<p>This is the high-level JAXMg interface for rectangular or square matrices.
-For an <code>m x n</code> input, let <code>k = min(m, n)</code>. By default the routine
-returns the reduced decomposition <code>(U, s, Vh)</code> with shapes <code>(m, k)</code>,
-<code>(k,)</code>, and <code>(k, n)</code>. <code>full_matrices=True</code> instead requests U with
-shape <code>(m, m)</code> and Vh with shape <code>(n, n)</code>. Either vector matrix can be
-disabled independently so JAX does not allocate or redistribute an output
-that the application does not require.</p>
-<p>The input and every requested matrix output use the same JAX mesh and
-<code>PartitionSpec</code>. Their logical dimensions must therefore be
-divisible by the corresponding process-grid dimensions. Tile padding is
-applied separately to A, U, and Vh when their local dimensions are not
-divisible by <code>T_A</code>.</p>
+        <p>Solve <code>min_X ||A X - B||_2</code> with distributed QR factorization.</p>
+<p>The current implementation supports overdetermined or square systems with
+<code>M &gt;= N</code>. For <code>A</code> of shape <code>(M, N)</code> and <code>B</code> of shape <code>(M, K)</code>,
+the returned solution has shape <code>(N, K)</code>. A rank-1 <code>B</code> is accepted and
+produces a rank-1 solution. Every process-grid column must own at least one
+block-cyclic tile of <code>B</code>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -1386,8 +1378,8 @@ divisible by <code>T_A</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>A rank-2 real or complex matrix sharded over a one- or
-two-axis device mesh.</p>
+                <p>Rank-2 input matrix sharded over a one- or two-axis device
+mesh.</p>
               </div>
             </td>
             <td>
@@ -1396,337 +1388,14 @@ two-axis device mesh.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>T_A</code>
-            </td>
-            <td>
-                  <code><span title="int">int</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Square cuSOLVERMp tile width. GESVD supports rectangular
-matrices but requires equal row and column tile dimensions.</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>mesh</code>
-            </td>
-            <td>
-                  <code><span title="jax._src.mesh.Mesh">Mesh</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>JAX mesh used by <code>jax.shard_map</code>. If omitted,
-inferred from <code>a.sharding.mesh</code>.</p>
-              </div>
-            </td>
-            <td>
-                  <code>None</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>matrix_specs</code>
-            </td>
-            <td>
-                  <code><span title="PartitionSpec">PartitionSpec</span> or <span title="tuple">tuple</span> / <span title="list">list</span>[<span title="PartitionSpec">PartitionSpec</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Rank-2 matrix sharding. If omitted, inferred from
-<code>a.sharding.spec</code>.</p>
-              </div>
-            </td>
-            <td>
-                  <code>None</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>in_specs</code>
-            </td>
-            <td>
-                  <code><span title="jax.P">P</span> | <span title="typing.Tuple">Tuple</span>[<span title="jax.P">P</span>] | <span title="typing.List">List</span>[<span title="jax.P">P</span>] | None</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Backwards-compatible alias for <code>matrix_specs</code>.</p>
-              </div>
-            </td>
-            <td>
-                  <code>None</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>compute_u</code>
-            </td>
-            <td>
-                  <code><span title="bool">bool</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Whether to compute and return left singular
-vectors. Default is True. This must be a Python <code>bool</code> fixed
-while tracing.</p>
-              </div>
-            </td>
-            <td>
-                  <code>True</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>compute_vh</code>
-            </td>
-            <td>
-                  <code><span title="bool">bool</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Whether to compute and return conjugate-
-transposed right singular vectors. Default is True. This must be a
-Python <code>bool</code> fixed while tracing.</p>
-              </div>
-            </td>
-            <td>
-                  <code>True</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>full_matrices</code>
-            </td>
-            <td>
-                  <code><span title="bool">bool</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>If False (default), return reduced
-vector matrices. If True, return full U and Vh matrices. This must
-be fixed while tracing and affects only requested vector outputs.</p>
-              </div>
-            </td>
-            <td>
-                  <code>False</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>return_status</code>
-            </td>
-            <td>
-                  <code><span title="bool">bool</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>If True, append the native per-rank
-diagnostic status vector to the selected numerical outputs.</p>
-              </div>
-            </td>
-            <td>
-                  <code>False</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>pad</code>
-            </td>
-            <td>
-                  <code><span title="bool">bool</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>If True (default), add tile-aligned local capacity
-where required. If False, all participating local matrix shapes
-must already be divisible by <code>T_A</code>.</p>
-              </div>
-            </td>
-            <td>
-                  <code>True</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>donate</code>
-            </td>
-            <td>
-                  <code><span title="bool">bool</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>If True (default) the input buffers may be
-donated to the native call for zero-copy execution, which means
-they are deleted and cannot be used again. Pass False to preserve
-them, at the cost of keeping the original and working buffers in
-memory simultaneously.</p>
-              </div>
-            </td>
-            <td>
-                  <code>True</code>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-    <p><span class="doc-section-title">Returns:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Type</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="jax.Array">Array</span> | <span title="tuple">tuple</span>[<span title="jax.Array">Array</span>, ...]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>The selected numerical outputs follow NumPy/JAX SVD order:</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="jax.Array">Array</span> | <span title="tuple">tuple</span>[<span title="jax.Array">Array</span>, ...]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p><code>(U, s, Vh)</code> when both vectors are requested, <code>(U, s)</code> for U only,</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="jax.Array">Array</span> | <span title="tuple">tuple</span>[<span title="jax.Array">Array</span>, ...]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p><code>(s, Vh)</code> for Vh only, and <code>s</code> for values only. If</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="jax.Array">Array</span> | <span title="tuple">tuple</span>[<span title="jax.Array">Array</span>, ...]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p><code>return_status=True</code>, the status vector is appended to that result.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-<p><span class="doc-section-title">Raises:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Type</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="TypeError">TypeError</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>If the dtype, static mode flags, or sharding specification is
-unsupported.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="ValueError">ValueError</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>If a shape, tile size, process grid, or requested output
-layout is incompatible with cuSOLVERMp.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-<details class="notes" open>
-  <summary>Notes</summary>
-  <ul>
-<li>The internally jitted implementation donates <code>a</code> to the opaque
-  matrix work result returned by the native call.</li>
-<li>cuSOLVERMp requires A, U, and Vh to occupy distinct storage. Donation
-  therefore removes a second A-sized work allocation but cannot alias
-  A to either singular-vector output.</li>
-<li>If the native solver fails, numerical outputs may be incomplete; use
-  <code>return_status=True</code> when per-rank diagnostics are required.</li>
-</ul>
-</details>
-
-    </div>
-
-</div><hr />
-
-
-<div class="doc doc-object doc-function">
-
-
-<h4 id="jaxmg.gesvd_shardmap_ctx" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">gesvd_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">compute_u</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">compute_vh</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">full_matrices</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
-
-<a href="#jaxmg.gesvd_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
-
-
-    <div class="doc doc-contents first">
-
-        <p>Compute a distributed SVD while exposing donated matrix work storage.</p>
-<p>This lower-level interface performs the same validation, padding, native
-redistribution, and cuSOLVERMp execution as :func:<code>jaxmg.gesvd</code>, but leaves
-the outer <code>jax.jit</code> boundary to the caller. The first return value is the
-opaque <code>a_work</code> buffer overwritten by GESVD. Keeping that value in the
-outer function's returned pytree allows <code>jax.jit(...,
-donate_argnums=(0,))</code> to alias the input matrix to an A-sized output.</p>
-<p>Singular values and requested vector matrices follow the same shapes and
-selection rules as :func:<code>jaxmg.gesvd</code>. Unlike POTRS and LU solve, the
-factorized A buffer is not a numerical result. cuSOLVERMp also prohibits A,
-U, and Vh from overlapping, so requested vector matrices remain separate
-allocations even when A is donated.</p>
-
-
-<p><span class="doc-section-title">Parameters:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Description</th>
-          <th>Default</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                <code>a</code>
+                <code>b</code>
             </td>
             <td>
                   <code><span title="jax.Array">Array</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>A rank-2 real or complex matrix sharded over a one- or
-two-axis device mesh.</p>
+                <p>Rank-1 or rank-2 solve input with <code>M</code> rows.</p>
               </div>
             </td>
             <td>
@@ -1801,48 +1470,14 @@ inferred from <code>a.sharding.mesh</code>.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>compute_u</code>
+                <code>return_status</code>
             </td>
             <td>
                   <code><span title="bool">bool</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Whether to compute left singular vectors.</p>
-              </div>
-            </td>
-            <td>
-                  <code>True</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>compute_vh</code>
-            </td>
-            <td>
-                  <code><span title="bool">bool</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Whether to compute right singular vectors
-in conjugate-transposed form.</p>
-              </div>
-            </td>
-            <td>
-                  <code>True</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>full_matrices</code>
-            </td>
-            <td>
-                  <code><span title="bool">bool</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Whether requested vector outputs use
-full rather than reduced shapes.</p>
+                <p>If True return <code>(x, status)</code>.</p>
               </div>
             </td>
             <td>
@@ -1858,7 +1493,26 @@ full rather than reduced shapes.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Whether JAXMg may add tile-aligned local capacity.</p>
+                <p>If True (default), add tile-aligned local
+capacity where required.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>donate</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True (default), the input buffers may be
+reused by the native call and must not be used afterwards. Pass
+False to preserve them at the cost of additional memory.</p>
               </div>
             </td>
             <td>
@@ -1880,41 +1534,21 @@ full rather than reduced shapes.</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                  <code><span title="jax.Array">Array</span></code>
+                  <code><span title="typing.Union">Union</span>[<span title="jax.Array">Array</span>, <span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>]]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p><code>(a_work, U, s, Vh, status)</code>, <code>(a_work, U, s, status)</code>,</p>
+                <p>Array or (Array, Array): The least-squares solution, and optionally the</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
             <td>
-                  <code>...</code>
+                  <code><span title="typing.Union">Union</span>[<span title="jax.Array">Array</span>, <span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>]]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p><code>(a_work, s, Vh, status)</code>, or <code>(a_work, s, status)</code> according to the</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="tuple">tuple</span>[<span title="jax.Array">Array</span>, ...]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>selected vector outputs. <code>status</code> is always returned by the context</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="tuple">tuple</span>[<span title="jax.Array">Array</span>, ...]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>interface so an enclosing compiled function can propagate diagnostics.</p>
+                <p>native per-rank diagnostic status.</p>
               </div>
             </td>
           </tr>
@@ -1937,8 +1571,7 @@ full rather than reduced shapes.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If the dtype, static mode flags, or sharding specification is
-unsupported.</p>
+                <p>If dtypes or sharding specifications are unsupported.</p>
               </div>
             </td>
           </tr>
@@ -1948,8 +1581,237 @@ unsupported.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If a shape, tile size, process grid, or requested output
-layout is incompatible with cuSOLVERMp.</p>
+                <p>If shapes, tile sizes, or mesh layouts are incompatible.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div><hr />
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="jaxmg.least_squares_shardmap_ctx" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">least_squares_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+
+<a href="#jaxmg.least_squares_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+
+        <p>Solve a least-squares system inside a caller-owned <code>jax.jit</code>.</p>
+<p>This lower-level interface performs the same work as
+:func:<code>jaxmg.least_squares</code> but leaves the outer JIT boundary to the caller.
+It returns <code>a_work</code> and <code>b_work</code> so an outer compiled function can
+donate both inputs into shape-compatible native work outputs.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>a</code>
+            </td>
+            <td>
+                  <code><span title="jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Rank-2 input matrix sharded over a one- or two-axis device
+mesh.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>b</code>
+            </td>
+            <td>
+                  <code><span title="jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Rank-1 or rank-2 solve input with <code>M</code> rows.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>T_A</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Square cuSOLVERMp tile width.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mesh</code>
+            </td>
+            <td>
+                  <code><span title="jax._src.mesh.Mesh">Mesh</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>JAX mesh used by <code>jax.shard_map</code>. If omitted,
+inferred from <code>a.sharding.mesh</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>matrix_specs</code>
+            </td>
+            <td>
+                  <code><span title="PartitionSpec">PartitionSpec</span> or <span title="tuple">tuple</span> / <span title="list">list</span>[<span title="PartitionSpec">PartitionSpec</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Rank-2 matrix sharding. If omitted, inferred from
+<code>a.sharding.spec</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>in_specs</code>
+            </td>
+            <td>
+                  <code><span title="jax.P">P</span> | <span title="typing.Tuple">Tuple</span>[<span title="jax.P">P</span>] | <span title="typing.List">List</span>[<span title="jax.P">P</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Backwards-compatible alias for <code>matrix_specs</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pad</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True (default), add tile-aligned local
+capacity where required.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>tuple</code></td>            <td>
+                  <code><span title="jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(a_work, b_work, x, status)</code> containing the opaque matrix and</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+                  <code><span title="jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>solve-input work buffers, least-squares solution, and native per-rank</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+                  <code><span title="jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>status. The first <code>N</code> rows of <code>b_work</code> contain <code>x</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="TypeError">TypeError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If dtypes or sharding specifications are unsupported.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If shapes, tile sizes, or mesh layouts are incompatible.</p>
               </div>
             </td>
           </tr>

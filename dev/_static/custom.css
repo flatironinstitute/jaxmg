@@ -119,6 +119,26 @@ html {
     max-width: none;
 }
 
+/* Let benchmark panels use the full article column. */
+
+.md-typeset figure.benchmark-figure {
+    width: 100%;
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+}
+
+.md-typeset .benchmark-image {
+    display: block;
+    width: 100%;
+    max-width: none;
+}
+
+.md-typeset figure.benchmark-figure figcaption {
+    width: 100%;
+    max-width: none;
+}
+
 /* Bugfix: remove the superfluous parts generated when doing:
 
 ??? Blah

@@ -12,28 +12,28 @@
         <meta name="author" content="Jacob Tutt & Roeland Wiersema">
       
       
-        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/technical_details/">
+        <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/examples/polar/">
       
       
-        <link rel="prev" href="../benchmarks/">
+        <link rel="prev" href="../gesvd/">
       
       
-        <link rel="next" href="memory_distribution/">
+        <link rel="next" href="../../api/">
       
       
-      <link rel="icon" href="../_static/square.png">
+      <link rel="icon" href="../../_static/square.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.23">
     
     
       
-        <title>Native workflow - JAXMg</title>
+        <title>Polar decomposition - JAXMg</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.84d31ad4.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.84d31ad4.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
       
       
 
@@ -52,13 +52,13 @@
       
     
     
-      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="../assets/_hippogriffe.css">
+      <link rel="stylesheet" href="../../assets/_hippogriffe.css">
     
-      <link rel="stylesheet" href="../_static/custom.css">
+      <link rel="stylesheet" href="../../_static/custom.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -84,7 +84,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#native-workflow" class="md-skip">
+        <a href="#polar-decomposition" class="md-skip">
           Skip to content
         </a>
       
@@ -102,9 +102,9 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="JAXMg" class="md-header__button md-logo" aria-label="JAXMg" data-md-component="logo">
+    <a href="../.." title="JAXMg" class="md-header__button md-logo" aria-label="JAXMg" data-md-component="logo">
       
-  <img src="../_static/square.png" alt="logo">
+  <img src="../../_static/square.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Native workflow
+              Polar decomposition
             
           </span>
         </div>
@@ -234,7 +234,7 @@
     
     
       <li class="md-tabs__item">
-        <a href=".." class="md-tabs__link">
+        <a href="../.." class="md-tabs__link">
           
   
   
@@ -250,11 +250,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../examples/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
           
   
   
@@ -274,7 +276,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../api/" class="md-tabs__link">
+        <a href="../../api/" class="md-tabs__link">
           
   
   
@@ -294,7 +296,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../benchmarks/" class="md-tabs__link">
+        <a href="../../benchmarks/" class="md-tabs__link">
           
   
   
@@ -310,13 +312,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="./" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../technical_details/" class="md-tabs__link">
           
   
   
@@ -350,9 +350,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="JAXMg" class="md-nav__button md-logo" aria-label="JAXMg" data-md-component="logo">
+    <a href="../.." title="JAXMg" class="md-nav__button md-logo" aria-label="JAXMg" data-md-component="logo">
       
-  <img src="../_static/square.png" alt="logo">
+  <img src="../../_static/square.png" alt="logo">
 
     </a>
     JAXMg
@@ -422,7 +422,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -445,7 +445,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../install/" class="md-nav__link">
+      <a href="../../install/" class="md-nav__link">
         
   
   
@@ -472,26 +472,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
             
   
   
@@ -504,7 +509,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             Examples
@@ -518,7 +523,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/" class="md-nav__link">
+      <a href="../" class="md-nav__link">
         
   
   
@@ -541,7 +546,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/execution/" class="md-nav__link">
+      <a href="../execution/" class="md-nav__link">
         
   
   
@@ -564,7 +569,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/choose_tile_size/" class="md-nav__link">
+      <a href="../choose_tile_size/" class="md-nav__link">
         
   
   
@@ -587,7 +592,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/potrs/" class="md-nav__link">
+      <a href="../potrs/" class="md-nav__link">
         
   
   
@@ -610,7 +615,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/lu_solve/" class="md-nav__link">
+      <a href="../lu_solve/" class="md-nav__link">
         
   
   
@@ -633,7 +638,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/least_squares/" class="md-nav__link">
+      <a href="../least_squares/" class="md-nav__link">
         
   
   
@@ -656,7 +661,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/qr/" class="md-nav__link">
+      <a href="../qr/" class="md-nav__link">
         
   
   
@@ -679,7 +684,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/syevd/" class="md-nav__link">
+      <a href="../syevd/" class="md-nav__link">
         
   
   
@@ -702,7 +707,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/gesvd/" class="md-nav__link">
+      <a href="../gesvd/" class="md-nav__link">
         
   
   
@@ -722,10 +727,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../examples/polar/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Polar decomposition
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -736,6 +763,53 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#common-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common setup
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compute-both-factors" class="md-nav__link">
+    <span class="md-ellipsis">
+      Compute both factors
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#advanced-control-the-outer-jaxjit" class="md-nav__link">
+    <span class="md-ellipsis">
+      Advanced: control the outer jax.jit
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -798,7 +872,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/" class="md-nav__link">
+      <a href="../../api/" class="md-nav__link">
         
   
   
@@ -821,7 +895,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/potrs/" class="md-nav__link">
+      <a href="../../api/potrs/" class="md-nav__link">
         
   
   
@@ -844,7 +918,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/lu_solve/" class="md-nav__link">
+      <a href="../../api/lu_solve/" class="md-nav__link">
         
   
   
@@ -867,7 +941,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/least_squares/" class="md-nav__link">
+      <a href="../../api/least_squares/" class="md-nav__link">
         
   
   
@@ -890,7 +964,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/qr/" class="md-nav__link">
+      <a href="../../api/qr/" class="md-nav__link">
         
   
   
@@ -913,7 +987,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/syevd/" class="md-nav__link">
+      <a href="../../api/syevd/" class="md-nav__link">
         
   
   
@@ -936,7 +1010,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/gesvd/" class="md-nav__link">
+      <a href="../../api/gesvd/" class="md-nav__link">
         
   
   
@@ -959,7 +1033,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/polar/" class="md-nav__link">
+      <a href="../../api/polar/" class="md-nav__link">
         
   
   
@@ -1032,7 +1106,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../benchmarks/" class="md-nav__link">
+      <a href="../../benchmarks/" class="md-nav__link">
         
   
   
@@ -1059,31 +1133,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
             
   
   
@@ -1096,7 +1165,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             Technical Details
@@ -1107,32 +1176,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    Native workflow
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../technical_details/" class="md-nav__link">
         
   
   
@@ -1143,95 +1190,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#scratch-allocation" class="md-nav__link">
-    <span class="md-ellipsis">
-      Scratch allocation
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#memory-distribution-stages" class="md-nav__link">
-    <span class="md-ellipsis">
-      Memory-distribution stages
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Memory-distribution stages">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#stage-1-local-memory-layout-conversion" class="md-nav__link">
-    <span class="md-ellipsis">
-      Stage 1: local memory layout conversion
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#stage-2-top-left-and-edge-padding-alignment" class="md-nav__link">
-    <span class="md-ellipsis">
-      Stage 2: top-left and edge-padding alignment
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#stage-3-2d-block-cyclic-redistribution" class="md-nav__link">
-    <span class="md-ellipsis">
-      Stage 3: 2D block-cyclic redistribution
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#solver-workflows" class="md-nav__link">
-    <span class="md-ellipsis">
-      Solver workflows
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#detailed-implementation" class="md-nav__link">
-    <span class="md-ellipsis">
-      Detailed implementation
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1244,7 +1202,7 @@
   
   
     <li class="md-nav__item">
-      <a href="memory_distribution/" class="md-nav__link">
+      <a href="../../technical_details/memory_distribution/" class="md-nav__link">
         
   
   
@@ -1267,7 +1225,7 @@
   
   
     <li class="md-nav__item">
-      <a href="building_from_source/" class="md-nav__link">
+      <a href="../../technical_details/building_from_source/" class="md-nav__link">
         
   
   
@@ -1290,7 +1248,7 @@
   
   
     <li class="md-nav__item">
-      <a href="contributing/" class="md-nav__link">
+      <a href="../../technical_details/contributing/" class="md-nav__link">
         
   
   
@@ -1340,69 +1298,27 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#scratch-allocation" class="md-nav__link">
+  <a href="#common-setup" class="md-nav__link">
     <span class="md-ellipsis">
-      Scratch allocation
+      Common setup
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#memory-distribution-stages" class="md-nav__link">
+  <a href="#compute-both-factors" class="md-nav__link">
     <span class="md-ellipsis">
-      Memory-distribution stages
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Memory-distribution stages">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#stage-1-local-memory-layout-conversion" class="md-nav__link">
-    <span class="md-ellipsis">
-      Stage 1: local memory layout conversion
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#stage-2-top-left-and-edge-padding-alignment" class="md-nav__link">
-    <span class="md-ellipsis">
-      Stage 2: top-left and edge-padding alignment
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#stage-3-2d-block-cyclic-redistribution" class="md-nav__link">
-    <span class="md-ellipsis">
-      Stage 3: 2D block-cyclic redistribution
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#solver-workflows" class="md-nav__link">
-    <span class="md-ellipsis">
-      Solver workflows
+      Compute both factors
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#detailed-implementation" class="md-nav__link">
+  <a href="#advanced-control-the-outer-jaxjit" class="md-nav__link">
     <span class="md-ellipsis">
-      Detailed implementation
+      Advanced: control the outer jax.jit
     </span>
   </a>
   
@@ -1424,92 +1340,94 @@
 
 
 
-<h1 id="native-workflow">Native workflow<a class="headerlink" href="#native-workflow" title="Permanent link">¤</a></h1>
-<p>JAXMg accepts ordinary JAX arrays sharded over a one- or two-axis device mesh.
-However, cuSOLVERMp requires column-major local buffers distributed in a 2D
-block-cyclic layout. The native backend bridges these layouts inside one fused
-C++/CUDA FFI call:</p>
-<figure class="memory-distribution-figure">
-  <a href="../_static/flowcharts/jaxmg_general.svg"><img alt="Three stages of edge-padding alignment over a two-by-four GPU process grid." class="memory-distribution-image" src="../_static/flowcharts/jaxmg_general.svg" /></a>
-</figure>
-<p>Python calculates static metadata such as the process grid, rank map, logical
-matrix size, tile size, and padded local capacity. C++/CUDA owns the data
-movement, cuSOLVERMp descriptors and workspace, solver calls, and reverse
-redistribution. Matrix data remains GPU-resident throughout this workflow, and
-the in-place transformations reuse bounded native scratch storage to minimize
-memory overhead.</p>
-<p>Matrix-valued solver outputs follow the reverse path shown above. The
-eigenvalues-only SYEVD mode returns the replicated eigenvalue array directly
-after solver execution.</p>
-<h2 id="scratch-allocation">Scratch allocation<a class="headerlink" href="#scratch-allocation" title="Permanent link">¤</a></h2>
-<p>The redistribution path uses one native scratch allocation per FFI call. Its
-size is determined by the largest tile slab used by the 2D block-cyclic stage:</p>
-<div class="arithmatex">\[
-N_{\mathrm{scratch}}
-=
-3\max\left(
-  T_c N_{\mathrm{local\ rows}},
-  T_r N_{\mathrm{local\ cols}}
-\right).
-\]</div>
-<p>For square solver tiles, <span class="arithmatex">\(T_r=T_c=T_A\)</span>. The layout-conversion and edge-padding
-stages reuse this allocation and process data in bounded batches. They do not
-allocate a second full local matrix.</p>
-<h2 id="memory-distribution-stages">Memory-distribution stages<a class="headerlink" href="#memory-distribution-stages" title="Permanent link">¤</a></h2>
-<p>The memory redistribution is performed in three stages.</p>
-<h3 id="stage-1-local-memory-layout-conversion">Stage 1: local memory layout conversion<a class="headerlink" href="#stage-1-local-memory-layout-conversion" title="Permanent link">¤</a></h3>
-<p>JAX presents each local matrix shard in row-major physical memory.
-  cuSOLVERMp expects column-major local memory. CUDA kernels apply an in-place
-  rectangular permutation using bounded scratch; the logical matrix is not
-  transposed. This stage is local to each GPU and requires no communicator
-  traffic.</p>
-<p><a href="memory_distribution/#stage-1-local-layout-conversion">Layout-conversion details</a></p>
-<h3 id="stage-2-top-left-and-edge-padding-alignment">Stage 2: top-left and edge-padding alignment<a class="headerlink" href="#stage-2-top-left-and-edge-padding-alignment" title="Permanent link">¤</a></h3>
-<p>Python provides tile-aligned local capacity. Native horizontal compaction
-  moves real column slabs toward the global left edge, then vertical
-  compaction moves real row slabs toward the global top edge. Padding is
-  consolidated on the global right and bottom edges.</p>
-<p>Moves in one horizontal wave are independent across process rows. Moves in
-  one vertical wave are independent across process columns.</p>
-<p><a href="../_static/memory_distribution/block_cyclic_padding_alignment.svg"><img alt="Three stages of edge-padding alignment over a two-by-four GPU process grid." class="memory-distribution-image" src="../_static/memory_distribution/block_cyclic_padding_alignment.svg" /></a></p>
-<p><a href="memory_distribution/#stage-2-top-left-edge-padding-alignment">Edge-padding details</a></p>
-<h3 id="stage-3-2d-block-cyclic-redistribution">Stage 3: 2D block-cyclic redistribution<a class="headerlink" href="#stage-3-2d-block-cyclic-redistribution" title="Permanent link">¤</a></h3>
-<p>Whole tile slabs are redistributed in two separable phases. The
-  column-owner phase assigns each tile to the correct process column; the
-  row-owner phase then assigns each tile to the correct process row.</p>
-<p>Same-rank moves use local CUDA operations. Cross-rank moves use the
-  NCCL-backed communicator borrowed from XLA. The same communicator supplies
-  the <code>ncclComm_t</code> used by cuSOLVERMp.</p>
-<p><a href="../_static/memory_distribution/block_cyclic_redistribution.svg"><img alt="Three stages of the two-dimensional block-cyclic redistribution over a two-by-four GPU process grid." class="memory-distribution-image" src="../_static/memory_distribution/block_cyclic_redistribution.svg" /></a></p>
-<p><a href="memory_distribution/#stage-3-2d-block-cyclic-redistribution">2D block-cyclic details</a></p>
-<h2 id="solver-workflows">Solver workflows<a class="headerlink" href="#solver-workflows" title="Permanent link">¤</a></h2>
-<p>The redistribution stages are shared by all public routines:</p>
-<ul>
-<li><code>potrs</code> calls <code>cusolverMpPotrf</code> followed by <code>cusolverMpPotrs</code>. When requested,
-  it reads the distributed factor diagonal and performs a one-scalar NCCL
-  all-reduce to return <code>log(det(A))</code>.</li>
-<li><code>lu_solve</code> calls <code>cusolverMpGetrf</code> followed by <code>cusolverMpGetrs</code> and manages
-  the distributed pivot allocation.</li>
-<li><code>least_squares</code> calls <code>cusolverMpGels</code> for overdetermined rectangular systems
-  and restores the solution from the overwritten solve-input buffer.</li>
-<li><code>qr</code> calls <code>cusolverMpGeqrf</code>, preserves the upper-triangular factor, and then
-  calls <code>cusolverMpOrgqr</code> to form the reduced orthonormal factor.</li>
-<li><code>syevd</code> calls <code>cusolverMpSyevd</code> and materializes distributed eigenvalues plus
-  eigenvectors when requested.</li>
-<li><code>gesvd</code> calls <code>cusolverMpGesvd</code> for rectangular matrices and restores only
-  the requested U and Vh outputs. Its shared scratch allocation is sized to the
-  largest redistribution requirement among A and those requested outputs.</li>
-<li><code>polar</code> calls <code>cusolverMpPolar</code> for tall or square matrices. The donated A
-  allocation is overwritten by the polar factor, and the optional H output is
-  allocated and restored only when requested.</li>
-</ul>
-<p>Each Python process owns one GPU and contributes one rank to the XLA/NCCL and
-cuSOLVERMp communicators. See <a href="../examples/execution/">Distributed execution</a>
-for the required launch model.</p>
-<h2 id="detailed-implementation">Detailed implementation<a class="headerlink" href="#detailed-implementation" title="Permanent link">¤</a></h2>
-<p><a href="memory_distribution/">Memory distribution</a> gives the complete diagrams,
-layout definitions, dependency waves, permutation cycles, reverse path, and
-source-code map.</p>
+<h1 id="polar-decomposition">Polar decomposition<a class="headerlink" href="#polar-decomposition" title="Permanent link">¤</a></h1>
+<p><code>jaxmg.polar</code> computes <span class="arithmatex">\(A=U_pH\)</span> for a tall or square matrix. By default it
+returns both factors; set <code>compute_h=False</code> when only <span class="arithmatex">\(U_p\)</span> is required.</p>
+<h2 id="common-setup">Common setup<a class="headerlink" href="#common-setup" title="Permanent link">¤</a></h2>
+<p>This example uses four Python processes and a <span class="arithmatex">\(2 \times 2\)</span> process grid.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
+
+<span class="n">jax</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="s2">"jax_enable_x64"</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">distributed</span><span class="o">.</span><span class="n">initialize</span><span class="p">()</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jax.sharding</span><span class="w"> </span><span class="kn">import</span> <span class="n">NamedSharding</span><span class="p">,</span> <span class="n">PartitionSpec</span> <span class="k">as</span> <span class="n">P</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">polar</span>
+
+
+<span class="n">mesh</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">make_mesh</span><span class="p">((</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">))</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">set_mesh</span><span class="p">(</span><span class="n">mesh</span><span class="p">)</span>
+<span class="n">matrix_specs</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">)</span>
+<span class="n">matrix_sharding</span> <span class="o">=</span> <span class="n">NamedSharding</span><span class="p">(</span><span class="n">mesh</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="p">)</span>
+
+<span class="n">T_A</span> <span class="o">=</span> <span class="mi">128</span>
+<span class="n">M</span> <span class="o">=</span> <span class="mi">1024</span>
+<span class="n">N</span> <span class="o">=</span> <span class="mi">512</span>
+<span class="n">dtype</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">float64</span>
+
+
+<span class="nd">@jax</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">make_matrix</span><span class="p">():</span>
+    <span class="n">diagonal</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">at</span><span class="p">[</span><span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">N</span><span class="p">),</span> <span class="n">jnp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">N</span><span class="p">)]</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">diagonal</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">jax</span><span class="o">.</span><span class="n">reshard</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">matrix_sharding</span><span class="p">),</span> <span class="n">diagonal</span>
+</code></pre></div>
+<h2 id="compute-both-factors">Compute both factors<a class="headerlink" href="#compute-both-factors" title="Permanent link">¤</a></h2>
+<div class="highlight"><pre><span></span><code><span class="n">a</span><span class="p">,</span> <span class="n">expected_h_diagonal</span> <span class="o">=</span> <span class="n">make_matrix</span><span class="p">()</span>
+
+<span class="n">up</span><span class="p">,</span> <span class="n">h</span> <span class="o">=</span> <span class="n">polar</span><span class="p">(</span>
+    <span class="n">a</span><span class="p">,</span>
+    <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
+    <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
+    <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">h</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+
+<span class="n">correct</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">jnp</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">h</span><span class="p">),</span> <span class="n">expected_h_diagonal</span><span class="p">)</span>
+<span class="n">correct</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+
+<span class="k">if</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_index</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">correct</span><span class="p">)</span>
+</code></pre></div>
+<p>Set <code>compute_h=False</code> to return only <code>up</code> and avoid allocating and restoring the
+<span class="arithmatex">\(N \times N\)</span> factor.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The public wrapper donates <code>a</code> to the compiled decomposition. Do not use
+ the input array after the call. Use <code>donate=False</code> to preserve it. This is
+ less memory efficient because the original input and working buffer must
+ coexist.</p>
+</div>
+<h2 id="advanced-control-the-outer-jaxjit">Advanced: control the outer <code>jax.jit</code><a class="headerlink" href="#advanced-control-the-outer-jaxjit" title="Permanent link">¤</a></h2>
+<p><code>polar_shardmap_ctx</code> leaves the outer compilation and donation boundary to the
+caller. Unlike the other decomposition context interfaces, its first result is
+the numerical factor <code>up</code>: cuSOLVERMp overwrites the input matrix with this
+factor, so no separate opaque work result is needed.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">polar_shardmap_ctx</span>
+
+
+<span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">donate_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">compiled_polar</span><span class="p">(</span><span class="n">a</span><span class="p">):</span>
+    <span class="n">up</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">polar_shardmap_ctx</span><span class="p">(</span>
+        <span class="n">a</span><span class="p">,</span>
+        <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
+        <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
+        <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">up</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">status</span>
+
+
+<span class="n">a</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">make_matrix</span><span class="p">()</span>
+<span class="n">up</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">compiled_polar</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+<span class="n">h</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+</code></pre></div>
+<p>When <code>a</code> is instead created inside the compiled function, XLA owns its lifetime
+and <code>donate_argnums</code> is unnecessary.</p>
+<p>See the <a href="../../api/polar/"><code>polar</code> API reference</a> for the complete argument and
+return-value documentation.</p>
 
 
 
@@ -1564,12 +1482,12 @@ source-code map.</p>
     
     
       
-      <script id="__config" type="application/json">{"base": "..", "features": ["navigation.top", "navigation.instant", "navigation.tabs", "navigation.sections", "header.autohide"], "search": "../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.top", "navigation.instant", "navigation.tabs", "navigation.sections", "header.autohide"], "search": "../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      <script src="../../assets/javascripts/bundle.f55a23d4.min.js"></script>
       
-        <script src="../_static/mathjax.js"></script>
+        <script src="../../_static/mathjax.js"></script>
       
         <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
       
