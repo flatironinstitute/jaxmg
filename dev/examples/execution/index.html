@@ -1444,7 +1444,9 @@ call JAXMg without switching it.</p>
  [4 5]
  [6 7]]
 </code></pre></div>
-<p>JAXMg accepts regular row-major and column-major rank mappings. For a
+<p>JAXMg reads this mapping from XLA's device assignment when the solver runs,
+and accepts regular row-major and column-major rank mappings; other device
+orders make the solver call fail when it runs. For a
 <span class="arithmatex">\(4\times2\)</span> grid these are</p>
 <div class="arithmatex">\[
 \text{row-major}

@@ -1706,8 +1706,12 @@ r_1 &amp; r_3 &amp; r_5
 \]</div>
 <p>Here, <span class="arithmatex">\((p_r,p_c)\)</span> is a process-grid coordinate and <span class="arithmatex">\((P_r,P_c)\)</span> is the process
 grid shape. JAXMg accepts these regular row-major and column-major mappings.
-Arbitrary rank maps are rejected because cuSOLVERMp exposes these two standard
-grid-mapping modes rather than a general rank-to-coordinate table.</p>
+The native backend derives the rank map when the solver runs, from XLA's device
+assignment: the shard of mesh partition <span class="arithmatex">\(p\)</span> runs on the device assigned to <span class="arithmatex">\(p\)</span>,
+exactly as XLA resolves <code>partition-id</code>, and that device's communicator rank is
+its rank in the communicator JAXMg borrows from XLA. Arbitrary rank maps are rejected
+because cuSOLVERMp exposes these two standard grid-mapping modes rather than a
+general rank-to-coordinate table.</p>
 <h2 id="stage-1-local-layout-conversion">Stage 1: local layout conversion<a class="headerlink" href="#stage-1-local-layout-conversion" title="Permanent link">¤</a></h2>
 <p>The first stage reconciles the local physical memory layouts used by JAX and
 cuSOLVERMp. The logical matrix is not transposed. For example,</p>
