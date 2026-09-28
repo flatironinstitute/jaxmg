@@ -254,8 +254,6 @@ def run_case() -> None:
     assert np.all(status_words[::_CUSOLVERMP_POTRS_STATUS_SIZE] == 0), status_words
     assert_close_scaled(out, expected)
     if interface in ("abstract_mesh", "inferred"):
-        # The native backend chose the grid mapping from the device assignment:
-        # status word 39 is 1 for row-major and 0 for column-major.
         expected_mapping = 1 if case.grid_order == "row_major" else 0
         assert np.all(
             status_words[39::_CUSOLVERMP_POTRS_STATUS_SIZE] == expected_mapping
