@@ -14,11 +14,11 @@ from typing import List, Tuple, Union
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
-from jax.sharding import Mesh, PartitionSpec as P
+from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
-    cusolvermp_grid_mapping_attr,
     infer_rhs_specs,
     make_local_pad_fn,
     make_local_unpad_fn,
@@ -28,14 +28,12 @@ from ._cusolvermp_layout import (
     prepare_matrix_padding,
     restore_rhs_from_native_work,
     rhs_distribution_columns,
-    standard_grid_rank_map_attr,
     use_abstract_mesh_decorator,
 )
 from ._cusolvermp_status import _CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE
 from ._layout_types import (
     MatrixPadding2D,
     ProcessGrid,
-    ProcessRankMap,
     validate_nonempty_block_cyclic_ownership,
 )
 from ._setup import ensure_init_jaxmg_backend
@@ -45,7 +43,7 @@ def least_squares(
     a: Array,
     b: Array,
     T_A: int,
-    mesh: Mesh | None = None,
+    mesh: Mesh | AbstractMesh | None = None,
     matrix_specs: P | Tuple[P] | List[P] | None = None,
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
@@ -106,8 +104,7 @@ def least_squares(
         layout.matrix_specs,
         layout.native_status_specs,
         layout.grid,
-        layout.rank_map,
-        layout.rank_map.cusolvermp_grid_mapping,
+        layout.partition_slots,
         layout.padding,
         b_padding,
         rhs_specs,
@@ -130,7 +127,7 @@ def least_squares_shardmap_ctx(
     a: Array,
     b: Array,
     T_A: int,
-    mesh: Mesh | None = None,
+    mesh: Mesh | AbstractMesh | None = None,
     matrix_specs: P | Tuple[P] | List[P] | None = None,
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
@@ -185,8 +182,7 @@ def least_squares_shardmap_ctx(
         layout.matrix_specs,
         layout.native_status_specs,
         layout.grid,
-        layout.rank_map,
-        layout.rank_map.cusolvermp_grid_mapping,
+        layout.partition_slots,
         layout.padding,
         b_padding,
         rhs_specs,
@@ -207,7 +203,7 @@ def _prepare_least_squares_call(
     a: Array,
     b: Array,
     tile_size: int,
-    mesh: Mesh | None,
+    mesh: Mesh | AbstractMesh | None,
     matrix_specs: P | Tuple[P] | List[P] | None,
     *,
     in_specs: P | Tuple[P] | List[P] | None,
@@ -300,12 +296,11 @@ _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 @lru_cache(maxsize=None)
 def _least_squares_pipeline(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,
-    rank_map: ProcessRankMap,
-    grid_mapping: int,
+    partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     b_padding: MatrixPadding2D,
     rhs_specs: P,
@@ -319,19 +314,7 @@ def _least_squares_pipeline(
     """Build and cache the unjitted JAX-visible least-squares pipeline."""
     process_rows = grid.process_rows
     process_cols = grid.process_cols
-    rank_array = standard_grid_rank_map_attr(
-        rank_map,
-        process_rows=process_rows,
-        process_cols=process_cols,
-        caller="cusolvermp_gels",
-    )
-    grid_mapping = cusolvermp_grid_mapping_attr(
-        rank_map,
-        grid_mapping,
-        process_rows=process_rows,
-        process_cols=process_cols,
-        caller="cusolvermp_gels",
-    )
+    slots_attr = np.asarray(partition_slots, dtype=np.int64)
     b_distribution_padding = int(b_distribution_cols) - int(nrhs)
     pad_a = make_local_pad_fn(mesh, matrix_specs, a_padding)
     pad_b = make_local_pad_fn(mesh, matrix_specs, b_padding)
@@ -360,8 +343,7 @@ def _least_squares_pipeline(
             ),
             process_rows=process_rows,
             process_cols=process_cols,
-            grid_mapping=grid_mapping,
-            rank_map=rank_array,
+            partition_slots=slots_attr,
             m=int(m),
             n=int(n),
             nrhs=int(nrhs),
@@ -403,12 +385,11 @@ def _least_squares_pipeline(
 
 @lru_cache(maxsize=None)
 def _least_squares_compiled(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,
-    rank_map: ProcessRankMap,
-    grid_mapping: int,
+    partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     b_padding: MatrixPadding2D,
     rhs_specs: P,
@@ -426,8 +407,7 @@ def _least_squares_compiled(
         matrix_specs,
         native_status_specs,
         grid,
-        rank_map,
-        grid_mapping,
+        partition_slots,
         a_padding,
         b_padding,
         rhs_specs,

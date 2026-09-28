@@ -14,11 +14,11 @@ from typing import List, Tuple, Union
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
-from jax.sharding import Mesh, PartitionSpec as P
+from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
-    cusolvermp_grid_mapping_attr,
     infer_rhs_specs,
     make_local_pad_fn,
     make_local_unpad_fn,
@@ -28,10 +28,9 @@ from ._cusolvermp_layout import (
     place_rhs_for_native_work,
     restore_rhs_from_native_work,
     rhs_distribution_columns,
-    standard_grid_rank_map_attr,
 )
 from ._cusolvermp_status import _CUSOLVERMP_LU_SOLVE_STATUS_SIZE
-from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap
+from ._layout_types import MatrixPadding2D, ProcessGrid
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -39,7 +38,7 @@ def lu_solve(
     a: Array,
     b: Array,
     T_A: int,
-    mesh: Mesh | None = None,
+    mesh: Mesh | AbstractMesh | None = None,
     matrix_specs: P | Tuple[P] | List[P] | None = None,
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
@@ -127,8 +126,7 @@ def lu_solve(
         layout.matrix_specs,
         layout.native_status_specs,
         layout.grid,
-        layout.rank_map,
-        layout.rank_map.cusolvermp_grid_mapping,
+        layout.partition_slots,
         layout.padding,
         b_padding,
         rhs_specs,
@@ -150,7 +148,7 @@ def lu_solve_shardmap_ctx(
     a: Array,
     b: Array,
     T_A: int,
-    mesh: Mesh | None = None,
+    mesh: Mesh | AbstractMesh | None = None,
     matrix_specs: P | Tuple[P] | List[P] | None = None,
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
@@ -210,8 +208,7 @@ def lu_solve_shardmap_ctx(
         layout.matrix_specs,
         layout.native_status_specs,
         layout.grid,
-        layout.rank_map,
-        layout.rank_map.cusolvermp_grid_mapping,
+        layout.partition_slots,
         layout.padding,
         b_padding,
         rhs_specs,
@@ -230,7 +227,7 @@ def _prepare_lu_solve_call(
     a: Array,
     b: Array,
     tile_size: int,
-    mesh: Mesh | None,
+    mesh: Mesh | AbstractMesh | None,
     matrix_specs: P | Tuple[P] | List[P] | None,
     *,
     in_specs: P | Tuple[P] | List[P] | None,
@@ -305,12 +302,11 @@ _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 @lru_cache(maxsize=None)
 def _lu_solve_pipeline(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,
-    rank_map: ProcessRankMap,
-    grid_mapping: int,
+    partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     b_padding: MatrixPadding2D,
     rhs_specs: P,
@@ -323,19 +319,7 @@ def _lu_solve_pipeline(
     """Build and cache the unjitted JAX-visible LU-solve execution pipeline."""
     process_rows = grid.process_rows
     process_cols = grid.process_cols
-    rank_array = standard_grid_rank_map_attr(
-        rank_map,
-        process_rows=process_rows,
-        process_cols=process_cols,
-        caller="cusolvermp_lu_solve",
-    )
-    grid_mapping = cusolvermp_grid_mapping_attr(
-        rank_map,
-        grid_mapping,
-        process_rows=process_rows,
-        process_cols=process_cols,
-        caller="cusolvermp_lu_solve",
-    )
+    slots_attr = np.asarray(partition_slots, dtype=np.int64)
     b_distribution_padding = int(b_distribution_cols) - int(nrhs)
     pad_a = make_local_pad_fn(mesh, matrix_specs, a_padding)
     pad_b = make_local_pad_fn(mesh, matrix_specs, b_padding)
@@ -370,8 +354,7 @@ def _lu_solve_pipeline(
             ),
             process_rows=process_rows,
             process_cols=process_cols,
-            grid_mapping=grid_mapping,
-            rank_map=rank_array,
+            partition_slots=slots_attr,
             n=int(n),
             nrhs=int(nrhs),
             b_distribution_cols=int(b_distribution_cols),
@@ -422,12 +405,11 @@ def _lu_solve_pipeline(
 
 @lru_cache(maxsize=None)
 def _lu_solve_compiled(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,
-    rank_map: ProcessRankMap,
-    grid_mapping: int,
+    partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     b_padding: MatrixPadding2D,
     rhs_specs: P,
@@ -444,8 +426,7 @@ def _lu_solve_compiled(
         matrix_specs,
         native_status_specs,
         grid,
-        rank_map,
-        grid_mapping,
+        partition_slots,
         a_padding,
         b_padding,
         rhs_specs,

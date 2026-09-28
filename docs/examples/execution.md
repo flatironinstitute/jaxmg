@@ -121,7 +121,9 @@ For the row-major $4\times2$ mesh used in this example, rank 0 prints
 ```
 
 
-JAXMg accepts regular row-major and column-major rank mappings. For a
+JAXMg reads this mapping from XLA's device assignment when the solver runs,
+and accepts regular row-major and column-major rank mappings; other device
+orders make the solver call fail when it runs. For a
 $4\times2$ grid these are
 
 $$

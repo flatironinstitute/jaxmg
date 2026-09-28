@@ -474,13 +474,20 @@ absl::Status XlaCusolverMpGelsPrepare(
 absl::Status XlaCusolverMpGelsDispatch(
     se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t nrhs,
-    int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
+    int64_t b_distribution_cols, int64_t tile_size,
+    absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
+    ffi::AnyBuffer b,
     ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   se::Stream* comm_stream = nullptr;
+  absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
+      "cusolvermp_gels", collective_params, partition_slots, process_rows,
+      process_cols);
+  if (!process_grid.ok()) return process_grid.status();
+  const int64_t grid_mapping = process_grid->grid_mapping;
+  const absl::Span<const int64_t> rank_map = process_grid->rank_map;
 
   // Stage 1: validate the local padded buffers supplied by Python/JAX.
   if (a.dimensions().size() != 2 || b.dimensions().size() != 2 ||

@@ -332,10 +332,12 @@ def run_gpu_test(
     cuSOLVERMp require one live Python process per participating GPU.  Under
     Slurm, use ``srun`` so that process-to-GPU binding matches the production
     launch model.  Outside Slurm, fall back to local subprocesses with one
-    visible GPU per rank. ``interface`` selects either the internally jitted
-    public wrapper or the caller-jitted context interface.
+    visible GPU per rank. ``interface`` selects the internally jitted public
+    wrapper, the caller-jitted context interface, the public wrapper called
+    with the abstract mesh inside the caller's jit (``abstract_mesh``), or a
+    check that an unsupported device order is rejected (``invalid_order``).
     """
-    if interface not in ("public", "context"):
+    if interface not in ("public", "context", "abstract_mesh", "invalid_order"):
         raise ValueError(f"unknown solver interface {interface!r}")
 
     launcher = os.environ.get("JAXMG_GPU_TEST_LAUNCHER")

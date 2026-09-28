@@ -3,7 +3,6 @@ import pytest
 from jaxmg._cusolvermp_layout import rhs_distribution_columns
 from jaxmg._layout_types import (
     ProcessGrid,
-    ProcessRankMap,
     TileShape,
     calculate_2d_padding,
     validate_nonempty_block_cyclic_ownership,
@@ -16,37 +15,6 @@ def test_process_grid_rejects_empty_axes():
         ProcessGrid(process_rows=0, process_cols=1)
     with pytest.raises(ValueError, match="process_cols"):
         ProcessGrid(process_rows=1, process_cols=0)
-
-
-def test_process_rank_map_accepts_row_major_mapping():
-    """Row-major mesh order maps directly to cuSOLVERMp row-major grids."""
-    grid = ProcessGrid(process_rows=2, process_cols=3)
-    rank_map = ProcessRankMap.row_major(grid)
-
-    assert rank_map.ranks == (0, 1, 2, 3, 4, 5)
-    assert rank_map.grid_mapping == "row_major"
-    assert rank_map.cusolvermp_grid_mapping == 1
-
-
-def test_process_rank_map_accepts_column_major_mapping():
-    """Column-major mesh order maps directly to cuSOLVERMp column-major grids."""
-    grid = ProcessGrid(process_rows=2, process_cols=3)
-    rank_map = ProcessRankMap.column_major(grid)
-
-    assert rank_map.ranks == (0, 2, 4, 1, 3, 5)
-    assert rank_map.grid_mapping == "column_major"
-    assert rank_map.cusolvermp_grid_mapping == 0
-
-
-def test_process_rank_map_rejects_exotic_mapping():
-    """Arbitrary mesh permutations are rejected before native code runs."""
-    rank_map = ProcessRankMap(
-        grid=ProcessGrid(process_rows=2, process_cols=2),
-        ranks=(0, 2, 3, 1),
-    )
-
-    with pytest.raises(ValueError, match="row-major or column-major"):
-        rank_map.require_cusolvermp_grid_mapping("test")
 
 
 def test_calculate_2d_padding_matches_local_tile_capacity():

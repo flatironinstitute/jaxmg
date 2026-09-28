@@ -592,13 +592,21 @@ absl::Status XlaCusolverMpPotrsPrepare(
 absl::Status XlaCusolverMpPotrsDispatchImpl(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
-    int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
-    ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
-    ffi::Result<ffi::BufferR1<S32>> status,
+    int64_t b_distribution_cols, int64_t tile_size,
+    absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
+    ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
+    ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
     ffi::Result<ffi::AnyBuffer>* logdet,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
+  absl::StatusOr<ResolvedProcessGrid> process_grid =
+      ResolveProcessGrid("cusolvermp_potrs", collective_params, partition_slots,
+                         process_rows, process_cols);
+  if (!process_grid.ok()) {
+    return process_grid.status();
+  }
+  const int64_t grid_mapping = process_grid->grid_mapping;
+  const absl::Span<const int64_t> rank_map = process_grid->rank_map;
   // Stage 1: validate the local FFI buffers.  Python has already padded A/B to
   // the user-visible storage capacity needed by the requested process grid and
   // tile size; native code only checks the local contracts it will dereference.
@@ -829,39 +837,34 @@ absl::Status XlaCusolverMpPotrsDispatchImpl(
 // Standard POTRS entry point. It avoids the diagonal reduction and NCCL scalar
 // collective used by the log-determinant path.
 absl::Status XlaCusolverMpPotrsDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream,
-    int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
-    int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
-    ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
-    ffi::Result<ffi::BufferR1<S32>> status,
+    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    int64_t process_cols, int64_t n, int64_t nrhs, int64_t b_distribution_cols,
+    int64_t tile_size, absl::Span<const int64_t> partition_slots,
+    ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
+    ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return XlaCusolverMpPotrsDispatchImpl(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
-      n, nrhs,
-      b_distribution_cols, tile_size, grid_mapping, rank_map, a, b, a_work,
-      b_out, status, /*logdet=*/nullptr, collective_params,
-      collective_cliques);
+      n, nrhs, b_distribution_cols, tile_size, partition_slots, a, b, a_work,
+      b_out, status, /*logdet=*/nullptr, collective_params, collective_cliques);
 }
 
 // Logdet-producing POTRS entry point. The matrix and solution outputs retain
 // the standard aliases while the additional replicated scalar is computed
 // directly from the distributed Cholesky factor.
 absl::Status XlaCusolverMpPotrsLogdetDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream,
-    int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
-    int64_t b_distribution_cols, int64_t tile_size, int64_t grid_mapping,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
-    ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
-    ffi::Result<ffi::AnyBuffer> logdet,
+    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    int64_t process_cols, int64_t n, int64_t nrhs, int64_t b_distribution_cols,
+    int64_t tile_size, absl::Span<const int64_t> partition_slots,
+    ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
+    ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::AnyBuffer> logdet,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return XlaCusolverMpPotrsDispatchImpl(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
-      n, nrhs,
-      b_distribution_cols, tile_size, grid_mapping, rank_map, a, b, a_work,
+      n, nrhs, b_distribution_cols, tile_size, partition_slots, a, b, a_work,
       b_out, status, &logdet, collective_params, collective_cliques);
 }
 

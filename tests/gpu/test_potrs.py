@@ -82,6 +82,28 @@ def test_potrs_shardmap_ctx_two_gpu():
 
 
 @pytest.mark.multi_gpu
+@pytest.mark.parametrize(
+    "requested_procs,case_name",
+    ((2, "row_major_no_padding"), (4, "column_major_padding")),
+)
+def test_potrs_with_abstract_mesh_under_jit(requested_procs, case_name):
+    """Only the abstract context mesh is available inside the caller's jit."""
+    run_gpu_test(
+        GPU_TEST,
+        requested_procs,
+        case_name,
+        "float32",
+        interface="abstract_mesh",
+    )
+
+
+@pytest.mark.multi_gpu
+def test_potrs_rejects_unsupported_device_order():
+    """A mesh order cuSOLVERMp cannot represent fails with a clear error."""
+    run_gpu_test(GPU_TEST, 4, "row_major_no_padding", "float32", interface="invalid_order")
+
+
+@pytest.mark.multi_gpu
 @pytest.mark.parametrize("case_name", SINGLE_AXIS_CASES)
 def test_potrs_single_axis_mesh(case_name):
     """Validate both orientations of a one-axis mesh on two GPUs."""

@@ -9,8 +9,11 @@ C++/CUDA FFI call:
   [![Three stages of edge-padding alignment over a two-by-four GPU process grid.](../_static/flowcharts/jaxmg_general.svg){ .memory-distribution-image }](../_static/flowcharts/jaxmg_general.svg)
 </figure>
 
-Python calculates static metadata such as the process grid, rank map, logical
-matrix size, tile size, and padded local capacity. C++/CUDA owns the data
+Python calculates static metadata such as the process grid, the process-grid
+slot of every mesh partition, logical matrix size, tile size, and padded local
+capacity. It needs only the abstract JAX mesh: the native backend places the
+communicator ranks on the process grid from XLA's device assignment at run
+time. C++/CUDA owns the data
 movement, cuSOLVERMp descriptors and workspace, solver calls, and reverse
 redistribution. Matrix data remains GPU-resident throughout this workflow, and
 the in-place transformations reuse bounded native scratch storage to minimize

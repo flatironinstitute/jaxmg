@@ -27,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <utility>
+#include <vector>
 
 #include <cusolverMp.h>
 
@@ -184,6 +185,24 @@ absl::Status ValidateCusolverMpGridMapping(const char* caller,
 absl::Status ValidateStandardRankMapForGridMapping(
     const char* caller, absl::Span<const int64_t> rank_map,
     int64_t process_rows, int64_t process_cols, int64_t grid_mapping);
+
+// Process-grid rank map and cuSOLVERMp grid mapping of one execution.
+struct ResolvedProcessGrid {
+  // Communicator rank of every row-major process-grid slot.
+  std::vector<int64_t> rank_map;
+  int64_t grid_mapping = 0;
+};
+
+// Places the communicator ranks on the process grid at run time, from XLA's
+// device assignment, the way XLA resolves the `partition-id` of a device.
+// `partition_slots[p]` is the row-major process-grid slot of the shard computed
+// by partition `p`, which Python derives from the abstract JAX mesh as
+// `jax.lax.axis_index` does. Partition `p` runs on the device XLA assigns to it,
+// whose communicator rank is its rank in the clique borrowed from XLA.
+absl::StatusOr<ResolvedProcessGrid> ResolveProcessGrid(
+    const char* caller, const CollectiveParams* collective_params,
+    absl::Span<const int64_t> partition_slots, int64_t process_rows,
+    int64_t process_cols);
 
 // Converts an NCCL communicator rank into the process-row/process-column
 // coordinate used by cuSOLVERMp descriptors.

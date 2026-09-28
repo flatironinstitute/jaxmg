@@ -483,12 +483,18 @@ absl::Status RunCusolverMpQrSolver(
 absl::Status RunCusolverMpQrDispatch(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
-    int64_t tile_size, int64_t grid_mapping, absl::Span<const int64_t> rank_map,
+    int64_t tile_size, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> q,
     ffi::Result<ffi::AnyBuffer> r,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
+  absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
+      "cusolvermp_qr", collective_params, partition_slots, process_rows,
+      process_cols);
+  if (!process_grid.ok()) return process_grid.status();
+  const int64_t grid_mapping = process_grid->grid_mapping;
+  const absl::Span<const int64_t> rank_map = process_grid->rank_map;
   if (a.dimensions().size() != 2 || q->dimensions().size() != 2 ||
       r->dimensions().size() != 2) {
     return absl::InvalidArgumentError("cusolvermp_qr expects rank-2 buffers");
@@ -623,14 +629,14 @@ absl::Status XlaCusolverMpQrPrepare(
 absl::Status XlaCusolverMpQrDispatch(
     se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
-    int64_t grid_mapping, absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> q, ffi::Result<ffi::AnyBuffer> r,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return RunCusolverMpQrDispatch(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
-      m, n, tile_size, grid_mapping, rank_map, a, q, r, status,
+      m, n, tile_size, partition_slots, a, q, r, status,
       collective_params, collective_cliques);
 }
 

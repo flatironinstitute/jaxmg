@@ -88,8 +88,12 @@ $$
 
 Here, $(p_r,p_c)$ is a process-grid coordinate and $(P_r,P_c)$ is the process
 grid shape. JAXMg accepts these regular row-major and column-major mappings.
-Arbitrary rank maps are rejected because cuSOLVERMp exposes these two standard
-grid-mapping modes rather than a general rank-to-coordinate table.
+The native backend derives the rank map when the solver runs, from XLA's device
+assignment: the shard of mesh partition $p$ runs on the device assigned to $p$,
+exactly as XLA resolves `partition-id`, and that device's communicator rank is
+its rank in the communicator JAXMg borrows from XLA. Arbitrary rank maps are rejected
+because cuSOLVERMp exposes these two standard grid-mapping modes rather than a
+general rank-to-coordinate table.
 
 ## Stage 1: local layout conversion
 
