@@ -65,11 +65,12 @@ def syevd(
             ``P(<row_axis>, <col_axis>)``.
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
             dimension must be a multiple of ``T_A`` after padding.
-        mesh (Mesh, optional): JAX mesh used for ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used for ``jax.shard_map``.
+            If omitted, read off the sharding of ``a`` (its type inside
+            ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            PartitionSpec describing the matrix sharding. If omitted, inferred
-            from ``a.sharding.spec``.
+            PartitionSpec describing the matrix sharding. If omitted, read
+            off the sharding of ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         return_eigenvectors (bool, optional): If True (default), compute and
             return eigenvectors as well as eigenvalues. If False, return only
@@ -183,11 +184,12 @@ def syevd_shardmap_ctx(
             ``P(<row_axis>, <col_axis>)``.
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
             dimension must be a multiple of ``T_A`` after padding.
-        mesh (Mesh, optional): JAX mesh used for ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used for ``jax.shard_map``.
+            If omitted, read off the sharding of ``a`` (its type inside
+            ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            PartitionSpec describing the matrix sharding. If omitted, inferred
-            from ``a.sharding.spec``.
+            PartitionSpec describing the matrix sharding. If omitted, read
+            off the sharding of ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         return_eigenvectors (bool, optional): If True (default), compute and
             return eigenvectors as well as eigenvalues. If False, use the

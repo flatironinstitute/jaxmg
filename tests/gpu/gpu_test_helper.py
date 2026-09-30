@@ -334,10 +334,11 @@ def run_gpu_test(
     launch model.  Outside Slurm, fall back to local subprocesses with one
     visible GPU per rank. ``interface`` selects the internally jitted public
     wrapper, the caller-jitted context interface, the public wrapper called
-    with the abstract mesh inside the caller's jit (``abstract_mesh``), or a
-    check that an unsupported device order is rejected (``invalid_order``).
+    inside the caller's jit with the abstract mesh (``abstract_mesh``) or
+    without ``mesh``/``matrix_specs`` (``inferred``), or a check that an
+    unsupported device order is rejected (``invalid_order``).
     """
-    if interface not in ("public", "context", "abstract_mesh", "invalid_order"):
+    if interface not in ("public", "context", "abstract_mesh", "inferred", "invalid_order"):
         raise ValueError(f"unknown solver interface {interface!r}")
 
     launcher = os.environ.get("JAXMG_GPU_TEST_LAUNCHER")

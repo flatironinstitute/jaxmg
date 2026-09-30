@@ -434,16 +434,22 @@ def infer_mesh_and_matrix_specs(
 ) -> tuple[Mesh | AbstractMesh, P]:
     """Resolve the JAX mesh and matrix sharding used by a solver call.
 
-    Explicit ``mesh`` and ``matrix_specs`` values take precedence. Any missing
-    value is inferred from the input matrix when it carries ``NamedSharding``.
-    The mesh may be abstract because native code resolves devices at run time.
+    Explicit ``mesh`` and ``matrix_specs`` values take precedence. Otherwise
+    they are read off the sharding of ``a``, or under :func:`jax.jit` off its
+    type (:func:`jax.typeof`), falling back to the context mesh set with
+    :func:`jax.set_mesh`. Only the abstract mesh is needed: devices are resolved
+    by the native backend at run time.
+
+    Under :func:`jax.jit` with ``Auto`` mesh axes the sharding of ``a`` is not
+    part of its type, so the matrix sharding defaults to the axes of the mesh:
+    ``P(axis, None)`` for a single-axis mesh and ``P(axis_0, axis_1)`` for a
+    two-axis mesh.
 
     Args:
-        a: Input matrix whose named sharding may provide the mesh contract.
-        mesh: Explicit concrete or abstract JAX mesh, or ``None`` to infer it
-            from ``a``.
+        a: Input matrix.
+        mesh: Explicit JAX mesh (concrete or abstract), or ``None`` to infer it.
         matrix_specs: Explicit matrix ``PartitionSpec``, or ``None`` to infer
-            it from ``a``.
+            it.
         in_specs: Alias for ``matrix_specs``.
 
     Returns:
@@ -451,23 +457,43 @@ def infer_mesh_and_matrix_specs(
         specification padded to rank two.
 
     Raises:
-        ValueError: If inference is required but ``a`` has no
-            ``NamedSharding``, or both sharding-specification aliases are set.
+        ValueError: If no mesh can be found, if the matrix sharding cannot be
+            inferred for a mesh with more than two axes, or both
+            sharding-specification aliases are set.
         TypeError: If the supplied matrix specification has an invalid type.
     """
     matrix_specs = normalize_matrix_specs(matrix_specs, in_specs=in_specs)
-    if mesh is None or matrix_specs is None:
-        sharding = getattr(a, "sharding", None)
-        if not isinstance(sharding, NamedSharding):
-            raise ValueError(
-                "cuSOLVERMp routine could not infer mesh/matrix_specs from A. "
-                "Shard A with jax.sharding.NamedSharding or pass mesh=... and "
-                "matrix_specs=..."
-            )
-        if mesh is None:
+
+    # Eagerly, `a.sharding` is the concrete sharding. Under jit, the type of
+    # `a` carries its (abstract) mesh, and its sharding with Explicit axes.
+    sharding = getattr(a, "sharding", None)
+    if not isinstance(sharding, NamedSharding):
+        sharding = getattr(jax.typeof(a), "sharding", None)
+    if not isinstance(sharding, NamedSharding) or sharding.mesh.empty:
+        sharding = None
+    if mesh is None:
+        if sharding is not None:
             mesh = sharding.mesh
-        if matrix_specs is None:
-            matrix_specs = sharding.spec
+        else:
+            mesh = jax.sharding.get_abstract_mesh()
+    if mesh.empty:
+        raise ValueError(
+            "cuSOLVERMp routine could not find a mesh for A. Shard A with "
+            "jax.sharding.NamedSharding, set a mesh with jax.set_mesh, or pass "
+            "mesh=..."
+        )
+
+    if matrix_specs is None and sharding is not None:
+        specs = sharding.spec
+        if any(axis is not None for axis in specs):
+            matrix_specs = specs
+    if matrix_specs is None:
+        if len(mesh.axis_names) > 2:
+            raise ValueError(
+                "cuSOLVERMp routine could not infer the matrix sharding of A "
+                f"over the mesh axes {mesh.axis_names}. Pass matrix_specs=..."
+            )
+        matrix_specs = P(*mesh.axis_names)
 
     # ``P('x')`` and ``P('x', None)`` describe the same layout of a 2D array;
     # pad the short form so the rest of the layout code stays rank-2 throughout.

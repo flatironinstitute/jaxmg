@@ -45,8 +45,6 @@ a, expected_h_diagonal = make_matrix()
 up, h = polar(
     a,
     T_A=T_A,
-    mesh=mesh,
-    matrix_specs=matrix_specs,
 )
 h.block_until_ready()
 
@@ -85,8 +83,6 @@ def compiled_polar(a):
     up, h, status = polar_shardmap_ctx(
         a,
         T_A=T_A,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
     )
     return up, h, status
 

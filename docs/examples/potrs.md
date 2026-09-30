@@ -72,8 +72,6 @@ x = potrs(
     a,
     b,
     T_A=T_A,
-    mesh=mesh,
-    matrix_specs=matrix_specs,
 )
 x.block_until_ready()
 
@@ -93,8 +91,6 @@ x, logdet = potrs(
     a,
     b,
     T_A=T_A,
-    mesh=mesh,
-    matrix_specs=matrix_specs,
     return_logdet=True,
 )
 
@@ -150,8 +146,6 @@ def compiled_solve(a, b):
         a,
         b,
         T_A=T_A,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
     )
 
     # Further JAX operations on x can be part of this compiled function.
@@ -195,8 +189,6 @@ def build_and_solve(diagonal):
         a,
         b,
         T_A=T_A,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
     )
 
     # a_work does not need to leave the function because a was created here.

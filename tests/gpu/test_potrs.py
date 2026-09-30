@@ -98,6 +98,15 @@ def test_potrs_with_abstract_mesh_under_jit(requested_procs, case_name):
 
 
 @pytest.mark.multi_gpu
+@pytest.mark.parametrize(
+    "case_name", ("row_major_no_padding", "column_major_padding")
+)
+def test_potrs_without_mesh_under_jit(case_name):
+    """Without mesh/matrix_specs, both are read off A and the context mesh."""
+    run_gpu_test(GPU_TEST, 4, case_name, "float32", interface="inferred")
+
+
+@pytest.mark.multi_gpu
 def test_potrs_rejects_unsupported_device_order():
     """A mesh order cuSOLVERMp cannot represent fails with a clear error."""
     run_gpu_test(GPU_TEST, 4, "row_major_no_padding", "float32", interface="invalid_order")

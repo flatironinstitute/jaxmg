@@ -77,8 +77,6 @@ def main() -> None:
         q, r, _ = qr_shardmap_ctx(
             a,
             T_A=T_A,
-            mesh=mesh,
-            matrix_specs=matrix_specs,
         )
         return q, r, expected_q, expected_r
 

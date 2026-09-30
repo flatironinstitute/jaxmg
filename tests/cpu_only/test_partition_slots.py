@@ -3,11 +3,15 @@ import os
 import subprocess
 import sys
 
+import numpy as np
 import pytest
 
-from jax.sharding import AbstractMesh, PartitionSpec as P
+import jax
+import jax.numpy as jnp
+from jax.sharding import AbstractMesh, AxisType, Mesh, NamedSharding, PartitionSpec as P
 
 from jaxmg._cusolvermp_layout import (
+    infer_mesh_and_matrix_specs,
     partition_slots_from_mesh,
     validate_2d_matrix_specs,
 )
@@ -95,3 +99,71 @@ def test_partition_slots_rejects_extra_mesh_axes():
     mesh = AbstractMesh((2, 3), ("r", "c"))
     with pytest.raises(ValueError, match="exactly the axes"):
         _slots(mesh, P("r", None))
+
+
+def _single_device_mesh(axis_type):
+    devices = np.asarray(jax.devices()[:1], dtype=object).reshape(1, 1)
+    return Mesh(devices, ("r", "c"), axis_types=(axis_type, axis_type))
+
+
+@pytest.mark.parametrize("axis_type", [AxisType.Auto, AxisType.Explicit])
+def test_infer_reads_the_sharding_of_a_eagerly(axis_type):
+    mesh = _single_device_mesh(axis_type)
+    a = jax.device_put(jnp.ones((4, 4)), NamedSharding(mesh, P("c", "r")))
+    inferred_mesh, specs = infer_mesh_and_matrix_specs(a, mesh=None, matrix_specs=None)
+    assert inferred_mesh.axis_names == ("r", "c")
+    assert specs == P("c", "r")
+
+
+@pytest.mark.parametrize(
+    "axis_type, expected",
+    [
+        # Under jit, Auto shardings are not part of the type of A, so the
+        # default follows the axes of the mesh; Explicit ones are.
+        (AxisType.Auto, P("r", "c")),
+        (AxisType.Explicit, P("c", "r")),
+    ],
+)
+def test_infer_under_jit_without_concrete_mesh(axis_type, expected):
+    """Under jit only the abstract mesh is available, which is all we need."""
+    mesh = _single_device_mesh(axis_type)
+    a = jax.device_put(jnp.ones((4, 4)), NamedSharding(mesh, P("c", "r")))
+    seen = {}
+
+    @jax.jit
+    def f(a):
+        seen["mesh"], seen["specs"] = infer_mesh_and_matrix_specs(
+            a, mesh=None, matrix_specs=None
+        )
+        return a
+
+    f(a)
+    assert isinstance(seen["mesh"], AbstractMesh)
+    assert seen["mesh"].axis_names == ("r", "c")
+    assert seen["specs"] == expected
+
+
+def test_infer_falls_back_to_the_context_mesh():
+    mesh = Mesh(np.asarray(jax.devices()[:1], dtype=object), ("x",))
+    with jax.set_mesh(mesh):
+        inferred_mesh, specs = infer_mesh_and_matrix_specs(
+            np.ones((4, 4)), mesh=None, matrix_specs=None
+        )
+    assert inferred_mesh.axis_names == ("x",)
+    assert specs == P("x", None)
+
+
+def test_infer_explicit_arguments_take_precedence():
+    mesh = _single_device_mesh(AxisType.Auto)
+    a = jax.device_put(jnp.ones((4, 4)), NamedSharding(mesh, P("c", "r")))
+    other = AbstractMesh((1, 1), ("x", "y"))
+    inferred_mesh, specs = infer_mesh_and_matrix_specs(
+        a, mesh=other, matrix_specs=P("y", "x")
+    )
+    assert inferred_mesh == other
+    assert specs == P("y", "x")
+
+
+def test_infer_without_any_mesh_raises():
+    with pytest.raises(ValueError, match="could not find a mesh"):
+        infer_mesh_and_matrix_specs(np.ones((4, 4)), mesh=None, matrix_specs=None)

@@ -39,7 +39,7 @@ def make_matrix():
 
 ```python
 a = make_matrix()
-q, r = qr(a, T_A=T_A, mesh=mesh, matrix_specs=matrix_specs)
+q, r = qr(a, T_A=T_A)
 r.block_until_ready()
 
 correct = jnp.allclose(q.conj().T @ q, jnp.eye(N))
@@ -72,8 +72,6 @@ def compiled_qr(a):
     return qr_shardmap_ctx(
         a,
         T_A=T_A,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
     )
 
 

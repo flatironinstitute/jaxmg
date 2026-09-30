@@ -77,7 +77,7 @@ def main() -> None:
     a, b = make_problem()
 
     # Run the distributed JAXMg least-squares solver.
-    x = least_squares(a, b, T_A=T_A, mesh=mesh, matrix_specs=matrix_specs)
+    x = least_squares(a, b, T_A=T_A)
     x.block_until_ready()
 
     # Validate the result against the known solution.

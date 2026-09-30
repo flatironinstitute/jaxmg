@@ -76,7 +76,7 @@ def main() -> None:
     a, expected_q, expected_r = make_matrix()
 
     # Run the distributed JAXMg reduced QR decomposition.
-    q, r = qr(a, T_A=T_A, mesh=mesh, matrix_specs=matrix_specs)
+    q, r = qr(a, T_A=T_A)
     r.block_until_ready()
 
     # Validate both factors against the known solution.
