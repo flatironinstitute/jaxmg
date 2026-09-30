@@ -1423,12 +1423,13 @@ mesh.</p>
                 <code>mesh</code>
             </td>
             <td>
-                  <code><span title="jax._src.mesh.Mesh">Mesh</span></code>
+                  <code><span title="jax._src.mesh.Mesh">Mesh</span> or <span title="jax._src.mesh.AbstractMesh">AbstractMesh</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>JAX mesh used by <code>jax.shard_map</code>. If omitted,
-inferred from <code>a.sharding.mesh</code>.</p>
+                <p>JAX mesh used by
+<code>jax.shard_map</code>. If omitted, read from the sharding of <code>a</code>
+(its type inside <code>jax.jit</code>), or taken from the context mesh.</p>
               </div>
             </td>
             <td>
@@ -1444,8 +1445,8 @@ inferred from <code>a.sharding.mesh</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Rank-2 matrix sharding. If omitted, inferred from
-<code>a.sharding.spec</code>.</p>
+                <p>Rank-2 matrix sharding. If omitted, read from the sharding of
+<code>a</code>, defaulting to the mesh axes in order.</p>
               </div>
             </td>
             <td>
@@ -1677,12 +1678,13 @@ mesh.</p>
                 <code>mesh</code>
             </td>
             <td>
-                  <code><span title="jax._src.mesh.Mesh">Mesh</span></code>
+                  <code><span title="jax._src.mesh.Mesh">Mesh</span> or <span title="jax._src.mesh.AbstractMesh">AbstractMesh</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>JAX mesh used by <code>jax.shard_map</code>. If omitted,
-inferred from <code>a.sharding.mesh</code>.</p>
+                <p>JAX mesh used by
+<code>jax.shard_map</code>. If omitted, read from the sharding of <code>a</code>
+(its type inside <code>jax.jit</code>), or taken from the context mesh.</p>
               </div>
             </td>
             <td>
@@ -1698,8 +1700,8 @@ inferred from <code>a.sharding.mesh</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Rank-2 matrix sharding. If omitted, inferred from
-<code>a.sharding.spec</code>.</p>
+                <p>Rank-2 matrix sharding. If omitted, read from the sharding of
+<code>a</code>, defaulting to the mesh axes in order.</p>
               </div>
             </td>
             <td>

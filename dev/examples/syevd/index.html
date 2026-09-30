@@ -1433,8 +1433,6 @@ device mesh, with one Python process per GPU:</p>
 <span class="n">eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span> <span class="o">=</span> <span class="n">syevd</span><span class="p">(</span>
     <span class="n">a</span><span class="p">,</span>
     <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-    <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-    <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">eigenvectors</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
 
@@ -1452,8 +1450,6 @@ dtype and are returned in the same JAX-facing matrix layout as <code>a</code>.</
 <span class="n">eigenvalues</span> <span class="o">=</span> <span class="n">syevd</span><span class="p">(</span>
     <span class="n">a</span><span class="p">,</span>
     <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-    <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-    <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
     <span class="n">return_eigenvectors</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">eigenvalues</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
@@ -1500,8 +1496,6 @@ it with <code>donate_argnums</code>. Return <code>a_work</code> so the donated i
     <span class="n">a_work</span><span class="p">,</span> <span class="n">eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">syevd_shardmap_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-        <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-        <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
     <span class="p">)</span>
 
     <span class="c1"># Further JAX operations can be part of this compiled function.</span>
@@ -1535,8 +1529,6 @@ from the outer function:</p>
     <span class="n">_</span><span class="p">,</span> <span class="n">eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">syevd_shardmap_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-        <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-        <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
     <span class="p">)</span>
 
     <span class="c1"># a_work remains internal because a was created inside this function.</span>

@@ -1373,7 +1373,7 @@ orthonormal factor <span class="arithmatex">\(Q\)</span> and upper-triangular fa
 </code></pre></div>
 <h2 id="compute-the-reduced-factors">Compute the reduced factors<a class="headerlink" href="#compute-the-reduced-factors" title="Permanent link">¤</a></h2>
 <div class="highlight"><pre><span></span><code><span class="n">a</span> <span class="o">=</span> <span class="n">make_matrix</span><span class="p">()</span>
-<span class="n">q</span><span class="p">,</span> <span class="n">r</span> <span class="o">=</span> <span class="n">qr</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">)</span>
+<span class="n">q</span><span class="p">,</span> <span class="n">r</span> <span class="o">=</span> <span class="n">qr</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">)</span>
 <span class="n">r</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
 
 <span class="n">correct</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">conj</span><span class="p">()</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">q</span><span class="p">,</span> <span class="n">jnp</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="n">N</span><span class="p">))</span>
@@ -1402,8 +1402,6 @@ caller. Its first result is <span class="arithmatex">\(Q\)</span>, which aliases
     <span class="k">return</span> <span class="n">qr_shardmap_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-        <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-        <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
     <span class="p">)</span>
 
 

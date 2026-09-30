@@ -1379,8 +1379,6 @@ returns both factors; set <code>compute_h=False</code> when only <span class="ar
 <span class="n">up</span><span class="p">,</span> <span class="n">h</span> <span class="o">=</span> <span class="n">polar</span><span class="p">(</span>
     <span class="n">a</span><span class="p">,</span>
     <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-    <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-    <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">h</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
 
@@ -1414,8 +1412,6 @@ factor, so no separate opaque work result is needed.</p>
     <span class="n">up</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">polar_shardmap_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-        <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-        <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="k">return</span> <span class="n">up</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">status</span>
 

@@ -1450,8 +1450,6 @@ divisible by the process grid and local dimensions are divisible by <code>T_A</c
 <span class="n">u</span><span class="p">,</span> <span class="n">singular_values</span><span class="p">,</span> <span class="n">vh</span> <span class="o">=</span> <span class="n">gesvd</span><span class="p">(</span>
     <span class="n">a</span><span class="p">,</span>
     <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-    <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-    <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">vh</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
 
@@ -1471,8 +1469,6 @@ divisible by the process grid and local dimensions are divisible by <code>T_A</c
 <span class="n">singular_values</span> <span class="o">=</span> <span class="n">gesvd</span><span class="p">(</span>
     <span class="n">a</span><span class="p">,</span>
     <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-    <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-    <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
     <span class="n">compute_u</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
     <span class="n">compute_vh</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <span class="p">)</span>
@@ -1482,8 +1478,6 @@ divisible by the process grid and local dimensions are divisible by <code>T_A</c
 <span class="n">u</span><span class="p">,</span> <span class="n">singular_values</span> <span class="o">=</span> <span class="n">gesvd</span><span class="p">(</span>
     <span class="n">a</span><span class="p">,</span>
     <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-    <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-    <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
     <span class="n">compute_vh</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
@@ -1520,8 +1514,6 @@ output alias at the outer compiled boundary:</p>
     <span class="n">a_work</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">singular_values</span><span class="p">,</span> <span class="n">vh</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">gesvd_shardmap_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-        <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-        <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
     <span class="p">)</span>
 
     <span class="c1"># Further JAX operations can be part of this compiled function.</span>
@@ -1560,8 +1552,6 @@ temporary rather than a donated argument. XLA controls its lifetime, so
     <span class="n">_</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">singular_values</span><span class="p">,</span> <span class="n">vh</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">gesvd_shardmap_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-        <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-        <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
     <span class="p">)</span>
 
     <span class="c1"># a_work remains internal because a was created inside this function.</span>

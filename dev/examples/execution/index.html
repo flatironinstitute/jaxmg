@@ -1428,6 +1428,15 @@ To shard columns instead, use <code>P(None, "x")</code>.</p>
 <p>The mesh passed to a solver does not have to be the one in context: each call
 enters its own mesh, so a program that keeps a different mesh set globally can
 call JAXMg without switching it.</p>
+<p>The solver examples omit <code>mesh</code> and <code>matrix_specs</code>. JAXMg reads them from the
+sharding of the input matrix, falling back to the mesh set with <code>jax.set_mesh</code>,
+both eagerly and inside <code>jax.jit</code>.
+Inside <code>jax.jit</code> only the abstract mesh is available, which is all JAXMg needs:
+as for <code>jax.lax.axis_index</code>, the devices are resolved when the program runs.
+With <code>Auto</code> mesh axes the sharding of the matrix is not known inside <code>jax.jit</code>,
+so it then defaults to the mesh axes in order, <code>P("pr", "pc")</code> above or
+<code>P("x", None)</code> for a one-axis mesh. If the matrix is actually sharded
+differently, pass <code>matrix_specs</code> explicitly to select that nonstandard layout.</p>
 <p>You can inspect the resultant process-rank mapping selected by JAX:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 

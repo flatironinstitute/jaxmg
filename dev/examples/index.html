@@ -1344,7 +1344,9 @@
 <p>We provide a complete walkthrough of the JAXMg workflow, from
 launching a distributed JAX program to running a cuSOLVERMp routine.</p>
 <p>Ready-to-run scripts are provided in the repository's
-<a href="https://github.com/flatironinstitute/jaxmg/tree/main/examples">examples directory</a>.</p>
+<a href="https://github.com/flatironinstitute/jaxmg/tree/main/examples">examples directory</a>.
+They establish the mesh and input sharding once, after which each solver infers
+that layout directly from its input matrix.</p>
 <h2 id="1-configure-distributed-execution">1. Configure Distributed Execution<a class="headerlink" href="#1-configure-distributed-execution" title="Permanent link">¤</a></h2>
 <p>Start by initializing distributed JAX,
 assigning one GPU to each process, and constructing the device mesh used by the

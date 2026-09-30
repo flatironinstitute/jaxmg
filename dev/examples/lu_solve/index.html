@@ -1441,8 +1441,6 @@ input/output aliasing, padding, and distributed execution.</p>
     <span class="n">a</span><span class="p">,</span>
     <span class="n">b</span><span class="p">,</span>
     <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-    <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-    <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">x</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
 
@@ -1492,8 +1490,6 @@ with <code>donate_argnums</code>. Return <code>a_work</code> so the donated inpu
         <span class="n">a</span><span class="p">,</span>
         <span class="n">b</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-        <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-        <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
     <span class="p">)</span>
 
     <span class="c1"># Further JAX operations on x can be part of this compiled function.</span>
@@ -1533,8 +1529,6 @@ be returned from the outer function:</p>
         <span class="n">a</span><span class="p">,</span>
         <span class="n">b</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
-        <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
-        <span class="n">matrix_specs</span><span class="o">=</span><span class="n">matrix_specs</span><span class="p">,</span>
     <span class="p">)</span>
 
     <span class="c1"># a_work remains internal because a was created inside this function.</span>

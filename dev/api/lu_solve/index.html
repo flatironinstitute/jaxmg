@@ -1424,12 +1424,13 @@ dimension must be a multiple of <code>T_A</code> after padding.</p>
                 <code>mesh</code>
             </td>
             <td>
-                  <code><span title="jax._src.mesh.Mesh">Mesh</span></code>
+                  <code><span title="jax._src.mesh.Mesh">Mesh</span> or <span title="jax._src.mesh.AbstractMesh">AbstractMesh</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>JAX mesh used for <code>jax.shard_map</code>. If omitted,
-inferred from <code>a.sharding.mesh</code>.</p>
+                <p>JAX mesh used for <code>jax.shard_map</code>.
+If omitted, read off the sharding of <code>a</code> (its type inside
+<code>jax.jit</code>), or taken from the context mesh.</p>
               </div>
             </td>
             <td>
@@ -1445,8 +1446,8 @@ inferred from <code>a.sharding.mesh</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>PartitionSpec describing the matrix sharding. If omitted, inferred
-from <code>a.sharding.spec</code>.</p>
+                <p>PartitionSpec describing the matrix sharding. If omitted, read
+off the sharding of <code>a</code>, defaulting to the mesh axes in order.</p>
               </div>
             </td>
             <td>
@@ -1694,12 +1695,13 @@ device mesh, for example with <code>P(&lt;row_axis&gt;)</code> or
                 <code>mesh</code>
             </td>
             <td>
-                  <code><span title="jax._src.mesh.Mesh">Mesh</span></code>
+                  <code><span title="jax._src.mesh.Mesh">Mesh</span> or <span title="jax._src.mesh.AbstractMesh">AbstractMesh</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>JAX mesh used for <code>jax.shard_map</code>. If omitted,
-inferred from <code>a.sharding.mesh</code>.</p>
+                <p>JAX mesh used for <code>jax.shard_map</code>.
+If omitted, read off the sharding of <code>a</code> (its type inside
+<code>jax.jit</code>), or taken from the context mesh.</p>
               </div>
             </td>
             <td>
@@ -1715,8 +1717,8 @@ inferred from <code>a.sharding.mesh</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>PartitionSpec describing the matrix sharding. If omitted, inferred
-from <code>a.sharding.spec</code>.</p>
+                <p>PartitionSpec describing the matrix sharding. If omitted, read
+off the sharding of <code>a</code>, defaulting to the mesh axes in order.</p>
               </div>
             </td>
             <td>
