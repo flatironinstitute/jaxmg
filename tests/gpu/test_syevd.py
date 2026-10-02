@@ -50,6 +50,18 @@ def test_syevd_shardmap_ctx_two_gpu():
 
 
 @pytest.mark.multi_gpu
+def test_syevd_replicated_input_two_gpu():
+    """Restore eigenvectors, but not opaque work storage, to input sharding."""
+    run_gpu_test(
+        GPU_TEST,
+        2,
+        "replicated_input",
+        "float32",
+        interface="context",
+    )
+
+
+@pytest.mark.multi_gpu
 @pytest.mark.parametrize("dtype_name", DTYPES)
 def test_syevd_values_only_two_gpu(monkeypatch, dtype_name):
     """Run the values-only native workflow on a two-GPU process grid."""

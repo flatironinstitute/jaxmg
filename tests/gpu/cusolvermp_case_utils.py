@@ -133,6 +133,12 @@ def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCa
         grid_order = "row_major"
         if has_rhs:
             rhs_mode = "matrix_row_sharded"
+    elif case_name == "replicated_input":
+        if routine != "syevd":
+            raise ValueError("replicated_input is only used by the SYEVD test")
+        rows, cols, tile, padded, nrhs = 1, num_processes, 64, False, 1
+        grid_order = "row_major"
+        axis_types = "explicit"
     elif case_name == "skinny_rhs":
         if not has_rhs:
             raise ValueError("skinny_rhs is only meaningful for solve routines")

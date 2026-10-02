@@ -23,6 +23,7 @@ from ._cusolvermp_layout import (
     make_local_unpad_fn,
     prepare_input_matrix_layout,
     prepare_rectangular_matrix_layout,
+    restore_matrix_result,
     use_abstract_mesh_decorator,
 )
 from ._cusolvermp_status import _CUSOLVERMP_POLAR_STATUS_SIZE
@@ -76,6 +77,8 @@ def polar(
     Returns:
         ``(Up, H)`` by default, or only ``Up`` when ``compute_h=False``. If
         ``return_status=True``, the status vector is appended to that result.
+        Requested matrix outputs are restored to replicated sharding when
+        ``a`` is replicated; otherwise they use ``matrix_specs``.
 
     Raises:
         TypeError: If the dtype, static mode flag, or sharding specification is
@@ -103,6 +106,7 @@ def polar(
         layout.partition_slots,
         layout.padding,
         h_padding,
+        matrix_result_specs=layout.matrix_result_specs,
         m=m,
         n=n,
         tile_size=int(T_A),
@@ -132,9 +136,8 @@ def polar_shardmap_ctx(
 
     This interface performs the same validation, redistribution, and native
     computation as :func:`jaxmg.polar`, but leaves the outer compilation and
-    donation boundary to the caller. The first output is ``Up``, so an outer
-    ``jax.jit(..., donate_argnums=(0,))`` can alias the input matrix directly
-    to a numerical result.
+    donation boundary to the caller. The native ``Up`` output aliases the input
+    work buffer before any final restoration of replicated sharding.
 
     Args:
         a (Array): A rank-2 real or complex tall or square matrix sharded over
@@ -157,7 +160,9 @@ def polar_shardmap_ctx(
     Returns:
         ``(Up, H, status)`` when ``compute_h=True`` or ``(Up, status)``
         otherwise. The status vector is always returned so an enclosing
-        compiled function can propagate native diagnostics.
+        compiled function can propagate native diagnostics. Requested matrix
+        outputs are restored when ``a`` is replicated; otherwise they use
+        ``matrix_specs``.
 
     Raises:
         TypeError: If the dtype, static mode flag, or sharding specification is
@@ -185,6 +190,7 @@ def polar_shardmap_ctx(
         layout.partition_slots,
         layout.padding,
         h_padding,
+        matrix_result_specs=layout.matrix_result_specs,
         m=m,
         n=n,
         tile_size=int(T_A),
@@ -267,6 +273,7 @@ def _polar_pipeline(
     a_padding: MatrixPadding2D,
     h_padding: MatrixPadding2D | None,
     *,
+    matrix_result_specs: P,
     m: int,
     n: int,
     tile_size: int,
@@ -283,6 +290,12 @@ def _polar_pipeline(
         make_local_unpad_fn(mesh, matrix_specs, h_padding)
         if h_padding is not None
         else None
+    )
+    restore_result = partial(
+        restore_matrix_result,
+        result_specs=matrix_result_specs,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
     )
     ffi_target = "cusolvermp_polar_uh" if compute_h else "cusolvermp_polar_u"
     out_specs = (
@@ -341,9 +354,13 @@ def _polar_pipeline(
         outputs = polar_shardmap(pad_a(_a))
         if compute_h:
             up_padded, h_padded, native_status = outputs
-            return unpad_up(up_padded), unpad_h(h_padded), native_status
+            return (
+                restore_result(unpad_up(up_padded)),
+                restore_result(unpad_h(h_padded)),
+                native_status,
+            )
         up_padded, native_status = outputs
-        return unpad_up(up_padded), native_status
+        return restore_result(unpad_up(up_padded)), native_status
 
     return impl
 
@@ -358,6 +375,7 @@ def _polar_compiled(
     a_padding: MatrixPadding2D,
     h_padding: MatrixPadding2D | None,
     *,
+    matrix_result_specs: P,
     m: int,
     n: int,
     tile_size: int,
@@ -374,6 +392,7 @@ def _polar_compiled(
         partition_slots,
         a_padding,
         h_padding,
+        matrix_result_specs=matrix_result_specs,
         m=m,
         n=n,
         tile_size=tile_size,

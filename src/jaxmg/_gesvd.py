@@ -24,6 +24,7 @@ from ._cusolvermp_layout import (
     make_local_unpad_fn,
     prepare_input_matrix_layout,
     prepare_rectangular_matrix_layout,
+    restore_matrix_result,
     use_abstract_mesh_decorator,
 )
 from ._cusolvermp_status import _CUSOLVERMP_GESVD_STATUS_SIZE
@@ -55,11 +56,12 @@ def gesvd(
     disabled independently so JAX does not allocate or redistribute an output
     that the application does not require.
 
-    The input and every requested matrix output use the same JAX mesh and
-    ``PartitionSpec``. Their logical dimensions must therefore be
+    Requested matrix outputs are restored to replicated sharding when ``a`` is
+    replicated; otherwise they use ``matrix_specs``. Internally, A, U, and Vh
+    use the same solver ``PartitionSpec``, so their logical dimensions must be
     divisible by the corresponding process-grid dimensions. Tile padding is
-    applied separately to A, U, and Vh when their local dimensions are not
-    divisible by ``T_A``.
+    applied separately when their local dimensions are not divisible by
+    ``T_A``.
 
     Args:
         a (Array): A rank-2 real or complex matrix sharded over a one- or
@@ -98,6 +100,7 @@ def gesvd(
         ``(U, s, Vh)`` when both vectors are requested, ``(U, s)`` for U only,
         ``(s, Vh)`` for Vh only, and ``s`` for values only. If
         ``return_status=True``, the status vector is appended to that result.
+        Singular values are replicated.
 
     Raises:
         TypeError: If the dtype, static mode flags, or sharding specification is
@@ -138,6 +141,7 @@ def gesvd(
         layout.padding,
         u_padding,
         vh_padding,
+        matrix_result_specs=layout.matrix_result_specs,
         m=m,
         n=n,
         tile_size=layout.tile_shape.rows,
@@ -215,8 +219,10 @@ def gesvd_shardmap_ctx(
     Returns:
         ``(a_work, U, s, Vh, status)``, ``(a_work, U, s, status)``,
         ``(a_work, s, Vh, status)``, or ``(a_work, s, status)`` according to the
-        selected vector outputs. ``status`` is always returned by the context
-        interface so an enclosing compiled function can propagate diagnostics.
+        selected vector outputs. ``a_work`` is opaque, remains in
+        ``matrix_specs``, and includes any local padding. Requested vector
+        matrices are restored when ``a`` is replicated. ``status`` is always
+        returned so an enclosing compiled function can propagate diagnostics.
 
     Raises:
         TypeError: If the dtype, static mode flags, or sharding specification is
@@ -248,6 +254,7 @@ def gesvd_shardmap_ctx(
         layout.padding,
         u_padding,
         vh_padding,
+        matrix_result_specs=layout.matrix_result_specs,
         m=m,
         n=n,
         tile_size=layout.tile_shape.rows,
@@ -380,6 +387,7 @@ def _gesvd_pipeline(
     u_padding: MatrixPadding2D | None,
     vh_padding: MatrixPadding2D | None,
     *,
+    matrix_result_specs: P,
     m: int,
     n: int,
     tile_size: int,
@@ -407,6 +415,12 @@ def _gesvd_pipeline(
         make_local_unpad_fn(mesh, matrix_specs, vh_padding)
         if vh_padding is not None
         else None
+    )
+    restore_result = partial(
+        restore_matrix_result,
+        result_specs=matrix_result_specs,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
     )
 
     if compute_u and compute_vh:
@@ -500,16 +514,26 @@ def _gesvd_pipeline(
             return (
                 singular_values,
                 a_work,
-                unpad_u(u_padded),
-                unpad_vh(vh_padded),
+                restore_result(unpad_u(u_padded)),
+                restore_result(unpad_vh(vh_padded)),
                 native_status,
             )
         if compute_u:
             singular_values, a_work, u_padded, native_status = outputs
-            return singular_values, a_work, unpad_u(u_padded), native_status
+            return (
+                singular_values,
+                a_work,
+                restore_result(unpad_u(u_padded)),
+                native_status,
+            )
         if compute_vh:
             singular_values, a_work, vh_padded, native_status = outputs
-            return singular_values, a_work, unpad_vh(vh_padded), native_status
+            return (
+                singular_values,
+                a_work,
+                restore_result(unpad_vh(vh_padded)),
+                native_status,
+            )
         return outputs
 
     return impl
@@ -526,6 +550,7 @@ def _gesvd_compiled(
     u_padding: MatrixPadding2D | None,
     vh_padding: MatrixPadding2D | None,
     *,
+    matrix_result_specs: P,
     m: int,
     n: int,
     tile_size: int,
@@ -545,6 +570,7 @@ def _gesvd_compiled(
         a_padding,
         u_padding,
         vh_padding,
+        matrix_result_specs=matrix_result_specs,
         m=m,
         n=n,
         tile_size=tile_size,

@@ -38,6 +38,7 @@ class PreparedMatrixLayout(NamedTuple):
 
     mesh: Mesh | AbstractMesh
     matrix_specs: P
+    matrix_result_specs: P
     native_status_specs: P
     grid: ProcessGrid
     partition_slots: tuple[int, ...]
@@ -328,18 +329,25 @@ def infer_rhs_specs(rhs: Array, *, matrix_specs: P) -> P:
     tracing on Auto mesh axes may no longer expose the input array's original
     ``NamedSharding``.
     """
-    sharding = getattr(rhs, "sharding", None)
-    if isinstance(sharding, NamedSharding):
-        return sharding.spec
-    # Under jit, the type of the RHS only carries its sharding along Explicit
-    # mesh axes; with Auto axes it reads as replicated, which it need not be.
-    sharding = getattr(jax.typeof(rhs), "sharding", None)
-    if isinstance(sharding, NamedSharding) and all(
-        axis_type == AxisType.Explicit for axis_type in sharding.mesh.axis_types
-    ):
+    sharding = _known_input_sharding(rhs)
+    if sharding is not None:
         return sharding.spec
     row_axis, _ = matrix_specs._partitions
     return P(row_axis, None)
+
+
+def _known_input_sharding(value: Array) -> NamedSharding | None:
+    """Return concrete input sharding without misreading Auto-axis tracers."""
+    sharding = getattr(value, "sharding", None)
+    if isinstance(sharding, NamedSharding):
+        return sharding
+    # Under jit, Auto-axis types appear replicated even when the input is not.
+    sharding = getattr(jax.typeof(value), "sharding", None)
+    if isinstance(sharding, NamedSharding) and all(
+        axis_type == AxisType.Explicit for axis_type in sharding.mesh.axis_types
+    ):
+        return sharding
+    return None
 
 
 def restore_rhs_from_native_work(
@@ -376,6 +384,39 @@ def restore_rhs_from_native_work(
         mesh=mesh,
         matrix_specs=matrix_specs,
         target_specs=rhs_specs,
+    )
+
+
+def restore_matrix_result(
+    result: Array,
+    *,
+    result_specs: P,
+    mesh: Mesh | AbstractMesh,
+    matrix_specs: P,
+) -> Array:
+    """Restore a numerical matrix result to its JAX-facing layout.
+
+    Native matrix outputs initially use ``matrix_specs``. When the input was
+    explicitly replicated, ``result_specs`` requests a final replicated result;
+    otherwise both specifications are equal and this function is a no-op.
+    Opaque work buffers do not pass through this restoration.
+
+    Args:
+        result: Unpadded numerical matrix output in the native work sharding.
+        result_specs: User-facing sharding requested for the result.
+        mesh: JAX mesh used by the native work buffer.
+        matrix_specs: Matrix sharding used by the native FFI.
+
+    Returns:
+        The result in ``result_specs``.
+    """
+    if result_specs == matrix_specs:
+        return result
+    return _place_for_matrix_axis_mode(
+        result,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+        target_specs=result_specs,
     )
 
 
@@ -618,8 +659,10 @@ def prepare_input_matrix_layout(
 
     Routine-specific wrappers validate their mathematical contracts before
     calling this helper. This function handles the distributed layout contract
-    shared by every native cuSOLVERMp operation.
+    shared by every native cuSOLVERMp operation and records when numerical
+    matrix outputs must be restored to a replicated input layout.
     """
+    input_sharding = _known_input_sharding(a)
     mesh, matrix_specs = infer_mesh_and_matrix_specs(
         a,
         mesh=mesh,
@@ -646,6 +689,10 @@ def prepare_input_matrix_layout(
     return PreparedMatrixLayout(
         mesh,
         matrix_specs,
+        P(None, None)
+        if input_sharding is not None
+        and not any(axis is not None for axis in input_sharding.spec)
+        else matrix_specs,
         status_specs(row_axis, col_axis, grid),
         grid,
         partition_slots,

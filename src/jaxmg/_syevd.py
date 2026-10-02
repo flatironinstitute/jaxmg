@@ -23,6 +23,7 @@ from ._cusolvermp_layout import (
     make_local_pad_fn,
     make_local_unpad_fn,
     prepare_input_matrix_layout,
+    restore_matrix_result,
     use_abstract_mesh_decorator,
 )
 from ._cusolvermp_status import _CUSOLVERMP_SYEVD_STATUS_SIZE
@@ -47,10 +48,11 @@ def syevd(
     This is the high-level JAXMg symmetric/Hermitian eigensolver entry point.
     It accepts a block-sharded JAX matrix, prepares the tile-aligned local
     capacity required by cuSOLVERMp, and calls the fused native backend. By
-    default it returns eigenvalues together with eigenvectors in the same
-    JAX-facing matrix layout as the input. Setting ``return_eigenvectors=False``
-    selects cuSOLVERMp's eigenvalues-only mode and avoids allocating or
-    restoring a matrix-sized eigenvector result.
+    default it returns eigenvalues together with eigenvectors. Eigenvectors are
+    restored to replicated sharding when ``a`` is replicated; otherwise they
+    use ``matrix_specs``. Setting ``return_eigenvectors=False`` selects
+    cuSOLVERMp's eigenvalues-only mode and avoids allocating or restoring a
+    matrix-sized eigenvector result.
 
     Note:
         If a local shard dimension is not divisible by ``T_A``, ``pad=True``
@@ -90,7 +92,7 @@ def syevd(
     Returns:
         If ``return_eigenvectors=True``, ``(eigenvalues, eigenvectors)`` or
         ``(eigenvalues, eigenvectors, status)``. If False, ``eigenvalues`` or
-        ``(eigenvalues, status)``.
+        ``(eigenvalues, status)``. Eigenvalues are replicated.
 
     Raises:
         TypeError: If dtypes or ``PartitionSpec`` inputs are unsupported.
@@ -126,6 +128,7 @@ def syevd(
         layout.grid,
         layout.partition_slots,
         layout.padding,
+        matrix_result_specs=layout.matrix_result_specs,
         n=a.shape[0],
         tile_size=layout.tile_shape.rows,
         dtype=a.dtype,
@@ -203,7 +206,9 @@ def syevd_shardmap_ctx(
         tuple: ``(a_work, eigenvalues, eigenvectors, status)`` when
         ``return_eigenvectors=True``, otherwise
         ``(a_work, eigenvalues, status)``. ``a_work`` preserves the donated
-        input alias and includes any padding applied by the normal pipeline.
+        input alias in ``matrix_specs`` and includes any padding applied by the
+        normal pipeline. It is opaque and is not restored to replicated
+        sharding. Eigenvectors are restored when ``a`` is replicated,
         ``eigenvalues`` is replicated and real-valued, and ``status`` is the
         native per-rank diagnostic vector.
 
@@ -242,6 +247,7 @@ def syevd_shardmap_ctx(
         layout.grid,
         layout.partition_slots,
         layout.padding,
+        matrix_result_specs=layout.matrix_result_specs,
         n=a.shape[0],
         tile_size=layout.tile_shape.rows,
         dtype=a.dtype,
@@ -336,6 +342,7 @@ def _syevd_pipeline(
     partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     *,
+    matrix_result_specs: P,
     n: int,
     tile_size: int,
     dtype,
@@ -430,7 +437,12 @@ def _syevd_pipeline(
             return outputs
 
         eigenvalues, work_padded, vectors_padded, native_status = outputs
-        vectors = unpad_vectors(vectors_padded)
+        vectors = restore_matrix_result(
+            unpad_vectors(vectors_padded),
+            result_specs=matrix_result_specs,
+            mesh=mesh,
+            matrix_specs=matrix_specs,
+        )
         return eigenvalues, work_padded, vectors, native_status
 
     return impl
@@ -445,6 +457,7 @@ def _syevd_compiled(
     partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     *,
+    matrix_result_specs: P,
     n: int,
     tile_size: int,
     dtype,
@@ -459,6 +472,7 @@ def _syevd_compiled(
         grid,
         partition_slots,
         a_padding,
+        matrix_result_specs=matrix_result_specs,
         n=n,
         tile_size=tile_size,
         dtype=dtype,
