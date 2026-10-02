@@ -693,10 +693,21 @@ def _unpad_local_2d(block: Array, *, local_rows: int, local_cols: int) -> Array:
 def make_local_pad_fn(
     mesh: Mesh | AbstractMesh, matrix_specs: P, padding: MatrixPadding2D
 ):
-    """Build the shard-local bottom/right padding transform for a matrix."""
+    """Build the transform placing a matrix in ``matrix_specs`` and padding it.
+
+    The matrix is placed first because its sharding need not match
+    ``matrix_specs``: a matrix replicated over Explicit mesh axes, for example,
+    gets the default specs inferred from the mesh.
+    """
+
+    def place(block: Array) -> Array:
+        return _place_for_matrix_axis_mode(
+            block, mesh=mesh, matrix_specs=matrix_specs, target_specs=matrix_specs
+        )
+
     if not padding.needs_padding:
-        return lambda block: block
-    return jax.shard_map(
+        return place
+    pad = jax.shard_map(
         functools.partial(
             _pad_local_2d,
             row_padding=padding.row_padding_per_process,
@@ -707,6 +718,7 @@ def make_local_pad_fn(
         out_specs=matrix_specs,
         check_vma=True,
     )
+    return lambda block: pad(place(block))
 
 
 def make_local_unpad_fn(
