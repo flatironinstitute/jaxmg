@@ -693,11 +693,14 @@ def _unpad_local_2d(block: Array, *, local_rows: int, local_cols: int) -> Array:
 def make_local_pad_fn(
     mesh: Mesh | AbstractMesh, matrix_specs: P, padding: MatrixPadding2D
 ):
-    """Build the transform placing a matrix in ``matrix_specs`` and padding it.
+    """Build the sharding-placement and tile-aligned padding transform.
 
-    The matrix is placed first because its sharding need not match
-    ``matrix_specs``: a matrix replicated over Explicit mesh axes, for example,
-    gets the default specs inferred from the mesh.
+    Preparation proceeds as follows:
+
+    1. Place the matrix in ``matrix_specs`` so its actual sharding matches the
+       layout expected by ``shard_map``. This is a no-op when they already match.
+    2. Append zero rows and columns to the bottom and right of each local shard
+       when additional tile-aligned capacity is required by cuSOLVERMp.
     """
 
     def place(block: Array) -> Array:
