@@ -8,7 +8,7 @@ if not jax.config.jax_enable_x64:
     jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
-from jax.sharding import Mesh, PartitionSpec as P
+from jax.sharding import AxisType, Mesh, NamedSharding, PartitionSpec as P
 
 import jaxmg._potrs as potrs_module
 from jaxmg import potrs, potrs_shardmap_ctx
@@ -385,3 +385,18 @@ def test_potrs_donation_can_be_disabled(monkeypatch):
     )
 
     assert captured["kwargs"]["donate"] is False
+
+
+def test_potrs_reshards_a_replicated_over_explicit_mesh_axes(monkeypatch):
+    # The type of A carries no sharding, so the matrix specs default to the mesh
+    # axes, P("pr", None), and A must be resharded to them.
+    monkeypatch.setattr(potrs_module, "ensure_init_jaxmg_backend", lambda: None)
+    devices = np.asarray(jax.devices()[:1], dtype=object)
+    mesh = Mesh(devices, ("pr",), axis_types=(AxisType.Explicit,))
+    with jax.set_mesh(mesh):
+        a = jax.device_put(jnp.eye(4), NamedSharding(mesh, P()))
+        b = jax.device_put(jnp.ones((4,)), NamedSharding(mesh, P()))
+        a_work, x, _ = jax.eval_shape(partial(potrs_shardmap_ctx, T_A=2), a, b)
+
+    assert a_work.sharding.spec == P("pr", None)
+    assert x.sharding.spec == P(None)

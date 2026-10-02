@@ -693,10 +693,24 @@ def _unpad_local_2d(block: Array, *, local_rows: int, local_cols: int) -> Array:
 def make_local_pad_fn(
     mesh: Mesh | AbstractMesh, matrix_specs: P, padding: MatrixPadding2D
 ):
-    """Build the shard-local bottom/right padding transform for a matrix."""
+    """Build the sharding-placement and tile-aligned padding transform.
+
+    Preparation proceeds as follows:
+
+    1. Place the matrix in ``matrix_specs`` so its actual sharding matches the
+       layout expected by ``shard_map``. This is a no-op when they already match.
+    2. Append zero rows and columns to the bottom and right of each local shard
+       when additional tile-aligned capacity is required by cuSOLVERMp.
+    """
+
+    def place(block: Array) -> Array:
+        return _place_for_matrix_axis_mode(
+            block, mesh=mesh, matrix_specs=matrix_specs, target_specs=matrix_specs
+        )
+
     if not padding.needs_padding:
-        return lambda block: block
-    return jax.shard_map(
+        return place
+    pad = jax.shard_map(
         functools.partial(
             _pad_local_2d,
             row_padding=padding.row_padding_per_process,
@@ -707,6 +721,7 @@ def make_local_pad_fn(
         out_specs=matrix_specs,
         check_vma=True,
     )
+    return lambda block: pad(place(block))
 
 
 def make_local_unpad_fn(
