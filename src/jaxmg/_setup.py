@@ -28,95 +28,98 @@ _initialized = False
 _xla_comm_backend_library = "libjaxmg_xla_comm_backend.so"
 _preloaded_cuda_libraries = {}
 
+# Every target shares one XLA prepare call.
+_PREPARE_SYMBOL = "XlaCusolverMpPrepareFFI"
+
 _PRODUCTION_FFI_TARGETS = (
     (
         "cusolvermp_potrs",
         {
-            "prepare": "XlaCusolverMpPotrsPrepareFFI",
+            "prepare": _PREPARE_SYMBOL,
             "execute": "XlaCusolverMpPotrsFFI",
         },
     ),
     (
         "cusolvermp_potrs_logdet",
         {
-            "prepare": "XlaCusolverMpPotrsLogdetPrepareFFI",
+            "prepare": _PREPARE_SYMBOL,
             "execute": "XlaCusolverMpPotrsLogdetFFI",
         },
     ),
     (
         "cusolvermp_lu_solve",
         {
-            "prepare": "XlaCusolverMpLuSolvePrepareFFI",
+            "prepare": _PREPARE_SYMBOL,
             "execute": "XlaCusolverMpLuSolveFFI",
         },
     ),
     (
         "cusolvermp_gels",
         {
-            "prepare": "XlaCusolverMpGelsPrepareFFI",
+            "prepare": _PREPARE_SYMBOL,
             "execute": "XlaCusolverMpGelsFFI",
         },
     ),
     (
         "cusolvermp_qr",
         {
-            "prepare": "XlaCusolverMpQrPrepareFFI",
+            "prepare": _PREPARE_SYMBOL,
             "execute": "XlaCusolverMpQrFFI",
         },
     ),
     (
         "cusolvermp_syevd",
         {
-            "prepare": "XlaCusolverMpSyevdPrepareFFI",
+            "prepare": _PREPARE_SYMBOL,
             "execute": "XlaCusolverMpSyevdFFI",
         },
     ),
     (
         "cusolvermp_syevd_values",
         {
-            "prepare": "XlaCusolverMpSyevdPrepareFFI",
+            "prepare": _PREPARE_SYMBOL,
             "execute": "XlaCusolverMpSyevdValuesFFI",
         },
     ),
     (
         "cusolvermp_gesvd_uv",
         {
-            "prepare": "XlaCusolverMpGesvdPrepareFFI",
+            "prepare": _PREPARE_SYMBOL,
             "execute": "XlaCusolverMpGesvdUvFFI",
         },
     ),
     (
         "cusolvermp_gesvd_u",
         {
-            "prepare": "XlaCusolverMpGesvdPrepareFFI",
+            "prepare": _PREPARE_SYMBOL,
             "execute": "XlaCusolverMpGesvdUFFI",
         },
     ),
     (
         "cusolvermp_gesvd_vh",
         {
-            "prepare": "XlaCusolverMpGesvdPrepareFFI",
+            "prepare": _PREPARE_SYMBOL,
             "execute": "XlaCusolverMpGesvdVhFFI",
         },
     ),
     (
         "cusolvermp_gesvd_values",
         {
-            "prepare": "XlaCusolverMpGesvdPrepareFFI",
+            "prepare": _PREPARE_SYMBOL,
             "execute": "XlaCusolverMpGesvdValuesFFI",
         },
     ),
     (
         "cusolvermp_polar_uh",
         {
-            "prepare": "XlaCusolverMpPolarPrepareFFI",
+            "prepare": _PREPARE_SYMBOL,
             "execute": "XlaCusolverMpPolarUhFFI",
         },
     ),
     (
         "cusolvermp_polar_u",
         {
-            "prepare": "XlaCusolverMpPolarPrepareFFI",
+            "prepare": _PREPARE_SYMBOL,
             "execute": "XlaCusolverMpPolarUFFI",
         },
     ),
