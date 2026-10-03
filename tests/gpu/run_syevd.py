@@ -57,11 +57,15 @@ def run_case() -> None:
     case = solver_case(case_name, num_procs, routine="syevd")
     mesh = make_process_mesh(case)
     matrix_specs = P("pr", "pc")
+    replicated_input = case_name == "replicated_input"
 
     a = make_hermitian_positive_definite(case.n, dtype, seed=5678)
+    a_host = np.asarray(a).copy()
     expected_eigenvalues, _ = jnp.linalg.eigh(a)
 
-    a_dev = jax.device_put(a, NamedSharding(mesh, matrix_specs))
+    a_dev = jax.device_put(
+        a, NamedSharding(mesh, P() if replicated_input else matrix_specs)
+    )
 
     if interface == "context":
 
@@ -112,6 +116,11 @@ def run_case() -> None:
         vectors.block_until_ready()
     status.block_until_ready()
 
+    if replicated_input:
+        assert vectors.sharding.is_fully_replicated
+        if interface == "context":
+            assert a_work.sharding.spec == matrix_specs
+
     status_words = native_status_words(status)
     assert status_words.size % _CUSOLVERMP_SYEVD_STATUS_SIZE == 0, status_words
     assert np.all(status_words[::_CUSOLVERMP_SYEVD_STATUS_SIZE] == 0), status_words
@@ -127,7 +136,6 @@ def run_case() -> None:
     assert_close_scaled(eigenvalues, expected_eigenvalues, atol=1e-3, rtol=1e-3)
 
     if vectors is not None:
-        a_host = np.asarray(a)
         eigenvalues_host = global_array_to_numpy(eigenvalues)
         vectors_host = global_array_to_numpy(vectors)
         residual = np.linalg.norm(

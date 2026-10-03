@@ -22,6 +22,7 @@ from ._cusolvermp_layout import (
     make_local_unpad_fn,
     prepare_input_matrix_layout,
     prepare_rectangular_matrix_layout,
+    restore_matrix_result,
     use_abstract_mesh_decorator,
 )
 from ._cusolvermp_status import _CUSOLVERMP_QR_STATUS_SIZE
@@ -68,7 +69,8 @@ def qr(
 
     Returns:
         ``(Q, R)`` by default, or ``(Q, R, status)`` when
-        ``return_status=True``.
+        ``return_status=True``. ``Q`` and ``R`` are restored to replicated
+        sharding when ``a`` is replicated; otherwise they use ``matrix_specs``.
 
     Raises:
         TypeError: If the input dtype or sharding specification is unsupported.
@@ -94,6 +96,7 @@ def qr(
         layout.partition_slots,
         layout.padding,
         r_padding,
+        matrix_result_specs=layout.matrix_result_specs,
         m=m,
         n=n,
         tile_size=int(T_A),
@@ -117,8 +120,8 @@ def qr_shardmap_ctx(
 
     This interface performs the same validation, redistribution, and native
     computation as :func:`jaxmg.qr`, but leaves the outer compilation and
-    donation boundary to the caller. The first output is ``Q``, allowing an
-    outer ``jax.jit(..., donate_argnums=(0,))`` to alias the input matrix.
+    donation boundary to the caller. The native ``Q`` output aliases the input
+    work buffer before any final restoration of replicated sharding.
 
     Args:
         a (Array): A rank-2 real or complex tall or square matrix sharded over
@@ -137,7 +140,9 @@ def qr_shardmap_ctx(
 
     Returns:
         ``(Q, R, status)``. The status vector is always returned so an
-        enclosing compiled function can propagate native diagnostics.
+        enclosing compiled function can propagate native diagnostics. ``Q``
+        and ``R`` are restored when ``a`` is replicated; otherwise they use
+        ``matrix_specs``.
 
     Raises:
         TypeError: If the input dtype or sharding specification is unsupported.
@@ -163,6 +168,7 @@ def qr_shardmap_ctx(
         layout.partition_slots,
         layout.padding,
         r_padding,
+        matrix_result_specs=layout.matrix_result_specs,
         m=m,
         n=n,
         tile_size=int(T_A),
@@ -237,6 +243,7 @@ def _qr_pipeline(
     a_padding: MatrixPadding2D,
     r_padding: MatrixPadding2D,
     *,
+    matrix_result_specs: P,
     m: int,
     n: int,
     tile_size: int,
@@ -249,6 +256,12 @@ def _qr_pipeline(
     pad_a = make_local_pad_fn(mesh, matrix_specs, a_padding)
     unpad_q = make_local_unpad_fn(mesh, matrix_specs, a_padding)
     unpad_r = make_local_unpad_fn(mesh, matrix_specs, r_padding)
+    restore_result = partial(
+        restore_matrix_result,
+        result_specs=matrix_result_specs,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+    )
 
     def qr_ffi(_a: Array):
         """Declare local FFI buffers and static reduced-QR metadata."""
@@ -291,7 +304,11 @@ def _qr_pipeline(
     def impl(_a: Array):
         """Apply local padding, fused reduced QR, and output slicing."""
         q_padded, r_padded, native_status = qr_shardmap(pad_a(_a))
-        return unpad_q(q_padded), unpad_r(r_padded), native_status
+        return (
+            restore_result(unpad_q(q_padded)),
+            restore_result(unpad_r(r_padded)),
+            native_status,
+        )
 
     return impl
 
@@ -306,6 +323,7 @@ def _qr_compiled(
     a_padding: MatrixPadding2D,
     r_padding: MatrixPadding2D,
     *,
+    matrix_result_specs: P,
     m: int,
     n: int,
     tile_size: int,
@@ -321,6 +339,7 @@ def _qr_compiled(
         partition_slots,
         a_padding,
         r_padding,
+        matrix_result_specs=matrix_result_specs,
         m=m,
         n=n,
         tile_size=tile_size,
