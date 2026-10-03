@@ -60,6 +60,7 @@ def run_case() -> None:
     replicated_input = case_name == "replicated_input"
 
     a = make_hermitian_positive_definite(case.n, dtype, seed=5678)
+    a_host = np.asarray(a).copy()
     expected_eigenvalues, _ = jnp.linalg.eigh(a)
 
     a_dev = jax.device_put(
@@ -135,7 +136,6 @@ def run_case() -> None:
     assert_close_scaled(eigenvalues, expected_eigenvalues, atol=1e-3, rtol=1e-3)
 
     if vectors is not None:
-        a_host = np.asarray(a)
         eigenvalues_host = global_array_to_numpy(eigenvalues)
         vectors_host = global_array_to_numpy(vectors)
         residual = np.linalg.norm(
