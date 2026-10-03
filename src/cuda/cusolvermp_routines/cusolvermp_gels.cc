@@ -462,15 +462,6 @@ absl::Status RunCusolverMpGelsSolver(
 
 }  // namespace
 
-
-absl::Status XlaCusolverMpGelsPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests) {
-  return RequestAllAssignedP2PCommunicator(
-      collective_params, clique_requests, "cusolvermp_gels");
-}
-
-
 absl::Status XlaCusolverMpGelsDispatch(
     se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t nrhs,

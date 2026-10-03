@@ -564,15 +564,6 @@ absl::Status RunCusolverMpLuSolveSolver(
 
 }  // namespace
 
-// Requests the all-assigned P2P clique during compilation. Dispatch reuses the
-// resulting communicator for redistribution and cuSOLVERMp.
-absl::Status XlaCusolverMpLuSolvePrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests) {
-  return RequestAllAssignedP2PCommunicator(
-      collective_params, clique_requests, "cusolvermp_lu_solve");
-}
-
 // Executes the complete LU workflow in one FFI dispatch. The matrix work output
 // preserves the factorized storage required for input/output aliasing; the
 // solved input is reverse-redistributed and restored for JAX.

@@ -544,16 +544,6 @@ absl::Status RunCusolverMpSyevdSolver(
 
 }  // namespace
 
-// Prepare only requests the communicator clique.  The dispatch path later
-// reuses that XLA-owned communicator for redistribution and passes its raw NCCL
-// handle into cuSOLVERMp.
-absl::Status XlaCusolverMpSyevdPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests) {
-  return RequestAllAssignedP2PCommunicator(
-      collective_params, clique_requests, "cusolvermp_syevd");
-}
-
 namespace {
 
 // Executes the shared native SYEVD workflow for either output mode.
