@@ -53,10 +53,11 @@ namespace xla::gpu {
 // performs local layout conversion, edge-padding compaction, 2D block-cyclic
 // redistribution, cuSOLVERMp execution, reverse redistribution, and local
 // layout restore inside one FFI dispatch.
-// Registers the POTRS prepare target that asks XLA to construct the P2P
-// communicator clique before runtime.
+
+// Every target registers the same prepare symbol: all of them borrow the one
+// all-assigned P2P clique, which XLA must construct before runtime dispatch.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCusolverMpPotrsPrepareFFI, XlaCusolverMpPotrsPrepare,
+    XlaCusolverMpPrepareFFI, XlaCusolverMpPrepare,
     ffi::Ffi::BindPrepare()
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliqueRequests>());
@@ -83,15 +84,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
 
-// Registers the logdet POTRS prepare target. It requests the same communicator
-// as ordinary POTRS because both cuSOLVERMp and the final scalar all-reduce use
-// the all-assigned XLA-owned NCCL clique.
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCusolverMpPotrsLogdetPrepareFFI, XlaCusolverMpPotrsPrepare,
-    ffi::Ffi::BindPrepare()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliqueRequests>());
-
 // Registers the optional logdet runtime target. The extra real scalar follows
 // the matrix component precision and is replicated by a native NCCL all-reduce
 // before the FFI call completes.
@@ -116,14 +108,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
 
-// Registers the LU-solve prepare target that asks XLA to construct the P2P
-// communicator clique before runtime.
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCusolverMpLuSolvePrepareFFI, XlaCusolverMpLuSolvePrepare,
-    ffi::Ffi::BindPrepare()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliqueRequests>());
-
 // Registers the runtime LU-solve target that receives a general square matrix,
 // factorizes it with GETRF, and solves the right-hand side with GETRS.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
@@ -146,13 +130,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ret<ffi::BufferR1<S32>>()
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
-
-// Registers the GELS prepare target for the shared XLA communicator.
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCusolverMpGelsPrepareFFI, XlaCusolverMpGelsPrepare,
-    ffi::Ffi::BindPrepare()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliqueRequests>());
 
 // Registers the rectangular least-squares target. A is returned as opaque
 // work storage, while B is overwritten with the solution in its first N rows.
@@ -177,13 +154,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
 
-// Registers the reduced-QR prepare target for the shared XLA communicator.
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCusolverMpQrPrepareFFI, XlaCusolverMpQrPrepare,
-    ffi::Ffi::BindPrepare()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliqueRequests>());
-
 // Registers reduced QR with explicit Q and R outputs.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpQrFFI, XlaCusolverMpQrDispatch,
@@ -202,14 +172,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ret<ffi::BufferR1<S32>>()
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
-
-// Registers the SYEVD prepare target that requests the same all-assigned P2P
-// communicator clique used by native redistribution and cuSOLVERMp.
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCusolverMpSyevdPrepareFFI, XlaCusolverMpSyevdPrepare,
-    ffi::Ffi::BindPrepare()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliqueRequests>());
 
 // Registers the runtime SYEVD target that returns eigenvalues, solver work
 // storage, eigenvectors, and a status vector.
@@ -249,13 +211,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ret<ffi::BufferR1<S32>>()
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
-
-// Registers the GESVD prepare target shared by all four output modes.
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCusolverMpGesvdPrepareFFI, XlaCusolverMpGesvdPrepare,
-    ffi::Ffi::BindPrepare()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliqueRequests>());
 
 // Registers GESVD with both left and right singular-vector outputs.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
@@ -341,13 +296,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ret<ffi::BufferR1<S32>>()
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
-
-// Registers the polar prepare target shared by both output modes.
-XLA_FFI_DEFINE_HANDLER_SYMBOL(
-    XlaCusolverMpPolarPrepareFFI, XlaCusolverMpPolarPrepare,
-    ffi::Ffi::BindPrepare()
-        .Ctx<ffi::CollectiveParams>()
-        .Ctx<ffi::CollectiveCliqueRequests>());
 
 // Registers polar decomposition with both Up and H outputs.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(

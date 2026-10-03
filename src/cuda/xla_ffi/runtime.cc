@@ -216,6 +216,12 @@ absl::Status RequestAllAssignedP2PCommunicator(
       *clique_key, {AllAssignedGlobalDeviceGroup(*collective_params)});
 }
 
+absl::Status XlaCusolverMpPrepare(const CollectiveParams* collective_params,
+                                  CollectiveCliqueRequests* clique_requests) {
+  return RequestAllAssignedP2PCommunicator(collective_params, clique_requests,
+                                           "cusolvermp_prepare");
+}
+
 // Borrows the CUDA platform communicator from XLA without taking ownership.
 absl::StatusOr<ncclComm_t> BorrowNcclComm(const char* caller,
                                           GpuCommunicator* comm) {
