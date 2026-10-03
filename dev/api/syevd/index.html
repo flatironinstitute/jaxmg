@@ -1353,10 +1353,11 @@ alias target rather than the eigenvector output when vectors are requested.</p>
 <p>This is the high-level JAXMg symmetric/Hermitian eigensolver entry point.
 It accepts a block-sharded JAX matrix, prepares the tile-aligned local
 capacity required by cuSOLVERMp, and calls the fused native backend. By
-default it returns eigenvalues together with eigenvectors in the same
-JAX-facing matrix layout as the input. Setting <code>return_eigenvectors=False</code>
-selects cuSOLVERMp's eigenvalues-only mode and avoids allocating or
-restoring a matrix-sized eigenvector result.</p>
+default it returns eigenvalues together with eigenvectors. Eigenvectors are
+restored to replicated sharding when <code>a</code> is replicated; otherwise they
+use <code>matrix_specs</code>. Setting <code>return_eigenvectors=False</code> selects
+cuSOLVERMp's eigenvalues-only mode and avoids allocating or restoring a
+matrix-sized eigenvector result.</p>
 
 
 <details class="note" open>
@@ -1578,7 +1579,7 @@ memory simultaneously.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p><code>(eigenvalues, status)</code>.</p>
+                <p><code>(eigenvalues, status)</code>. Eigenvalues are replicated.</p>
               </div>
             </td>
           </tr>
@@ -1856,7 +1857,27 @@ correct shapes.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>input alias and includes any padding applied by the normal pipeline.</p>
+                <p>input alias in <code>matrix_specs</code> and includes any padding applied by the</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>normal pipeline. It is opaque and is not restored to replicated</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>] | <span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>sharding. Eigenvectors are restored when <code>a</code> is replicated,</p>
               </div>
             </td>
           </tr>

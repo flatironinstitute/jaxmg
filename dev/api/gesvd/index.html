@@ -1359,11 +1359,12 @@ returns the reduced decomposition <code>(U, s, Vh)</code> with shapes <code>(m, 
 shape <code>(m, m)</code> and Vh with shape <code>(n, n)</code>. Either vector matrix can be
 disabled independently so JAX does not allocate or redistribute an output
 that the application does not require.</p>
-<p>The input and every requested matrix output use the same JAX mesh and
-<code>PartitionSpec</code>. Their logical dimensions must therefore be
+<p>Requested matrix outputs are restored to replicated sharding when <code>a</code> is
+replicated; otherwise they use <code>matrix_specs</code>. Internally, A, U, and Vh
+use the same solver <code>PartitionSpec</code>, so their logical dimensions must be
 divisible by the corresponding process-grid dimensions. Tile padding is
-applied separately to A, U, and Vh when their local dimensions are not
-divisible by <code>T_A</code>.</p>
+applied separately when their local dimensions are not divisible by
+<code>T_A</code>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -1621,6 +1622,16 @@ memory simultaneously.</p>
             <td>
               <div class="doc-md-description">
                 <p><code>return_status=True</code>, the status vector is appended to that result.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="jax.Array">Array</span> | <span title="tuple">tuple</span>[<span title="jax.Array">Array</span>, ...]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Singular values are replicated.</p>
               </div>
             </td>
           </tr>
@@ -1906,7 +1917,7 @@ full rather than reduced shapes.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>selected vector outputs. <code>status</code> is always returned by the context</p>
+                <p>selected vector outputs. <code>a_work</code> is opaque, remains in</p>
               </div>
             </td>
           </tr>
@@ -1916,7 +1927,27 @@ full rather than reduced shapes.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>interface so an enclosing compiled function can propagate diagnostics.</p>
+                <p><code>matrix_specs</code>, and includes any local padding. Requested vector</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="tuple">tuple</span>[<span title="jax.Array">Array</span>, ...]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>matrices are restored when <code>a</code> is replicated. <code>status</code> is always</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="tuple">tuple</span>[<span title="jax.Array">Array</span>, ...]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>returned so an enclosing compiled function can propagate diagnostics.</p>
               </div>
             </td>
           </tr>

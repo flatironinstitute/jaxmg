@@ -1555,6 +1555,26 @@ of an additional A-sized allocation.</p>
               </div>
             </td>
           </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="jax.Array">Array</span> | <span title="tuple">tuple</span>[<span title="jax.Array">Array</span>, ...]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Requested matrix outputs are restored to replicated sharding when</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="jax.Array">Array</span> | <span title="tuple">tuple</span>[<span title="jax.Array">Array</span>, ...]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>a</code> is replicated; otherwise they use <code>matrix_specs</code>.</p>
+              </div>
+            </td>
+          </tr>
       </tbody>
     </table>
 
@@ -1613,9 +1633,8 @@ grid, or requested output layout is incompatible with cuSOLVERMp.</p>
         <p>Compute a polar decomposition inside a caller-owned <code>jax.jit</code>.</p>
 <p>This interface performs the same validation, redistribution, and native
 computation as :func:<code>jaxmg.polar</code>, but leaves the outer compilation and
-donation boundary to the caller. The first output is <code>Up</code>, so an outer
-<code>jax.jit(..., donate_argnums=(0,))</code> can alias the input matrix directly
-to a numerical result.</p>
+donation boundary to the caller. The native <code>Up</code> output aliases the input
+work buffer before any final restoration of replicated sharding.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -1788,7 +1807,27 @@ must already be divisible by <code>T_A</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>compiled function can propagate native diagnostics.</p>
+                <p>compiled function can propagate native diagnostics. Requested matrix</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="tuple">tuple</span>[<span title="jax.Array">Array</span>, ...]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>outputs are restored when <code>a</code> is replicated; otherwise they use</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="tuple">tuple</span>[<span title="jax.Array">Array</span>, ...]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>matrix_specs</code>.</p>
               </div>
             </td>
           </tr>
