@@ -102,10 +102,9 @@ PY
           withEnv(["PYV=${p}"]) {
             sh '''#!/bin/bash -ex
               export PATH="/usr/local/cuda/bin:$PATH"
-              PYTAG="cp${PYV/./}"
-
-              whl=$(ls dist/jaxmg-*-${PYTAG}-${PYTAG}-*.whl | head -1)
-              [ -n "$whl" ] || { echo "no x86_64 wheel for ${PYTAG}" >&2; exit 1; }
+              # The same py3-none wheel is tested with every Python version.
+              whl=$(ls dist/jaxmg-*-py3-none-*.whl | head -1)
+              [ -n "$whl" ] || { echo "no x86_64 py3-none wheel" >&2; exit 1; }
 
               python"$PYV" -m venv "venv/$PYV"
               source "venv/$PYV/bin/activate"

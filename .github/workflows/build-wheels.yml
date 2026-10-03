@@ -2,7 +2,8 @@ name: build-wheels (reusable)
 
 # Reusable workflow: build the CUDA 12 and CUDA 13
 # libjaxmg_xla_comm_backend.so libraries against @xla in the JAX CI container
-# (natively, no QEMU), then package both into cp3.12-cp3.14 manylinux wheels.
+# (natively, no QEMU), then package both into a py3-none manylinux wheel,
+# which serves every Python version as the backend does not use the C API.
 # Parameterized by arch so the same logic serves x86_64 and aarch64.
 #
 # Build-only: no GPU is available on GitHub runners, so wheels are packaged and
@@ -130,11 +131,6 @@ jobs:
     runs-on: ${{ inputs.runner }}
     container:
       image: ${{ inputs.package_image }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # <pip tag> == /opt/python/<cpython dir> in the manylinux image
-        python: ['cp312-cp312', 'cp313-cp313', 'cp314-cp314']
     steps:
       - name: Checkout jaxmg
         uses: actions/checkout@v4
@@ -151,16 +147,16 @@ jobs:
           name: libjaxmg-${{ inputs.arch }}-cu13
           path: src/jaxmg/cu13
 
-      - name: Build + repair wheel (${{ matrix.python }})
+      - name: Build + repair wheel
         shell: bash
         env:
           VERSION: ${{ inputs.version }}
           PLAT: ${{ inputs.manylinux_plat }}
           ARCH: ${{ inputs.arch }}
-          PYTAG: ${{ matrix.python }}
         run: |
           set -euxo pipefail
-          PY="/opt/python/${{ matrix.python }}/bin/python"
+          # Any Python of the manylinux image builds the same py3-none wheel.
+          PY="/opt/python/cp312-cp312/bin/python"
 
           # Sanity: both .so files must be present and match the target arch.
           case "$ARCH" in
@@ -218,7 +214,7 @@ jobs:
           fi
           WHEEL="${WHEELS[0]}"
           WHEEL_NAME="$(basename "$WHEEL")"
-          if [[ "$WHEEL_NAME" != "jaxmg-${EXPECTED_VERSION}-${PYTAG}-"*".whl" ||
+          if [[ "$WHEEL_NAME" != "jaxmg-${EXPECTED_VERSION}-py3-none-"*".whl" ||
                 "$WHEEL_NAME" != *"${PLAT}"* ]]; then
             echo "Unexpected wheel filename: $WHEEL_NAME" >&2
             exit 1
@@ -245,9 +241,9 @@ jobs:
           "$PY" -m pip install --no-deps "$WHEEL"
           "$PY" -c "import importlib.util; assert importlib.util.find_spec('jaxmg'), 'jaxmg not installed'; print('jaxmg spec OK')"
 
-      - name: Upload repaired wheel (${{ inputs.arch }}-${{ matrix.python }})
+      - name: Upload repaired wheel (${{ inputs.arch }})
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ inputs.arch }}-${{ matrix.python }}
+          name: wheels-${{ inputs.arch }}-py3
           path: dist_repaired/*.whl
           if-no-files-found: error
