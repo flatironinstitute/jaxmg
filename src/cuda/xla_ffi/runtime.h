@@ -149,10 +149,6 @@ struct SolverTraits<cuDoubleComplex> {
   static EigenvalueType EigenvalueNan() { return NAN; }
 };
 
-// Allocates a device scratch pointer from XLA's per-call scratch allocator.
-absl::StatusOr<void*> AllocateFfiScratch(se::ScratchAllocator& scratch,
-                                         size_t bytes, const char* name);
-
 // Builds all-assigned XLA collective groups so the borrowed NCCL communicator
 // spans every rank in the process grid.
 ReplicaGroup AllAssignedDevicesReplicaGroup(const CollectiveParams& params);

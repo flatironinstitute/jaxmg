@@ -100,22 +100,6 @@ absl::Status NcclToStatus(ncclResult_t err, const char* file, int line) {
       ncclGetErrorString(err), file, line));
 }
 
-// Allocates one XLA-owned scratch buffer for the current FFI invocation.
-absl::StatusOr<void*> AllocateFfiScratch(se::ScratchAllocator& scratch,
-                                         size_t bytes, const char* name) {
-  // XLA owns the lifetime of scratch allocations for the FFI call. Returning
-  // the raw pointer is safe only within the current invocation; solver handlers
-  // publish it through process-local state after all ranks have allocated.
-  absl::StatusOr<se::DeviceAddress<uint8_t>> allocation =
-      scratch.AllocateBytes(static_cast<int64_t>(bytes));
-  if (!allocation.ok()) {
-    return absl::ResourceExhaustedError(absl::StrFormat(
-        "Unable to allocate scratch memory for %s: %s", name,
-        allocation.status().message()));
-  }
-  return allocation->opaque();
-}
-
 // Builds the XLA replica group containing every device assigned to this
 // compiled FFI program.
 ReplicaGroup AllAssignedDevicesReplicaGroup(const CollectiveParams& params) {
