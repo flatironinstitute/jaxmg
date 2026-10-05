@@ -79,13 +79,6 @@ absl::Status NcclToStatus(ncclResult_t err, const char* file, int line);
     if (!_jaxmg_cuda_status.ok()) return _jaxmg_cuda_status;          \
   } while (0)
 
-#define JAXMG_RETURN_IF_CUSOLVER_ERROR(expr)                          \
-  do {                                                                \
-    absl::Status _jaxmg_cusolver_status =                             \
-        CusolverToStatus((expr), __FILE__, __LINE__);                 \
-    if (!_jaxmg_cusolver_status.ok()) return _jaxmg_cusolver_status;  \
-  } while (0)
-
 #define JAXMG_RETURN_IF_NCCL_ERROR(expr)                         \
   do {                                                           \
     absl::Status _jaxmg_nccl_status =                            \
