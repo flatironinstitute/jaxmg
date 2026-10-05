@@ -55,8 +55,7 @@ absl::Status XlaCusolverMpPotrsLogdetDispatch(
 // cuSOLVERMp GETRF/GETRS, reverse redistribution, and output layout restore in
 // one FFI dispatch.
 absl::Status XlaCusolverMpLuSolveDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream,
-    se::OwningScratchAllocator<> scratch, int64_t process_rows,
+    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t nrhs, int64_t b_distribution_cols,
     int64_t tile_size, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
