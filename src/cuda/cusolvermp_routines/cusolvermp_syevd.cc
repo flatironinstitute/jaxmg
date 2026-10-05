@@ -347,13 +347,13 @@ absl::Status RunCusolverMpSyevdSolver(
   absl::StatusOr<int> buffer_device = DeviceForCudaPointer(a.untyped_data());
   if (!buffer_device.ok()) {
     status_words[0] = kCudaDeviceFailed;
-    return CopySyevdStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   }
   int cuda_device = *buffer_device;
   cudaError_t cuda_status = cudaSetDevice(cuda_device);
   if (cuda_status != cudaSuccess) {
     status_words[0] = kCudaDeviceFailed;
-    return CopySyevdStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   }
   status_words[1] = cuda_device;
   CusolverMpDebug(-1, "syevd dispatch device=%d n=%lld tile=%lld grid=%lldx%lld "
@@ -369,27 +369,27 @@ absl::Status RunCusolverMpSyevdSolver(
   // coordinate using the requested row-major or column-major mapping.
   if (collective_params == nullptr || collective_cliques == nullptr) {
     status_words[0] = kCollectiveContextMissing;
-    return CopySyevdStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
       AllAssignedDevicesP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     status_words[0] = kCliqueKeyFailed;
-    return CopySyevdStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   }
 
   absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
       *clique_key, collective_params->global_device_id);
   if (!gpu_comm.ok() || *gpu_comm == nullptr) {
     status_words[0] = kCommunicatorMissing;
-    return CopySyevdStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   }
 
   void* platform_handle = (*gpu_comm)->platform_comm().handle;
   if (platform_handle == nullptr) {
     status_words[0] = kNcclHandleMissing;
-    return CopySyevdStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   }
   ncclComm_t nccl_comm = reinterpret_cast<ncclComm_t>(platform_handle);
 
@@ -399,7 +399,7 @@ absl::Status RunCusolverMpSyevdSolver(
   ncclResult_t count_status = ncclCommCount(nccl_comm, &nccl_count);
   if (rank_status != ncclSuccess || count_status != ncclSuccess) {
     status_words[0] = kNcclRankMismatch;
-    return CopySyevdStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   }
   status_words[2] = nccl_rank;
   status_words[3] = nccl_count;
@@ -411,7 +411,7 @@ absl::Status RunCusolverMpSyevdSolver(
       process_rows * process_cols != nccl_count || n <= 0 ||
       tile_size <= 0) {
     status_words[0] = kGridShapeMismatch;
-    return CopySyevdStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   }
   JAXMG_RETURN_IF_ERROR(
       ValidateCusolverMpGridMapping("cusolvermp_syevd", grid_mapping));
@@ -436,7 +436,7 @@ absl::Status RunCusolverMpSyevdSolver(
   if (cusolver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
     status_words[0] = kCreateHandleFailed;
     status_words[11] = static_cast<int32_t>(cusolver_status);
-    return CopySyevdStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   }
   status_words[8] = 1;
 
@@ -446,7 +446,7 @@ absl::Status RunCusolverMpSyevdSolver(
     status_words[0] = kGetVersionFailed;
     status_words[11] = static_cast<int32_t>(cusolver_status);
     api.destroy(handle);
-    return CopySyevdStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   }
   status_words[6] = version;
   CusolverMpDebug(nccl_rank, "cusolverMp version=%d", version);
@@ -468,7 +468,7 @@ absl::Status RunCusolverMpSyevdSolver(
     status_words[0] = kCreateGridFailed;
     status_words[11] = static_cast<int32_t>(cusolver_status);
     api.destroy(handle);
-    return CopySyevdStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   }
   status_words[9] = 1;
 
@@ -539,7 +539,7 @@ absl::Status RunCusolverMpSyevdSolver(
   } else {
     api.destroy(handle);
   }
-  return CopySyevdStatusToDevice(stream, status_words, status_out);
+  return CopyStatusToDevice(stream, status_words, status_out);
 }
 
 }  // namespace
