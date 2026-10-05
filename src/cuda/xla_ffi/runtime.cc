@@ -155,14 +155,13 @@ absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
       CommunicationId(1));
 }
 
-// Prepare-time helper that asks XLA to create the P2P communicator clique
-// before the runtime dispatch tries to borrow it.
-absl::Status RequestAllAssignedP2PCommunicator(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests, const char* caller) {
+// Asks XLA to create the P2P communicator clique before the runtime dispatch
+// tries to borrow it.
+absl::Status XlaCusolverMpPrepare(const CollectiveParams* collective_params,
+                                  CollectiveCliqueRequests* clique_requests) {
   if (collective_params == nullptr || clique_requests == nullptr) {
-    return absl::InvalidArgumentError(absl::StrFormat(
-        "%s requires XLA collective prepare contexts", caller));
+    return absl::InvalidArgumentError(
+        "cusolvermp_prepare requires XLA collective prepare contexts");
   }
 
   // Request the communicator during prepare; dispatch cannot create it lazily.
@@ -173,12 +172,6 @@ absl::Status RequestAllAssignedP2PCommunicator(
   }
   return clique_requests->RequestClique(
       *clique_key, {AllAssignedGlobalDeviceGroup(*collective_params)});
-}
-
-absl::Status XlaCusolverMpPrepare(const CollectiveParams* collective_params,
-                                  CollectiveCliqueRequests* clique_requests) {
-  return RequestAllAssignedP2PCommunicator(collective_params, clique_requests,
-                                           "cusolvermp_prepare");
 }
 
 // Borrows the CUDA platform communicator from XLA without taking ownership.

@@ -157,14 +157,10 @@ std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
     const CollectiveParams& params);
 
-// Shared prepare helper. It requests the all-assigned P2P communicator that
-// backs cuSOLVERMp calls and native redistribution.
-absl::Status RequestAllAssignedP2PCommunicator(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests, const char* caller);
-
-// Prepare hook shared by every cuSOLVERMp FFI target. All routines borrow the
-// same all-assigned P2P communicator, so one prepare symbol serves them all.
+// Prepare hook shared by every cuSOLVERMp FFI target. It requests the
+// all-assigned P2P communicator that backs cuSOLVERMp calls and native
+// redistribution. All routines borrow that same communicator, so one prepare
+// symbol serves them all.
 absl::Status XlaCusolverMpPrepare(const CollectiveParams* collective_params,
                                   CollectiveCliqueRequests* clique_requests);
 
