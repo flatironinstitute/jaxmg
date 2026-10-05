@@ -843,14 +843,6 @@ absl::Status RunCusolverMpGesvdDispatch(
 
 }  // namespace
 
-// Requests the one XLA P2P clique used by all GESVD output modes.
-absl::Status XlaCusolverMpGesvdPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests) {
-  return RequestAllAssignedP2PCommunicator(
-      collective_params, clique_requests, "cusolvermp_gesvd");
-}
-
 // Executes GESVD with both left and right singular vectors.
 absl::Status XlaCusolverMpGesvdUvDispatch(
     se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,

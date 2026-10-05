@@ -26,12 +26,6 @@
 
 namespace xla::gpu {
 
-// Prepare hook for POTRS. Requests the all-assigned XLA P2P communicator before
-// runtime dispatch so the fused handler can borrow its NCCL handle.
-absl::Status XlaCusolverMpPotrsPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests);
-
 // Runtime POTRS hook. Performs native layout conversion, redistribution,
 // cuSOLVERMp POTRF/POTRS, reverse redistribution, and output layout restore in
 // one FFI dispatch.
@@ -57,12 +51,6 @@ absl::Status XlaCusolverMpPotrsLogdetDispatch(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 
-// Prepare hook for LU solve. Requests the all-assigned XLA P2P communicator
-// before runtime dispatch so GETRF/GETRS can use cuSOLVERMp's NCCL grid.
-absl::Status XlaCusolverMpLuSolvePrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests);
-
 // Runtime LU-solve hook. Performs native layout conversion, redistribution,
 // cuSOLVERMp GETRF/GETRS, reverse redistribution, and output layout restore in
 // one FFI dispatch.
@@ -75,12 +63,6 @@ absl::Status XlaCusolverMpLuSolveDispatch(
     ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
-
-// Prepare hook for least squares. Requests the communicator used by native
-// redistribution and the cuSOLVERMp GELS process grid.
-absl::Status XlaCusolverMpGelsPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests);
 
 // Runtime least-squares hook. It redistributes rectangular A and B, runs
 // cuSOLVERMp GELS, and restores the overwritten B work buffer for JAX.
@@ -95,12 +77,6 @@ absl::Status XlaCusolverMpGelsDispatch(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 
-// Prepare hook for reduced QR. Requests the communicator used by native
-// redistribution and the cuSOLVERMp process grid.
-absl::Status XlaCusolverMpQrPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests);
-
 // Runtime reduced-QR hook. It redistributes A, computes GEQRF, preserves R,
 // generates Q with ORGQR, and restores both factors to JAX layouts.
 absl::Status XlaCusolverMpQrDispatch(
@@ -111,12 +87,6 @@ absl::Status XlaCusolverMpQrDispatch(
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
-
-// Prepare hook for SYEVD. Requests the same all-assigned communicator used by
-// both native redistribution and the cuSOLVERMp device grid.
-absl::Status XlaCusolverMpSyevdPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests);
 
 // Runtime SYEVD hook. Performs native layout conversion, redistribution,
 // vector-producing cuSOLVERMp SYEVD, reverse eigenvector redistribution, and
@@ -141,12 +111,6 @@ absl::Status XlaCusolverMpSyevdValuesDispatch(
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
-
-// Prepare hook for GESVD. Requests the all-assigned communicator shared by
-// rectangular redistribution and the cuSOLVERMp device grid.
-absl::Status XlaCusolverMpGesvdPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests);
 
 // Runtime GESVD hook for singular values and both singular-vector matrices.
 // The four public dispatches select distinct FFI result lists so unrequested
@@ -193,12 +157,6 @@ absl::Status XlaCusolverMpGesvdValuesDispatch(
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
-
-// Prepare hook for polar decomposition. Requests the all-assigned communicator
-// shared by rectangular redistribution and the cuSOLVERMp device grid.
-absl::Status XlaCusolverMpPolarPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests);
 
 // Runtime polar-decomposition hook returning both Up and H.
 absl::Status XlaCusolverMpPolarUhDispatch(

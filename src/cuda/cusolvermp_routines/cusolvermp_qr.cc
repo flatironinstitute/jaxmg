@@ -619,13 +619,6 @@ absl::Status RunCusolverMpQrDispatch(
 
 }  // namespace
 
-absl::Status XlaCusolverMpQrPrepare(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests) {
-  return RequestAllAssignedP2PCommunicator(collective_params, clique_requests,
-                                           "cusolvermp_qr");
-}
-
 absl::Status XlaCusolverMpQrDispatch(
     se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,

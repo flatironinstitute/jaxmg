@@ -178,6 +178,11 @@ absl::Status RequestAllAssignedP2PCommunicator(
     const CollectiveParams* collective_params,
     CollectiveCliqueRequests* clique_requests, const char* caller);
 
+// Prepare hook shared by every cuSOLVERMp FFI target. All routines borrow the
+// same all-assigned P2P communicator, so one prepare symbol serves them all.
+absl::Status XlaCusolverMpPrepare(const CollectiveParams* collective_params,
+                                  CollectiveCliqueRequests* clique_requests);
+
 // Borrows and validates the raw NCCL handle owned by XLA for one FFI call.
 // The returned handle remains owned by XLA and must never be destroyed by
 // JAXMg.
