@@ -76,11 +76,6 @@ absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream,
                                 ffi::AnyBuffer matrix,
                                 ffi::Result<ffi::AnyBuffer> matrix_out);
 
-// Copies scratch only when the requested output is a distinct allocation.
-absl::Status CopyScratchIfNeeded(cudaStream_t cuda_stream,
-                                 ffi::AnyBuffer scratch,
-                                 ffi::Result<ffi::AnyBuffer> scratch_out);
-
 // Converts one local JAX row-major shard to cuSOLVERMp column-major local
 // storage in place using the caller-provided bounded scratch allocation.
 absl::Status ConvertRowMajorToColumnMajorInPlace(

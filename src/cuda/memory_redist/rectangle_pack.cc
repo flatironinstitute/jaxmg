@@ -191,21 +191,6 @@ absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream, ffi::AnyBuffer matrix,
   return absl::OkStatus();
 }
 
-// Copies scratch when the requested output does not alias the input allocation.
-absl::Status CopyScratchIfNeeded(cudaStream_t cuda_stream,
-                                 ffi::AnyBuffer scratch,
-                                 ffi::Result<ffi::AnyBuffer> scratch_out) {
-  se::DeviceAddressBase scratch_base = scratch.device_memory();
-  se::DeviceAddressBase scratch_out_base = scratch_out->device_memory();
-  if (scratch_base.opaque() == scratch_out_base.opaque()) {
-    return absl::OkStatus();
-  }
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
-      scratch_out_base.opaque(), scratch_base.opaque(), scratch.size_bytes(),
-      cudaMemcpyDeviceToDevice, cuda_stream));
-  return absl::OkStatus();
-}
-
 // Converts a rank-local row-major JAX shard into column-major cuSOLVERMp local
 // storage using the in-place CUDA decomposition launcher.
 absl::Status ConvertRowMajorToColumnMajorInPlace(
