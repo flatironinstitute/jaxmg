@@ -90,20 +90,6 @@ absl::Status CudaToStatus(cudaError_t err, const char* file, int line) {
       cudaGetErrorString(err), file, line));
 }
 
-// Converts cuSOLVER status failures into FFI-friendly absl::Status values.
-absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
-                              int line) {
-  // cuSOLVER/cuSOLVERMp status codes are numeric in several headers.  Preserve
-  // the raw code and call site so Python tests can report the exact failing
-  // native API call.
-  if (err == CUSOLVER_STATUS_SUCCESS) {
-    return absl::OkStatus();
-  }
-  return absl::InternalError(absl::StrFormat("cuSolver error %d at %s:%d",
-                                             static_cast<int>(err), file,
-                                             line));
-}
-
 // Converts raw NCCL return codes into FFI-friendly absl::Status values.
 absl::Status NcclToStatus(ncclResult_t err, const char* file, int line) {
   if (err == ncclSuccess) {

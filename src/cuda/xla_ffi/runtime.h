@@ -68,8 +68,6 @@ namespace ffi = ::xla::ffi;
 // Convert CUDA/cuSOLVER errors into absl::Status so all FFI handlers can return
 // failures through the same mechanism used by XLA.
 absl::Status CudaToStatus(cudaError_t err, const char* file, int line);
-absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
-                              int line);
 absl::Status NcclToStatus(ncclResult_t err, const char* file, int line);
 
 #define JAXMG_RETURN_IF_CUDA_ERROR(expr)                              \
