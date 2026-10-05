@@ -140,17 +140,6 @@ std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
   return device_group;
 }
 
-// Constructs an all-assigned collective clique key for ordinary collectives.
-absl::StatusOr<GpuCliqueKey> AllAssignedDevicesCliqueKey(
-    const CollectiveParams& params) {
-  // All-reduce style clique over every assigned rank.
-  std::vector<ReplicaGroup> replica_groups = {
-      AllAssignedDevicesReplicaGroup(params)};
-  return GetGpuCliqueKey(
-      params, replica_groups,
-      CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID, false);
-}
-
 // Constructs the all-assigned point-to-point clique key used by raw NCCL
 // redistribution and cuSOLVERMp.
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(

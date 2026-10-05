@@ -154,8 +154,6 @@ struct SolverTraits<cuDoubleComplex> {
 ReplicaGroup AllAssignedDevicesReplicaGroup(const CollectiveParams& params);
 std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
     const CollectiveParams& params);
-absl::StatusOr<GpuCliqueKey> AllAssignedDevicesCliqueKey(
-    const CollectiveParams& params);
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
     const CollectiveParams& params);
 
