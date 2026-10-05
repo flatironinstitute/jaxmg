@@ -328,23 +328,6 @@ absl::Status UnpackRect(cudaStream_t cuda_stream, int64_t local_rows,
   return absl::OkStatus();
 }
 
-// Returns the number of matrix elements moved by one planned Native2DStep.
-int64_t StepElementCount(const Native2DStep& step) {
-  if (step.kind == Native2DStepKind::kRestoreScratch) {
-    return step.target.row_count * step.target.col_count;
-  }
-  return step.source.row_count * step.source.col_count;
-}
-
-// Scans a full movement program and returns the largest single-step payload.
-int64_t MaxStepElementCount(const std::vector<Native2DStep>& steps) {
-  int64_t max_elements = 0;
-  for (const Native2DStep& step : steps) {
-    max_elements = std::max(max_elements, StepElementCount(step));
-  }
-  return max_elements;
-}
-
 // Executes the closed-cycle 2D block-cyclic schedule using saved/send/receive
 // scratch slots and raw NCCL for remote moves.
 absl::Status ExecuteNative2DStepBatches(

@@ -119,12 +119,6 @@ absl::Status RunRawNcclSendRecv(
     se::DeviceAddressBase recv_buffer, uint64_t byte_count,
     std::optional<RankId> source_rank, absl::Span<const RankId> target_ranks);
 
-// Planning and execution entry points for tile-aligned slab redistribution.
-// Build* functions produce schedules, Batch* groups independent steps, and
-// Execute* performs pack/NCCL/unpack operations against device buffers.
-// Returns the largest rectangle payload in a planned 2D movement schedule.
-int64_t MaxStepElementCount(const std::vector<Native2DStep>& steps);
-
 // Groups same-sequence movement steps into conflict-free batches.
 std::vector<Native2DStepBatch> BatchNative2DSteps(
     const std::vector<Native2DStep>& steps);
