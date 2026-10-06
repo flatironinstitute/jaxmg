@@ -282,6 +282,40 @@ def make_rhs(n: int, nrhs: int, dtype):
     return jnp.asarray(values, dtype=dtype)
 
 
+SINGULAR_TILE_SIZE = 64
+
+
+def make_singular_diagonal_system(num_processes: int, dtype):
+    """Create ``diag(2, ..., 2, 0)`` and a RHS that both factorizations reject.
+
+    Each rank of a row-sharded mesh owns one tile row, so the zero pivot sits
+    in the last tile, which only the last process row owns. POTRF and GETRF
+    both stop at that pivot. Before failed results were invalidated, the
+    returned solution was the untouched RHS rather than NaN.
+    """
+    n = 64 * num_processes
+    diagonal = np.full(n, 2.0)
+    diagonal[-1] = 0.0
+    rhs = np.ones(n)
+    rhs[-1] = 0.0
+    return jnp.asarray(np.diag(diagonal), dtype=dtype), jnp.asarray(rhs, dtype=dtype)
+
+
+def assert_rank_failure_with_nan(status_words, status_size, failure_codes, *results):
+    """Assert every rank reports the same solver failure and NaN results.
+
+    ``failure_codes`` are ``CusolverMpStatusCode`` values from
+    ``src/cuda/cusolvermp_routines/cusolvermp_common.h``.
+    """
+    assert status_words.size % status_size == 0, status_words
+    codes = status_words[::status_size]
+    assert np.all(codes == codes[0]), codes
+    assert int(codes[0]) in failure_codes, codes
+    for result in results:
+        values = global_array_to_numpy(result)
+        assert np.all(np.isnan(values)), values
+
+
 def global_array_to_numpy(value):
     """Materialize a possibly multi-host JAX array as a host NumPy array.
 
