@@ -78,8 +78,8 @@ def qr(
             grid, or output layout is incompatible with cuSOLVERMp.
 
     Notes:
-        - If the native solver fails on a rank, that rank's ``Q`` and ``R``
-          shards are filled with NaN and its status is non-zero.
+        - If the native solver fails, ``Q`` and ``R`` are filled with NaN
+          and the status is non-zero.
     """
     layout, r_padding = _prepare_qr_call(
         a,
@@ -154,8 +154,8 @@ def qr_shardmap_ctx(
             grid, or output layout is incompatible with cuSOLVERMp.
 
     Notes:
-        - If the native solver fails on a rank, that rank's ``Q`` and ``R``
-          shards are filled with NaN and its status is non-zero.
+        - If the native solver fails, ``Q`` and ``R`` are filled with NaN
+          and the status is non-zero.
     """
     layout, r_padding = _prepare_qr_call(
         a,

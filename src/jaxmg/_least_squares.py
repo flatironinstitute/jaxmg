@@ -87,8 +87,8 @@ def least_squares(
         ValueError: If shapes, tile sizes, or mesh layouts are incompatible.
 
     Notes:
-        - If the native solver fails on a rank, that rank's solution shards
-          are filled with NaN and its status is non-zero.
+        - If the native solver fails, the solution is filled with NaN and
+          the status is non-zero.
     """
     b, vector_rhs, layout, rhs_specs, b_padding, b_distribution_cols = (
         _prepare_least_squares_call(
@@ -170,8 +170,8 @@ def least_squares_shardmap_ctx(
         ValueError: If shapes, tile sizes, or mesh layouts are incompatible.
 
     Notes:
-        - If the native solver fails on a rank, that rank's solution shards
-          are filled with NaN and its status is non-zero.
+        - If the native solver fails, the solution is filled with NaN and
+          the status is non-zero.
     """
     b, vector_rhs, layout, rhs_specs, b_padding, b_distribution_cols = (
         _prepare_least_squares_call(

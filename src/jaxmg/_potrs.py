@@ -106,8 +106,8 @@ def potrs(
           column-major local layout, redistributes to 2D block-cyclic layout,
           calls ``cusolverMpPotrf``/``cusolverMpPotrs``, and redistributes the
           result back.
-        - If the native solver fails on a rank, that rank's solution shards
-          and ``logdet`` are filled with NaN and its ``status`` is non-zero.
+        - If the native solver fails, the solution and ``logdet`` are filled
+          with NaN and ``status`` is non-zero.
     """
     b, vector_rhs, layout, rhs_specs, b_padding, b_distribution_cols = (
         _prepare_potrs_call(

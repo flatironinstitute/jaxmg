@@ -87,8 +87,8 @@ def polar(
             grid, or requested output layout is incompatible with cuSOLVERMp.
 
     Notes:
-        - If the native solver fails on a rank, that rank's ``Up`` and ``H``
-          shards are filled with NaN and its status is non-zero.
+        - If the native solver fails, ``Up`` and ``H`` are filled with NaN
+          and the status is non-zero.
     """
     layout, h_padding = _prepare_polar_call(
         a,
@@ -175,8 +175,8 @@ def polar_shardmap_ctx(
             grid, or requested output layout is incompatible with cuSOLVERMp.
 
     Notes:
-        - If the native solver fails on a rank, that rank's ``Up`` and ``H``
-          shards are filled with NaN and its status is non-zero.
+        - If the native solver fails, ``Up`` and ``H`` are filled with NaN
+          and the status is non-zero.
     """
     layout, h_padding = _prepare_polar_call(
         a,

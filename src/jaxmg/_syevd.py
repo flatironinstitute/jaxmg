@@ -105,9 +105,8 @@ def syevd(
           column-major local layout and redistributes to 2D block-cyclic
           layout. The eigenvector mode also redistributes its matrix result
           back to the original JAX layout.
-        - If the native solver fails on a rank, that rank's eigenvalues and
-          eigenvector shards are filled with NaN and its status, when
-          requested, is non-zero.
+        - If the native solver fails, the eigenvalues and eigenvectors are
+          filled with NaN and the status, when requested, is non-zero.
     """
     layout = _prepare_syevd_call(
         a,
