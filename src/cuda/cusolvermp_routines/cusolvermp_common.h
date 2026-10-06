@@ -276,6 +276,12 @@ absl::Status CopyAnyBufferToOutputIfNeeded(cudaStream_t cuda_stream,
                                            ffi::AnyBuffer input,
                                            ffi::Result<ffi::AnyBuffer> output);
 
+// Overwrites every element of each result buffer, padding included, with the
+// SolverTraits NaN of its dtype when `status_code` is not kStatusOk. 
+absl::Status InvalidateResultsOnFailure(
+    cudaStream_t cuda_stream, int32_t status_code,
+    absl::Span<const ffi::AnyBuffer> results);
+
 // Returns whether verbose cuSOLVERMp debug logging is enabled for native runs.
 bool CusolverMpDebugEnabled();
 
