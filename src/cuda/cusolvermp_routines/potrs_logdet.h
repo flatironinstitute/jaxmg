@@ -15,10 +15,11 @@
 // CUDA entry points for extracting a Cholesky log determinant.
 //
 // cuSOLVERMp overwrites the distributed input matrix with its lower Cholesky
-// factor. This header exposes the small CUDA operations needed by the fused
-// POTRS handler to initialize a scalar result and accumulate the diagonal
-// entries owned by one rank. Cross-rank reduction remains in the XLA/NCCL
-// runtime layer because communicator ownership is independent of the solver.
+// factor. This header exposes the small CUDA operation needed by the fused
+// POTRS handler to accumulate the diagonal entries owned by one rank.
+// Cross-rank reduction remains in the XLA/NCCL runtime layer because
+// communicator ownership is independent of the solver. A failed solve skips
+// the accumulation, and the dispatch fills the scalar with NaN instead.
 
 #ifndef JAXMG_POTRS_LOGDET_H_
 #define JAXMG_POTRS_LOGDET_H_
@@ -29,13 +30,6 @@
 #include <library_types.h>
 
 namespace xla::gpu {
-
-// Writes NaN to the device result before the solver starts. If POTRF or POTRS
-// fails, Python receives an invalid scalar alongside the non-zero status rather
-// than an uninitialized device value.
-cudaError_t InitializeCholeskyLogdet(cudaStream_t cuda_stream,
-                                     cudaDataType_t output_dtype,
-                                     void* logdet_out);
 
 // Accumulates 2 * log(abs(L_ii)) for diagonal entries owned by this rank.
 // `factor` uses cuSOLVERMp's local column-major 2D block-cyclic layout and
