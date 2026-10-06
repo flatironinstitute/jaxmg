@@ -333,34 +333,42 @@ absl::Status RunCusolverMpQrSolver(
       0,  // reserved.
   };
 
+  // Publishes this rank's status. A failed solve leaves stale or partial
+  // data in the results, so they are replaced with NaN first.
+  auto publish_status = [&]() -> absl::Status {
+    JAXMG_RETURN_IF_ERROR(InvalidateResultsOnFailure(
+        cuda_stream, status_words[0], {*q, *r}));
+    return CopyQrStatusToDevice(stream, status_words, status_out);
+  };
+
   absl::StatusOr<int> buffer_device = DeviceForCudaPointer(q->untyped_data());
   if (!buffer_device.ok() || cudaSetDevice(*buffer_device) != cudaSuccess) {
     status_words[0] = kCudaDeviceFailed;
-    return CopyQrStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   const int cuda_device = *buffer_device;
   status_words[1] = cuda_device;
 
   if (collective_params == nullptr || collective_cliques == nullptr) {
     status_words[0] = kCollectiveContextMissing;
-    return CopyQrStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   absl::StatusOr<GpuCliqueKey> clique_key =
       AllAssignedDevicesP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     status_words[0] = kCliqueKeyFailed;
-    return CopyQrStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
       *clique_key, collective_params->global_device_id);
   if (!gpu_comm.ok() || *gpu_comm == nullptr) {
     status_words[0] = kCommunicatorMissing;
-    return CopyQrStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   void* platform_handle = (*gpu_comm)->platform_comm().handle;
   if (platform_handle == nullptr) {
     status_words[0] = kNcclHandleMissing;
-    return CopyQrStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   ncclComm_t nccl_comm = reinterpret_cast<ncclComm_t>(platform_handle);
   int nccl_rank = -1;
@@ -368,7 +376,7 @@ absl::Status RunCusolverMpQrSolver(
   if (ncclCommUserRank(nccl_comm, &nccl_rank) != ncclSuccess ||
       ncclCommCount(nccl_comm, &nccl_count) != ncclSuccess) {
     status_words[0] = kNcclRankMismatch;
-    return CopyQrStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   status_words[2] = nccl_rank;
   status_words[3] = nccl_count;
@@ -377,7 +385,7 @@ absl::Status RunCusolverMpQrSolver(
       process_rows * process_cols != nccl_count || m < n || n <= 0 ||
       tile_size <= 0) {
     status_words[0] = kGridShapeMismatch;
-    return CopyQrStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   JAXMG_RETURN_IF_ERROR(ValidateCusolverMpGridMapping("cusolvermp_qr",
                                                       grid_mapping));
@@ -393,7 +401,7 @@ absl::Status RunCusolverMpQrSolver(
   if (solver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
     status_words[0] = kCreateHandleFailed;
     status_words[12] = static_cast<int32_t>(solver_status);
-    return CopyQrStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   status_words[8] = 1;
 
@@ -403,7 +411,7 @@ absl::Status RunCusolverMpQrSolver(
     status_words[0] = kGetVersionFailed;
     status_words[12] = static_cast<int32_t>(solver_status);
     api.destroy(handle);
-    return CopyQrStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   status_words[6] = version;
 
@@ -416,7 +424,7 @@ absl::Status RunCusolverMpQrSolver(
     status_words[0] = kCreateGridFailed;
     status_words[12] = static_cast<int32_t>(solver_status);
     api.destroy(handle);
-    return CopyQrStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   status_words[9] = 1;
 
@@ -477,7 +485,7 @@ absl::Status RunCusolverMpQrSolver(
   } else {
     api.destroy(handle);
   }
-  return CopyQrStatusToDevice(stream, status_words, status_out);
+  return publish_status();
 }
 
 absl::Status RunCusolverMpQrDispatch(
