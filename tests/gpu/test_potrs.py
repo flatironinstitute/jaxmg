@@ -45,6 +45,11 @@ LOGDET_CASES = (
     pytest.param(4, "column_grid_padding", marks=pytest.mark.multi_gpu),
 )
 SINGLE_AXIS_CASES = ("single_axis_row_vector", "single_axis_column_rhs")
+SINGULAR_PROCESS_COUNTS = (
+    pytest.param(1, marks=pytest.mark.single_gpu),
+    pytest.param(2, marks=pytest.mark.multi_gpu),
+    pytest.param(4, marks=pytest.mark.multi_gpu),
+)
 
 
 @pytest.mark.parametrize("requested_procs,case_name", SMOKE_CASES)
@@ -110,6 +115,20 @@ def test_potrs_without_mesh_under_jit(case_name):
 def test_potrs_rejects_unsupported_device_order():
     """A mesh order cuSOLVERMp cannot represent fails with a clear error."""
     run_gpu_test(GPU_TEST, 4, "row_major_no_padding", "float32", interface="invalid_order")
+
+
+@pytest.mark.parametrize("requested_procs", SINGULAR_PROCESS_COUNTS)
+@pytest.mark.parametrize("dtype_name", DTYPES)
+@pytest.mark.parametrize("return_logdet", (False, True))
+def test_potrs_failure_returns_nan(
+    requested_procs, dtype_name, return_logdet, monkeypatch
+):
+    """A failed factorization fills every rank's solution and logdet with NaN."""
+    if return_logdet:
+        monkeypatch.setenv("JAXMG_TEST_POTRS_LOGDET", "1")
+    run_gpu_test(
+        GPU_TEST, requested_procs, "singular_diagonal", dtype_name, interface="singular"
+    )
 
 
 @pytest.mark.multi_gpu

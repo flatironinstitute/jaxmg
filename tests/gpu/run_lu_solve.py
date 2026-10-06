@@ -11,16 +11,19 @@ if not jax.config.jax_enable_x64:
 import jax.numpy as jnp
 import numpy as np
 from jax.experimental import multihost_utils
-from jax.sharding import NamedSharding, PartitionSpec as P
+from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
 from cusolvermp_case_utils import (
+    SINGULAR_TILE_SIZE,
     assert_close_scaled,
+    assert_rank_failure_with_nan,
     dtype_from_name,
     emit,
     global_array_to_numpy,
     local_device_id_for_process,
     make_process_mesh,
     make_rhs,
+    make_singular_diagonal_system,
     native_status_words,
     select_gpu_allocator,
     solver_case,
@@ -64,9 +67,47 @@ def make_nonsingular_matrix(n: int, dtype, *, seed: int):
     return jnp.asarray(a, dtype=dtype)
 
 
+def run_singular_case(dtype) -> None:
+    """Check that a failed LU factorization returns NaN on every rank."""
+    mesh = Mesh(np.asarray(jax.devices(), dtype=object), ("x",))
+    matrix_specs = P("x", None)
+    a, b = make_singular_diagonal_system(num_procs, dtype)
+    a_dev = jax.device_put(a, NamedSharding(mesh, matrix_specs))
+    b_dev = jax.device_put(b, NamedSharding(mesh, P(None)))
+
+    _, out, status = jax.jit(
+        lambda _a, _b: lu_solve_shardmap_ctx(
+            _a, _b, SINGULAR_TILE_SIZE, mesh=mesh, matrix_specs=matrix_specs
+        )
+    )(a_dev, b_dev)
+    status.block_until_ready()
+
+    # 38 is kGetrfFailed and 39 is kGetrfInfoNonzero.
+    assert_rank_failure_with_nan(
+        native_status_words(status), _CUSOLVERMP_LU_SOLVE_STATUS_SIZE, (38, 39), out
+    )
+
+    emit(
+        "GPU_TEST_RESULT",
+        {
+            "proc": proc_id,
+            "name": case_name,
+            "dtype": dtype_name,
+            "status": "ok",
+            "interface": interface,
+        },
+    )
+    multihost_utils.sync_global_devices(
+        f"lu_solve_singular_{dtype_name}_{num_procs}_complete"
+    )
+
+
 def run_case() -> None:
     """Run one rank-per-GPU LU solve case and emit parser-friendly results."""
     dtype = dtype_from_name(dtype_name)
+    if interface == "singular":
+        run_singular_case(dtype)
+        return
     case = solver_case(case_name, num_procs, routine="lu_solve")
     mesh = make_process_mesh(case)
     matrix_specs = P("pr", "pc")
