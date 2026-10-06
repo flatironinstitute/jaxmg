@@ -22,6 +22,7 @@ from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 from ._cusolvermp_layout import (
     make_local_pad_fn,
     make_local_unpad_fn,
+    nan_on_native_failure,
     prepare_input_matrix_layout,
     prepare_rectangular_matrix_layout,
     restore_matrix_result,
@@ -101,6 +102,7 @@ def gesvd(
         ``(s, Vh)`` for Vh only, and ``s`` for values only. If
         ``return_status=True``, the status vector is appended to that result.
         Singular values are replicated.
+        If the native call fails on any rank, the numerical outputs contain NaNs.
 
     Raises:
         TypeError: If the dtype, static mode flags, or sharding specification is
@@ -223,6 +225,7 @@ def gesvd_shardmap_ctx(
         ``matrix_specs``, and includes any local padding. Requested vector
         matrices are restored when ``a`` is replicated. ``status`` is always
         returned so an enclosing compiled function can propagate diagnostics.
+        If the native call fails on any rank, the numerical outputs contain NaNs.
 
     Raises:
         TypeError: If the dtype, static mode flags, or sharding specification is
@@ -511,30 +514,24 @@ def _gesvd_pipeline(
         outputs = gesvd_shardmap(pad_a(_a))
         if compute_u and compute_vh:
             singular_values, a_work, u_padded, vh_padded, native_status = outputs
-            return (
+            results = (
                 singular_values,
-                a_work,
                 restore_result(unpad_u(u_padded)),
                 restore_result(unpad_vh(vh_padded)),
-                native_status,
             )
-        if compute_u:
+        elif compute_u:
             singular_values, a_work, u_padded, native_status = outputs
-            return (
-                singular_values,
-                a_work,
-                restore_result(unpad_u(u_padded)),
-                native_status,
-            )
-        if compute_vh:
+            results = (singular_values, restore_result(unpad_u(u_padded)))
+        elif compute_vh:
             singular_values, a_work, vh_padded, native_status = outputs
-            return (
-                singular_values,
-                a_work,
-                restore_result(unpad_vh(vh_padded)),
-                native_status,
-            )
-        return outputs
+            results = (singular_values, restore_result(unpad_vh(vh_padded)))
+        else:
+            singular_values, a_work, native_status = outputs
+            results = (singular_values,)
+        singular_values, *vectors = nan_on_native_failure(
+            native_status, mesh.size, *results
+        )
+        return (singular_values, a_work, *vectors, native_status)
 
     return impl
 

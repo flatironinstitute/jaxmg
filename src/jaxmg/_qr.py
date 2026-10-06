@@ -20,6 +20,7 @@ from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 from ._cusolvermp_layout import (
     make_local_pad_fn,
     make_local_unpad_fn,
+    nan_on_native_failure,
     prepare_input_matrix_layout,
     prepare_rectangular_matrix_layout,
     restore_matrix_result,
@@ -71,6 +72,7 @@ def qr(
         ``(Q, R)`` by default, or ``(Q, R, status)`` when
         ``return_status=True``. ``Q`` and ``R`` are restored to replicated
         sharding when ``a`` is replicated; otherwise they use ``matrix_specs``.
+        If the native call fails on any rank, the numerical outputs contain NaNs.
 
     Raises:
         TypeError: If the input dtype or sharding specification is unsupported.
@@ -143,6 +145,7 @@ def qr_shardmap_ctx(
         enclosing compiled function can propagate native diagnostics. ``Q``
         and ``R`` are restored when ``a`` is replicated; otherwise they use
         ``matrix_specs``.
+        If the native call fails on any rank, the numerical outputs contain NaNs.
 
     Raises:
         TypeError: If the input dtype or sharding specification is unsupported.
@@ -304,11 +307,13 @@ def _qr_pipeline(
     def impl(_a: Array):
         """Apply local padding, fused reduced QR, and output slicing."""
         q_padded, r_padded, native_status = qr_shardmap(pad_a(_a))
-        return (
+        q, r = nan_on_native_failure(
+            native_status,
+            mesh.size,
             restore_result(unpad_q(q_padded)),
             restore_result(unpad_r(r_padded)),
-            native_status,
         )
+        return q, r, native_status
 
     return impl
 

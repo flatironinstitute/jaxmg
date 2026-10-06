@@ -387,6 +387,33 @@ def restore_rhs_from_native_work(
     )
 
 
+def nan_on_native_failure(
+    native_status: Array, num_processes: int, *results: Array
+) -> tuple[Array, ...]:
+    """Fill numerical results with NaNs if the native call failed on any rank.
+
+    Every rank writes its own status vector, whose first word is 0 on success.
+    A failed call can still leave finite but meaningless values in the output
+    buffers, so, as :func:`jax.lax.linalg.cholesky` does, the results are
+    replaced by NaNs on every rank. The status vector keeps the diagnostics.
+
+    Args:
+        native_status: Concatenated status vectors of all ranks.
+        num_processes: Number of ranks, i.e. of status vectors.
+        results: Floating-point or complex results to fill.
+
+    Returns:
+        The results, filled with NaNs if any rank reported a failure.
+    """
+    status_size = native_status.shape[0] // num_processes
+    is_status_code = jnp.arange(native_status.shape[0]) % status_size == 0
+    failed = jnp.any(is_status_code & (native_status != 0))
+    return tuple(
+        jnp.where(failed, jnp.asarray(jnp.nan, result.dtype), result)
+        for result in results
+    )
+
+
 def restore_matrix_result(
     result: Array,
     *,

@@ -22,6 +22,7 @@ from ._cusolvermp_layout import (
     infer_rhs_specs,
     make_local_pad_fn,
     make_local_unpad_fn,
+    nan_on_native_failure,
     prepare_input_matrix_layout,
     prepare_matrix_padding,
     use_abstract_mesh_decorator,
@@ -106,8 +107,8 @@ def potrs(
           column-major local layout, redistributes to 2D block-cyclic layout,
           calls ``cusolverMpPotrf``/``cusolverMpPotrs``, and redistributes the
           result back.
-        - If the native solver fails the returned solution may contain NaNs
-          and ``status`` will be non-zero.
+        - If the native solver fails on any rank, the returned solution
+          contains NaNs and ``status`` is non-zero.
     """
     b, vector_rhs, layout, rhs_specs, b_padding, b_distribution_cols = (
         _prepare_potrs_call(
@@ -212,6 +213,7 @@ def potrs_shardmap_ctx(
         ``(a_work, x, logdet, status)``. ``a_work`` is the padded matrix work
         buffer required for donation, ``x`` retains the JAX-facing layout of
         ``b``, and ``logdet`` is a replicated real scalar.
+        If the native call fails on any rank, the numerical outputs contain NaNs.
 
     Raises:
         TypeError: If dtypes or ``PartitionSpec`` inputs are unsupported.
@@ -500,8 +502,12 @@ def _potrs_pipeline(
             matrix_specs=matrix_specs,
         )
         if return_logdet:
-            return a_work_padded, out[:, :nrhs], logdet, native_status
-        return a_work_padded, out[:, :nrhs], native_status
+            out, logdet = nan_on_native_failure(
+                native_status, mesh.size, out[:, :nrhs], logdet
+            )
+            return a_work_padded, out, logdet, native_status
+        (out,) = nan_on_native_failure(native_status, mesh.size, out[:, :nrhs])
+        return a_work_padded, out, native_status
 
     return impl
 

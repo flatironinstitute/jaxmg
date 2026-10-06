@@ -22,6 +22,7 @@ from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 from ._cusolvermp_layout import (
     make_local_pad_fn,
     make_local_unpad_fn,
+    nan_on_native_failure,
     prepare_input_matrix_layout,
     restore_matrix_result,
     use_abstract_mesh_decorator,
@@ -105,8 +106,8 @@ def syevd(
           column-major local layout and redistributes to 2D block-cyclic
           layout. The eigenvector mode also redistributes its matrix result
           back to the original JAX layout.
-        - If the native solver fails the outputs may contain NaNs and the
-          status, when requested, will be non-zero.
+        - If the native solver fails on any rank, the outputs contain NaNs
+          and the status, when requested, is non-zero.
     """
     layout = _prepare_syevd_call(
         a,
@@ -211,6 +212,7 @@ def syevd_shardmap_ctx(
         sharding. Eigenvectors are restored when ``a`` is replicated,
         ``eigenvalues`` is replicated and real-valued, and ``status`` is the
         native per-rank diagnostic vector.
+        If the native call fails on any rank, the numerical outputs contain NaNs.
 
     Raises:
         TypeError: If dtypes or ``PartitionSpec`` inputs are unsupported.
@@ -434,7 +436,11 @@ def _syevd_pipeline(
         a_padded = pad_a(_a)
         outputs = syevd_shardmap(a_padded)
         if not return_eigenvectors:
-            return outputs
+            eigenvalues, work_padded, native_status = outputs
+            (eigenvalues,) = nan_on_native_failure(
+                native_status, mesh.size, eigenvalues
+            )
+            return eigenvalues, work_padded, native_status
 
         eigenvalues, work_padded, vectors_padded, native_status = outputs
         vectors = restore_matrix_result(
@@ -442,6 +448,9 @@ def _syevd_pipeline(
             result_specs=matrix_result_specs,
             mesh=mesh,
             matrix_specs=matrix_specs,
+        )
+        eigenvalues, vectors = nan_on_native_failure(
+            native_status, mesh.size, eigenvalues, vectors
         )
         return eigenvalues, work_padded, vectors, native_status
 

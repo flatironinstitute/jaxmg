@@ -22,6 +22,7 @@ from ._cusolvermp_layout import (
     infer_rhs_specs,
     make_local_pad_fn,
     make_local_unpad_fn,
+    nan_on_native_failure,
     mesh_axis_size,
     place_rhs_for_native_work,
     prepare_input_matrix_layout,
@@ -81,6 +82,7 @@ def least_squares(
     Returns:
         Array or (Array, Array): The least-squares solution, and optionally the
         native per-rank diagnostic status.
+        If the native call fails on any rank, the numerical outputs contain NaNs.
 
     Raises:
         TypeError: If dtypes or sharding specifications are unsupported.
@@ -160,6 +162,7 @@ def least_squares_shardmap_ctx(
         tuple: ``(a_work, b_work, x, status)`` containing the opaque matrix and
         solve-input work buffers, least-squares solution, and native per-rank
         status. The first ``N`` rows of ``b_work`` contain ``x``.
+        If the native call fails on any rank, the numerical outputs contain NaNs.
 
     Raises:
         TypeError: If dtypes or sharding specifications are unsupported.
@@ -380,6 +383,7 @@ def _least_squares_pipeline(
             b_work, rhs_specs=rhs_specs, mesh=mesh, matrix_specs=matrix_specs
         )
         b_work = b_work[:, :nrhs]
+        (b_work,) = nan_on_native_failure(native_status, mesh.size, b_work)
         return a_work, b_work, b_work[:n], native_status
 
     return impl

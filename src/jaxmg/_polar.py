@@ -21,6 +21,7 @@ from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 from ._cusolvermp_layout import (
     make_local_pad_fn,
     make_local_unpad_fn,
+    nan_on_native_failure,
     prepare_input_matrix_layout,
     prepare_rectangular_matrix_layout,
     restore_matrix_result,
@@ -79,6 +80,7 @@ def polar(
         ``return_status=True``, the status vector is appended to that result.
         Requested matrix outputs are restored to replicated sharding when
         ``a`` is replicated; otherwise they use ``matrix_specs``.
+        If the native call fails on any rank, the numerical outputs contain NaNs.
 
     Raises:
         TypeError: If the dtype, static mode flag, or sharding specification is
@@ -163,6 +165,7 @@ def polar_shardmap_ctx(
         compiled function can propagate native diagnostics. Requested matrix
         outputs are restored when ``a`` is replicated; otherwise they use
         ``matrix_specs``.
+        If the native call fails on any rank, the numerical outputs contain NaNs.
 
     Raises:
         TypeError: If the dtype, static mode flag, or sharding specification is
@@ -354,13 +357,18 @@ def _polar_pipeline(
         outputs = polar_shardmap(pad_a(_a))
         if compute_h:
             up_padded, h_padded, native_status = outputs
-            return (
+            up, h = nan_on_native_failure(
+                native_status,
+                mesh.size,
                 restore_result(unpad_up(up_padded)),
                 restore_result(unpad_h(h_padded)),
-                native_status,
             )
+            return up, h, native_status
         up_padded, native_status = outputs
-        return restore_result(unpad_up(up_padded)), native_status
+        (up,) = nan_on_native_failure(
+            native_status, mesh.size, restore_result(unpad_up(up_padded))
+        )
+        return up, native_status
 
     return impl
 
