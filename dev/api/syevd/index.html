@@ -1629,8 +1629,8 @@ memory simultaneously.</p>
   column-major local layout and redistributes to 2D block-cyclic
   layout. The eigenvector mode also redistributes its matrix result
   back to the original JAX layout.</li>
-<li>If the native solver fails the outputs may contain NaNs and the
-  status, when requested, will be non-zero.</li>
+<li>If the native solver fails, the eigenvalues and eigenvectors are
+  filled with NaN and the status, when requested, is non-zero.</li>
 </ul>
 </details>
 

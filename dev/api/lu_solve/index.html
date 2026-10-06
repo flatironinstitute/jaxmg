@@ -1598,8 +1598,8 @@ return the native solver status.</p>
   column-major local layout, redistributes to 2D block-cyclic layout,
   calls <code>cusolverMpGetrf</code>/<code>cusolverMpGetrs</code>, and redistributes the
   result back.</li>
-<li>If the native solver fails the returned solution may contain NaNs
-  and <code>status</code> will be non-zero.</li>
+<li>If the native solver fails, the solution is filled with NaN and
+  <code>status</code> is non-zero.</li>
 </ul>
 </details>
 

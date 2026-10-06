@@ -1682,7 +1682,8 @@ layout is incompatible with cuSOLVERMp.</p>
 <li>cuSOLVERMp requires A, U, and Vh to occupy distinct storage. Donation
   therefore removes a second A-sized work allocation but cannot alias
   A to either singular-vector output.</li>
-<li>If the native solver fails, numerical outputs may be incomplete; use
+<li>If the native solver fails, the singular values and vectors are
+  filled with NaN; use
   <code>return_status=True</code> when per-rank diagnostics are required.</li>
 </ul>
 </details>
