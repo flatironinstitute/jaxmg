@@ -114,7 +114,8 @@ def gesvd(
         - cuSOLVERMp requires A, U, and Vh to occupy distinct storage. Donation
           therefore removes a second A-sized work allocation but cannot alias
           A to either singular-vector output.
-        - If the native solver fails, numerical outputs may be incomplete; use
+        - If the native solver fails on a rank, that rank's singular values
+          and singular-vector shards are filled with NaN; use
           ``return_status=True`` when per-rank diagnostics are required.
     """
     layout, u_padding, vh_padding = _prepare_gesvd_call(

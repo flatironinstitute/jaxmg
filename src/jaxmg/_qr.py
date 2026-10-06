@@ -76,6 +76,10 @@ def qr(
         TypeError: If the input dtype or sharding specification is unsupported.
         ValueError: If the matrix is wide or its shape, tile size, process
             grid, or output layout is incompatible with cuSOLVERMp.
+
+    Notes:
+        - If the native solver fails on a rank, that rank's ``Q`` and ``R``
+          shards are filled with NaN and its status is non-zero.
     """
     layout, r_padding = _prepare_qr_call(
         a,
@@ -148,6 +152,10 @@ def qr_shardmap_ctx(
         TypeError: If the input dtype or sharding specification is unsupported.
         ValueError: If the matrix is wide or its shape, tile size, process
             grid, or output layout is incompatible with cuSOLVERMp.
+
+    Notes:
+        - If the native solver fails on a rank, that rank's ``Q`` and ``R``
+          shards are filled with NaN and its status is non-zero.
     """
     layout, r_padding = _prepare_qr_call(
         a,
