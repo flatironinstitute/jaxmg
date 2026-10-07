@@ -68,8 +68,6 @@ namespace ffi = ::xla::ffi;
 // Convert CUDA/cuSOLVER errors into absl::Status so all FFI handlers can return
 // failures through the same mechanism used by XLA.
 absl::Status CudaToStatus(cudaError_t err, const char* file, int line);
-absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
-                              int line);
 absl::Status NcclToStatus(ncclResult_t err, const char* file, int line);
 
 #define JAXMG_RETURN_IF_CUDA_ERROR(expr)                              \
@@ -77,13 +75,6 @@ absl::Status NcclToStatus(ncclResult_t err, const char* file, int line);
     absl::Status _jaxmg_cuda_status =                                 \
         CudaToStatus((expr), __FILE__, __LINE__);                     \
     if (!_jaxmg_cuda_status.ok()) return _jaxmg_cuda_status;          \
-  } while (0)
-
-#define JAXMG_RETURN_IF_CUSOLVER_ERROR(expr)                          \
-  do {                                                                \
-    absl::Status _jaxmg_cusolver_status =                             \
-        CusolverToStatus((expr), __FILE__, __LINE__);                 \
-    if (!_jaxmg_cusolver_status.ok()) return _jaxmg_cusolver_status;  \
   } while (0)
 
 #define JAXMG_RETURN_IF_NCCL_ERROR(expr)                         \
@@ -158,28 +149,18 @@ struct SolverTraits<cuDoubleComplex> {
   static EigenvalueType EigenvalueNan() { return NAN; }
 };
 
-// Allocates a device scratch pointer from XLA's per-call scratch allocator.
-absl::StatusOr<void*> AllocateFfiScratch(se::ScratchAllocator& scratch,
-                                         size_t bytes, const char* name);
-
 // Builds all-assigned XLA collective groups so the borrowed NCCL communicator
 // spans every rank in the process grid.
 ReplicaGroup AllAssignedDevicesReplicaGroup(const CollectiveParams& params);
 std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
     const CollectiveParams& params);
-absl::StatusOr<GpuCliqueKey> AllAssignedDevicesCliqueKey(
-    const CollectiveParams& params);
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
     const CollectiveParams& params);
 
-// Shared prepare helper. It requests the all-assigned P2P communicator that
-// backs cuSOLVERMp calls and native redistribution.
-absl::Status RequestAllAssignedP2PCommunicator(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests, const char* caller);
-
-// Prepare hook shared by every cuSOLVERMp FFI target. All routines borrow the
-// same all-assigned P2P communicator, so one prepare symbol serves them all.
+// Prepare hook shared by every cuSOLVERMp FFI target. It requests the
+// all-assigned P2P communicator that backs cuSOLVERMp calls and native
+// redistribution. All routines borrow that same communicator, so one prepare
+// symbol serves them all.
 absl::Status XlaCusolverMpPrepare(const CollectiveParams* collective_params,
                                   CollectiveCliqueRequests* clique_requests);
 

@@ -191,21 +191,6 @@ absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream, ffi::AnyBuffer matrix,
   return absl::OkStatus();
 }
 
-// Copies scratch when the requested output does not alias the input allocation.
-absl::Status CopyScratchIfNeeded(cudaStream_t cuda_stream,
-                                 ffi::AnyBuffer scratch,
-                                 ffi::Result<ffi::AnyBuffer> scratch_out) {
-  se::DeviceAddressBase scratch_base = scratch.device_memory();
-  se::DeviceAddressBase scratch_out_base = scratch_out->device_memory();
-  if (scratch_base.opaque() == scratch_out_base.opaque()) {
-    return absl::OkStatus();
-  }
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
-      scratch_out_base.opaque(), scratch_base.opaque(), scratch.size_bytes(),
-      cudaMemcpyDeviceToDevice, cuda_stream));
-  return absl::OkStatus();
-}
-
 // Converts a rank-local row-major JAX shard into column-major cuSOLVERMp local
 // storage using the in-place CUDA decomposition launcher.
 absl::Status ConvertRowMajorToColumnMajorInPlace(
@@ -341,23 +326,6 @@ absl::Status UnpackRect(cudaStream_t cuda_stream, int64_t local_rows,
       target, spec.matrix_pitch, packed, spec.packed_pitch, spec.copy_bytes,
       spec.copy_height, cudaMemcpyDeviceToDevice, cuda_stream));
   return absl::OkStatus();
-}
-
-// Returns the number of matrix elements moved by one planned Native2DStep.
-int64_t StepElementCount(const Native2DStep& step) {
-  if (step.kind == Native2DStepKind::kRestoreScratch) {
-    return step.target.row_count * step.target.col_count;
-  }
-  return step.source.row_count * step.source.col_count;
-}
-
-// Scans a full movement program and returns the largest single-step payload.
-int64_t MaxStepElementCount(const std::vector<Native2DStep>& steps) {
-  int64_t max_elements = 0;
-  for (const Native2DStep& step : steps) {
-    max_elements = std::max(max_elements, StepElementCount(step));
-  }
-  return max_elements;
 }
 
 // Executes the closed-cycle 2D block-cyclic schedule using saved/send/receive

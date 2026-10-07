@@ -90,20 +90,6 @@ absl::Status CudaToStatus(cudaError_t err, const char* file, int line) {
       cudaGetErrorString(err), file, line));
 }
 
-// Converts cuSOLVER status failures into FFI-friendly absl::Status values.
-absl::Status CusolverToStatus(cusolverStatus_t err, const char* file,
-                              int line) {
-  // cuSOLVER/cuSOLVERMp status codes are numeric in several headers.  Preserve
-  // the raw code and call site so Python tests can report the exact failing
-  // native API call.
-  if (err == CUSOLVER_STATUS_SUCCESS) {
-    return absl::OkStatus();
-  }
-  return absl::InternalError(absl::StrFormat("cuSolver error %d at %s:%d",
-                                             static_cast<int>(err), file,
-                                             line));
-}
-
 // Converts raw NCCL return codes into FFI-friendly absl::Status values.
 absl::Status NcclToStatus(ncclResult_t err, const char* file, int line) {
   if (err == ncclSuccess) {
@@ -112,22 +98,6 @@ absl::Status NcclToStatus(ncclResult_t err, const char* file, int line) {
   return absl::InternalError(absl::StrFormat(
       "NCCL error %d (%s) at %s:%d", static_cast<int>(err),
       ncclGetErrorString(err), file, line));
-}
-
-// Allocates one XLA-owned scratch buffer for the current FFI invocation.
-absl::StatusOr<void*> AllocateFfiScratch(se::ScratchAllocator& scratch,
-                                         size_t bytes, const char* name) {
-  // XLA owns the lifetime of scratch allocations for the FFI call. Returning
-  // the raw pointer is safe only within the current invocation; solver handlers
-  // publish it through process-local state after all ranks have allocated.
-  absl::StatusOr<se::DeviceAddress<uint8_t>> allocation =
-      scratch.AllocateBytes(static_cast<int64_t>(bytes));
-  if (!allocation.ok()) {
-    return absl::ResourceExhaustedError(absl::StrFormat(
-        "Unable to allocate scratch memory for %s: %s", name,
-        allocation.status().message()));
-  }
-  return allocation->opaque();
 }
 
 // Builds the XLA replica group containing every device assigned to this
@@ -170,17 +140,6 @@ std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
   return device_group;
 }
 
-// Constructs an all-assigned collective clique key for ordinary collectives.
-absl::StatusOr<GpuCliqueKey> AllAssignedDevicesCliqueKey(
-    const CollectiveParams& params) {
-  // All-reduce style clique over every assigned rank.
-  std::vector<ReplicaGroup> replica_groups = {
-      AllAssignedDevicesReplicaGroup(params)};
-  return GetGpuCliqueKey(
-      params, replica_groups,
-      CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID, false);
-}
-
 // Constructs the all-assigned point-to-point clique key used by raw NCCL
 // redistribution and cuSOLVERMp.
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
@@ -196,14 +155,13 @@ absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
       CommunicationId(1));
 }
 
-// Prepare-time helper that asks XLA to create the P2P communicator clique
-// before the runtime dispatch tries to borrow it.
-absl::Status RequestAllAssignedP2PCommunicator(
-    const CollectiveParams* collective_params,
-    CollectiveCliqueRequests* clique_requests, const char* caller) {
+// Asks XLA to create the P2P communicator clique before the runtime dispatch
+// tries to borrow it.
+absl::Status XlaCusolverMpPrepare(const CollectiveParams* collective_params,
+                                  CollectiveCliqueRequests* clique_requests) {
   if (collective_params == nullptr || clique_requests == nullptr) {
-    return absl::InvalidArgumentError(absl::StrFormat(
-        "%s requires XLA collective prepare contexts", caller));
+    return absl::InvalidArgumentError(
+        "cusolvermp_prepare requires XLA collective prepare contexts");
   }
 
   // Request the communicator during prepare; dispatch cannot create it lazily.
@@ -214,12 +172,6 @@ absl::Status RequestAllAssignedP2PCommunicator(
   }
   return clique_requests->RequestClique(
       *clique_key, {AllAssignedGlobalDeviceGroup(*collective_params)});
-}
-
-absl::Status XlaCusolverMpPrepare(const CollectiveParams* collective_params,
-                                  CollectiveCliqueRequests* clique_requests) {
-  return RequestAllAssignedP2PCommunicator(collective_params, clique_requests,
-                                           "cusolvermp_prepare");
 }
 
 // Borrows the CUDA platform communicator from XLA without taking ownership.
