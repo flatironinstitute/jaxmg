@@ -115,7 +115,6 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
     ffi::Ffi::Bind()
         .Ctx<ffi::Stream>()
         .Ctx<ffi::PlatformStream<cudaStream_t>>()
-        .Ctx<ffi::ScratchAllocator>()
         .Attr<int64_t>("process_rows")
         .Attr<int64_t>("process_cols")
         .Attr<int64_t>("n")

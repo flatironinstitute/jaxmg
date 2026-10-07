@@ -20,16 +20,14 @@ A human must check any generated contribution content according to the License a
 
 ## Current development priority
 
-1. Some native failures still use `std::runtime_error`. Contributions that
-   express these consistently through XLA FFI error handling are particularly
-   useful.
-
-2. We would like to make the JAXMg solver routines differentiable. This will
+1. We would like to make the JAXMg solver routines differentiable. This will
    require custom JVP and VJP rules that tell JAX how to propagate derivatives
    through the FFI-backed distributed calculations.
 
-3. Provide users with a small tool to check their compute fabric and HPC setup.
+2. Provide users with a small tool to check their compute fabric and HPC setup.
    This will make it easier for users to debug and for us to provide support.
+
+3. Investigate usage of cusolverMpMalloc or ncclMemAlloc for memory allocation.
 
 ## Pull a clean copy
 

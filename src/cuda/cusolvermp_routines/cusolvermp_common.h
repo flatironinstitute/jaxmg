@@ -225,47 +225,15 @@ CusolverMpApi LinkedCusolverMpApi(std::array<int32_t, StatusSize>* status) {
 int64_t LocalNumroc(int64_t n, int64_t block, int32_t process,
                     int32_t process_count);
 
-// Copies a POTRS status vector from host memory into the JAX-visible device
-// status output.
-absl::Status CopyPotrsStatusToDevice(
-    se::Stream* stream, const std::array<int32_t, kPotrsStatusSize>& status,
-    ffi::Result<ffi::BufferR1<S32>> out);
-
-// Copies an LU-solve status vector from host memory into the JAX-visible device
-// status output.
-absl::Status CopyLuSolveStatusToDevice(
-    se::Stream* stream, const std::array<int32_t, kLuSolveStatusSize>& status,
-    ffi::Result<ffi::BufferR1<S32>> out);
-
-// Copies an SYEVD status vector from host memory into the JAX-visible device
-// status output.
-absl::Status CopySyevdStatusToDevice(
-    se::Stream* stream, const std::array<int32_t, kSyevdStatusSize>& status,
-    ffi::Result<ffi::BufferR1<S32>> out);
-
-// Copies a GESVD status vector from host memory into the JAX-visible device
-// status output.
-absl::Status CopyGesvdStatusToDevice(
-    se::Stream* stream, const std::array<int32_t, kGesvdStatusSize>& status,
-    ffi::Result<ffi::BufferR1<S32>> out);
-
-// Copies a polar-decomposition status vector from host memory into the
-// JAX-visible device status output.
-absl::Status CopyPolarStatusToDevice(
-    se::Stream* stream, const std::array<int32_t, kPolarStatusSize>& status,
-    ffi::Result<ffi::BufferR1<S32>> out);
-
-// Copies a least-squares status vector from host memory into the JAX-visible
-// device status output.
-absl::Status CopyGelsStatusToDevice(
-    se::Stream* stream, const std::array<int32_t, kGelsStatusSize>& status,
-    ffi::Result<ffi::BufferR1<S32>> out);
-
-// Copies a QR status vector from host memory into the JAX-visible device
-// status output.
-absl::Status CopyQrStatusToDevice(
-    se::Stream* stream, const std::array<int32_t, kQrStatusSize>& status,
-    ffi::Result<ffi::BufferR1<S32>> out);
+// Copies a solver's per-rank status vector from host memory into the
+// JAX-visible rank-1 device status output.
+template <size_t N>
+absl::Status CopyStatusToDevice(se::Stream* stream,
+                                const std::array<int32_t, N>& status,
+                                ffi::Result<ffi::BufferR1<S32>> out) {
+  se::DeviceAddress<int32_t> dst = out->device_memory();
+  return stream->MemcpyH2D(absl::MakeConstSpan(status), &dst);
+}
 
 // Encodes workspace byte sizes compactly in status vectors as KiB.
 int32_t SizeToKiBForStatus(size_t bytes);
