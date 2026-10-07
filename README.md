@@ -101,7 +101,7 @@ versions:
 | `1.0.0` to `1.1.1` | `0.10.1` |
 | `1.2.0` | `0.11.0` |
 | `1.3.0` | `0.11.1` |
-| `1.4.0` | `0.11.1`, `0.11.2` |
+| `1.4.0` to `1.4.1` | `0.11.1`, `0.11.2` |
 
 See the [installation guide](https://flatironinstitute.github.io/jaxmg/latest/install/)
 for supported systems and older releases.

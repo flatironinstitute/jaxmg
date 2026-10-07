@@ -202,7 +202,7 @@ Compatibility by release:
 | `1.0.0` to `1.1.1` | `0.10.1` |
 | `1.2.0` | `0.11.0` |
 | `1.3.0` | `0.11.1` |
-| `1.4.0` | `0.11.1`, `0.11.2` |
+| `1.4.0` to `1.4.1` | `0.11.1`, `0.11.2` |
 
 Each JAXMg release must declare the JAX versions validated against its native
 backend in `pyproject.toml`, for example `jax>=0.11.1,<0.11.3`.
