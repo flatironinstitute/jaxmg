@@ -110,12 +110,12 @@ one-dimensional solution.
 
 There is no need to apply `jax.jit` or specify `donate_argnums`: `potrs` uses
 an internally cached jitted wrapper and manages donation and aliasing itself.
-If the solve must be embedded inside a larger jitted calculation, use the
-advanced interface below instead of wrapping `potrs` in another `jax.jit`.
+If the solve must be embedded inside a larger jitted calculation, use one of
+the advanced interfaces below instead of wrapping `potrs` in another `jax.jit`.
 
 ## Advanced: control the outer `jax.jit`
 
-`potrs_shardmap_ctx` runs the same padding, redistribution, Cholesky
+`potrs_jit_ctx` runs the same padding, redistribution, Cholesky
 factorization, solve, and reverse redistribution as `potrs`. The difference is
 that it does not create an internal `jax.jit`. This allows the solve to become
 one stage of a larger function compiled by the caller.
@@ -130,7 +130,7 @@ The advanced examples additionally use:
 ```python
 from functools import partial
 
-from jaxmg import potrs_shardmap_ctx
+from jaxmg import potrs_jit_ctx
 ```
 
 ### Case 1: `a` and `b` are arguments of the jitted function
@@ -142,7 +142,7 @@ $A$-sized output alias at the outer compiled boundary:
 ```python
 @partial(jax.jit, donate_argnums=(0, 1))
 def compiled_solve(a, b):
-    a_work, x, status = potrs_shardmap_ctx(
+    a_work, x, status = potrs_jit_ctx(
         a,
         b,
         T_A=T_A,
@@ -185,7 +185,7 @@ def build_and_solve(diagonal):
     a = jax.reshard(a, a_sharding)
     b = jax.reshard(b, b_sharding)
 
-    _, x, status = potrs_shardmap_ctx(
+    _, x, status = potrs_jit_ctx(
         a,
         b,
         T_A=T_A,
@@ -204,6 +204,52 @@ scaled_x.block_until_ready()
 `donate_argnums` is not needed for the internally created `a` and `b`: they are
 not arguments of `build_and_solve`. Only donate an outer argument such as
 `diagonal` if the caller no longer needs that input after the call.
+
+## Advanced: call from inside `jax.shard_map`
+
+`potrs_shardmap_ctx` is the per-shard core that `potrs_jit_ctx` and `potrs`
+wrap. Call it from the body of your own `jax.shard_map` when the solve is one
+step of a computation on local blocks. It receives this process's blocks of `a`
+and `b`, reads the process grid from the context mesh, and returns local blocks
+of `a_work`, `x`, and the per-process `status`:
+
+```python
+from functools import partial
+
+from jaxmg import potrs_shardmap_ctx
+
+
+@partial(jax.jit, donate_argnums=(0, 1))
+@partial(
+    jax.shard_map,
+    mesh=mesh,
+    in_specs=(matrix_specs, P("pr", None)),
+    out_specs=(matrix_specs, P("pr", None), P(("pr", "pc"))),
+)
+def local_solve(a_block, b_block):
+    a_work, x_block, status = potrs_shardmap_ctx(a_block, b_block, T_A=T_A)
+
+    # Further shard-local operations on x_block can follow here.
+    return a_work, 2.0 * x_block, status
+
+
+a, b = make_problem()
+a_work, scaled_x, status = local_solve(a, b)
+
+correct = jnp.allclose(scaled_x[:, 0], 2.0 * expected)
+correct.block_until_ready()
+
+if jax.process_index() == 0:
+    print(correct)
+```
+
+The mesh of the `shard_map` must contain exactly the matrix axes. `b` may be
+sharded like `a`, or replicated over the column axis as here. In the replicated
+case every process column solves its own identical copy, so `x` can be returned
+with the same spec at the cost of one extra solve per process column. The
+status output has one shard per process, so its spec maps over both matrix
+axes. With `return_logdet=True`, add `P()` for the log determinant before the
+status spec. As with `potrs_jit_ctx`, return `a_work` when `a` is donated.
 
 
 See the [`potrs` API reference](../api/potrs.md) for the complete argument and
