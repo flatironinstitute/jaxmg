@@ -465,6 +465,8 @@ absl::Status RunCusolverMpGelsSolver(
       status_words[0] == kStatusOk) {
     status_words[0] = kDestroyHandleFailed;
   }
+  JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
+      cuda_stream, nccl_comm, status_out, &status_words[0]));
   return publish_status();
 }
 

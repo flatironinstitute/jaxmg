@@ -540,6 +540,10 @@ absl::Status RunCusolverMpPotrsSolver(
   // without gathering or reverse-redistributing the factor matrix. Single-
   // precision matrices return float32; double-precision matrices return
   // float64.
+  if (logdet_out != nullptr) {
+    JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
+        cuda_stream, nccl_comm, status_out, &status_words[0]));
+  }
   if (logdet_out != nullptr && status_words[0] == kStatusOk) {
     void* logdet_data = (*logdet_out)->untyped_data();
     JAXMG_RETURN_IF_CUDA_ERROR(AccumulateLocalCholeskyLogdet(
@@ -575,6 +579,10 @@ absl::Status RunCusolverMpPotrsSolver(
   } else {
     api.destroy(handle);
   }
+  // All ranks have finished solver execution and cleanup. Agree on failure
+  // before invalidating outputs, including any rank-local cleanup error.
+  JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
+      cuda_stream, nccl_comm, status_out, &status_words[0]));
   return publish_status();
 }
 

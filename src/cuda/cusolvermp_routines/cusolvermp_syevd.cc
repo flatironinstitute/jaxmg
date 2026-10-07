@@ -549,6 +549,8 @@ absl::Status RunCusolverMpSyevdSolver(
   } else {
     api.destroy(handle);
   }
+  JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
+      cuda_stream, nccl_comm, status_out, &status_words[0]));
   return publish_status();
 }
 

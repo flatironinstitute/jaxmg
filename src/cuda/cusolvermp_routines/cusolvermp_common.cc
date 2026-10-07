@@ -250,6 +250,26 @@ absl::Status FillWithSolverNan(cudaStream_t cuda_stream,
 
 }  // namespace
 
+absl::Status SynchronizeSolverStatus(
+    cudaStream_t cuda_stream, ncclComm_t comm,
+    ffi::Result<ffi::BufferR1<S32>> status_out, int32_t* status_code) {
+  int32_t global_status = *status_code;
+  auto* device_status = status_out->typed_data();
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
+      device_status, &global_status, sizeof(global_status),
+      cudaMemcpyHostToDevice, cuda_stream));
+  JAXMG_RETURN_IF_NCCL_ERROR(ncclAllReduce(
+      device_status, device_status, 1, ncclInt32, ncclMax, comm, cuda_stream));
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
+      &global_status, device_status, sizeof(global_status),
+      cudaMemcpyDeviceToHost, cuda_stream));
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  // Keep the original code on failing ranks. Successful peers inherit one
+  // failure code; the remaining status fields still describe their own rank.
+  if (*status_code == kStatusOk) *status_code = global_status;
+  return absl::OkStatus();
+}
+
 absl::Status InvalidateResultsOnFailure(
     cudaStream_t cuda_stream, int32_t status_code,
     absl::Span<const ffi::AnyBuffer> results) {
