@@ -23,7 +23,7 @@ from ._cusolvermp_layout import (
     make_local_pad_fn,
     make_local_unpad_fn,
     mesh_axis_size,
-    place_rhs_for_native_work,
+    place_for_native_work,
     prepare_input_matrix_layout,
     prepare_matrix_padding,
     restore_rhs_from_native_work,
@@ -378,7 +378,7 @@ def _least_squares_pipeline(
             b_distribution = jnp.pad(_b, ((0, 0), (0, b_distribution_padding)))
         else:
             b_distribution = _b
-        b_distribution = place_rhs_for_native_work(
+        b_distribution = place_for_native_work(
             b_distribution, mesh=mesh, matrix_specs=matrix_specs
         )
         b_padded = pad_b(b_distribution)
