@@ -1502,11 +1502,6 @@ A human must check any generated contribution content according to the License a
 <h2 id="current-development-priority">Current development priority<a class="headerlink" href="#current-development-priority" title="Permanent link">¤</a></h2>
 <ol>
 <li>
-<p>Some native failures still use <code>std::runtime_error</code>. Contributions that
-   express these consistently through XLA FFI error handling are particularly
-   useful.</p>
-</li>
-<li>
 <p>We would like to make the JAXMg solver routines differentiable. This will
    require custom JVP and VJP rules that tell JAX how to propagate derivatives
    through the FFI-backed distributed calculations.</p>
@@ -1514,6 +1509,9 @@ A human must check any generated contribution content according to the License a
 <li>
 <p>Provide users with a small tool to check their compute fabric and HPC setup.
    This will make it easier for users to debug and for us to provide support.</p>
+</li>
+<li>
+<p>Investigate usage of cusolverMpMalloc or ncclMemAlloc for memory allocation.</p>
 </li>
 </ol>
 <h2 id="pull-a-clean-copy">Pull a clean copy<a class="headerlink" href="#pull-a-clean-copy" title="Permanent link">¤</a></h2>
