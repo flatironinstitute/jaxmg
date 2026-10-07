@@ -13,7 +13,9 @@ from jax.experimental import multihost_utils
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
 from cusolvermp_case_utils import (
+    SINGULAR_TILE_SIZE,
     assert_close_scaled,
+    assert_rank_failure_with_nan,
     dtype_from_name,
     emit,
     global_array_to_numpy,
@@ -21,6 +23,7 @@ from cusolvermp_case_utils import (
     make_hermitian_positive_definite,
     make_process_mesh,
     make_rhs,
+    make_singular_diagonal_system,
     native_status_words,
     select_gpu_allocator,
     solver_case,
@@ -77,9 +80,62 @@ def emit_ok(case, *, return_logdet: bool) -> None:
     )
 
 
+def run_singular_case(dtype) -> None:
+    """Check that a failed Cholesky factorization returns NaN on every rank."""
+    mesh = Mesh(np.asarray(jax.devices(), dtype=object), ("x",))
+    matrix_specs = P("x", None)
+    a, b = make_singular_diagonal_system(num_procs, dtype)
+    a_dev = jax.device_put(a, NamedSharding(mesh, matrix_specs))
+    b_dev = jax.device_put(b, NamedSharding(mesh, P(None)))
+
+    result = jax.jit(
+        lambda _a, _b: potrs_shardmap_ctx(
+            _a,
+            _b,
+            SINGULAR_TILE_SIZE,
+            mesh=mesh,
+            matrix_specs=matrix_specs,
+            return_logdet=return_logdet,
+        )
+    )(a_dev, b_dev)
+    if return_logdet:
+        _, out, logdet, status = result
+        results = (out, logdet)
+    else:
+        _, out, status = result
+        results = (out,)
+    status.block_until_ready()
+
+    # 26 is kPotrfFailed and 27 is kPotrfInfoNonzero.
+    assert_rank_failure_with_nan(
+        native_status_words(status),
+        _CUSOLVERMP_POTRS_STATUS_SIZE,
+        (26, 27),
+        *results,
+    )
+
+    emit(
+        "GPU_TEST_RESULT",
+        {
+            "proc": proc_id,
+            "name": case_name,
+            "dtype": dtype_name,
+            "status": "ok",
+            "interface": interface,
+            "return_logdet": return_logdet,
+        },
+    )
+    multihost_utils.sync_global_devices(
+        f"potrs_singular_{dtype_name}_{num_procs}_complete"
+    )
+
+
 def run_case() -> None:
     """Run one rank-per-GPU POTRS case and emit parser-friendly results."""
     dtype = dtype_from_name(dtype_name)
+    if interface == "singular":
+        run_singular_case(dtype)
+        return
     case = solver_case(case_name, num_procs, routine="potrs")
     single_axis = case_name in {
         "single_axis_row_vector",

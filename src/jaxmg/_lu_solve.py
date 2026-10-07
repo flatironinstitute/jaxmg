@@ -103,8 +103,8 @@ def lu_solve(
           column-major local layout, redistributes to 2D block-cyclic layout,
           calls ``cusolverMpGetrf``/``cusolverMpGetrs``, and redistributes the
           result back.
-        - If the native solver fails the returned solution may contain NaNs
-          and ``status`` will be non-zero.
+        - If the native solver fails, the solution is filled with NaN and
+          ``status`` is non-zero.
     """
     b, vector_rhs, layout, rhs_specs, b_padding, b_distribution_cols = (
         _prepare_lu_solve_call(

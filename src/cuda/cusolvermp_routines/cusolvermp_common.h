@@ -244,6 +244,20 @@ absl::Status CopyAnyBufferToOutputIfNeeded(cudaStream_t cuda_stream,
                                            ffi::AnyBuffer input,
                                            ffi::Result<ffi::AnyBuffer> output);
 
+// Propagates a nonzero status to otherwise successful ranks at a shared
+// checkpoint after solver execution. Reuses the first device status word as
+// collective scratch; all other per-rank diagnostics remain unchanged.
+// Every rank must enter this call in the same order with a usable communicator.
+absl::Status SynchronizeSolverStatus(
+    cudaStream_t cuda_stream, ncclComm_t comm,
+    ffi::Result<ffi::BufferR1<S32>> status_out, int32_t* status_code);
+
+// Overwrites every element of each result buffer, padding included, with the
+// SolverTraits NaN of its dtype when `status_code` is not kStatusOk.
+absl::Status InvalidateResultsOnFailure(
+    cudaStream_t cuda_stream, int32_t status_code,
+    absl::Span<const ffi::AnyBuffer> results);
+
 // Returns whether verbose cuSOLVERMp debug logging is enabled for native runs.
 bool CusolverMpDebugEnabled();
 

@@ -38,6 +38,11 @@ COMPREHENSIVE_CASES = (
     "column_grid_padding",
     "skinny_rhs",
 )
+SINGULAR_PROCESS_COUNTS = (
+    pytest.param(1, marks=pytest.mark.single_gpu),
+    pytest.param(2, marks=pytest.mark.multi_gpu),
+    pytest.param(4, marks=pytest.mark.multi_gpu),
+)
 
 
 @pytest.mark.parametrize("requested_procs,case_name", SMOKE_CASES)
@@ -45,6 +50,15 @@ COMPREHENSIVE_CASES = (
 def test_lu_solve_rank_per_gpu_smoke(requested_procs, case_name, dtype_name):
     """Run representative LU rank-per-GPU cases through public API only."""
     run_gpu_test(GPU_TEST, requested_procs, case_name, dtype_name)
+
+
+@pytest.mark.parametrize("requested_procs", SINGULAR_PROCESS_COUNTS)
+@pytest.mark.parametrize("dtype_name", DTYPES)
+def test_lu_solve_failure_returns_nan(requested_procs, dtype_name):
+    """A failed factorization fills every rank's solution with NaN."""
+    run_gpu_test(
+        GPU_TEST, requested_procs, "singular_diagonal", dtype_name, interface="singular"
+    )
 
 
 @pytest.mark.multi_gpu

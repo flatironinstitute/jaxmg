@@ -85,6 +85,10 @@ def polar(
             unsupported.
         ValueError: If the matrix is wide or its shape, tile size, process
             grid, or requested output layout is incompatible with cuSOLVERMp.
+
+    Notes:
+        - If the native solver fails, ``Up`` and ``H`` are filled with NaN
+          and the status is non-zero.
     """
     layout, h_padding = _prepare_polar_call(
         a,
@@ -169,6 +173,10 @@ def polar_shardmap_ctx(
             unsupported.
         ValueError: If the matrix is wide or its shape, tile size, process
             grid, or requested output layout is incompatible with cuSOLVERMp.
+
+    Notes:
+        - If the native solver fails, ``Up`` and ``H`` are filled with NaN
+          and the status is non-zero.
     """
     layout, h_padding = _prepare_polar_call(
         a,

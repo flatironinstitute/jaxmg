@@ -22,11 +22,11 @@
 // dimension. Padding is excluded by iterating only over 0 <= g < n.
 //
 // File workflow:
-//   1. Initialize the FFI scalar to NaN before the solver runs.
-//   2. Reset it to zero after a successful factorization and solve.
-//   3. Let every thread inspect a grid-stride subset of the global diagonal.
-//   4. Reduce contributions within each CUDA block in shared memory.
-//   5. Atomically add one partial sum per block to the rank-local real output.
+//   1. Reset the FFI scalar to zero after a successful factorization and
+//      solve. On failure the dispatch fills it with NaN instead.
+//   2. Let every thread inspect a grid-stride subset of the global diagonal.
+//   3. Reduce contributions within each CUDA block in shared memory.
+//   4. Atomically add one partial sum per block to the rank-local real output.
 //      The caller subsequently all-reduces that scalar with NCCL.
 //
 // Thread-local and block-local accumulation uses float64 to limit summation
@@ -72,14 +72,6 @@ template <>
 __device__ double DiagonalMagnitude<cuDoubleComplex>(
     cuDoubleComplex value) {
   return hypot(cuCreal(value), cuCimag(value));
-}
-
-// Initializes the single device scalar without a host-to-device staging copy.
-template <typename ResultType>
-__global__ void SetLogdetValueKernel(ResultType* output, ResultType value) {
-  if (blockIdx.x == 0 && threadIdx.x == 0) {
-    *output = value;
-  }
 }
 
 // Accumulates this process coordinate's contribution to log(det(A)).
@@ -159,27 +151,6 @@ cudaError_t LaunchLocalLogdet(cudaStream_t cuda_stream, const void* factor,
 }
 
 }  // namespace
-
-cudaError_t InitializeCholeskyLogdet(cudaStream_t cuda_stream,
-                                     cudaDataType_t output_dtype,
-                                     void* logdet_out) {
-  if (cuda_stream == nullptr || logdet_out == nullptr) {
-    return cudaErrorInvalidValue;
-  }
-  switch (output_dtype) {
-    case CUDA_R_32F:
-      SetLogdetValueKernel<float><<<1, 1, 0, cuda_stream>>>(
-          static_cast<float*>(logdet_out), NAN);
-      break;
-    case CUDA_R_64F:
-      SetLogdetValueKernel<double><<<1, 1, 0, cuda_stream>>>(
-          static_cast<double*>(logdet_out), NAN);
-      break;
-    default:
-      return cudaErrorInvalidValue;
-  }
-  return cudaGetLastError();
-}
 
 cudaError_t AccumulateLocalCholeskyLogdet(
     cudaStream_t cuda_stream, cudaDataType_t dtype, const void* factor,

@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "absl/strings/str_join.h"
+#include "result_fill.h"
 
 namespace xla::gpu {
 
@@ -230,6 +231,74 @@ absl::Status CopyAnyBufferToOutputIfNeeded(cudaStream_t cuda_stream,
   JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
       output->untyped_data(), input.untyped_data(), input.size_bytes(),
       cudaMemcpyDeviceToDevice, cuda_stream));
+  return absl::OkStatus();
+}
+
+namespace {
+
+// Fills one result buffer with the NaN that SolverTraits stores for DataType.
+template <typename DataType>
+absl::Status FillWithSolverNan(cudaStream_t cuda_stream,
+                               ffi::AnyBuffer buffer) {
+  using NanType = typename SolverTraits<DataType>::HostNanType;
+  JAXMG_RETURN_IF_CUDA_ERROR(FillDeviceArray<NanType>(
+      cuda_stream, static_cast<NanType*>(buffer.untyped_data()),
+      static_cast<int64_t>(buffer.element_count()),
+      SolverTraits<DataType>::Nan()));
+  return absl::OkStatus();
+}
+
+}  // namespace
+
+absl::Status SynchronizeSolverStatus(
+    cudaStream_t cuda_stream, ncclComm_t comm,
+    ffi::Result<ffi::BufferR1<S32>> status_out, int32_t* status_code) {
+  int32_t global_status = *status_code;
+  auto* device_status = status_out->typed_data();
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
+      device_status, &global_status, sizeof(global_status),
+      cudaMemcpyHostToDevice, cuda_stream));
+  JAXMG_RETURN_IF_NCCL_ERROR(ncclAllReduce(
+      device_status, device_status, 1, ncclInt32, ncclMax, comm, cuda_stream));
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
+      &global_status, device_status, sizeof(global_status),
+      cudaMemcpyDeviceToHost, cuda_stream));
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  // Keep the original code on failing ranks. Successful peers inherit one
+  // failure code; the remaining status fields still describe their own rank.
+  if (*status_code == kStatusOk) *status_code = global_status;
+  return absl::OkStatus();
+}
+
+absl::Status InvalidateResultsOnFailure(
+    cudaStream_t cuda_stream, int32_t status_code,
+    absl::Span<const ffi::AnyBuffer> results) {
+  if (status_code == kStatusOk) {
+    return absl::OkStatus();
+  }
+  // Real outputs of complex solves (eigenvalues, singular values, logdet) are
+  // F32/F64 buffers and receive the matching real NaN.
+  for (const ffi::AnyBuffer& result : results) {
+    switch (result.element_type()) {
+      case F32:
+        JAXMG_RETURN_IF_ERROR(FillWithSolverNan<float>(cuda_stream, result));
+        break;
+      case F64:
+        JAXMG_RETURN_IF_ERROR(FillWithSolverNan<double>(cuda_stream, result));
+        break;
+      case C64:
+        JAXMG_RETURN_IF_ERROR(
+            FillWithSolverNan<cuFloatComplex>(cuda_stream, result));
+        break;
+      case C128:
+        JAXMG_RETURN_IF_ERROR(
+            FillWithSolverNan<cuDoubleComplex>(cuda_stream, result));
+        break;
+      default:
+        return absl::InvalidArgumentError(
+            "cuSOLVERMp result invalidation received an unsupported dtype");
+    }
+  }
   return absl::OkStatus();
 }
 

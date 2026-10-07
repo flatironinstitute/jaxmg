@@ -375,19 +375,27 @@ absl::Status RunCusolverMpLuSolveSolver(
       -1,  // pivot vector allocation, KiB.
   };
 
+  // Publishes this rank's status. A failed solve leaves stale or partial
+  // data in the results, so they are replaced with NaN first.
+  auto publish_status = [&]() -> absl::Status {
+    JAXMG_RETURN_IF_ERROR(InvalidateResultsOnFailure(
+        cuda_stream, status_words[0], {*b_out}));
+    return CopyStatusToDevice(stream, status_words, status_out);
+  };
+
   // Stage 2: bind CUDA work to the device that owns this rank's local A shard.
   // This avoids relying on ambient host-thread CUDA state, which is not stable
   // across JAX's multi-device FFI callbacks.
   absl::StatusOr<int> buffer_device = DeviceForCudaPointer(a.untyped_data());
   if (!buffer_device.ok()) {
     status_words[0] = kCudaDeviceFailed;
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   int cuda_device = *buffer_device;
   cudaError_t cuda_status = cudaSetDevice(cuda_device);
   if (cuda_status != cudaSuccess) {
     status_words[0] = kCudaDeviceFailed;
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   status_words[1] = cuda_device;
 
@@ -396,27 +404,27 @@ absl::Status RunCusolverMpLuSolveSolver(
   // communicator; JAXMg does not create a separate NCCL communicator here.
   if (collective_params == nullptr || collective_cliques == nullptr) {
     status_words[0] = kCollectiveContextMissing;
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
 
   absl::StatusOr<GpuCliqueKey> clique_key =
       AllAssignedDevicesP2PCliqueKey(*collective_params);
   if (!clique_key.ok()) {
     status_words[0] = kCliqueKeyFailed;
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
 
   absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
       *clique_key, collective_params->global_device_id);
   if (!gpu_comm.ok() || *gpu_comm == nullptr) {
     status_words[0] = kCommunicatorMissing;
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
 
   void* platform_handle = (*gpu_comm)->platform_comm().handle;
   if (platform_handle == nullptr) {
     status_words[0] = kNcclHandleMissing;
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   ncclComm_t nccl_comm = reinterpret_cast<ncclComm_t>(platform_handle);
 
@@ -426,7 +434,7 @@ absl::Status RunCusolverMpLuSolveSolver(
   ncclResult_t count_status = ncclCommCount(nccl_comm, &nccl_count);
   if (rank_status != ncclSuccess || count_status != ncclSuccess) {
     status_words[0] = kNcclRankMismatch;
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   status_words[2] = nccl_rank;
   status_words[3] = nccl_count;
@@ -438,7 +446,7 @@ absl::Status RunCusolverMpLuSolveSolver(
       process_rows * process_cols != nccl_count || n <= 0 || nrhs <= 0 ||
       tile_size <= 0) {
     status_words[0] = kGridShapeMismatch;
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   absl::Status grid_mapping_status =
       ValidateCusolverMpGridMapping("cusolvermp_lu_solve", grid_mapping);
@@ -466,7 +474,7 @@ absl::Status RunCusolverMpLuSolveSolver(
   if (cusolver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
     status_words[0] = kCreateHandleFailed;
     status_words[11] = static_cast<int32_t>(cusolver_status);
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   status_words[8] = 1;
 
@@ -476,7 +484,7 @@ absl::Status RunCusolverMpLuSolveSolver(
     status_words[0] = kGetVersionFailed;
     status_words[11] = static_cast<int32_t>(cusolver_status);
     api.destroy(handle);
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   status_words[6] = version;
 
@@ -489,7 +497,7 @@ absl::Status RunCusolverMpLuSolveSolver(
     status_words[0] = kCreateGridFailed;
     status_words[11] = static_cast<int32_t>(cusolver_status);
     api.destroy(handle);
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return publish_status();
   }
   status_words[9] = 1;
 
@@ -558,7 +566,9 @@ absl::Status RunCusolverMpLuSolveSolver(
   } else {
     api.destroy(handle);
   }
-  return CopyStatusToDevice(stream, status_words, status_out);
+  JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
+      cuda_stream, nccl_comm, status_out, &status_words[0]));
+  return publish_status();
 }
 
 
