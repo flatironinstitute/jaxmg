@@ -349,7 +349,7 @@ absl::Status RunCusolverMpSyevdSolver(
     if (vectors_out != nullptr) results.push_back(*vectors_out);
     JAXMG_RETURN_IF_ERROR(
         InvalidateResultsOnFailure(cuda_stream, status_words[0], results));
-    return CopySyevdStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   };
 
   // Stage 2: bind cuSOLVERMp to the CUDA device that owns this rank's local

@@ -484,7 +484,7 @@ absl::Status RunCusolverMpGesvdSolver(
     if (compute_vh && vh != nullptr) results.push_back(*vh);
     JAXMG_RETURN_IF_ERROR(
         InvalidateResultsOnFailure(cuda_stream, status_words[0], results));
-    return CopyGesvdStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   };
 
   // Stage 2: bind cuSOLVERMp to the CUDA device that owns this rank's local A

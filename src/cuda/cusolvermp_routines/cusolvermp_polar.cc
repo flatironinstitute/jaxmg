@@ -303,7 +303,7 @@ absl::Status RunCusolverMpPolarSolver(
     if (compute_h && h != nullptr) results.push_back(*h);
     JAXMG_RETURN_IF_ERROR(
         InvalidateResultsOnFailure(cuda_stream, status_words[0], results));
-    return CopyPolarStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   };
 
   absl::StatusOr<int> buffer_device = DeviceForCudaPointer(up->untyped_data());

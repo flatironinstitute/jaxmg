@@ -380,7 +380,7 @@ absl::Status RunCusolverMpLuSolveSolver(
   auto publish_status = [&]() -> absl::Status {
     JAXMG_RETURN_IF_ERROR(InvalidateResultsOnFailure(
         cuda_stream, status_words[0], {*b_out}));
-    return CopyLuSolveStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   };
 
   // Stage 2: bind CUDA work to the device that owns this rank's local A shard.

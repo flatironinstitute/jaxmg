@@ -338,7 +338,7 @@ absl::Status RunCusolverMpQrSolver(
   auto publish_status = [&]() -> absl::Status {
     JAXMG_RETURN_IF_ERROR(InvalidateResultsOnFailure(
         cuda_stream, status_words[0], {*q, *r}));
-    return CopyQrStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(stream, status_words, status_out);
   };
 
   absl::StatusOr<int> buffer_device = DeviceForCudaPointer(q->untyped_data());
