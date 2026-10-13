@@ -6,8 +6,8 @@ public JAXMg API, but Python must still declare their fixed lengths when it
 builds the corresponding ``jax.ffi.ffi_call`` result types.
 
 The field order and vector lengths must match the corresponding POTRS,
-LU-solve, SYEVD, GESVD, polar, least-squares, and QR status writers in
-``src/cuda/cusolvermp_routines``.
+POTRF, LU-solve, GETRF, SYEVD, GESVD, polar, least-squares, and QR status
+writers in ``src/cuda/cusolvermp_routines``.
 """
 
 from __future__ import annotations
@@ -317,6 +317,72 @@ _CUSOLVERMP_QR_STATUS_FIELDS = (
 )
 
 
+# Mirrors kPotrfStatusSize/status_words in
+# src/cuda/cusolvermp_routines/cusolvermp_potrf.cc.
+_CUSOLVERMP_POTRF_STATUS_FIELDS = (
+    "status_code",
+    "cuda_device",
+    "nccl_rank",
+    "nccl_rank_count",
+    "process_rows",
+    "process_cols",
+    "cusolvermp_version",
+    "cusolvermp_runtime_available",
+    "handle_created",
+    "grid_created",
+    "a_descriptor_created",
+    "raw_cusolver_status",
+    "a_size_bytes",
+    "n",
+    "tile_size",
+    "a_local_rows",
+    "a_local_cols",
+    "a_numroc_rows",
+    "a_numroc_cols",
+    "potrf_device_workspace_kib",
+    "potrf_host_workspace_kib",
+    "potrf_called",
+    "potrf_info",
+    "upper_zeroed",
+    "dtype_code",
+    "grid_mapping",
+)
+
+
+# Mirrors kGetrfStatusSize/status_words in
+# src/cuda/cusolvermp_routines/cusolvermp_getrf.cc.
+_CUSOLVERMP_GETRF_STATUS_FIELDS = (
+    "status_code",
+    "cuda_device",
+    "nccl_rank",
+    "nccl_rank_count",
+    "process_rows",
+    "process_cols",
+    "cusolvermp_version",
+    "cusolvermp_runtime_available",
+    "handle_created",
+    "grid_created",
+    "a_descriptor_created",
+    "raw_cusolver_status",
+    "a_size_bytes",
+    "n",
+    "tile_size",
+    "a_local_rows",
+    "a_local_cols",
+    "a_numroc_rows",
+    "a_numroc_cols",
+    "getrf_device_workspace_kib",
+    "getrf_host_workspace_kib",
+    "getrf_called",
+    "getrf_info",
+    "ipiv_len",
+    "ipiv_bytes_kib",
+    "pivots_gathered",
+    "dtype_code",
+    "grid_mapping",
+)
+
+
 _CUSOLVERMP_POTRS_STATUS_SIZE = len(_CUSOLVERMP_POTRS_STATUS_FIELDS)
 _CUSOLVERMP_LU_SOLVE_STATUS_SIZE = len(_CUSOLVERMP_LU_SOLVE_STATUS_FIELDS)
 _CUSOLVERMP_SYEVD_STATUS_SIZE = len(_CUSOLVERMP_SYEVD_STATUS_FIELDS)
@@ -326,3 +392,5 @@ _CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE = len(
     _CUSOLVERMP_LEAST_SQUARES_STATUS_FIELDS
 )
 _CUSOLVERMP_QR_STATUS_SIZE = len(_CUSOLVERMP_QR_STATUS_FIELDS)
+_CUSOLVERMP_POTRF_STATUS_SIZE = len(_CUSOLVERMP_POTRF_STATUS_FIELDS)
+_CUSOLVERMP_GETRF_STATUS_SIZE = len(_CUSOLVERMP_GETRF_STATUS_FIELDS)
