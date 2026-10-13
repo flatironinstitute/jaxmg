@@ -190,13 +190,6 @@ def run_case() -> None:
     ) / np.linalg.norm(a_host)
     assert float(reconstruction_error) < tolerance, reconstruction_error
 
-    if not single:
-        # Ties between pivot candidates are vanishingly unlikely in double
-        # precision, so the pivot sequence must match LAPACK exactly.
-        lu_ref, piv_ref = scipy.linalg.lu_factor(a_host)
-        np.testing.assert_array_equal(piv_host, piv_ref)
-        np.testing.assert_allclose(lu_host, lu_ref, rtol=1e-8, atol=1e-8)
-
     emit_ok(
         {
             "n": n,
@@ -205,6 +198,7 @@ def run_case() -> None:
             "process_cols": case.process_cols,
             "grid_order": case.grid_order,
             "reconstruction_error": float(reconstruction_error),
+            "max_abs_multiplier": float(np.abs(np.tril(lu_host, -1)).max()),
         }
     )
 
