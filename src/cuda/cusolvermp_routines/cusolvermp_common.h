@@ -158,10 +158,14 @@ enum CusolverMpStatusCode : int32_t {
   kOrgqrWorkspaceFailed = 59,
   kOrgqrFailed = 60,
   kOrgqrInfoNonzero = 61,
+  kFactorExtractFailed = 62,
+  kPivotGatherFailed = 63,
 };
 
 inline constexpr int kPotrsStatusSize = 40;
+inline constexpr int kPotrfStatusSize = 26;
 inline constexpr int kLuSolveStatusSize = 41;
+inline constexpr int kGetrfStatusSize = 28;
 inline constexpr int kSyevdStatusSize = 36;
 inline constexpr int kGesvdStatusSize = 42;
 inline constexpr int kPolarStatusSize = 32;

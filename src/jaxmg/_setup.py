@@ -47,10 +47,24 @@ _PRODUCTION_FFI_TARGETS = (
         },
     ),
     (
+        "cusolvermp_potrf",
+        {
+            "prepare": _PREPARE_SYMBOL,
+            "execute": "XlaCusolverMpPotrfFFI",
+        },
+    ),
+    (
         "cusolvermp_lu_solve",
         {
             "prepare": _PREPARE_SYMBOL,
             "execute": "XlaCusolverMpLuSolveFFI",
+        },
+    ),
+    (
+        "cusolvermp_getrf",
+        {
+            "prepare": _PREPARE_SYMBOL,
+            "execute": "XlaCusolverMpGetrfFFI",
         },
     ),
     (

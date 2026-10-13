@@ -51,6 +51,18 @@ absl::Status XlaCusolverMpPotrsLogdetDispatch(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 
+// Runtime factor-only POTRF hook. It redistributes A, computes the lower
+// Cholesky factor, zeros its strict upper triangle, and restores L to the JAX
+// layout of A.
+absl::Status XlaCusolverMpPotrfDispatch(
+    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    int64_t process_cols, int64_t n, int64_t tile_size,
+    absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> factor,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
 // Runtime LU-solve hook. Performs native layout conversion, redistribution,
 // cuSOLVERMp GETRF/GETRS, reverse redistribution, and output layout restore in
 // one FFI dispatch.
@@ -60,6 +72,18 @@ absl::Status XlaCusolverMpLuSolveDispatch(
     int64_t tile_size, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
     ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
+// Runtime factor-only GETRF hook. It redistributes A, computes the pivoted LU
+// factorization, replicates the 0-based pivots on every rank, and restores the
+// packed LU factor to the JAX layout of A.
+absl::Status XlaCusolverMpGetrfDispatch(
+    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    int64_t process_cols, int64_t n, int64_t tile_size,
+    absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> lu, ffi::Result<ffi::BufferR1<S32>> piv,
+    ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 

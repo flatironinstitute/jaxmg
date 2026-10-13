@@ -28,8 +28,12 @@ reduce memory use.
 
 - [Cholesky solve](potrs.md) solves a symmetric or Hermitian positive-definite
   linear system with `potrs`.
+- [Cholesky factorization](potrf.md) computes the lower Cholesky factor of a
+  symmetric or Hermitian positive-definite matrix with `potrf`.
 - [LU solve](lu_solve.md) solves a general nonsingular linear system with
   `lu_solve`.
+- [LU factorization](getrf.md) computes the pivoted LU factors and pivot
+  indices of a square matrix with `getrf`.
 - [Least-squares solve](least_squares.md) solves an overdetermined rectangular
   system with `least_squares`.
 - [Reduced QR decomposition](qr.md) computes an orthonormal basis and

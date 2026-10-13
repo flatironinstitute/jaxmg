@@ -8,7 +8,9 @@ import jax.numpy as jnp
 from jax.sharding import AxisType, Mesh, NamedSharding, PartitionSpec as P
 
 import jaxmg._gesvd as gesvd_module
+import jaxmg._getrf as getrf_module
 import jaxmg._polar as polar_module
+import jaxmg._potrf as potrf_module
 import jaxmg._qr as qr_module
 import jaxmg._syevd as syevd_module
 
@@ -20,6 +22,8 @@ import jaxmg._syevd as syevd_module
         (gesvd_module, gesvd_module.gesvd_shardmap_ctx, (1, 3), 0),
         (qr_module, qr_module.qr_shardmap_ctx, (0, 1), None),
         (polar_module, polar_module.polar_shardmap_ctx, (0, 1), None),
+        (potrf_module, potrf_module.potrf_shardmap_ctx, (0,), None),
+        (getrf_module, getrf_module.getrf_shardmap_ctx, (0,), None),
     ],
 )
 def test_decompositions_restore_replicated_matrix_results(

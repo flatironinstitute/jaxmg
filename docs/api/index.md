@@ -31,6 +31,21 @@ Solve for $x$ using the Cholesky factors.
 
 ---
 
+## `potrf`
+
+Multi-GPU Cholesky factorization of a symmetric (Hermitian) positive-definite
+matrix, without a solve.
+
+$$
+A = L L^{\top} \;\text{(real)} \quad \text{or} \quad A = L L^{\dagger}\;\text{(complex)}
+$$
+
+Returns the lower-triangular factor $L$.
+
+[`potrf` API and usage](potrf.md)
+
+---
+
 ## `lu_solve`
 
 Multi-GPU pivoted LU solver for general nonsingular matrices.
@@ -40,6 +55,21 @@ P A = L U, \qquad A x = B.
 $$
 
 [`lu_solve` API and usage](lu_solve.md)
+
+---
+
+## `getrf`
+
+Multi-GPU pivoted LU factorization of a square matrix, without a solve.
+
+$$
+P A = L U.
+$$
+
+Returns the packed factors and the pivot indices, in the format of
+`jax.scipy.linalg.lu_factor`.
+
+[`getrf` API and usage](getrf.md)
 
 ---
 
