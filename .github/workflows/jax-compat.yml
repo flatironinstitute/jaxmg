@@ -104,7 +104,7 @@ jobs:
 
   build-x86:
     needs: resolve
-    if: ${{ needs.resolve.outputs.reuse != 'true' }}
+    if: ${{ needs.resolve.outputs.reuse != 'true' && needs.resolve.outputs.versions != '[]' }}
     uses: ./.github/workflows/build-wheels.yml
     with:
       arch: x86_64
@@ -117,7 +117,7 @@ jobs:
   # are always on the same branch, since a multibranch job only fetches its own.
   test-x86:
     needs: [resolve, build-x86]
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.build-x86.result == 'success' || needs.build-x86.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.versions != '[]' && (needs.build-x86.result == 'success' || needs.build-x86.result == 'skipped') }}
     strategy:
       fail-fast: false
       max-parallel: 1      # the Jenkins job runs one build at a time anyway

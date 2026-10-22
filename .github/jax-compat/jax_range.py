@@ -4,7 +4,7 @@ latest_tested.txt pins the newest JAX validated against the native backend
 built from JAX_GIT_TAG, and pyproject.toml caps jax just above it.
 
   untested  print, as a JSON list, the final jax releases that pyproject.toml
-            excludes but latest_tested.txt reaches: the versions to test
+            excludes but the widened range would admit: the versions to test
   widen     raise every jax upper bound in pyproject.toml to just above the
             version in latest_tested.txt
 """
@@ -52,7 +52,10 @@ def untested(args):
     from packaging.requirements import Requirement
     from packaging.version import InvalidVersion, Version
 
-    tested = Version(read_tested(args.tested))
+    tested = read_tested(args.tested)
+    # Test everything `widen` would let in, not just up to the pin: Dependabot
+    # can pin 0.12.0 while 0.12.0.1, which <0.12.1 also admits, is already out.
+    upper = Version(next_release(tested))
     deps = tomllib.loads(Path(args.pyproject).read_text())["project"]["dependencies"]
     (spec,) = [r.specifier for r in map(Requirement, deps) if r.name == "jax"]
     lower = max(Version(s.version) for s in spec if s.operator in (">=", ">"))
@@ -70,11 +73,11 @@ def untested(args):
             continue
         if not files or all(f.get("yanked") for f in files):
             continue
-        if lower < v <= tested and v not in spec:
+        if lower < v < upper and v not in spec:
             versions.append(v)
 
     if not versions:
-        sys.exit(f"jax=={tested} is already inside {spec}; nothing to test")
+        print(f"{spec} already admits every release below {upper}; nothing to test", file=sys.stderr)
     print(json.dumps([str(v) for v in sorted(versions)]))
 
 
