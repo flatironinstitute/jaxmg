@@ -3,16 +3,6 @@ name: JAX compatibility
 # Does the native backend built from JAX_GIT_TAG (build-wheels.yml) also work
 # with a newer JAX? If so, the jax range in pyproject.toml can be widened
 # without a rebuild.
-#
-# Same pattern as mpi4jax: Dependabot bumps .github/jax-compat/latest_tested.txt
-# when JAX releases, and that PR is the test. This workflow takes an existing
-# wheel (the latest successful ci.yml run on the base branch, else a fresh
-# build), runs the Jenkins A100 suite once per JAX release the bump reaches with
-# that exact JAX installed, and on success pushes a commit to the PR widening
-# pyproject.toml. A manual dispatch tests one version and only reports.
-#
-# Dependabot-triggered runs see Dependabot secrets only, so JENKINS_JOB_URL,
-# JENKINS_USER and JENKINS_API_TOKEN must also be set as Dependabot secrets.
 
 on:
   pull_request:
@@ -21,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       jax_version:
-        description: 'JAX version to test (default: every release pyproject.toml excludes, up to latest_tested.txt)'
+        description: 'JAX version to test'
         required: false
         type: string
 

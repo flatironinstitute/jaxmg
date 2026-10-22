@@ -138,7 +138,7 @@ The implementation is in:
 - `.github/workflows/build-wheels.yml`;
 - `.github/workflows/ci.yml`;
 - `.github/workflows/jenkins-test.yml`;
-- `.github/workflows/jax-compat.yml` (see [New JAX releases](#new-jax-releases));
+- `.github/workflows/jax-compat.yml`;
 - `.jenkins/Jenkinsfile`.
 
 ## Versioned documentation
@@ -233,7 +233,4 @@ runs `.github/workflows/jax-compat.yml`, which:
   as a new MINOR release.
 
 To test a version by hand, run the `JAX compatibility` workflow with
-`jax_version` set; manual runs only report. Dependabot-triggered runs see only
-Dependabot secrets, so `JENKINS_JOB_URL`, `JENKINS_USER` and
-`JENKINS_API_TOKEN` must be set as Dependabot secrets as well as Actions
-secrets.
+`jax_version` set.

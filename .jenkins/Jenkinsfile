@@ -11,7 +11,7 @@ properties([
     password(name: 'GH_TOKEN', defaultValue: '',
              description: 'Short-lived GitHub token (actions:read) to download the wheel artifacts'),
     string(name: 'JAX_VERSION', defaultValue: '',
-           description: 'Install this exact jax instead of the one the wheel range resolves to (jax-compat.yml)'),
+           description: 'Install this exact jax version'),
   ]),
   disableConcurrentBuilds(),
   buildDiscarder(logRotator(numToKeepStr: '8', daysToKeepStr: '30')),
@@ -19,12 +19,7 @@ properties([
 
 GITHUB_REPO = 'flatironinstitute/jaxmg'
 
-// This job only makes sense when triggered by GitHub Actions (which passes the
-// wheels' GHA_RUN_ID). Every push also makes the multibranch project index the
-// branch and start a parameterless build; that build has nothing to test and
-// must report green. NOT_BUILT/ABORTED are published to GitHub as commit state
-// "error" by the GitHub Branch Source plugin -- only SUCCESS shows a green
-// check -- so mark the no-op build SUCCESS and label it in the UI.
+// This job only makes sense when triggered by GitHub Actions 
 if (!params.GHA_RUN_ID?.trim()) {
   echo 'No GHA_RUN_ID parameter: not triggered by GitHub Actions. ' +
        'The GPU test runs when the GHA build finishes and triggers this job with wheels.'
@@ -115,10 +110,7 @@ PY
               python -m pip install --upgrade pip
 
               if [ -n "$JAX_VERSION" ]; then
-                # Compatibility test (jax-compat.yml): the wheel's jax range may
-                # exclude JAX_VERSION, so install the wheel without deps, then that
-                # exact jax plus the wheel's other cuda12 requirements. The
-                # checkout is at GIT_SHA, so its pyproject.toml matches the wheel.
+                # If no version is passed, use shipped wheel
                 python -m pip install --no-deps "$whl"
                 python - > cuda12-deps.txt <<'PY'
 import tomllib

@@ -12,15 +12,6 @@ name: jenkins-test (reusable)
 #                     so each branch keeps its own Jenkins job/history.
 #   JENKINS_USER      Jenkins username
 #   JENKINS_API_TOKEN Jenkins API token for that user
-#
-# The (per-branch) Jenkins job must accept parameters GHA_RUN_ID, GIT_SHA,
-# JAX_VERSION and a password parameter GH_TOKEN, and have "Trigger builds
-# remotely" / API access enabled. GH_TOKEN is this run's short-lived GITHUB_TOKEN
-# (actions:read); Jenkins uses it to download the wheel artifacts, so no
-# long-lived credential is stored in Jenkins. The caller must grant
-# `actions: read` on the job that calls this. A non-empty JAX_VERSION makes
-# Jenkins test that exact jax instead of the one the wheel's range resolves to
-# (see jax-compat.yml).
 
 on:
   workflow_call:
