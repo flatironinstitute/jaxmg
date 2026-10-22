@@ -1,0 +1,11 @@
+version: 2
+
+updates:
+  # Opens a PR bumping .github/jax-compat/latest_tested.txt when JAX releases.
+  # That PR runs .github/workflows/jax-compat.yml, which tests the existing
+  # build against the new JAX and widens pyproject.toml's jax range if it passes.
+  - package-ecosystem: pip
+    directory: "/.github/jax-compat"
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 1

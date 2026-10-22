@@ -4,6 +4,7 @@
 # so keep them in sync with that JAX/XLA pin.
 
 load("@local_config_cuda//cuda:build_defs.bzl", "cuda_library")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 
 package(default_visibility = ["//visibility:public"])
 

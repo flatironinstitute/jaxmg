@@ -1,0 +1,160 @@
+name: JAX compatibility
+
+# Does the native backend built from JAX_GIT_TAG (build-wheels.yml) also work
+# with a newer JAX? If so, the jax range in pyproject.toml can be widened
+# without a rebuild.
+
+on:
+  pull_request:
+    paths:
+      - '.github/jax-compat/latest_tested.txt'
+  workflow_dispatch:
+    inputs:
+      jax_version:
+        description: 'JAX version to test'
+        required: false
+        type: string
+
+concurrency:
+  group: jax-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    # Fork PRs have no Jenkins secrets and cannot push the widening commit.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read        # gh run list / artifact listing
+      contents: read
+    outputs:
+      versions: ${{ steps.versions.outputs.versions }}
+      branch: ${{ steps.wheel.outputs.branch }}
+      reuse: ${{ steps.wheel.outputs.reuse }}
+      run_id: ${{ steps.wheel.outputs.run_id }}
+      sha: ${{ steps.wheel.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # read JAX_GIT_TAG at earlier CI runs' commits
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Select JAX versions to test
+        id: versions
+        env:
+          JAX_VERSION: ${{ inputs.jax_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${JAX_VERSION:-}" ]; then
+            versions=$(python -c 'import json, sys; print(json.dumps([sys.argv[1]]))' "$JAX_VERSION")
+          else
+            python -m pip install --quiet packaging
+            versions=$(python .github/jax-compat/jax_range.py untested)
+          fi
+          echo "versions=${versions}" >> "$GITHUB_OUTPUT"
+          echo "JAX versions to test: \`${versions}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # Reuse the newest successful ci.yml wheel whose commit has the same
+      # JAX_GIT_TAG (so the .so is the one this branch ships) and whose
+      # artifacts have not expired. Otherwise build-x86 below builds one.
+      - name: Find a wheel built from the current JAX_GIT_TAG
+        id: wheel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.base_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          tag_at() {
+            git show "$1:.github/workflows/build-wheels.yml" 2>/dev/null \
+              | awk -F': *' '/^ *JAX_GIT_TAG:/ {gsub(/["\x27 ]/, "", $2); print $2; exit}'
+          }
+          want=$(tag_at HEAD)
+          [ -n "$want" ] || { echo "could not read JAX_GIT_TAG from build-wheels.yml" >&2; exit 1; }
+
+          reuse=false run_id='' sha=''
+          while read -r id head; do
+            [ "$(tag_at "$head")" = "$want" ] || continue
+            live=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/artifacts?per_page=100" \
+              --jq '[.artifacts[] | select(.name | startswith("wheels-x86_64-")) | select(.expired | not)] | length')
+            if [ "$live" -gt 0 ]; then
+              reuse=true run_id=$id sha=$head
+              break
+            fi
+          done < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch "$BRANCH" \
+                     --status success --limit 10 --json databaseId,headSha \
+                     --jq '.[] | "\(.databaseId) \(.headSha)"')
+
+          {
+            echo "branch=${BRANCH}"
+            echo "reuse=${reuse}"
+            echo "run_id=${run_id}"
+            echo "sha=${sha}"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$reuse" = true ]; then
+            echo "Wheel: ci.yml run ${run_id} on \`${BRANCH}\` @ ${sha:0:8} (${want})" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Wheel: no reusable ${want} wheel on \`${BRANCH}\`; building one" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  build-x86:
+    needs: resolve
+    if: ${{ needs.resolve.outputs.reuse != 'true' }}
+    uses: ./.github/workflows/build-wheels.yml
+    with:
+      arch: x86_64
+      runner: ubuntu-24.04
+      compile_image: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest
+      package_image: quay.io/pypa/manylinux_2_28_x86_64
+      manylinux_plat: manylinux_2_28_x86_64
+
+  # One Jenkins run per JAX version. The Jenkins job and the commit under test
+  # are always on the same branch, since a multibranch job only fetches its own.
+  test-x86:
+    needs: [resolve, build-x86]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.build-x86.result == 'success' || needs.build-x86.result == 'skipped') }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1      # the Jenkins job runs one build at a time anyway
+      matrix:
+        jax: ${{ fromJSON(needs.resolve.outputs.versions) }}
+    permissions:
+      actions: read        # so github.token can download the wheel artifacts
+    uses: ./.github/workflows/jenkins-test.yml
+    with:
+      gha_run_id: ${{ needs.resolve.outputs.reuse == 'true' && needs.resolve.outputs.run_id || github.run_id }}
+      git_sha: ${{ needs.resolve.outputs.reuse == 'true' && needs.resolve.outputs.sha || github.event.pull_request.base.sha || github.sha }}
+      branch: ${{ needs.resolve.outputs.branch }}
+      jax_version: ${{ matrix.jax }}
+    secrets: inherit
+
+  widen:
+    needs: [resolve, test-x86]
+    if: ${{ github.event_name == 'pull_request' && needs.test-x86.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # push to the Dependabot PR branch
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Widen the jax range in pyproject.toml
+        env:
+          VERSIONS: ${{ join(fromJSON(needs.resolve.outputs.versions), ', ') }}
+        run: |
+          set -euo pipefail
+          python3 .github/jax-compat/jax_range.py widen
+          if git diff --quiet; then
+            exit 0          # already widened (e.g. a re-run)
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -am "Widen jax range to include ${VERSIONS} (A100 compat passed)"
+          # Pushed with GITHUB_TOKEN, so this does not trigger another CI run.
+          git push

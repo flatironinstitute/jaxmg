@@ -138,6 +138,7 @@ The implementation is in:
 - `.github/workflows/build-wheels.yml`;
 - `.github/workflows/ci.yml`;
 - `.github/workflows/jenkins-test.yml`;
+- `.github/workflows/jax-compat.yml`;
 - `.jenkins/Jenkinsfile`.
 
 ## Versioned documentation
@@ -192,8 +193,8 @@ JAXMg releases are `MAJOR.MINOR.PATCH`, where the minor number tracks JAX.
 | Component | Meaning |
 |---|---|
 | `MAJOR` | Reserved for a major rewrite of JAXMg. |
-| `MINOR` | One per tracked JAX release, so a new JAX always means a new minor. |
-| `PATCH` | JAXMg fixes against the same JAX release. |
+| `MINOR` | One per `JAX_GIT_TAG` bump, i.e. a rebuild against a new JAX. |
+| `PATCH` | JAXMg fixes, or a widened JAX range, on the same build. |
 
 Compatibility by release:
 
@@ -206,3 +207,30 @@ Compatibility by release:
 
 Each JAXMg release must declare the JAX versions validated against its native
 backend in `pyproject.toml`, for example `jax>=0.11.1,<0.11.3`.
+
+> The `JAX_IFRT_VERSION_NUMBER` tracks changes to the distributed runtime interface, and can be used as a guide to investigate breaking changes in the XLA backend.
+
+### New JAX releases
+
+A new JAX release does not always need a rebuild: the existing backend may
+still work with it. `.github/jax-compat/latest_tested.txt` pins the newest
+validated JAX, and Dependabot opens a PR bumping it when JAX releases. That PR
+runs `.github/workflows/jax-compat.yml`, which:
+
+1. lists every JAX release between the current `pyproject.toml` range and the
+   new pin;
+2. takes the latest `ci.yml` wheel built from the same `JAX_GIT_TAG`, or builds
+   one if those artifacts have expired;
+3. runs the Jenkins A100 suite once per version, with that exact JAX installed;
+4. on success, pushes a commit to the PR that raises the upper bound of every
+   `jax` requirement in `pyproject.toml`.
+
+- **Green:** merge the PR. The widened range ships in the next PATCH release;
+  add the new JAX to the compatibility tables (README.md, `docs/install.md` and
+  above) as part of that release.
+- **Red:** close the PR (Dependabot then skips that release) and rebuild: bump
+  `JAX_GIT_TAG`, the `pyproject.toml` range and `latest_tested.txt` together,
+  as a new MINOR release.
+
+To test a version by hand, run the `JAX compatibility` workflow with
+`jax_version` set.

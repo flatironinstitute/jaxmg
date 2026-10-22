@@ -1,0 +1,5 @@
+# Newest JAX validated against the native backend built from JAX_GIT_TAG
+# (.github/workflows/build-wheels.yml). Bumped by Dependabot; the jax-compat
+# workflow tests each bump on the A100s and, if it passes, widens the jax range
+# in pyproject.toml. When JAX_GIT_TAG moves, set this to that JAX version.
+jax==0.11.2
