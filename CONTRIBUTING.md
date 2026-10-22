@@ -206,3 +206,5 @@ Compatibility by release:
 
 Each JAXMg release must declare the JAX versions validated against its native
 backend in `pyproject.toml`, for example `jax>=0.11.1,<0.11.3`.
+
+> The `JAX_IFRT_VERSION_NUMBER` tracks changes to the distributed runtime interface, and can be used as a guide to investigate breaking changes in the XLA backend.
