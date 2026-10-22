@@ -1,0 +1,629 @@
+// Copyright 2026 JAXMg contributors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// cuSOLVERMp LU factorization FFI handler.
+//
+// This file implements the factor-only GETRF path. GETRF overwrites the
+// donated A buffer with the packed unit-lower L and upper U factors and writes
+// its row interchanges into a distributed pivot array. The pivots are gathered
+// into one replicated, 0-based vector before the packed factor is restored to
+// JAX.
+//
+// File workflow:
+//   1. Convert A to local column-major storage and redistribute it into the
+//      cuSOLVERMp 2D block-cyclic layout.
+//   2. Run GETRF.
+//   3. Scatter each rank's local pivots into a global vector and replicate it
+//      with an NCCL max all-reduce.
+//   4. Reverse-redistribute LU and restore row-major JAX storage.
+
+#include <algorithm>
+#include <array>
+#include <cstdlib>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "cusolvermp_common.h"
+#include "cusolvermp_routines.h"
+#include "factor_extract.h"
+
+namespace xla::gpu {
+namespace {
+
+// cuSOLVERMp follows ScaLAPACK: pivot entries are 1-based global row indices.
+constexpr int64_t kGetrfPivotIndexBase = 1;
+
+struct CudaFreeDeleter {
+  void operator()(void* ptr) const {
+    if (ptr != nullptr) cudaFree(ptr);
+  }
+};
+
+template <typename DataType>
+absl::Status RunCusolverMpGetrf(
+    const CusolverMpApi& api, cusolverMpHandle_t handle, cusolverMpGrid_t grid,
+    cudaStream_t cuda_stream, int64_t n, int64_t tile_size,
+    int32_t process_row, int32_t process_col,
+    ffi::Result<ffi::AnyBuffer> lu_out, int64_t* d_ipiv, size_t ipiv_bytes,
+    std::array<int32_t, kGetrfStatusSize>* status_words) {
+  const int debug_rank = (*status_words)[2];
+  const int64_t leading_dimension = lu_out->dimensions()[0];
+
+  CusolverMpDebug(debug_rank,
+                  "getrf enter n=%lld tile=%lld process_coord=(%d,%d) "
+                  "dtype=%d",
+                  static_cast<long long>(n), static_cast<long long>(tile_size),
+                  process_row, process_col,
+                  static_cast<int>(SolverTraits<DataType>::cuda_data_type));
+
+  cusolverMpMatrixDescriptor_t desc_a = nullptr;
+  void* d_work = nullptr;
+  void* h_work = nullptr;
+  int* d_info = nullptr;
+
+  auto cleanup = [&]() {
+    if (d_work != nullptr) cudaFree(d_work);
+    if (d_info != nullptr) cudaFree(d_info);
+    if (h_work != nullptr) std::free(h_work);
+    if (desc_a != nullptr) {
+      const cusolverStatus_t destroy_status = api.destroy_matrix_desc(desc_a);
+      if (destroy_status != CUSOLVER_STATUS_SUCCESS &&
+          (*status_words)[0] == kStatusOk) {
+        (*status_words)[0] = kDestroyMatrixDescFailed;
+        (*status_words)[11] = static_cast<int32_t>(destroy_status);
+      }
+    }
+  };
+  auto cuda_error_after_cleanup = [&](cudaError_t cuda_status,
+                                      const char* caller) -> absl::Status {
+    cleanup();
+    return absl::InternalError(absl::StrFormat(
+        "%s failed: cuda status %d (%s)", caller, static_cast<int>(cuda_status),
+        cudaGetErrorString(cuda_status)));
+  };
+
+  cusolverStatus_t solver_status = api.create_matrix_desc(
+      &desc_a, grid, SolverTraits<DataType>::cuda_data_type, n, n, tile_size,
+      tile_size, /*RSRC_A=*/0, /*CSRC_A=*/0, leading_dimension);
+  if (solver_status != CUSOLVER_STATUS_SUCCESS || desc_a == nullptr) {
+    (*status_words)[0] = kCreateMatrixDescFailed;
+    (*status_words)[11] = static_cast<int32_t>(solver_status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*status_words)[10] = 1;
+
+  size_t workspace_device = 0;
+  size_t workspace_host = 0;
+  solver_status = api.getrf_buffer_size(
+      handle, n, n, lu_out->untyped_data(), /*ia=*/1, /*ja=*/1, desc_a, d_ipiv,
+      SolverTraits<DataType>::cuda_data_type, &workspace_device,
+      &workspace_host);
+  if (solver_status != CUSOLVER_STATUS_SUCCESS) {
+    (*status_words)[0] = kGetrfWorkspaceFailed;
+    (*status_words)[11] = static_cast<int32_t>(solver_status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*status_words)[19] = SizeToKiBForStatus(workspace_device);
+  (*status_words)[20] = SizeToKiBForStatus(workspace_host);
+
+  cudaError_t cuda_status = cudaSuccess;
+  if (workspace_device > 0) {
+    cuda_status = cudaMalloc(&d_work, workspace_device);
+    if (cuda_status != cudaSuccess) {
+      (*status_words)[0] = kDeviceAllocFailed;
+      cleanup();
+      return absl::OkStatus();
+    }
+  }
+  if (workspace_host > 0) {
+    h_work = std::malloc(workspace_host);
+    if (h_work == nullptr) {
+      (*status_words)[0] = kHostAllocFailed;
+      cleanup();
+      return absl::OkStatus();
+    }
+  }
+  cuda_status = cudaMalloc(reinterpret_cast<void**>(&d_info), sizeof(int));
+  if (cuda_status != cudaSuccess) {
+    (*status_words)[0] = kDeviceAllocFailed;
+    cleanup();
+    return absl::OkStatus();
+  }
+  // Fill the pivots with -1 so entries GETRF never writes stay recognizable
+  // and are skipped by the pivot gather.
+  cuda_status = cudaMemsetAsync(d_ipiv, 0xFF, ipiv_bytes, cuda_stream);
+  if (cuda_status == cudaSuccess) {
+    cuda_status = cudaMemsetAsync(d_info, 0, sizeof(int), cuda_stream);
+  }
+  if (cuda_status == cudaSuccess) {
+    cuda_status = cudaStreamSynchronize(cuda_stream);
+  }
+  if (cuda_status != cudaSuccess) {
+    return cuda_error_after_cleanup(cuda_status,
+                                    "cusolvermp_getrf setup synchronize");
+  }
+
+  solver_status = api.getrf(
+      handle, n, n, lu_out->untyped_data(), /*ia=*/1, /*ja=*/1, desc_a, d_ipiv,
+      SolverTraits<DataType>::cuda_data_type, d_work, workspace_device, h_work,
+      workspace_host, d_info);
+  if (solver_status != CUSOLVER_STATUS_SUCCESS) {
+    (*status_words)[0] = kGetrfFailed;
+    (*status_words)[11] = static_cast<int32_t>(solver_status);
+    cleanup();
+    return absl::OkStatus();
+  }
+  (*status_words)[21] = 1;
+  cuda_status = cudaStreamSynchronize(cuda_stream);
+  if (cuda_status != cudaSuccess) {
+    return cuda_error_after_cleanup(cuda_status,
+                                    "cusolvermp_getrf GETRF synchronize");
+  }
+  int h_info = -1;
+  cuda_status = cudaMemcpyAsync(&h_info, d_info, sizeof(int),
+                                cudaMemcpyDeviceToHost, cuda_stream);
+  if (cuda_status == cudaSuccess) {
+    cuda_status = cudaStreamSynchronize(cuda_stream);
+  }
+  if (cuda_status != cudaSuccess) {
+    return cuda_error_after_cleanup(cuda_status, "cusolvermp_getrf info copy");
+  }
+  (*status_words)[22] = h_info;
+  // info > 0 means U has an exactly zero diagonal entry. The factorization is
+  // complete, but like every other jaxmg routine it is reported as a failure.
+  if (h_info != 0) (*status_words)[0] = kGetrfInfoNonzero;
+
+  cleanup();
+  return absl::OkStatus();
+}
+
+// Prints this rank's raw GETRF pivots when JAXMG_CUSOLVERMP_DEBUG is set, so
+// the pivot layout cuSOLVERMp uses on a grid can be inspected directly.
+void DebugDumpLocalPivots(cudaStream_t cuda_stream, int rank,
+                          const int64_t* d_ipiv, int64_t ipiv_len,
+                          int32_t process_row, int32_t process_col,
+                          int64_t numroc_rows, int64_t numroc_cols) {
+  if (!CusolverMpDebugEnabled()) return;
+  const int64_t dump_len = std::min<int64_t>(ipiv_len, 64);
+  std::vector<int64_t> host(static_cast<size_t>(dump_len));
+  if (cudaMemcpyAsync(host.data(), d_ipiv, dump_len * sizeof(int64_t),
+                      cudaMemcpyDeviceToHost, cuda_stream) != cudaSuccess ||
+      cudaStreamSynchronize(cuda_stream) != cudaSuccess) {
+    CusolverMpDebug(rank, "getrf local ipiv copy failed");
+    return;
+  }
+  std::string values;
+  for (int64_t value : host) {
+    values += absl::StrFormat(" %lld", static_cast<long long>(value));
+  }
+  CusolverMpDebug(rank,
+                  "getrf local ipiv process_coord=(%d,%d) numroc_rows=%lld "
+                  "numroc_cols=%lld ipiv_len=%lld values:%s",
+                  process_row, process_col,
+                  static_cast<long long>(numroc_rows),
+                  static_cast<long long>(numroc_cols),
+                  static_cast<long long>(ipiv_len), values.c_str());
+}
+
+absl::Status RunCusolverMpGetrfSolver(
+    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    int64_t process_cols, int64_t n, int64_t tile_size, int64_t grid_mapping,
+    absl::Span<const int64_t> rank_map, ffi::Result<ffi::AnyBuffer> lu_out,
+    ffi::Result<ffi::BufferR1<S32>> piv_out,
+    ffi::Result<ffi::BufferR1<S32>> status_out,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  if (stream == nullptr || cuda_stream == nullptr) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_getrf requires XLA and CUDA streams");
+  }
+  if (status_out->dimensions().size() != 1 ||
+      status_out->dimensions()[0] != kGetrfStatusSize) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "cusolvermp_getrf expects status shape (%d,)", kGetrfStatusSize));
+  }
+
+  std::array<int32_t, kGetrfStatusSize> status_words = {
+      kStatusOk,
+      -1,  // CUDA device.
+      -1,  // NCCL rank.
+      -1,  // NCCL rank count.
+      static_cast<int32_t>(process_rows),
+      static_cast<int32_t>(process_cols),
+      -1,  // cuSOLVERMp version.
+      0,   // linked runtime available.
+      0,   // handle created.
+      0,   // grid created.
+      0,   // A descriptor created.
+      0,   // raw cuSOLVER status.
+      static_cast<int32_t>(lu_out->size_bytes()),
+      static_cast<int32_t>(n),
+      static_cast<int32_t>(tile_size),
+      static_cast<int32_t>(lu_out->dimensions()[0]),
+      static_cast<int32_t>(lu_out->dimensions()[1]),
+      -1,  // A NUMROC rows.
+      -1,  // A NUMROC cols.
+      -1,  // GETRF device workspace, KiB.
+      -1,  // GETRF host workspace, KiB.
+      0,   // GETRF called.
+      -1,  // GETRF info.
+      -1,  // local pivot vector length.
+      -1,  // local pivot vector allocation, KiB.
+      0,   // pivots gathered and replicated.
+      -1,  // dtype code.
+      static_cast<int32_t>(grid_mapping),
+  };
+  int32_t* piv = piv_out->typed_data();
+  const size_t piv_bytes = static_cast<size_t>(n) * sizeof(int32_t);
+
+  // Publishes this rank's status. A failed factorization leaves stale or
+  // partial data in the results, so LU is replaced with NaN and the integer
+  // pivots with -1 first.
+  auto publish_status = [&]() -> absl::Status {
+    JAXMG_RETURN_IF_ERROR(InvalidateResultsOnFailure(
+        cuda_stream, status_words[0], {*lu_out}));
+    if (status_words[0] != kStatusOk) {
+      JAXMG_RETURN_IF_CUDA_ERROR(
+          cudaMemsetAsync(piv, 0xFF, piv_bytes, cuda_stream));
+    }
+    return CopyStatusToDevice(stream, status_words, status_out);
+  };
+
+  absl::StatusOr<int> buffer_device =
+      DeviceForCudaPointer(lu_out->untyped_data());
+  if (!buffer_device.ok() || cudaSetDevice(*buffer_device) != cudaSuccess) {
+    status_words[0] = kCudaDeviceFailed;
+    return publish_status();
+  }
+  const int cuda_device = *buffer_device;
+  status_words[1] = cuda_device;
+
+  if (collective_params == nullptr || collective_cliques == nullptr) {
+    status_words[0] = kCollectiveContextMissing;
+    return publish_status();
+  }
+  absl::StatusOr<GpuCliqueKey> clique_key =
+      AllAssignedDevicesP2PCliqueKey(*collective_params);
+  if (!clique_key.ok()) {
+    status_words[0] = kCliqueKeyFailed;
+    return publish_status();
+  }
+  absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
+      *clique_key, collective_params->global_device_id);
+  if (!gpu_comm.ok() || *gpu_comm == nullptr) {
+    status_words[0] = kCommunicatorMissing;
+    return publish_status();
+  }
+  void* platform_handle = (*gpu_comm)->platform_comm().handle;
+  if (platform_handle == nullptr) {
+    status_words[0] = kNcclHandleMissing;
+    return publish_status();
+  }
+  ncclComm_t nccl_comm = reinterpret_cast<ncclComm_t>(platform_handle);
+  int nccl_rank = -1;
+  int nccl_count = -1;
+  if (ncclCommUserRank(nccl_comm, &nccl_rank) != ncclSuccess ||
+      ncclCommCount(nccl_comm, &nccl_count) != ncclSuccess) {
+    status_words[0] = kNcclRankMismatch;
+    return publish_status();
+  }
+  status_words[2] = nccl_rank;
+  status_words[3] = nccl_count;
+
+  if (process_rows <= 0 || process_cols <= 0 ||
+      process_rows * process_cols != nccl_count || n <= 0 || tile_size <= 0) {
+    status_words[0] = kGridShapeMismatch;
+    return publish_status();
+  }
+  JAXMG_RETURN_IF_ERROR(
+      ValidateCusolverMpGridMapping("cusolvermp_getrf", grid_mapping));
+  if (!rank_map.empty()) {
+    JAXMG_RETURN_IF_ERROR(ValidateStandardRankMapForGridMapping(
+        "cusolvermp_getrf", rank_map, process_rows, process_cols,
+        grid_mapping));
+  }
+
+  CusolverMpApi api = LinkedCusolverMpApi(&status_words);
+  cusolverMpHandle_t handle = nullptr;
+  cusolverStatus_t solver_status =
+      api.create(&handle, cuda_device, cuda_stream);
+  if (solver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
+    status_words[0] = kCreateHandleFailed;
+    status_words[11] = static_cast<int32_t>(solver_status);
+    return publish_status();
+  }
+  status_words[8] = 1;
+
+  int version = -1;
+  solver_status = api.get_version(handle, &version);
+  if (solver_status != CUSOLVER_STATUS_SUCCESS) {
+    status_words[0] = kGetVersionFailed;
+    status_words[11] = static_cast<int32_t>(solver_status);
+    api.destroy(handle);
+    return publish_status();
+  }
+  status_words[6] = version;
+
+  cusolverMpGrid_t grid = nullptr;
+  solver_status = api.create_grid(handle, &grid, nccl_comm,
+                                  static_cast<int32_t>(process_rows),
+                                  static_cast<int32_t>(process_cols),
+                                  ToCusolverMpGridMapping(grid_mapping));
+  if (solver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
+    status_words[0] = kCreateGridFailed;
+    status_words[11] = static_cast<int32_t>(solver_status);
+    api.destroy(handle);
+    return publish_status();
+  }
+  status_words[9] = 1;
+
+  const auto [process_row, process_col] =
+      ProcessCoordFromRank(nccl_rank, process_rows, process_cols, grid_mapping);
+  const int64_t numroc_rows = LocalNumroc(
+      n, tile_size, process_row, static_cast<int32_t>(process_rows));
+  const int64_t numroc_cols = LocalNumroc(
+      n, tile_size, process_col, static_cast<int32_t>(process_cols));
+  status_words[17] = static_cast<int32_t>(numroc_rows);
+  status_words[18] = static_cast<int32_t>(numroc_cols);
+
+  // The cuSOLVERMp documentation sizes ipiv as LOCr(N)+MB, tied to the rows of
+  // A, while NVIDIA's GETRF sample allocates LOCc(N), tied to its columns.
+  // Allocate enough for either reading. Local failures only set the status so
+  // every rank still reaches the shared status agreement below.
+  const int64_t ipiv_len = std::max(numroc_cols, numroc_rows + tile_size);
+  const size_t ipiv_bytes = static_cast<size_t>(ipiv_len) * sizeof(int64_t);
+  status_words[23] = static_cast<int32_t>(ipiv_len);
+  status_words[24] = SizeToKiBForStatus(ipiv_bytes);
+  std::unique_ptr<int64_t, CudaFreeDeleter> d_ipiv;
+  if (lu_out->dimensions()[0] < numroc_rows ||
+      lu_out->dimensions()[1] < numroc_cols) {
+    status_words[0] = kOutputShapeMismatch;
+  } else {
+    int64_t* raw_ipiv = nullptr;
+    if (cudaMalloc(reinterpret_cast<void**>(&raw_ipiv), ipiv_bytes) ==
+        cudaSuccess) {
+      d_ipiv.reset(raw_ipiv);
+    } else {
+      status_words[0] = kDeviceAllocFailed;
+    }
+  }
+
+  absl::Status getrf_status = absl::OkStatus();
+  if (status_words[0] == kStatusOk) {
+    switch (lu_out->element_type()) {
+      case F32:
+        status_words[26] = 1;
+        getrf_status = RunCusolverMpGetrf<float>(
+            api, handle, grid, cuda_stream, n, tile_size, process_row,
+            process_col, lu_out, d_ipiv.get(), ipiv_bytes, &status_words);
+        break;
+      case F64:
+        status_words[26] = 2;
+        getrf_status = RunCusolverMpGetrf<double>(
+            api, handle, grid, cuda_stream, n, tile_size, process_row,
+            process_col, lu_out, d_ipiv.get(), ipiv_bytes, &status_words);
+        break;
+      case C64:
+        status_words[26] = 3;
+        getrf_status = RunCusolverMpGetrf<cuFloatComplex>(
+            api, handle, grid, cuda_stream, n, tile_size, process_row,
+            process_col, lu_out, d_ipiv.get(), ipiv_bytes, &status_words);
+        break;
+      case C128:
+        status_words[26] = 4;
+        getrf_status = RunCusolverMpGetrf<cuDoubleComplex>(
+            api, handle, grid, cuda_stream, n, tile_size, process_row,
+            process_col, lu_out, d_ipiv.get(), ipiv_bytes, &status_words);
+        break;
+      default:
+        status_words[0] = kUnsupportedDtype;
+        break;
+    }
+  }
+  if (!getrf_status.ok()) {
+    api.destroy_grid(grid);
+    api.destroy(handle);
+    return getrf_status;
+  }
+  if (d_ipiv != nullptr) {
+    DebugDumpLocalPivots(cuda_stream, nccl_rank, d_ipiv.get(), ipiv_len,
+                         process_row, process_col, numroc_rows, numroc_cols);
+  }
+
+  // Every rank must agree on success before entering the pivot all-reduce.
+  JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
+      cuda_stream, nccl_comm, status_out, &status_words[0]));
+  if (status_words[0] == kStatusOk) {
+    // The pivots are tied to the columns of A and replicated across process
+    // rows, so every rank scatters its LOCc(N) entries. Entries are -1 where
+    // no rank wrote, and an elementwise max replicates the gathered vector.
+    // A rank whose gather failed still joins the all-reduce so no peer hangs;
+    // the final status agreement reports its failure.
+    cudaError_t cuda_status =
+        cudaMemsetAsync(piv, 0xFF, piv_bytes, cuda_stream);
+    if (cuda_status == cudaSuccess) {
+      cuda_status = GatherDistributedPivots(
+          cuda_stream, d_ipiv.get(), piv, numroc_cols, n, tile_size,
+          process_cols, process_col, kGetrfPivotIndexBase);
+    }
+    if (cuda_status != cudaSuccess) status_words[0] = kPivotGatherFailed;
+    JAXMG_RETURN_IF_NCCL_ERROR(ncclAllReduce(piv, piv, n, ncclInt32, ncclMax,
+                                             nccl_comm, cuda_stream));
+    JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+    if (status_words[0] == kStatusOk) status_words[25] = 1;
+  }
+
+  if (status_words[0] == kStatusOk) {
+    solver_status = api.destroy_grid(grid);
+    if (solver_status != CUSOLVER_STATUS_SUCCESS) {
+      status_words[0] = kDestroyGridFailed;
+      status_words[11] = static_cast<int32_t>(solver_status);
+    }
+  } else {
+    api.destroy_grid(grid);
+  }
+  if (status_words[0] == kStatusOk) {
+    solver_status = api.destroy(handle);
+    if (solver_status != CUSOLVER_STATUS_SUCCESS) {
+      status_words[0] = kDestroyHandleFailed;
+      status_words[11] = static_cast<int32_t>(solver_status);
+    }
+  } else {
+    api.destroy(handle);
+  }
+  JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
+      cuda_stream, nccl_comm, status_out, &status_words[0]));
+  return publish_status();
+}
+
+absl::Status RunCusolverMpGetrfDispatch(
+    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
+    absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> lu, ffi::Result<ffi::BufferR1<S32>> piv,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
+      "cusolvermp_getrf", collective_params, partition_slots, process_rows,
+      process_cols);
+  if (!process_grid.ok()) return process_grid.status();
+  const int64_t grid_mapping = process_grid->grid_mapping;
+  const absl::Span<const int64_t> rank_map = process_grid->rank_map;
+  if (a.dimensions().size() != 2 || lu->dimensions().size() != 2) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_getrf expects rank-2 buffers");
+  }
+  if (a.element_type() != lu->element_type()) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_getrf requires matching matrix dtypes");
+  }
+  if (a.dimensions()[0] != lu->dimensions()[0] ||
+      a.dimensions()[1] != lu->dimensions()[1]) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_getrf input and LU shapes must match");
+  }
+  if (piv->dimensions().size() != 1 || piv->dimensions()[0] != n) {
+    return absl::InvalidArgumentError(
+        "cusolvermp_getrf expects pivot shape (n,)");
+  }
+
+  const size_t element_bytes =
+      a.size_bytes() / static_cast<size_t>(a.element_count());
+  const std::array<Padded2DRedistScratchRequest, 1> scratch_requests = {{
+      {process_rows, process_cols, tile_size, tile_size, n, n,
+       a.dimensions()[0], a.dimensions()[1], rank_map},
+  }};
+  absl::StatusOr<Padded2DRedistScratch> scratch_status =
+      AllocatePadded2DRedistScratch(cuda_stream, element_bytes,
+                                    absl::MakeConstSpan(scratch_requests),
+                                    "cusolvermp_getrf_redistribution");
+  if (!scratch_status.ok()) return scratch_status.status();
+  Padded2DRedistScratch scratch = *scratch_status;
+  bool scratch_freed = false;
+  auto return_after_cleanup = [&](absl::Status result) -> absl::Status {
+    if (!scratch_freed) {
+      absl::Status free_status = FreePadded2DRedistScratch(
+          cuda_stream, scratch, "cusolvermp_getrf_redistribution");
+      scratch_freed = free_status.ok();
+      if (result.ok() && !free_status.ok()) return free_status;
+    }
+    return result;
+  };
+  auto synchronize = [&](const char* caller) -> absl::Status {
+    const cudaError_t cuda_status = cudaStreamSynchronize(cuda_stream);
+    if (cuda_status == cudaSuccess) return absl::OkStatus();
+    return return_after_cleanup(absl::InternalError(absl::StrFormat(
+        "%s failed: cuda status %d (%s)", caller, static_cast<int>(cuda_status),
+        cudaGetErrorString(cuda_status))));
+  };
+
+  // Donation normally aliases A to LU; preserve A explicitly when disabled.
+  if (absl::Status copy_status = CopyMatrixIfNeeded(cuda_stream, a, lu);
+      !copy_status.ok()) {
+    return return_after_cleanup(copy_status);
+  }
+  ffi::AnyBuffer lu_work = *lu;
+  if (absl::Status convert_status = ConvertRowMajorToColumnMajorInPlace(
+          cuda_stream, "cusolvermp_getrf/a_layout_convert", lu_work,
+          scratch.base, scratch.elements);
+      !convert_status.ok()) {
+    return return_after_cleanup(convert_status);
+  }
+  if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
+          "cusolvermp_getrf/a_forward", stream, comm_stream, cuda_stream,
+          process_rows, process_cols, tile_size, tile_size, n, n,
+          /*reverse=*/0, rank_map, lu_work, lu->device_memory(), scratch.base,
+          scratch.elements, collective_params, collective_cliques);
+      !redist_status.ok()) {
+    return return_after_cleanup(redist_status);
+  }
+  if (absl::Status sync_status =
+          synchronize("cusolvermp_getrf forward synchronize");
+      !sync_status.ok()) {
+    return sync_status;
+  }
+
+  if (absl::Status solver_status = RunCusolverMpGetrfSolver(
+          stream, cuda_stream, process_rows, process_cols, n, tile_size,
+          grid_mapping, rank_map, lu, piv, status, collective_params,
+          collective_cliques);
+      !solver_status.ok()) {
+    return return_after_cleanup(solver_status);
+  }
+  if (absl::Status sync_status =
+          synchronize("cusolvermp_getrf solver synchronize");
+      !sync_status.ok()) {
+    return sync_status;
+  }
+
+  if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
+          "cusolvermp_getrf/lu_reverse", stream, comm_stream, cuda_stream,
+          process_rows, process_cols, tile_size, tile_size, n, n,
+          /*reverse=*/1, rank_map, *lu, lu->device_memory(), scratch.base,
+          scratch.elements, collective_params, collective_cliques);
+      !redist_status.ok()) {
+    return return_after_cleanup(redist_status);
+  }
+  if (absl::Status convert_status = ConvertColumnMajorToRowMajorInPlace(
+          cuda_stream, "cusolvermp_getrf/lu_layout_restore", *lu,
+          scratch.base, scratch.elements);
+      !convert_status.ok()) {
+    return return_after_cleanup(convert_status);
+  }
+  return return_after_cleanup(absl::OkStatus());
+}
+
+}  // namespace
+
+// Executes the complete factor-only GETRF workflow in one FFI dispatch. The
+// packed LU output aliases A, and the pivots are replicated on every rank.
+absl::Status XlaCusolverMpGetrfDispatch(
+    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    int64_t process_cols, int64_t n, int64_t tile_size,
+    absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> lu, ffi::Result<ffi::BufferR1<S32>> piv,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  return RunCusolverMpGetrfDispatch(
+      stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
+      n, tile_size, partition_slots, a, lu, piv, status, collective_params,
+      collective_cliques);
+}
+
+}  // namespace xla::gpu

@@ -31,6 +31,17 @@ cuda_library(
 )
 
 cuda_library(
+    name = "factor_extract_cuda",
+    srcs = ["cusolvermp_routines/factor_extract.cu.cc"],
+    hdrs = ["cusolvermp_routines/factor_extract.h"],
+    alwayslink = True,
+    tags = ["cuda-only"],
+    deps = [
+        "@local_config_cuda//cuda:cuda_headers",
+    ],
+)
+
+cuda_library(
     name = "qr_extract_cuda",
     srcs = ["cusolvermp_routines/qr_extract.cu.cc"],
     hdrs = ["cusolvermp_routines/qr_extract.h"],
@@ -62,9 +73,12 @@ cc_binary(
         "cusolvermp_routines/cusolvermp_common.h",
         "cusolvermp_routines/cusolvermp_gels.cc",
         "cusolvermp_routines/cusolvermp_gesvd.cc",
+        "cusolvermp_routines/cusolvermp_getrf.cc",
         "cusolvermp_routines/cusolvermp_lu_solve.cc",
+        "cusolvermp_routines/cusolvermp_potrf.cc",
         "cusolvermp_routines/cusolvermp_potrs.cc",
         "cusolvermp_routines/cusolvermp_polar.cc",
+        "cusolvermp_routines/factor_extract.h",
         "cusolvermp_routines/potrs_logdet.h",
         "cusolvermp_routines/qr_extract.h",
         "cusolvermp_routines/result_fill.h",
@@ -109,6 +123,7 @@ cc_binary(
         "-Wl,-rpath,$ORIGIN/../../nvidia/cu@JAXMG_CUDA_MAJOR@/lib",
     ],
     deps = [
+        ":factor_extract_cuda",
         ":layout_convert_cuda",
         ":potrs_logdet_cuda",
         ":qr_extract_cuda",
