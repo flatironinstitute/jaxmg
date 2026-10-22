@@ -13,11 +13,14 @@ name: jenkins-test (reusable)
 #   JENKINS_USER      Jenkins username
 #   JENKINS_API_TOKEN Jenkins API token for that user
 #
-# The (per-branch) Jenkins job must accept parameters GHA_RUN_ID, GIT_SHA and a
-# password parameter GH_TOKEN, and have "Trigger builds remotely" / API access
-# enabled. GH_TOKEN is this run's short-lived GITHUB_TOKEN (actions:read); Jenkins
-# uses it to download the wheel artifacts, so no long-lived credential is stored
-# in Jenkins. The caller must grant `actions: read` on the job that calls this.
+# The (per-branch) Jenkins job must accept parameters GHA_RUN_ID, GIT_SHA,
+# JAX_VERSION and a password parameter GH_TOKEN, and have "Trigger builds
+# remotely" / API access enabled. GH_TOKEN is this run's short-lived GITHUB_TOKEN
+# (actions:read); Jenkins uses it to download the wheel artifacts, so no
+# long-lived credential is stored in Jenkins. The caller must grant
+# `actions: read` on the job that calls this. A non-empty JAX_VERSION makes
+# Jenkins test that exact jax instead of the one the wheel's range resolves to
+# (see jax-compat.yml).
 
 on:
   workflow_call:
@@ -34,6 +37,11 @@ on:
         description: 'Jenkins multibranch branch job to trigger (e.g. main, my-feature)'
         required: true
         type: string
+      jax_version:
+        description: 'Exact jax version to install instead of the wheel-resolved one (empty: wheel default)'
+        required: false
+        type: string
+        default: ''
     secrets:
       JENKINS_JOB_URL:
         required: true
@@ -55,6 +63,7 @@ jobs:
           GHA_RUN_ID: ${{ inputs.gha_run_id }}
           GIT_SHA: ${{ inputs.git_sha }}
           BRANCH: ${{ inputs.branch }}
+          JAX_VERSION: ${{ inputs.jax_version }}
           # Short-lived token for THIS run; GitHub auto-masks it in these logs.
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -82,11 +91,12 @@ jobs:
           CRUMB_HDR=()
           [ -n "$CRUMB" ] && CRUMB_HDR=(-H "$CRUMB")
 
-          echo "Triggering ${JOB_URL} (GHA_RUN_ID=${GHA_RUN_ID}, GIT_SHA=${GIT_SHA})"
+          echo "Triggering ${JOB_URL} (GHA_RUN_ID=${GHA_RUN_ID}, GIT_SHA=${GIT_SHA}, JAX_VERSION=${JAX_VERSION:-<wheel default>})"
           # buildWithParameters returns 201 with the queue item in Location.
           QUEUE_URL=$(curl -fsS -D - -o /dev/null -X POST $AUTH "${CRUMB_HDR[@]}" \
             --data-urlencode "GHA_RUN_ID=${GHA_RUN_ID}" \
             --data-urlencode "GIT_SHA=${GIT_SHA}" \
+            --data-urlencode "JAX_VERSION=${JAX_VERSION}" \
             --data-urlencode "GH_TOKEN=${GH_TOKEN}" \
             "${JOB_URL}/buildWithParameters" \
             | tr -d '\r' | awk -F': ' 'tolower($1)=="location"{print $2}')
@@ -110,6 +120,19 @@ jobs:
           fi
           echo "Building: ${BUILD_URL}"
           echo "JENKINS_BUILD_URL=${BUILD_URL}" >> "$GITHUB_STEP_SUMMARY"
+
+          # Jenkins silently drops parameters the job does not declare (e.g. a
+          # branch whose Jenkinsfile predates JAX_VERSION). Such a build would
+          # test the wheel's default jax and pass for the wrong reason.
+          if [ -n "$JAX_VERSION" ]; then
+            GOT=$(curl -fsSg $AUTH "${BUILD_URL%/}/api/json?tree=actions[parameters[name,value]]" \
+              | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next((p.get("value") or "" for a in d.get("actions", []) for p in (a or {}).get("parameters", []) if p.get("name") == "JAX_VERSION"), ""))')
+            if [ "$GOT" != "$JAX_VERSION" ]; then
+              echo "Jenkins build got JAX_VERSION='${GOT}', expected '${JAX_VERSION}'. Does the job's Jenkinsfile declare it?" >&2
+              exit 1
+            fi
+            echo "JAX_VERSION=${JAX_VERSION}" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
           # Poll the build until it finishes (up to ~4 h; tests are long).
           RESULT=""

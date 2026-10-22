@@ -10,6 +10,8 @@ properties([
            description: 'Commit SHA under test (matches the built wheels)'),
     password(name: 'GH_TOKEN', defaultValue: '',
              description: 'Short-lived GitHub token (actions:read) to download the wheel artifacts'),
+    string(name: 'JAX_VERSION', defaultValue: '',
+           description: 'Install this exact jax instead of the one the wheel range resolves to (jax-compat.yml)'),
   ]),
   disableConcurrentBuilds(),
   buildDiscarder(logRotator(numToKeepStr: '8', daysToKeepStr: '30')),
@@ -33,7 +35,8 @@ if (!params.GHA_RUN_ID?.trim()) {
 }
 
 currentBuild.description = "GHA run ${params.GHA_RUN_ID}" +
-  (params.GIT_SHA?.trim() ? " @ ${params.GIT_SHA.take(8)}" : '')
+  (params.GIT_SHA?.trim() ? " @ ${params.GIT_SHA.take(8)}" : '') +
+  (params.JAX_VERSION?.trim() ? ", jax ${params.JAX_VERSION.trim()}" : '')
 
 // Test in a manylinux + local CUDA toolkit image, across Python versions, on 2 A100s.
 buildPod(tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12', devShm: true, gpus: 2, gpuType: 'a100') {
@@ -55,6 +58,7 @@ buildPod(tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12', devShm: tru
       "XLA_PYTHON_CLIENT_ALLOCATOR=platform",
       "GHA_RUN_ID=${params.GHA_RUN_ID}",
       "GITHUB_REPO=${GITHUB_REPO}",
+      "JAX_VERSION=${params.JAX_VERSION?.trim() ?: ''}",
     ]) {
       // Download the x86_64 wheels produced by the triggering GHA run, using the
       // short-lived GH_TOKEN passed by GitHub Actions (no stored credential).
@@ -110,11 +114,27 @@ PY
               source "venv/$PYV/bin/activate"
               python -m pip install --upgrade pip
 
-              # Exercise the same CUDA dependency path used by wheel consumers.
-              python -m pip install "${whl}[cuda12]"
+              if [ -n "$JAX_VERSION" ]; then
+                # Compatibility test (jax-compat.yml): the wheel's jax range may
+                # exclude JAX_VERSION, so install the wheel without deps, then that
+                # exact jax plus the wheel's other cuda12 requirements. The
+                # checkout is at GIT_SHA, so its pyproject.toml matches the wheel.
+                python -m pip install --no-deps "$whl"
+                python - > cuda12-deps.txt <<'PY'
+import tomllib
+
+deps = tomllib.load(open("pyproject.toml", "rb"))["project"]["optional-dependencies"]["cuda12"]
+print("\\n".join(d for d in deps if not d.startswith("jax")))
+PY
+                python -m pip install "jax[cuda12]==${JAX_VERSION}" -r cuda12-deps.txt
+              else
+                # Exercise the same CUDA dependency path used by wheel consumers.
+                python -m pip install "${whl}[cuda12]"
+              fi
               python -m pip install pytest matplotlib
 
               python - <<'PY'
+import os
 import sys
 
 import jax
@@ -123,6 +143,9 @@ import jaxmg
 devices = jax.devices("gpu")
 if len(devices) != 2:
     raise RuntimeError(f"Expected 2 GPUs, found {devices}")
+want = os.environ.get("JAX_VERSION")
+if want and jax.__version__ != want:
+    raise RuntimeError(f"Expected JAX {want}, found {jax.__version__}")
 print(f"Python {sys.version_info[:2]}, JAX {jax.__version__}")
 print(devices)
 PY
