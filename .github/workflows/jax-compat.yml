@@ -135,7 +135,7 @@ jobs:
 
   widen:
     needs: [resolve, test-x86]
-    if: ${{ github.event_name == 'pull_request' && needs.test-x86.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.test-x86.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write      # push to the Dependabot PR branch
