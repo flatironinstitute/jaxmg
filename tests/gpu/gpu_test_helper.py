@@ -337,6 +337,7 @@ def run_gpu_test(
     if interface not in (
         "public",
         "context",
+        "shardmap",
         "abstract_mesh",
         "inferred",
         "invalid_order",

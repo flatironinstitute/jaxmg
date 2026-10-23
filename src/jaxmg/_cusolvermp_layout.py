@@ -283,39 +283,40 @@ def _place_for_matrix_axis_mode(
     )
 
 
-def place_rhs_for_native_work(
-    rhs: Array,
+def place_for_native_work(
+    value: Array,
     *,
     mesh: Mesh | AbstractMesh,
     matrix_specs: P,
 ) -> Array:
-    """Place an RHS in the matrix's native work sharding.
+    """Place a matrix or RHS in the matrix's native work sharding.
 
-    The public solvers accept a replicated RHS-column axis, for example
-    ``P('pr', None)`` for an ``N x 1`` solve input. Before the shard-local FFI,
-    the RHS is placed in the matrix's work sharding. JAX has two different APIs
-    for that placement depending on how the mesh was created:
-    ``jax.make_mesh`` creates explicit axes and requires ``jax.reshard``,
-    while the conventional ``Mesh(...)`` constructor creates auto axes and
-    requires ``with_sharding_constraint`` inside a compiled computation.
+    The public solvers accept inputs whose sharding differs from the matrix
+    work sharding, for example a replicated RHS-column axis ``P('pr', None)``
+    for an ``N x 1`` solve input. Before the shard-local FFI, every input is
+    placed in the matrix's work sharding. JAX has two different APIs for that
+    placement depending on how the mesh was created: ``jax.make_mesh`` creates
+    explicit axes and requires ``jax.reshard``, while the conventional
+    ``Mesh(...)`` constructor creates auto axes and requires
+    ``with_sharding_constraint`` inside a compiled computation.
 
     Mixed explicit/auto process-grid axes are rejected because neither
     placement primitive can represent the mixed target consistently.
 
     Args:
-        rhs: Solve input in its user-facing sharding.
+        value: Matrix or solve input in its user-facing sharding.
         mesh: JAX mesh used by the matrix and native work buffers.
         matrix_specs: Matrix sharding required by the native FFI.
 
     Returns:
-        The solve input placed in ``NamedSharding(mesh, matrix_specs)``.
+        ``value`` placed in ``NamedSharding(mesh, matrix_specs)``.
 
     Raises:
         ValueError: If the matrix axes are absent or use an unsupported mixture
             of mesh-axis modes.
     """
     return _place_for_matrix_axis_mode(
-        rhs,
+        value,
         mesh=mesh,
         matrix_specs=matrix_specs,
         target_specs=matrix_specs,
@@ -528,6 +529,11 @@ def infer_mesh_and_matrix_specs(
         specs = sharding.spec
         if any(axis is not None for axis in specs):
             matrix_specs = specs
+    return mesh, _resolve_matrix_specs(mesh, matrix_specs)
+
+
+def _resolve_matrix_specs(mesh: Mesh | AbstractMesh, matrix_specs: P | None) -> P:
+    """Default missing matrix specs to the mesh axes and pad them to rank two."""
     if matrix_specs is None:
         if len(mesh.axis_names) > 2:
             raise ValueError(
@@ -539,7 +545,7 @@ def infer_mesh_and_matrix_specs(
     # ``P('x')`` and ``P('x', None)`` describe the same layout of a 2D array;
     # pad the short form so the rest of the layout code stays rank-2 throughout.
     partitions = matrix_specs._partitions
-    return mesh, P(*partitions, *(None,) * (2 - len(partitions)))
+    return P(*partitions, *(None,) * (2 - len(partitions)))
 
 
 # -----------------------------------------------------------------------------
@@ -669,6 +675,80 @@ def prepare_input_matrix_layout(
         matrix_specs=matrix_specs,
         in_specs=in_specs,
     )
+    return _matrix_layout(
+        mesh,
+        matrix_specs,
+        int(a.shape[0]),
+        int(a.shape[1]),
+        tile_size,
+        result_specs=P(None, None)
+        if input_sharding is not None
+        and not any(axis is not None for axis in input_sharding.spec)
+        else matrix_specs,
+        pad=pad,
+        caller=caller,
+    )
+
+
+def prepare_local_matrix_layout(
+    a: Array,
+    tile_size: int,
+    *,
+    matrix_specs: P | tuple[P, ...] | list[P] | None,
+    in_specs: P | tuple[P, ...] | list[P] | None,
+    pad: bool,
+    caller: str,
+) -> PreparedMatrixLayout:
+    """Derive the common layout metadata from a local block inside ``shard_map``.
+
+    The mesh is the context mesh that ``jax.shard_map`` sets for its body, and
+    the matrix specs default to its axes in order. The global matrix shape is
+    the local block shape scaled by the process grid.
+    """
+    mesh = jax.sharding.get_abstract_mesh()
+    if mesh.empty:
+        raise ValueError(
+            f"{caller} must be called inside jax.shard_map; use the *_jit_ctx "
+            "variant for global arrays."
+        )
+    matrix_specs = _resolve_matrix_specs(
+        mesh, normalize_matrix_specs(matrix_specs, in_specs=in_specs)
+    )
+    row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
+    axis_types = dict(zip(mesh.axis_names, mesh.axis_types))
+    if any(
+        axis_types.get(axis) is not AxisType.Manual
+        for axis in (row_axis, col_axis)
+        if axis is not None
+    ):
+        raise ValueError(
+            f"{caller} must be called inside jax.shard_map over the matrix mesh "
+            "axes; use the *_jit_ctx variant for global arrays."
+        )
+    return _matrix_layout(
+        mesh,
+        matrix_specs,
+        int(a.shape[0]) * grid.process_rows,
+        int(a.shape[1]) * grid.process_cols,
+        tile_size,
+        result_specs=matrix_specs,
+        pad=pad,
+        caller=caller,
+    )
+
+
+def _matrix_layout(
+    mesh: Mesh | AbstractMesh,
+    matrix_specs: P,
+    logical_rows: int,
+    logical_cols: int,
+    tile_size: int,
+    *,
+    result_specs: P,
+    pad: bool,
+    caller: str,
+) -> PreparedMatrixLayout:
+    """Validate a resolved matrix sharding and derive its native layout."""
     row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
     partition_slots = partition_slots_from_mesh(
         mesh,
@@ -679,8 +759,8 @@ def prepare_input_matrix_layout(
     )
     tile_shape = TileShape(rows=int(tile_size), cols=int(tile_size))
     padding = prepare_rectangular_matrix_layout(
-        int(a.shape[0]),
-        int(a.shape[1]),
+        logical_rows,
+        logical_cols,
         grid,
         tile_shape,
         pad=pad,
@@ -689,10 +769,7 @@ def prepare_input_matrix_layout(
     return PreparedMatrixLayout(
         mesh,
         matrix_specs,
-        P(None, None)
-        if input_sharding is not None
-        and not any(axis is not None for axis in input_sharding.spec)
-        else matrix_specs,
+        result_specs,
         status_specs(row_axis, col_axis, grid),
         grid,
         partition_slots,
@@ -701,12 +778,30 @@ def prepare_input_matrix_layout(
     )
 
 
+def mark_varying(value: Array, axes: tuple[str, ...]) -> Array:
+    """Type a shard-local value as varying over the matrix mesh axes.
+
+    ``ffi_call`` types its outputs as invariant under ``check_vma=True``, even
+    though every rank holds different data. Only the axes that are not yet
+    varying are cast, because ``pcast`` rejects an already-varying axis; with
+    ``check_vma=False`` the cast is a no-op.
+    """
+    missing = tuple(
+        axis
+        for axis in axes
+        if axis not in jax.typeof(value).manual_axis_type.varying
+    )
+    if not missing:
+        return value
+    return jax.lax.pcast(value, missing, to="varying")
+
+
 # -----------------------------------------------------------------------------
 # Local padding transforms
 # -----------------------------------------------------------------------------
 
 
-def _pad_local_2d(block: Array, *, row_padding: int, col_padding: int) -> Array:
+def pad_local_2d(block: Array, *, row_padding: int, col_padding: int) -> Array:
     """Pad one local shard on its bottom and right edges.
 
     Args:
@@ -723,7 +818,7 @@ def _pad_local_2d(block: Array, *, row_padding: int, col_padding: int) -> Array:
     return jnp.pad(block, ((0, row_padding), (0, col_padding)))
 
 
-def _unpad_local_2d(block: Array, *, local_rows: int, local_cols: int) -> Array:
+def unpad_local_2d(block: Array, *, local_rows: int, local_cols: int) -> Array:
     """Slice one local shard back to its logical unpadded shape.
 
     Args:
@@ -759,7 +854,7 @@ def make_local_pad_fn(
         return place
     pad = jax.shard_map(
         functools.partial(
-            _pad_local_2d,
+            pad_local_2d,
             row_padding=padding.row_padding_per_process,
             col_padding=padding.col_padding_per_process,
         ),
@@ -777,7 +872,7 @@ def make_local_unpad_fn(
     """Build the shard-local slice that restores a matrix's logical shape."""
     return jax.shard_map(
         functools.partial(
-            _unpad_local_2d,
+            unpad_local_2d,
             local_rows=padding.local_logical_rows,
             local_cols=padding.local_logical_cols,
         ),

@@ -49,7 +49,7 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import potrs, potrs_shardmap_ctx
+from jaxmg import potrs, potrs_jit_ctx, potrs_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_POTRS_STATUS_SIZE
 
 
@@ -89,7 +89,7 @@ def run_singular_case(dtype) -> None:
     b_dev = jax.device_put(b, NamedSharding(mesh, P(None)))
 
     result = jax.jit(
-        lambda _a, _b: potrs_shardmap_ctx(
+        lambda _a, _b: potrs_jit_ctx(
             _a,
             _b,
             SINGULAR_TILE_SIZE,
@@ -252,7 +252,7 @@ def run_case() -> None:
             static_argnames=("tile_size",),
         )
         def solve(_a, _b, *, tile_size):
-            return potrs_shardmap_ctx(
+            return potrs_jit_ctx(
                 _a,
                 _b,
                 tile_size,
@@ -263,6 +263,39 @@ def run_case() -> None:
 
         a_work, out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
         a_work.block_until_ready()
+    elif interface == "shardmap":
+        # The caller owns jit and shard_map; JAXMg solves the local blocks, and
+        # the solution keeps the sharding of B.
+        status_specs = P(tuple(axis for axis in matrix_specs if axis is not None))
+        out_specs = (matrix_specs, rhs_specs)
+        if return_logdet:
+            out_specs += (P(),)
+
+        @partial(
+            jax.jit,
+            donate_argnums=(0, 1),
+            static_argnames=("tile_size",),
+        )
+        def solve(_a, _b, *, tile_size):
+            return jax.shard_map(
+                partial(
+                    potrs_shardmap_ctx,
+                    T_A=tile_size,
+                    matrix_specs=matrix_specs,
+                    return_logdet=return_logdet,
+                ),
+                mesh=mesh,
+                in_specs=(matrix_specs, rhs_specs),
+                out_specs=out_specs + (status_specs,),
+            )(_a, _b)
+
+        result = solve(a_dev, b_dev, tile_size=case.tile_size)
+        if return_logdet:
+            _, out, logdet, status = result
+            logdet.block_until_ready()
+        else:
+            _, out, status = result
+        expected_output_sharding = NamedSharding(mesh, rhs_specs)
     else:
         def solve(_a, _b, *, tile_size):
             if single_axis:

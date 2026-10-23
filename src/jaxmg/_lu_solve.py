@@ -25,7 +25,7 @@ from ._cusolvermp_layout import (
     prepare_input_matrix_layout,
     prepare_matrix_padding,
     use_abstract_mesh_decorator,
-    place_rhs_for_native_work,
+    place_for_native_work,
     restore_rhs_from_native_work,
     rhs_distribution_columns,
 )
@@ -384,7 +384,7 @@ def _lu_solve_pipeline(
         # The public API permits RHS sharding that differs from A, such as a
         # replicated RHS-column axis. Native redistribution consumes the
         # matrix work sharding before shard-local tile-capacity padding.
-        b_distribution = place_rhs_for_native_work(
+        b_distribution = place_for_native_work(
             b_distribution,
             mesh=mesh,
             matrix_specs=matrix_specs,
