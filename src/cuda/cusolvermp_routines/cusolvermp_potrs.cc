@@ -34,6 +34,7 @@
 
 #include "cusolvermp_common.h"
 #include "cusolvermp_routines.h"
+#include "factorization.h"
 #include "potrs_logdet.h"
 
 namespace xla::gpu {
@@ -42,8 +43,8 @@ namespace {
 // Executes the cuSOLVERMp Cholesky factorization and triangular solve.
 //
 // Inputs have already been converted into cuSOLVERMp local 2D block-cyclic
-// storage by memory_redist. This helper owns the solver descriptors,
-// workspaces, info buffers, and POTRF/POTRS calls. It returns cuSOLVERMp
+// storage by memory_redist. This helper owns the matrix descriptors and solve
+// workspace; RunCholeskyFactorization manages the shared POTRF step. It returns
 // execution and factorization status without computing a numerical residual.
 template <typename DataType>
 absl::Status RunCusolverMpDistributedPotrs(
@@ -101,40 +102,19 @@ absl::Status RunCusolverMpDistributedPotrs(
     return absl::OkStatus();
   }
 
-  void* d_potrf_work = nullptr;
   void* d_potrs_work = nullptr;
-  void* h_potrf_work = nullptr;
   void* h_potrs_work = nullptr;
-  int* d_potrf_info = nullptr;
   int* d_potrs_info = nullptr;
   auto cleanup = [&]() {
-    if (d_potrf_work != nullptr) cudaFree(d_potrf_work);
     if (d_potrs_work != nullptr) cudaFree(d_potrs_work);
-    if (d_potrf_info != nullptr) cudaFree(d_potrf_info);
     if (d_potrs_info != nullptr) cudaFree(d_potrs_info);
-    if (h_potrf_work != nullptr) std::free(h_potrf_work);
     if (h_potrs_work != nullptr) std::free(h_potrs_work);
     api.destroy_matrix_desc(desc_b);
     api.destroy_matrix_desc(desc_a);
   };
 
-  size_t potrf_workspace_device = 0;
-  size_t potrf_workspace_host = 0;
   size_t potrs_workspace_device = 0;
   size_t potrs_workspace_host = 0;
-  status = api.potrf_buffer_size(
-      handle, CUBLAS_FILL_MODE_LOWER, n, a_out->untyped_data(), /*ia=*/1,
-      /*ja=*/1, desc_a, SolverTraits<DataType>::cuda_data_type,
-      &potrf_workspace_device, &potrf_workspace_host);
-  if (status != CUSOLVER_STATUS_SUCCESS) {
-    (*status_words)[0] = kPotrfWorkspaceFailed;
-    (*status_words)[11] = static_cast<int32_t>(status);
-    cleanup();
-    return absl::OkStatus();
-  }
-  (*status_words)[22] = SizeToKiBForStatus(potrf_workspace_device);
-  (*status_words)[23] = SizeToKiBForStatus(potrf_workspace_host);
-
   status = api.potrs_buffer_size(
       handle, CUBLAS_FILL_MODE_LOWER, n, nrhs, a_out->untyped_data(),
       /*ia=*/1, /*ja=*/1, desc_a, b_out->untyped_data(), /*ib=*/1,
@@ -150,14 +130,6 @@ absl::Status RunCusolverMpDistributedPotrs(
   (*status_words)[25] = SizeToKiBForStatus(potrs_workspace_host);
 
   cudaError_t cuda_status = cudaSuccess;
-  if (potrf_workspace_device > 0) {
-    cuda_status = cudaMalloc(&d_potrf_work, potrf_workspace_device);
-    if (cuda_status != cudaSuccess) {
-      (*status_words)[0] = kDeviceAllocFailed;
-      cleanup();
-      return absl::OkStatus();
-    }
-  }
   if (potrs_workspace_device > 0) {
     cuda_status = cudaMalloc(&d_potrs_work, potrs_workspace_device);
     if (cuda_status != cudaSuccess) {
@@ -166,27 +138,12 @@ absl::Status RunCusolverMpDistributedPotrs(
       return absl::OkStatus();
     }
   }
-  cuda_status = cudaMalloc(reinterpret_cast<void**>(&d_potrf_info),
-                           sizeof(int));
-  if (cuda_status != cudaSuccess) {
-    (*status_words)[0] = kDeviceAllocFailed;
-    cleanup();
-    return absl::OkStatus();
-  }
   cuda_status = cudaMalloc(reinterpret_cast<void**>(&d_potrs_info),
                            sizeof(int));
   if (cuda_status != cudaSuccess) {
     (*status_words)[0] = kDeviceAllocFailed;
     cleanup();
     return absl::OkStatus();
-  }
-  if (potrf_workspace_host > 0) {
-    h_potrf_work = std::malloc(potrf_workspace_host);
-    if (h_potrf_work == nullptr) {
-      (*status_words)[0] = kHostAllocFailed;
-      cleanup();
-      return absl::OkStatus();
-    }
   }
   if (potrs_workspace_host > 0) {
     h_potrs_work = std::malloc(potrs_workspace_host);
@@ -200,35 +157,18 @@ absl::Status RunCusolverMpDistributedPotrs(
   JAXMG_RETURN_IF_ERROR(CopyAnyBufferToOutputIfNeeded(cuda_stream, a, a_out));
   JAXMG_RETURN_IF_ERROR(CopyAnyBufferToOutputIfNeeded(cuda_stream, b, b_out));
   JAXMG_RETURN_IF_CUDA_ERROR(
-      cudaMemsetAsync(d_potrf_info, 0, sizeof(int), cuda_stream));
-  JAXMG_RETURN_IF_CUDA_ERROR(
       cudaMemsetAsync(d_potrs_info, 0, sizeof(int), cuda_stream));
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
-  status = api.potrf(handle, CUBLAS_FILL_MODE_LOWER, n, a_out->untyped_data(),
-                     /*ia=*/1, /*ja=*/1, desc_a,
-                     SolverTraits<DataType>::cuda_data_type, d_potrf_work,
-                     potrf_workspace_device, h_potrf_work,
-                     potrf_workspace_host, d_potrf_info);
-  if (status != CUSOLVER_STATUS_SUCCESS) {
-    (*status_words)[0] = kPotrfFailed;
-    (*status_words)[11] = static_cast<int32_t>(status);
+  // Factor A once; the shared helper releases only its temporary workspace.
+  // The descriptor remains available for the subsequent solve.
+  const absl::Status factor_status = RunCholeskyFactorization(
+      api, handle, desc_a, cuda_stream, n, a_out->untyped_data(),
+      SolverTraits<DataType>::cuda_data_type,
+      {(*status_words)[0], (*status_words)[11], (*status_words)[22],
+       (*status_words)[23], (*status_words)[26], (*status_words)[27]});
+  if (!factor_status.ok() || (*status_words)[0] != kStatusOk) {
     cleanup();
-    return absl::OkStatus();
-  }
-  (*status_words)[26] = 1;
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
-
-  int h_potrf_info = -1;
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
-      &h_potrf_info, d_potrf_info, sizeof(int), cudaMemcpyDeviceToHost,
-      cuda_stream));
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
-  (*status_words)[27] = h_potrf_info;
-  if (h_potrf_info != 0) {
-    (*status_words)[0] = kPotrfInfoNonzero;
-    cleanup();
-    return absl::OkStatus();
+    return factor_status;
   }
 
   status = api.potrs(handle, CUBLAS_FILL_MODE_LOWER, n, nrhs,

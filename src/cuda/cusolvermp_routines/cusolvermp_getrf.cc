@@ -30,7 +30,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdlib>
 #include <memory>
 #include <string>
 #include <vector>
@@ -38,6 +37,7 @@
 #include "cusolvermp_common.h"
 #include "cusolvermp_routines.h"
 #include "factor_extract.h"
+#include "factorization.h"
 
 namespace xla::gpu {
 namespace {
@@ -58,10 +58,7 @@ absl::Status RunCusolverMpGetrf(
     int32_t process_row, int32_t process_col,
     ffi::Result<ffi::AnyBuffer> lu_out, int64_t* d_ipiv, size_t ipiv_bytes,
     std::array<int32_t, kGetrfStatusSize>* status_words) {
-  const int debug_rank = (*status_words)[2];
-  const int64_t leading_dimension = lu_out->dimensions()[0];
-
-  CusolverMpDebug(debug_rank,
+  CusolverMpDebug((*status_words)[2],
                   "getrf enter n=%lld tile=%lld process_coord=(%d,%d) "
                   "dtype=%d",
                   static_cast<long long>(n), static_cast<long long>(tile_size),
@@ -69,126 +66,30 @@ absl::Status RunCusolverMpGetrf(
                   static_cast<int>(SolverTraits<DataType>::cuda_data_type));
 
   cusolverMpMatrixDescriptor_t desc_a = nullptr;
-  void* d_work = nullptr;
-  void* h_work = nullptr;
-  int* d_info = nullptr;
-
-  auto cleanup = [&]() {
-    if (d_work != nullptr) cudaFree(d_work);
-    if (d_info != nullptr) cudaFree(d_info);
-    if (h_work != nullptr) std::free(h_work);
-    if (desc_a != nullptr) {
-      const cusolverStatus_t destroy_status = api.destroy_matrix_desc(desc_a);
-      if (destroy_status != CUSOLVER_STATUS_SUCCESS &&
-          (*status_words)[0] == kStatusOk) {
-        (*status_words)[0] = kDestroyMatrixDescFailed;
-        (*status_words)[11] = static_cast<int32_t>(destroy_status);
-      }
-    }
-  };
-  auto cuda_error_after_cleanup = [&](cudaError_t cuda_status,
-                                      const char* caller) -> absl::Status {
-    cleanup();
-    return absl::InternalError(absl::StrFormat(
-        "%s failed: cuda status %d (%s)", caller, static_cast<int>(cuda_status),
-        cudaGetErrorString(cuda_status)));
-  };
-
-  cusolverStatus_t solver_status = api.create_matrix_desc(
+  const cusolverStatus_t solver_status = api.create_matrix_desc(
       &desc_a, grid, SolverTraits<DataType>::cuda_data_type, n, n, tile_size,
-      tile_size, /*RSRC_A=*/0, /*CSRC_A=*/0, leading_dimension);
+      tile_size, /*RSRC_A=*/0, /*CSRC_A=*/0, lu_out->dimensions()[0]);
   if (solver_status != CUSOLVER_STATUS_SUCCESS || desc_a == nullptr) {
     (*status_words)[0] = kCreateMatrixDescFailed;
     (*status_words)[11] = static_cast<int32_t>(solver_status);
-    cleanup();
+    if (desc_a != nullptr) api.destroy_matrix_desc(desc_a);
     return absl::OkStatus();
   }
   (*status_words)[10] = 1;
 
-  size_t workspace_device = 0;
-  size_t workspace_host = 0;
-  solver_status = api.getrf_buffer_size(
-      handle, n, n, lu_out->untyped_data(), /*ia=*/1, /*ja=*/1, desc_a, d_ipiv,
-      SolverTraits<DataType>::cuda_data_type, &workspace_device,
-      &workspace_host);
-  if (solver_status != CUSOLVER_STATUS_SUCCESS) {
-    (*status_words)[0] = kGetrfWorkspaceFailed;
-    (*status_words)[11] = static_cast<int32_t>(solver_status);
-    cleanup();
-    return absl::OkStatus();
+  // The caller retains the native pivots for gathering after factorization.
+  const absl::Status result = RunLuFactorization(
+      api, handle, desc_a, cuda_stream, n, lu_out->untyped_data(),
+      SolverTraits<DataType>::cuda_data_type, d_ipiv, ipiv_bytes,
+      {(*status_words)[0], (*status_words)[11], (*status_words)[19],
+       (*status_words)[20], (*status_words)[21], (*status_words)[22]});
+  const cusolverStatus_t destroy_status = api.destroy_matrix_desc(desc_a);
+  if (destroy_status != CUSOLVER_STATUS_SUCCESS &&
+      (*status_words)[0] == kStatusOk) {
+    (*status_words)[0] = kDestroyMatrixDescFailed;
+    (*status_words)[11] = static_cast<int32_t>(destroy_status);
   }
-  (*status_words)[19] = SizeToKiBForStatus(workspace_device);
-  (*status_words)[20] = SizeToKiBForStatus(workspace_host);
-
-  cudaError_t cuda_status = cudaSuccess;
-  if (workspace_device > 0) {
-    cuda_status = cudaMalloc(&d_work, workspace_device);
-    if (cuda_status != cudaSuccess) {
-      (*status_words)[0] = kDeviceAllocFailed;
-      cleanup();
-      return absl::OkStatus();
-    }
-  }
-  if (workspace_host > 0) {
-    h_work = std::malloc(workspace_host);
-    if (h_work == nullptr) {
-      (*status_words)[0] = kHostAllocFailed;
-      cleanup();
-      return absl::OkStatus();
-    }
-  }
-  cuda_status = cudaMalloc(reinterpret_cast<void**>(&d_info), sizeof(int));
-  if (cuda_status != cudaSuccess) {
-    (*status_words)[0] = kDeviceAllocFailed;
-    cleanup();
-    return absl::OkStatus();
-  }
-  // Fill the pivots with -1 so entries GETRF never writes stay recognizable
-  // and are skipped by the pivot gather.
-  cuda_status = cudaMemsetAsync(d_ipiv, 0xFF, ipiv_bytes, cuda_stream);
-  if (cuda_status == cudaSuccess) {
-    cuda_status = cudaMemsetAsync(d_info, 0, sizeof(int), cuda_stream);
-  }
-  if (cuda_status == cudaSuccess) {
-    cuda_status = cudaStreamSynchronize(cuda_stream);
-  }
-  if (cuda_status != cudaSuccess) {
-    return cuda_error_after_cleanup(cuda_status,
-                                    "cusolvermp_getrf setup synchronize");
-  }
-
-  solver_status = api.getrf(
-      handle, n, n, lu_out->untyped_data(), /*ia=*/1, /*ja=*/1, desc_a, d_ipiv,
-      SolverTraits<DataType>::cuda_data_type, d_work, workspace_device, h_work,
-      workspace_host, d_info);
-  if (solver_status != CUSOLVER_STATUS_SUCCESS) {
-    (*status_words)[0] = kGetrfFailed;
-    (*status_words)[11] = static_cast<int32_t>(solver_status);
-    cleanup();
-    return absl::OkStatus();
-  }
-  (*status_words)[21] = 1;
-  cuda_status = cudaStreamSynchronize(cuda_stream);
-  if (cuda_status != cudaSuccess) {
-    return cuda_error_after_cleanup(cuda_status,
-                                    "cusolvermp_getrf GETRF synchronize");
-  }
-  int h_info = -1;
-  cuda_status = cudaMemcpyAsync(&h_info, d_info, sizeof(int),
-                                cudaMemcpyDeviceToHost, cuda_stream);
-  if (cuda_status == cudaSuccess) {
-    cuda_status = cudaStreamSynchronize(cuda_stream);
-  }
-  if (cuda_status != cudaSuccess) {
-    return cuda_error_after_cleanup(cuda_status, "cusolvermp_getrf info copy");
-  }
-  (*status_words)[22] = h_info;
-  // info > 0 means U has an exactly zero diagonal entry. The factorization is
-  // complete, but like every other jaxmg routine it is reported as a failure.
-  if (h_info != 0) (*status_words)[0] = kGetrfInfoNonzero;
-
-  cleanup();
-  return absl::OkStatus();
+  return result;
 }
 
 // Prints this rank's raw GETRF pivots when JAXMG_CUSOLVERMP_DEBUG is set, so
@@ -380,11 +281,10 @@ absl::Status RunCusolverMpGetrfSolver(
   status_words[17] = static_cast<int32_t>(numroc_rows);
   status_words[18] = static_cast<int32_t>(numroc_cols);
 
-  // The cuSOLVERMp documentation sizes ipiv as LOCr(N)+MB, tied to the rows of
-  // A, while NVIDIA's GETRF sample allocates LOCc(N), tied to its columns.
-  // Allocate enough for either reading. Local failures only set the status so
-  // every rank still reaches the shared status agreement below.
-  const int64_t ipiv_len = std::max(numroc_cols, numroc_rows + tile_size);
+  // Share the pivot capacity policy with LU solve. Local failures only set
+  // the status so every rank reaches the shared status agreement below.
+  const int64_t ipiv_len =
+      LuPivotAllocationLength(numroc_rows, numroc_cols, tile_size);
   const size_t ipiv_bytes = static_cast<size_t>(ipiv_len) * sizeof(int64_t);
   status_words[23] = static_cast<int32_t>(ipiv_len);
   status_words[24] = SizeToKiBForStatus(ipiv_bytes);

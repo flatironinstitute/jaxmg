@@ -78,6 +78,8 @@ cc_binary(
         "cusolvermp_routines/cusolvermp_potrs.cc",
         "cusolvermp_routines/cusolvermp_polar.cc",
         "cusolvermp_routines/factor_extract.h",
+        "cusolvermp_routines/factorization.cc",
+        "cusolvermp_routines/factorization.h",
         "cusolvermp_routines/potrs_logdet.h",
         "cusolvermp_routines/qr_extract.h",
         "cusolvermp_routines/result_fill.h",

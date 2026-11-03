@@ -34,6 +34,7 @@
 
 #include "cusolvermp_common.h"
 #include "cusolvermp_routines.h"
+#include "factorization.h"
 
 namespace xla::gpu {
 namespace {
@@ -41,9 +42,9 @@ namespace {
 // Executes the cuSOLVERMp LU factorization and linear solve.
 //
 // Inputs have already been converted into cuSOLVERMp local 2D block-cyclic
-// storage by memory_redist. This helper owns the solver descriptors,
-// workspaces, info buffers, and GETRF/GETRS calls. It returns cuSOLVERMp
-// execution and factorization status without computing a numerical residual.
+// storage by memory_redist. This helper owns the descriptors, native pivots,
+// and solve workspace; RunLuFactorization manages the shared GETRF step. It
+// returns execution and factorization status without a numerical residual.
 template <typename DataType>
 absl::Status RunCusolverMpDistributedLuSolve(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
@@ -100,28 +101,22 @@ absl::Status RunCusolverMpDistributedLuSolve(
   }
 
   int64_t* d_ipiv = nullptr;
-  void* d_getrf_work = nullptr;
   void* d_getrs_work = nullptr;
-  void* h_getrf_work = nullptr;
   void* h_getrs_work = nullptr;
-  int* d_getrf_info = nullptr;
   int* d_getrs_info = nullptr;
   auto cleanup = [&]() {
     if (d_ipiv != nullptr) cudaFree(d_ipiv);
-    if (d_getrf_work != nullptr) cudaFree(d_getrf_work);
     if (d_getrs_work != nullptr) cudaFree(d_getrs_work);
-    if (d_getrf_info != nullptr) cudaFree(d_getrf_info);
     if (d_getrs_info != nullptr) cudaFree(d_getrs_info);
-    if (h_getrf_work != nullptr) std::free(h_getrf_work);
     if (h_getrs_work != nullptr) std::free(h_getrs_work);
     api.destroy_matrix_desc(desc_b);
     api.destroy_matrix_desc(desc_a);
   };
 
-  // cuSOLVERMp GETRF writes one pivot entry per locally owned matrix column,
-  // LOCc(N_A). On a P x 1 grid every rank owns all columns, so sizing this from
-  // local rows would underallocate the pivot buffer.
-  const int64_t ipiv_len = local_cols_a;
+  // Retain the native pivots through GETRS, using the factor-only allocation
+  // policy for both row- and column-distributed grids.
+  const int64_t ipiv_len =
+      LuPivotAllocationLength(local_rows, local_cols_a, tile_size);
   const size_t ipiv_bytes =
       static_cast<size_t>(ipiv_len) * sizeof(int64_t);
   (*status_words)[33] = static_cast<int32_t>(ipiv_len);
@@ -134,23 +129,8 @@ absl::Status RunCusolverMpDistributedLuSolve(
     return absl::OkStatus();
   }
 
-  size_t getrf_workspace_device = 0;
-  size_t getrf_workspace_host = 0;
   size_t getrs_workspace_device = 0;
   size_t getrs_workspace_host = 0;
-  status = api.getrf_buffer_size(
-      handle, n, n, a_out->untyped_data(), /*ia=*/1, /*ja=*/1, desc_a,
-      d_ipiv, SolverTraits<DataType>::cuda_data_type,
-      &getrf_workspace_device, &getrf_workspace_host);
-  if (status != CUSOLVER_STATUS_SUCCESS) {
-    (*status_words)[0] = kGetrfWorkspaceFailed;
-    (*status_words)[11] = static_cast<int32_t>(status);
-    cleanup();
-    return absl::OkStatus();
-  }
-  (*status_words)[22] = SizeToKiBForStatus(getrf_workspace_device);
-  (*status_words)[23] = SizeToKiBForStatus(getrf_workspace_host);
-
   status = api.getrs_buffer_size(
       handle, CUBLAS_OP_N, n, nrhs, a_out->untyped_data(), /*ia=*/1,
       /*ja=*/1, desc_a, d_ipiv, b_out->untyped_data(), /*ib=*/1, /*jb=*/1,
@@ -165,14 +145,6 @@ absl::Status RunCusolverMpDistributedLuSolve(
   (*status_words)[24] = SizeToKiBForStatus(getrs_workspace_device);
   (*status_words)[25] = SizeToKiBForStatus(getrs_workspace_host);
 
-  if (getrf_workspace_device > 0) {
-    cuda_status = cudaMalloc(&d_getrf_work, getrf_workspace_device);
-    if (cuda_status != cudaSuccess) {
-      (*status_words)[0] = kDeviceAllocFailed;
-      cleanup();
-      return absl::OkStatus();
-    }
-  }
   if (getrs_workspace_device > 0) {
     cuda_status = cudaMalloc(&d_getrs_work, getrs_workspace_device);
     if (cuda_status != cudaSuccess) {
@@ -181,27 +153,12 @@ absl::Status RunCusolverMpDistributedLuSolve(
       return absl::OkStatus();
     }
   }
-  cuda_status = cudaMalloc(reinterpret_cast<void**>(&d_getrf_info),
-                           sizeof(int));
-  if (cuda_status != cudaSuccess) {
-    (*status_words)[0] = kDeviceAllocFailed;
-    cleanup();
-    return absl::OkStatus();
-  }
   cuda_status = cudaMalloc(reinterpret_cast<void**>(&d_getrs_info),
                            sizeof(int));
   if (cuda_status != cudaSuccess) {
     (*status_words)[0] = kDeviceAllocFailed;
     cleanup();
     return absl::OkStatus();
-  }
-  if (getrf_workspace_host > 0) {
-    h_getrf_work = std::malloc(getrf_workspace_host);
-    if (h_getrf_work == nullptr) {
-      (*status_words)[0] = kHostAllocFailed;
-      cleanup();
-      return absl::OkStatus();
-    }
   }
   if (getrs_workspace_host > 0) {
     h_getrs_work = std::malloc(getrs_workspace_host);
@@ -215,37 +172,18 @@ absl::Status RunCusolverMpDistributedLuSolve(
   JAXMG_RETURN_IF_ERROR(CopyAnyBufferToOutputIfNeeded(cuda_stream, a, a_out));
   JAXMG_RETURN_IF_ERROR(CopyAnyBufferToOutputIfNeeded(cuda_stream, b, b_out));
   JAXMG_RETURN_IF_CUDA_ERROR(
-      cudaMemsetAsync(d_ipiv, 0, ipiv_bytes, cuda_stream));
-  JAXMG_RETURN_IF_CUDA_ERROR(
-      cudaMemsetAsync(d_getrf_info, 0, sizeof(int), cuda_stream));
-  JAXMG_RETURN_IF_CUDA_ERROR(
       cudaMemsetAsync(d_getrs_info, 0, sizeof(int), cuda_stream));
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
-  status = api.getrf(handle, n, n, a_out->untyped_data(), /*ia=*/1,
-                     /*ja=*/1, desc_a, d_ipiv,
-                     SolverTraits<DataType>::cuda_data_type, d_getrf_work,
-                     getrf_workspace_device, h_getrf_work,
-                     getrf_workspace_host, d_getrf_info);
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
-  if (status != CUSOLVER_STATUS_SUCCESS) {
-    (*status_words)[0] = kGetrfFailed;
-    (*status_words)[11] = static_cast<int32_t>(status);
+  // Factor A once; the shared helper releases only its temporary workspace.
+  // The descriptor and native pivots remain available for the subsequent solve.
+  const absl::Status factor_status = RunLuFactorization(
+      api, handle, desc_a, cuda_stream, n, a_out->untyped_data(),
+      SolverTraits<DataType>::cuda_data_type, d_ipiv, ipiv_bytes,
+      {(*status_words)[0], (*status_words)[11], (*status_words)[22],
+       (*status_words)[23], (*status_words)[26], (*status_words)[27]});
+  if (!factor_status.ok() || (*status_words)[0] != kStatusOk) {
     cleanup();
-    return absl::OkStatus();
-  }
-  (*status_words)[26] = 1;
-
-  int h_getrf_info = -1;
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
-      &h_getrf_info, d_getrf_info, sizeof(int), cudaMemcpyDeviceToHost,
-      cuda_stream));
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
-  (*status_words)[27] = h_getrf_info;
-  if (h_getrf_info != 0) {
-    (*status_words)[0] = kGetrfInfoNonzero;
-    cleanup();
-    return absl::OkStatus();
+    return factor_status;
   }
 
   status = api.getrs(handle, CUBLAS_OP_N, n, nrhs, a_out->untyped_data(),

@@ -25,11 +25,11 @@
 //   3. Reverse-redistribute L and restore row-major JAX storage.
 
 #include <array>
-#include <cstdlib>
 
 #include "cusolvermp_common.h"
 #include "cusolvermp_routines.h"
 #include "factor_extract.h"
+#include "factorization.h"
 
 namespace xla::gpu {
 namespace {
@@ -41,11 +41,9 @@ absl::Status RunCusolverMpPotrf(
     int32_t process_row, int32_t process_col,
     ffi::Result<ffi::AnyBuffer> a_out,
     std::array<int32_t, kPotrfStatusSize>* status_words) {
-  const int debug_rank = (*status_words)[2];
   const int32_t process_rows = (*status_words)[4];
   const int32_t process_cols = (*status_words)[5];
   const int64_t leading_dimension = a_out->dimensions()[0];
-
   const int64_t numroc_rows =
       LocalNumroc(n, tile_size, process_row, process_rows);
   const int64_t numroc_cols =
@@ -58,7 +56,7 @@ absl::Status RunCusolverMpPotrf(
     return absl::OkStatus();
   }
 
-  CusolverMpDebug(debug_rank,
+  CusolverMpDebug((*status_words)[2],
                   "potrf enter n=%lld tile=%lld process_coord=(%d,%d) "
                   "dtype=%d",
                   static_cast<long long>(n), static_cast<long long>(tile_size),
@@ -66,144 +64,50 @@ absl::Status RunCusolverMpPotrf(
                   static_cast<int>(SolverTraits<DataType>::cuda_data_type));
 
   cusolverMpMatrixDescriptor_t desc_a = nullptr;
-  void* d_work = nullptr;
-  void* h_work = nullptr;
-  int* d_info = nullptr;
-
-  auto cleanup = [&]() {
-    if (d_work != nullptr) cudaFree(d_work);
-    if (d_info != nullptr) cudaFree(d_info);
-    if (h_work != nullptr) std::free(h_work);
-    if (desc_a != nullptr) {
-      const cusolverStatus_t destroy_status = api.destroy_matrix_desc(desc_a);
-      if (destroy_status != CUSOLVER_STATUS_SUCCESS &&
-          (*status_words)[0] == kStatusOk) {
-        (*status_words)[0] = kDestroyMatrixDescFailed;
-        (*status_words)[11] = static_cast<int32_t>(destroy_status);
-      }
-    }
-  };
-  auto cuda_error_after_cleanup = [&](cudaError_t cuda_status,
-                                      const char* caller) -> absl::Status {
-    cleanup();
-    return absl::InternalError(absl::StrFormat(
-        "%s failed: cuda status %d (%s)", caller, static_cast<int>(cuda_status),
-        cudaGetErrorString(cuda_status)));
-  };
-
-  cusolverStatus_t solver_status = api.create_matrix_desc(
+  const cusolverStatus_t solver_status = api.create_matrix_desc(
       &desc_a, grid, SolverTraits<DataType>::cuda_data_type, n, n, tile_size,
       tile_size, /*RSRC_A=*/0, /*CSRC_A=*/0, leading_dimension);
   if (solver_status != CUSOLVER_STATUS_SUCCESS || desc_a == nullptr) {
     (*status_words)[0] = kCreateMatrixDescFailed;
     (*status_words)[11] = static_cast<int32_t>(solver_status);
-    cleanup();
+    if (desc_a != nullptr) api.destroy_matrix_desc(desc_a);
     return absl::OkStatus();
   }
   (*status_words)[10] = 1;
 
-  size_t workspace_device = 0;
-  size_t workspace_host = 0;
-  solver_status = api.potrf_buffer_size(
-      handle, CUBLAS_FILL_MODE_LOWER, n, a_out->untyped_data(), /*ia=*/1,
-      /*ja=*/1, desc_a, SolverTraits<DataType>::cuda_data_type,
-      &workspace_device, &workspace_host);
-  if (solver_status != CUSOLVER_STATUS_SUCCESS) {
-    (*status_words)[0] = kPotrfWorkspaceFailed;
-    (*status_words)[11] = static_cast<int32_t>(solver_status);
-    cleanup();
-    return absl::OkStatus();
-  }
-  (*status_words)[19] = SizeToKiBForStatus(workspace_device);
-  (*status_words)[20] = SizeToKiBForStatus(workspace_host);
+  // Stage 1: use the same native factorization as the Cholesky solve.
+  absl::Status result = RunCholeskyFactorization(
+      api, handle, desc_a, cuda_stream, n, a_out->untyped_data(),
+      SolverTraits<DataType>::cuda_data_type,
+      {(*status_words)[0], (*status_words)[11], (*status_words)[19],
+       (*status_words)[20], (*status_words)[21], (*status_words)[22]});
 
-  cudaError_t cuda_status = cudaSuccess;
-  if (workspace_device > 0) {
-    cuda_status = cudaMalloc(&d_work, workspace_device);
+  // Stage 2: only factor-only calls need a clean upper triangle for public L.
+  if (result.ok() && (*status_words)[0] == kStatusOk) {
+    cudaError_t cuda_status = ZeroDistributedStrictUpper(
+        cuda_stream, SolverTraits<DataType>::cuda_data_type,
+        a_out->untyped_data(), tile_size, process_rows, process_cols,
+        process_row, process_col, leading_dimension, numroc_rows, numroc_cols);
     if (cuda_status != cudaSuccess) {
-      (*status_words)[0] = kDeviceAllocFailed;
-      cleanup();
-      return absl::OkStatus();
+      (*status_words)[0] = kFactorExtractFailed;
+    } else {
+      cuda_status = cudaStreamSynchronize(cuda_stream);
+      if (cuda_status == cudaSuccess) {
+        (*status_words)[23] = 1;
+      } else {
+        result = absl::InternalError(absl::StrFormat(
+            "cusolvermp_potrf upper zero synchronize failed: %s",
+            cudaGetErrorString(cuda_status)));
+      }
     }
   }
-  if (workspace_host > 0) {
-    h_work = std::malloc(workspace_host);
-    if (h_work == nullptr) {
-      (*status_words)[0] = kHostAllocFailed;
-      cleanup();
-      return absl::OkStatus();
-    }
+  const cusolverStatus_t destroy_status = api.destroy_matrix_desc(desc_a);
+  if (destroy_status != CUSOLVER_STATUS_SUCCESS &&
+      (*status_words)[0] == kStatusOk) {
+    (*status_words)[0] = kDestroyMatrixDescFailed;
+    (*status_words)[11] = static_cast<int32_t>(destroy_status);
   }
-  cuda_status = cudaMalloc(reinterpret_cast<void**>(&d_info), sizeof(int));
-  if (cuda_status != cudaSuccess) {
-    (*status_words)[0] = kDeviceAllocFailed;
-    cleanup();
-    return absl::OkStatus();
-  }
-  cuda_status = cudaMemsetAsync(d_info, 0, sizeof(int), cuda_stream);
-  if (cuda_status != cudaSuccess) {
-    return cuda_error_after_cleanup(cuda_status,
-                                    "cusolvermp_potrf info initialization");
-  }
-  cuda_status = cudaStreamSynchronize(cuda_stream);
-  if (cuda_status != cudaSuccess) {
-    return cuda_error_after_cleanup(cuda_status,
-                                    "cusolvermp_potrf setup synchronize");
-  }
-
-  // Stage 1: overwrite the lower triangle with the Cholesky factor.
-  solver_status = api.potrf(
-      handle, CUBLAS_FILL_MODE_LOWER, n, a_out->untyped_data(), /*ia=*/1,
-      /*ja=*/1, desc_a, SolverTraits<DataType>::cuda_data_type, d_work,
-      workspace_device, h_work, workspace_host, d_info);
-  if (solver_status != CUSOLVER_STATUS_SUCCESS) {
-    (*status_words)[0] = kPotrfFailed;
-    (*status_words)[11] = static_cast<int32_t>(solver_status);
-    cleanup();
-    return absl::OkStatus();
-  }
-  (*status_words)[21] = 1;
-  cuda_status = cudaStreamSynchronize(cuda_stream);
-  if (cuda_status != cudaSuccess) {
-    return cuda_error_after_cleanup(cuda_status,
-                                    "cusolvermp_potrf POTRF synchronize");
-  }
-  int h_info = -1;
-  cuda_status = cudaMemcpyAsync(&h_info, d_info, sizeof(int),
-                                cudaMemcpyDeviceToHost, cuda_stream);
-  if (cuda_status == cudaSuccess) {
-    cuda_status = cudaStreamSynchronize(cuda_stream);
-  }
-  if (cuda_status != cudaSuccess) {
-    return cuda_error_after_cleanup(cuda_status, "cusolvermp_potrf info copy");
-  }
-  (*status_words)[22] = h_info;
-  if (h_info != 0) {
-    (*status_words)[0] = kPotrfInfoNonzero;
-    cleanup();
-    return absl::OkStatus();
-  }
-
-  // Stage 2: POTRF leaves A in the strict upper triangle; zero it so the
-  // public result is L itself.
-  cuda_status = ZeroDistributedStrictUpper(
-      cuda_stream, SolverTraits<DataType>::cuda_data_type,
-      a_out->untyped_data(), tile_size, process_rows, process_cols,
-      process_row, process_col, leading_dimension, numroc_rows, numroc_cols);
-  if (cuda_status != cudaSuccess) {
-    (*status_words)[0] = kFactorExtractFailed;
-    cleanup();
-    return absl::OkStatus();
-  }
-  cuda_status = cudaStreamSynchronize(cuda_stream);
-  if (cuda_status != cudaSuccess) {
-    return cuda_error_after_cleanup(cuda_status,
-                                    "cusolvermp_potrf upper zero synchronize");
-  }
-  (*status_words)[23] = 1;
-
-  cleanup();
-  return absl::OkStatus();
+  return result;
 }
 
 absl::Status RunCusolverMpPotrfSolver(
