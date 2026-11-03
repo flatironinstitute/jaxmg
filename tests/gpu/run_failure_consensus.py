@@ -11,6 +11,7 @@ from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 from cusolvermp_case_utils import (
     assert_rank_failure_with_nan,
     emit,
+    global_array_to_numpy,
     local_device_id_for_process,
     native_status_words,
     select_gpu_allocator,
@@ -52,15 +53,16 @@ def main():
         )
         # Only the last rank reports an error, after releasing its real handle.
         os.environ["JAXMG_TEST_FAIL_DESTROY"] = str(int(proc_id == num_procs - 1))
-        if routine == "potrs":
+        if routine in ("potrs", "lu_solve"):
             b = jax.device_put(
                 jnp.ones(n, dtype=jnp.float32), NamedSharding(mesh, P("pr"))
             )
-            *results, status = jaxmg.potrs(
-                a, b, tile_size, mesh=mesh, return_logdet=True, return_status=True
+            options = {"return_logdet": True} if routine == "potrs" else {}
+            *results, status = getattr(jaxmg, routine)(
+                a, b, tile_size, mesh=mesh, return_status=True, **options
             )
         else:
-            *results, status = jaxmg.syevd(
+            *results, status = getattr(jaxmg, routine)(
                 a, tile_size, mesh=mesh, return_status=True
             )
         status.block_until_ready()
@@ -70,6 +72,9 @@ def main():
             _cusolvermp_status, f"_CUSOLVERMP_{routine.upper()}_STATUS_SIZE"
         )
         words = native_status_words(status).reshape(num_procs, status_size)
+        if routine == "getrf":
+            pivots = results.pop()
+            assert np.all(global_array_to_numpy(pivots) == -1)
         # kDestroyHandleFailed is 16. Other diagnostics remain rank-local:
         # only the last rank saw CUSOLVER_STATUS_INTERNAL_ERROR (field 11).
         np.testing.assert_array_equal(words[:, 11], [0] * (num_procs - 1) + [7])

@@ -163,6 +163,10 @@ def run_case() -> None:
     assert np.all(words[21::size] == 1), words  # getrf_called
     assert np.all(words[22::size] == 0), words  # getrf_info
     assert np.all(words[25::size] == 1), words  # pivots_gathered
+    ranks = words.reshape(-1, size)
+    assert np.all(ranks[:, 19:21] >= 0), ranks  # GETRF workspace diagnostics
+    expected_ipiv_len = np.maximum(ranks[:, 18], ranks[:, 17] + case.tile_size)
+    np.testing.assert_array_equal(ranks[:, 23], expected_ipiv_len)
 
     if replicated_input:
         assert lu.sharding.is_fully_replicated

@@ -141,6 +141,7 @@ def run_case() -> None:
     assert np.all(words[21::size] == 1), words  # potrf_called
     assert np.all(words[22::size] == 0), words  # potrf_info
     assert np.all(words[23::size] == 1), words  # upper_zeroed
+    assert np.all(words.reshape(-1, size)[:, 19:21] >= 0), words
 
     if replicated_input:
         assert factor.sharding.is_fully_replicated
