@@ -307,128 +307,32 @@ absl::Status RunCusolverMpPotrsSolver(
     return CopyStatusToDevice(stream, status_words, status_out);
   };
 
-  // Stage 2: bind CUDA work to the device that owns this rank's local A shard.
-  // This avoids relying on ambient host-thread CUDA state, which is not stable
-  // across JAX's multi-device FFI callbacks.
-  absl::StatusOr<int> buffer_device = DeviceForCudaPointer(a.untyped_data());
-  if (!buffer_device.ok()) {
-    status_words[0] = kCudaDeviceFailed;
-    return publish_status();
-  }
-  int cuda_device = *buffer_device;
-  cudaError_t cuda_status = cudaSetDevice(cuda_device);
-  if (cuda_status != cudaSuccess) {
-    status_words[0] = kCudaDeviceFailed;
-    return publish_status();
-  }
-  status_words[1] = cuda_device;
-
-  // Stage 3: retrieve the communicator that XLA already created for the
-  // compiled program.  cuSOLVERMp receives the raw NCCL handle from that
-  // communicator; JAXMg does not create a separate NCCL communicator here.
-  if (collective_params == nullptr || collective_cliques == nullptr) {
-    status_words[0] = kCollectiveContextMissing;
-    return publish_status();
-  }
-
-  absl::StatusOr<GpuCliqueKey> clique_key =
-      AllAssignedDevicesP2PCliqueKey(*collective_params);
-  if (!clique_key.ok()) {
-    status_words[0] = kCliqueKeyFailed;
-    return publish_status();
-  }
-
-  absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
-      *clique_key, collective_params->global_device_id);
-  if (!gpu_comm.ok() || *gpu_comm == nullptr) {
-    status_words[0] = kCommunicatorMissing;
-    return publish_status();
-  }
-
-  void* platform_handle = (*gpu_comm)->platform_comm().handle;
-  if (platform_handle == nullptr) {
-    status_words[0] = kNcclHandleMissing;
-    return publish_status();
-  }
-  ncclComm_t nccl_comm = reinterpret_cast<ncclComm_t>(platform_handle);
-
-  int nccl_rank = -1;
-  int nccl_count = -1;
-  ncclResult_t rank_status = ncclCommUserRank(nccl_comm, &nccl_rank);
-  ncclResult_t count_status = ncclCommCount(nccl_comm, &nccl_count);
-  if (rank_status != ncclSuccess || count_status != ncclSuccess) {
-    status_words[0] = kNcclRankMismatch;
-    return publish_status();
-  }
-  status_words[2] = nccl_rank;
-  status_words[3] = nccl_count;
-
-  // Stage 4: validate that the requested cuSOLVERMp process grid matches the
-  // communicator size and that any explicit Python rank map is one of the two
-  // dense mappings cuSOLVERMp can describe directly.
-  if (process_rows <= 0 || process_cols <= 0 ||
-      process_rows * process_cols != nccl_count || n <= 0 || nrhs <= 0 ||
-      tile_size <= 0) {
+  // Stage 2: bind the matrix's device, borrow XLA's communicator, and create
+  // the matching cuSOLVERMp handle/grid. Matrix contracts stay routine-local.
+  if (n <= 0 || tile_size <= 0 || nrhs <= 0) {
     status_words[0] = kGridShapeMismatch;
     return publish_status();
   }
-  absl::Status grid_mapping_status =
-      ValidateCusolverMpGridMapping("cusolvermp_potrs", grid_mapping);
-  if (!grid_mapping_status.ok()) {
-    return grid_mapping_status;
+  CusolverMpExecution execution(absl::MakeSpan(status_words));
+  JAXMG_RETURN_IF_ERROR(execution.Initialize(
+      "cusolvermp_potrs", cuda_stream, a.untyped_data(),
+      process_rows, process_cols, grid_mapping, rank_map,
+      collective_params, collective_cliques));
+  if (status_words[0] != kStatusOk) {
+    execution.Close();
+    return publish_status();
   }
   status_words[39] = static_cast<int32_t>(grid_mapping);
-  if (!rank_map.empty()) {
-    absl::Status rank_map_status = ValidateStandardRankMapForGridMapping(
-        "cusolvermp_potrs", rank_map, process_rows, process_cols,
-        grid_mapping);
-    if (!rank_map_status.ok()) {
-      return rank_map_status;
-    }
-  }
-
-  // Stage 5: create the cuSOLVERMp handle/grid for this rank. The grid mapping
-  // value is passed through to cuSOLVERMp so row-major and
-  // column-major JAX mesh orders remain supported without an extra remap layer.
-  CusolverMpApi api = LinkedCusolverMpApi(&status_words);
-
-  cusolverMpHandle_t handle = nullptr;
-  cusolverStatus_t cusolver_status =
-      api.create(&handle, cuda_device, cuda_stream);
-  if (cusolver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
-    status_words[0] = kCreateHandleFailed;
-    status_words[11] = static_cast<int32_t>(cusolver_status);
-    return publish_status();
-  }
-  status_words[8] = 1;
-
-  int version = -1;
-  cusolver_status = api.get_version(handle, &version);
-  if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
-    status_words[0] = kGetVersionFailed;
-    status_words[11] = static_cast<int32_t>(cusolver_status);
-    api.destroy(handle);
-    return publish_status();
-  }
-  status_words[6] = version;
-
-  cusolverMpGrid_t grid = nullptr;
-  cusolver_status = api.create_grid(
-      handle, &grid, nccl_comm, static_cast<int32_t>(process_rows),
-      static_cast<int32_t>(process_cols),
-      ToCusolverMpGridMapping(grid_mapping));
-  if (cusolver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
-    status_words[0] = kCreateGridFailed;
-    status_words[11] = static_cast<int32_t>(cusolver_status);
-    api.destroy(handle);
-    return publish_status();
-  }
-  status_words[9] = 1;
+  const auto& api = execution.api;
+  const auto handle = execution.handle;
+  const auto grid = execution.grid;
+  const auto nccl_comm = execution.nccl_comm;
+  const int nccl_rank = execution.nccl_rank;
 
   const auto [process_row, process_col] = ProcessCoordFromRank(
       nccl_rank, process_rows, process_cols, grid_mapping);
 
-  // Stage 6: dispatch on the XLA primitive dtype and run POTRF/POTRS.
+  // Stage 3: dispatch on the XLA primitive dtype and run POTRF/POTRS.
   absl::Status potrs_status;
   cudaDataType_t logdet_dtype = CUDA_R_32F;
   switch (a.element_type()) {
@@ -469,12 +373,10 @@ absl::Status RunCusolverMpPotrsSolver(
       break;
   }
   if (!potrs_status.ok()) {
-    api.destroy_grid(grid);
-    api.destroy(handle);
     return potrs_status;
   }
 
-  // Stage 7: optionally extract the Cholesky log determinant while A remains
+  // Stage 4: optionally extract the Cholesky log determinant while A remains
   // in its factorized local 2D block-cyclic layout. Each rank produces one
   // real partial sum; an in-place NCCL all-reduce replicates the global scalar
   // without gathering or reverse-redistributing the factor matrix. Single-
@@ -498,27 +400,9 @@ absl::Status RunCusolverMpPotrsSolver(
     status_words[33] = 1;
   }
 
-  // Stage 8: tear down cuSOLVERMp resources in reverse construction order and
+  // Stage 5: tear down cuSOLVERMp resources in reverse construction order and
   // return the per-rank status vector to Python.
-  if (status_words[0] == kStatusOk) {
-    cusolver_status = api.destroy_grid(grid);
-    if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
-      status_words[0] = kDestroyGridFailed;
-      status_words[11] = static_cast<int32_t>(cusolver_status);
-    }
-  } else {
-    api.destroy_grid(grid);
-  }
-
-  if (status_words[0] == kStatusOk) {
-    cusolver_status = api.destroy(handle);
-    if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
-      status_words[0] = kDestroyHandleFailed;
-      status_words[11] = static_cast<int32_t>(cusolver_status);
-    }
-  } else {
-    api.destroy(handle);
-  }
+  execution.Close();
   // All ranks have finished solver execution and cleanup. Agree on failure
   // before invalidating outputs, including any rank-local cleanup error.
   JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(

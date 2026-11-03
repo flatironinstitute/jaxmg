@@ -224,6 +224,42 @@ CusolverMpApi LinkedCusolverMpApi(std::array<int32_t, StatusSize>* status) {
   return CusolverMpApi{};
 }
 
+// Owns one invocation's cuSOLVERMp handle and grid, but only borrows XLA's
+// NCCL communicator. The caller's status vector must outlive this object;
+// its first twelve fields follow the common runtime diagnostic layout.
+// Matrix descriptors and solver-specific workspace remain with the caller.
+class CusolverMpExecution {
+ public:
+  explicit CusolverMpExecution(absl::Span<int32_t> status) : status_(status) {}
+  ~CusolverMpExecution() { Close(); }
+  CusolverMpExecution(const CusolverMpExecution&) = delete;
+  CusolverMpExecution& operator=(const CusolverMpExecution&) = delete;
+
+  // Select the matrix's CUDA device, borrow the assigned communicator,
+  // validate its process grid, and create the handle/grid. Runtime failures
+  // set status[0]; invalid grid mappings return an absl::Status error.
+  absl::Status Initialize(
+      const char* caller, cudaStream_t cuda_stream, const void* matrix,
+      int64_t process_rows, int64_t process_cols, int64_t grid_mapping,
+      absl::Span<const int64_t> rank_map,
+      const CollectiveParams* collective_params,
+      const CollectiveCliques* collective_cliques);
+
+  // Close explicitly before collective status agreement so cleanup failures
+  // are included. The destructor also covers early returns; repeated closes
+  // are harmless. The borrowed NCCL communicator remains valid afterwards.
+  void Close();
+
+  CusolverMpApi api;
+  cusolverMpHandle_t handle = nullptr;
+  cusolverMpGrid_t grid = nullptr;
+  ncclComm_t nccl_comm = nullptr;
+  int nccl_rank = -1;
+
+ private:
+  absl::Span<int32_t> status_;
+};
+
 // Computes the ScaLAPACK/NUMROC local length owned by one process coordinate
 // for a block-cyclic axis.
 int64_t LocalNumroc(int64_t n, int64_t block, int32_t process,

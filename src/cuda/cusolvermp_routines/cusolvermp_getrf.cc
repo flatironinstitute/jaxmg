@@ -128,6 +128,7 @@ absl::Status RunCusolverMpGetrfSolver(
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
+  // Stage 1: validate the streams and fixed diagnostic-buffer contract.
   if (stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         "cusolvermp_getrf requires XLA and CUDA streams");
@@ -184,93 +185,26 @@ absl::Status RunCusolverMpGetrfSolver(
     return CopyStatusToDevice(stream, status_words, status_out);
   };
 
-  absl::StatusOr<int> buffer_device =
-      DeviceForCudaPointer(lu_out->untyped_data());
-  if (!buffer_device.ok() || cudaSetDevice(*buffer_device) != cudaSuccess) {
-    status_words[0] = kCudaDeviceFailed;
-    return publish_status();
-  }
-  const int cuda_device = *buffer_device;
-  status_words[1] = cuda_device;
-
-  if (collective_params == nullptr || collective_cliques == nullptr) {
-    status_words[0] = kCollectiveContextMissing;
-    return publish_status();
-  }
-  absl::StatusOr<GpuCliqueKey> clique_key =
-      AllAssignedDevicesP2PCliqueKey(*collective_params);
-  if (!clique_key.ok()) {
-    status_words[0] = kCliqueKeyFailed;
-    return publish_status();
-  }
-  absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
-      *clique_key, collective_params->global_device_id);
-  if (!gpu_comm.ok() || *gpu_comm == nullptr) {
-    status_words[0] = kCommunicatorMissing;
-    return publish_status();
-  }
-  void* platform_handle = (*gpu_comm)->platform_comm().handle;
-  if (platform_handle == nullptr) {
-    status_words[0] = kNcclHandleMissing;
-    return publish_status();
-  }
-  ncclComm_t nccl_comm = reinterpret_cast<ncclComm_t>(platform_handle);
-  int nccl_rank = -1;
-  int nccl_count = -1;
-  if (ncclCommUserRank(nccl_comm, &nccl_rank) != ncclSuccess ||
-      ncclCommCount(nccl_comm, &nccl_count) != ncclSuccess) {
-    status_words[0] = kNcclRankMismatch;
-    return publish_status();
-  }
-  status_words[2] = nccl_rank;
-  status_words[3] = nccl_count;
-
-  if (process_rows <= 0 || process_cols <= 0 ||
-      process_rows * process_cols != nccl_count || n <= 0 || tile_size <= 0) {
+  // Stage 2: bind the matrix's device, borrow XLA's communicator, and create
+  // the matching cuSOLVERMp handle/grid. Matrix contracts stay routine-local.
+  if (n <= 0 || tile_size <= 0) {
     status_words[0] = kGridShapeMismatch;
     return publish_status();
   }
-  JAXMG_RETURN_IF_ERROR(
-      ValidateCusolverMpGridMapping("cusolvermp_getrf", grid_mapping));
-  if (!rank_map.empty()) {
-    JAXMG_RETURN_IF_ERROR(ValidateStandardRankMapForGridMapping(
-        "cusolvermp_getrf", rank_map, process_rows, process_cols,
-        grid_mapping));
-  }
-
-  CusolverMpApi api = LinkedCusolverMpApi(&status_words);
-  cusolverMpHandle_t handle = nullptr;
-  cusolverStatus_t solver_status =
-      api.create(&handle, cuda_device, cuda_stream);
-  if (solver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
-    status_words[0] = kCreateHandleFailed;
-    status_words[11] = static_cast<int32_t>(solver_status);
+  CusolverMpExecution execution(absl::MakeSpan(status_words));
+  JAXMG_RETURN_IF_ERROR(execution.Initialize(
+      "cusolvermp_getrf", cuda_stream, lu_out->untyped_data(),
+      process_rows, process_cols, grid_mapping, rank_map,
+      collective_params, collective_cliques));
+  if (status_words[0] != kStatusOk) {
+    execution.Close();
     return publish_status();
   }
-  status_words[8] = 1;
-
-  int version = -1;
-  solver_status = api.get_version(handle, &version);
-  if (solver_status != CUSOLVER_STATUS_SUCCESS) {
-    status_words[0] = kGetVersionFailed;
-    status_words[11] = static_cast<int32_t>(solver_status);
-    api.destroy(handle);
-    return publish_status();
-  }
-  status_words[6] = version;
-
-  cusolverMpGrid_t grid = nullptr;
-  solver_status = api.create_grid(handle, &grid, nccl_comm,
-                                  static_cast<int32_t>(process_rows),
-                                  static_cast<int32_t>(process_cols),
-                                  ToCusolverMpGridMapping(grid_mapping));
-  if (solver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
-    status_words[0] = kCreateGridFailed;
-    status_words[11] = static_cast<int32_t>(solver_status);
-    api.destroy(handle);
-    return publish_status();
-  }
-  status_words[9] = 1;
+  const auto& api = execution.api;
+  const auto handle = execution.handle;
+  const auto grid = execution.grid;
+  const auto nccl_comm = execution.nccl_comm;
+  const int nccl_rank = execution.nccl_rank;
 
   const auto [process_row, process_col] =
       ProcessCoordFromRank(nccl_rank, process_rows, process_cols, grid_mapping);
@@ -302,6 +236,7 @@ absl::Status RunCusolverMpGetrfSolver(
     }
   }
 
+  // Stage 3: factor A, then gather the native pivots into the public vector.
   absl::Status getrf_status = absl::OkStatus();
   if (status_words[0] == kStatusOk) {
     switch (lu_out->element_type()) {
@@ -335,8 +270,6 @@ absl::Status RunCusolverMpGetrfSolver(
     }
   }
   if (!getrf_status.ok()) {
-    api.destroy_grid(grid);
-    api.destroy(handle);
     return getrf_status;
   }
   if (d_ipiv != nullptr) {
@@ -367,24 +300,8 @@ absl::Status RunCusolverMpGetrfSolver(
     if (status_words[0] == kStatusOk) status_words[25] = 1;
   }
 
-  if (status_words[0] == kStatusOk) {
-    solver_status = api.destroy_grid(grid);
-    if (solver_status != CUSOLVER_STATUS_SUCCESS) {
-      status_words[0] = kDestroyGridFailed;
-      status_words[11] = static_cast<int32_t>(solver_status);
-    }
-  } else {
-    api.destroy_grid(grid);
-  }
-  if (status_words[0] == kStatusOk) {
-    solver_status = api.destroy(handle);
-    if (solver_status != CUSOLVER_STATUS_SUCCESS) {
-      status_words[0] = kDestroyHandleFailed;
-      status_words[11] = static_cast<int32_t>(solver_status);
-    }
-  } else {
-    api.destroy(handle);
-  }
+  // Stage 4: include cleanup failures in the shared output-invalidating status.
+  execution.Close();
   JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
       cuda_stream, nccl_comm, status_out, &status_words[0]));
   return publish_status();

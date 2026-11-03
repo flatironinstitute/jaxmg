@@ -14,10 +14,9 @@
 //
 // Shared cuSOLVERMp grid, status, and CUDA utility implementation.
 //
-// This file implements the common mechanics required by POTRS, LU solve, and
-// SYEVD. These include process-grid validation, local NUMROC capacity
-// calculations, device status copies, and CUDA device selection for donated JAX
-// buffers.
+// This file implements shared solver mechanics: process-grid validation,
+// borrowed-communicator setup, handle/grid lifetime, local NUMROC capacity,
+// device status copies, and CUDA device selection for donated JAX buffers.
 
 #include "cusolvermp_common.h"
 
@@ -33,6 +32,114 @@
 #include "result_fill.h"
 
 namespace xla::gpu {
+
+absl::Status CusolverMpExecution::Initialize(
+    const char* caller, cudaStream_t cuda_stream, const void* matrix,
+    int64_t process_rows, int64_t process_cols, int64_t grid_mapping,
+    absl::Span<const int64_t> rank_map,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques) {
+  if (status_.size() < 12) {
+    return absl::InvalidArgumentError("cuSOLVERMp runtime status is too small");
+  }
+
+  // Stage 1: use the device owning this matrix rather than ambient CUDA state.
+  absl::StatusOr<int> buffer_device = DeviceForCudaPointer(matrix);
+  if (!buffer_device.ok() || cudaSetDevice(*buffer_device) != cudaSuccess) {
+    status_[0] = kCudaDeviceFailed;
+    return absl::OkStatus();
+  }
+  status_[1] = *buffer_device;
+
+  // Stage 2: borrow XLA's existing communicator without taking ownership.
+  if (collective_params == nullptr || collective_cliques == nullptr) {
+    status_[0] = kCollectiveContextMissing;
+    return absl::OkStatus();
+  }
+  absl::StatusOr<GpuCliqueKey> clique_key =
+      AllAssignedDevicesP2PCliqueKey(*collective_params);
+  if (!clique_key.ok()) {
+    status_[0] = kCliqueKeyFailed;
+    return absl::OkStatus();
+  }
+  absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
+      *clique_key, collective_params->global_device_id);
+  if (!gpu_comm.ok() || *gpu_comm == nullptr) {
+    status_[0] = kCommunicatorMissing;
+    return absl::OkStatus();
+  }
+  void* platform_handle = (*gpu_comm)->platform_comm().handle;
+  if (platform_handle == nullptr) {
+    status_[0] = kNcclHandleMissing;
+    return absl::OkStatus();
+  }
+  nccl_comm = reinterpret_cast<ncclComm_t>(platform_handle);
+  int nccl_count = -1;
+  if (ncclCommUserRank(nccl_comm, &nccl_rank) != ncclSuccess ||
+      ncclCommCount(nccl_comm, &nccl_count) != ncclSuccess) {
+    status_[0] = kNcclRankMismatch;
+    return absl::OkStatus();
+  }
+  status_[2] = nccl_rank;
+  status_[3] = nccl_count;
+
+  // Stage 3: retain the dense mapping selected for the JAX process grid.
+  if (process_rows <= 0 || process_cols <= 0 ||
+      process_rows * process_cols != nccl_count) {
+    status_[0] = kGridShapeMismatch;
+    return absl::OkStatus();
+  }
+  JAXMG_RETURN_IF_ERROR(ValidateCusolverMpGridMapping(caller, grid_mapping));
+  if (!rank_map.empty()) {
+    JAXMG_RETURN_IF_ERROR(ValidateStandardRankMapForGridMapping(
+        caller, rank_map, process_rows, process_cols, grid_mapping));
+  }
+
+  // Stage 4: own only cuSOLVERMp resources; cleanup never destroys NCCL.
+  status_[7] = 1;
+  cusolverStatus_t solver_status = api.create(&handle, *buffer_device, cuda_stream);
+  if (solver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
+    status_[0] = kCreateHandleFailed;
+    status_[11] = static_cast<int32_t>(solver_status);
+    return absl::OkStatus();
+  }
+  status_[8] = 1;
+  int version = -1;
+  solver_status = api.get_version(handle, &version);
+  if (solver_status != CUSOLVER_STATUS_SUCCESS) {
+    status_[0] = kGetVersionFailed;
+    status_[11] = static_cast<int32_t>(solver_status);
+    return absl::OkStatus();
+  }
+  status_[6] = version;
+  solver_status = api.create_grid(
+      handle, &grid, nccl_comm, static_cast<int32_t>(process_rows),
+      static_cast<int32_t>(process_cols), ToCusolverMpGridMapping(grid_mapping));
+  if (solver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
+    status_[0] = kCreateGridFailed;
+    status_[11] = static_cast<int32_t>(solver_status);
+    return absl::OkStatus();
+  }
+  status_[9] = 1;
+  return absl::OkStatus();
+}
+
+void CusolverMpExecution::Close() {
+  if (grid != nullptr) {
+    const cusolverStatus_t result = api.destroy_grid(std::exchange(grid, nullptr));
+    if (result != CUSOLVER_STATUS_SUCCESS && status_[0] == kStatusOk) {
+      status_[0] = kDestroyGridFailed;
+      status_[11] = static_cast<int32_t>(result);
+    }
+  }
+  if (handle != nullptr) {
+    const cusolverStatus_t result = api.destroy(std::exchange(handle, nullptr));
+    if (result != CUSOLVER_STATUS_SUCCESS && status_[0] == kStatusOk) {
+      status_[0] = kDestroyHandleFailed;
+      status_[11] = static_cast<int32_t>(result);
+    }
+  }
+}
 
 // Normalizes the integer attribute used by Python into the cuSOLVERMp enum
 // consumed by cusolverMpCreateDeviceGrid.
