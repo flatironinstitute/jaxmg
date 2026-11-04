@@ -146,8 +146,8 @@ x.block_until_ready()
 ## Advanced: call from inside `jax.shard_map`
 
 `least_squares_shardmap_ctx` consumes local A and B blocks with matching row
-sharding. It redistributes the solution from B's M-row layout to the N-row
-output layout, preserving any replication of the RHS columns.
+sharding. The native backend restores the N-row solution and the M-row B work
+buffer separately, preserving any replication of the RHS columns.
 
 ```python
 from jaxmg import least_squares_shardmap_ctx

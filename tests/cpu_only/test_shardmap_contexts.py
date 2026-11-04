@@ -10,7 +10,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from jax.sharding import Mesh, PartitionSpec as P
+from jax.sharding import AxisType, Mesh, NamedSharding, PartitionSpec as P
 
 
 def test_multi_device_local_contexts():
@@ -73,8 +73,12 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
         def run(*inputs, **attrs):
             captured.update(attrs)
             aliases = {out: arg for arg, out in options["input_output_aliases"].items()}
-            return tuple(inputs[aliases[i]] if i in aliases else jnp.zeros(t.shape, t.dtype)
-                         for i, t in enumerate(result_types))
+            result = [inputs[aliases[i]] if i in aliases else jnp.zeros(t.shape, t.dtype)
+                      for i, t in enumerate(result_types)]
+            if target == "cusolvermp_gels":
+                assert options["input_output_aliases"] == {0: 0, 1: 1}
+                result[2] = jnp.full(result_types[2].shape, 17, inputs[1].dtype)
+            return tuple(result)
         return run
 
     monkeypatch.setattr(module, "ensure_init_jaxmg_backend", lambda: None)
@@ -120,7 +124,7 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
     elif routine == "least_squares":
         assert result[0].shape == (12, 8)
         np.testing.assert_array_equal(result[1], inputs[1])
-        np.testing.assert_array_equal(result[2], inputs[1][:6])
+        np.testing.assert_array_equal(result[2], jnp.full((6, 1), 17))
         assert captured["nrhs"] == 1
     elif routine == "gesvd":
         assert result[0].shape == (12, 8)
@@ -147,22 +151,55 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
         call(*inputs, T_A=4, **options)
 
 
-@pytest.mark.parametrize("process_rows", [2, 3, 4])
-@pytest.mark.parametrize("rows_per_rank,solution_rows_per_rank", [(10, 6), (8, 2), (6, 6)])
-def test_least_squares_solution_rows(process_rows, rows_per_rank, solution_rows_per_rank):
-    """Extract global B[:N], including solutions crossing work-block boundaries."""
-    from jaxmg._least_squares import _redistribute_solution_rows
+@pytest.mark.parametrize("shape,n,rhs_specs", [
+    ((2, 1), 6, P("pr", None)),
+    ((2, 1), 5, P()),
+    ((3, 1), 5, P()),
+    ((2, 2), 6, P("pc", None)),
+    ((2, 2), 8, P(("pr", "pc"), None)),
+])
+@pytest.mark.parametrize("axis_type", [AxisType.Auto, AxisType.Explicit])
+def test_least_squares_solution_rows(monkeypatch, shape, n, rhs_specs, axis_type):
+    """Restore native X separately from B, including output-only routing rows."""
+    from jaxmg import _least_squares as module
 
-    if jax.device_count() < process_rows:
+    count = int(np.prod(shape))
+    if jax.device_count() < count:
         pytest.skip("requires multiple CPU devices or GPUs")
-    mesh = Mesh(np.asarray(jax.devices()[:process_rows]), ("pr",))
-    m, n = rows_per_rank * process_rows, solution_rows_per_rank * process_rows
-    b = jnp.arange(m * 3, dtype=jnp.float32).reshape(m, 3)
-    extract = jax.jit(jax.shard_map(
-        partial(_redistribute_solution_rows, n=n, row_axis="pr", process_rows=process_rows),
-        mesh=mesh, in_specs=P("pr", None), out_specs=P("pr", None),
-    ))
-    np.testing.assert_array_equal(extract(b), b[:n])
+    mesh = Mesh(np.asarray(jax.devices()[:count]).reshape(shape), ("pr", "pc"),
+                axis_types=(axis_type, axis_type))
+    captured = {}
+
+    def fake_ffi(target, result_types, **options):
+        def run(a, b, **attrs):
+            captured.update(attrs)
+            local_rows = attrs["x_distribution_rows"] // shape[0]
+            local_cols = attrs["b_distribution_cols"] // shape[1]
+            rows = jax.lax.axis_index("pr") * local_rows + jnp.arange(local_rows)
+            cols = jax.lax.axis_index("pc") * local_cols + jnp.arange(local_cols)
+            x = (10 * rows[:, None] + cols[None, :] + 1).astype(b.dtype)
+            x = jnp.pad(x, ((0, result_types[2].shape[0] - local_rows),
+                            (0, result_types[2].shape[1] - local_cols)))
+            return a, b, x, jnp.zeros(result_types[3].shape, jnp.int32)
+        return run
+
+    monkeypatch.setattr(module, "ensure_init_jaxmg_backend", lambda: None)
+    monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi)
+    a = jax.device_put(jnp.eye(12, n), NamedSharding(mesh, P("pr", "pc")))
+    b = jax.device_put(jnp.arange(60.).reshape(12, 5), NamedSharding(mesh, rhs_specs))
+    solve = partial(module.least_squares_jit_ctx, T_A=2)
+    # Auto-axis shardings are available on concrete arrays, not tracer types.
+    if axis_type == AxisType.Explicit:
+        solve = jax.jit(solve)
+    with jax.set_mesh(mesh):
+        _, b_work, x, _ = solve(a, b)
+    np.testing.assert_array_equal(b_work, b)
+    np.testing.assert_array_equal(x, 10 * np.arange(n)[:, None] + np.arange(5) + 1)
+    assert x.sharding.is_equivalent_to(b.sharding, 2)
+    assert b_work.sharding.is_equivalent_to(b.sharding, 2)
+    assert captured["n"] == n
+    assert captured["x_distribution_rows"] >= n
+    assert captured["x_distribution_rows"] % shape[0] == 0
 
 
 @pytest.mark.parametrize("shape", [(1, 2), (2, 2)])

@@ -62,3 +62,14 @@ def test_least_squares_square_aligned():
 def test_least_squares_shardmap_ctx(num_procs, case):
     """Validate solution-row redistribution and distributed/replicated RHS columns."""
     run_gpu_test(GPU_TEST, num_procs, case, "float64", interface="shardmap")
+
+
+@pytest.mark.parametrize("case,interface", [
+    ("short_solution", "shardmap"),
+    ("short_solution", "context"),
+    ("uneven_solution_replicated", "context"),
+])
+@pytest.mark.multi_gpu
+def test_least_squares_native_solution_layout(case, interface):
+    """Restore X when a rank owns no solution tile or N needs routing padding."""
+    run_gpu_test(GPU_TEST, 2, case, "float64", interface=interface)

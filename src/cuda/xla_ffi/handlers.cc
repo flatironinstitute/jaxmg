@@ -168,7 +168,8 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveCliques>());
 
 // Registers the rectangular least-squares target. A is returned as opaque
-// work storage, while B is overwritten with the solution in its first N rows.
+// work storage; B retains the solution in its first N rows, with a separate
+// N-row output restored directly to the solution's distribution.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
     XlaCusolverMpGelsFFI, XlaCusolverMpGelsDispatch,
     ffi::Ffi::Bind()
@@ -180,10 +181,12 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Attr<int64_t>("n")
         .Attr<int64_t>("nrhs")
         .Attr<int64_t>("b_distribution_cols")
+        .Attr<int64_t>("x_distribution_rows")
         .Attr<int64_t>("tile_size")
         .Attr<absl::Span<const int64_t>>("partition_slots")
         .Arg<ffi::AnyBuffer>()
         .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
         .Ret<ffi::BufferR1<S32>>()

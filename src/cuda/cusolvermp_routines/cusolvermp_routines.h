@@ -88,14 +88,16 @@ absl::Status XlaCusolverMpGetrfDispatch(
     const CollectiveCliques* collective_cliques);
 
 // Runtime least-squares hook. It redistributes rectangular A and B, runs
-// cuSOLVERMp GELS, and restores the overwritten B work buffer for JAX.
+// cuSOLVERMp GELS, and restores both B work and the N-row solution for JAX.
 absl::Status XlaCusolverMpGelsDispatch(
     se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
-    int64_t nrhs, int64_t b_distribution_cols, int64_t tile_size,
+    int64_t nrhs, int64_t b_distribution_cols, int64_t x_distribution_rows,
+    int64_t tile_size,
     absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a, ffi::AnyBuffer b,
     ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
+    ffi::Result<ffi::AnyBuffer> x_out,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);

@@ -65,6 +65,12 @@ def run_case() -> None:
     elif case_name == "square_aligned":
         process_rows, process_cols = 1, 1
         m, n, tile_size, nrhs = 128, 128, 64, 64
+    elif case_name == "short_solution":
+        process_rows, process_cols = 2, 1
+        m, n, tile_size, nrhs = 192, 32, 64, 3
+    elif case_name == "uneven_solution_replicated":
+        process_rows, process_cols = 2, 1
+        m, n, tile_size, nrhs = 192, 65, 64, 3
     else:
         raise ValueError(f"unknown least-squares test case {case_name!r}")
     if process_rows * process_cols != num_procs:
@@ -75,6 +81,7 @@ def run_case() -> None:
         "matrix_replicated": "matrix_replicated",
         "matrix_2d_sharded": "matrix_2d_sharded",
         "vector_replicated": "vector_replicated",
+        "uneven_solution_replicated": "matrix_replicated",
     }.get(case_name, "matrix_row_sharded")
     case = SolverCase(
         process_rows=process_rows,
@@ -111,6 +118,7 @@ def run_case() -> None:
         "matrix_2d_sharded": matrix_specs,
         "vector": P("pr"),
         "vector_replicated": P(None),
+        "uneven_solution_replicated": P(None, None),
     }.get(case_name, P("pr", None))
     a = jax.device_put(jnp.asarray(a_host), NamedSharding(mesh, matrix_specs))
     b = jax.device_put(jnp.asarray(b_host), NamedSharding(mesh, rhs_specs))
@@ -164,6 +172,13 @@ def run_case() -> None:
     np.testing.assert_allclose(
         global_array_to_numpy(out), expected, rtol=tolerance, atol=tolerance
     )
+    if interface in ("context", "shardmap"):
+        # The separate solution output must not change B work's M-row layout.
+        assert b_work.shape == b_host.shape
+        np.testing.assert_allclose(
+            global_array_to_numpy(b_work)[:n], expected,
+            rtol=tolerance, atol=tolerance,
+        )
     assert out.sharding.is_equivalent_to(expected_output_sharding, out.ndim)
 
     emit(

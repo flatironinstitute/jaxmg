@@ -17,15 +17,15 @@
 // This file implements the fused overdetermined GELS path. It converts padded
 // JAX shards to column-major storage, redistributes rectangular A and B into
 // cuSOLVERMp's 2D block-cyclic layout, solves min ||A X - B||_2, and restores
-// the overwritten B work buffer to its original JAX layout.
+// B work and the smaller N-row solution to their respective JAX layouts.
 //
 // File workflow:
 //   1. Validate the padded A/B and output-buffer contracts.
 //   2. Allocate one scratch buffer shared by every redistribution stage.
 //   3. Convert local A/B storage from row-major to column-major.
 //   4. Redistribute both buffers into 2D block-cyclic storage.
-//   5. Borrow XLA's NCCL communicator and run cusolverMpGels.
-//   6. Reverse the B redistribution and restore row-major storage.
+//   5. Run cusolverMpGels and extract X locally in block-cyclic storage.
+//   6. Restore B work and X using the shared reverse redistribution.
 
 #include <array>
 #include <cstdlib>
@@ -219,6 +219,7 @@ absl::Status RunCusolverMpGelsSolver(
     int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map, ffi::Result<ffi::AnyBuffer> a_out,
     ffi::Result<ffi::AnyBuffer> b_out,
+    ffi::Result<ffi::AnyBuffer> x_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
@@ -287,7 +288,7 @@ absl::Status RunCusolverMpGelsSolver(
   // data in the results, so they are replaced with NaN first.
   auto publish_status = [&]() -> absl::Status {
     JAXMG_RETURN_IF_ERROR(InvalidateResultsOnFailure(
-        cuda_stream, status_words[0], {*b_out}));
+        cuda_stream, status_words[0], {*b_out, *x_out}));
     return CopyStatusToDevice(stream, status_words, status_out);
   };
 
@@ -365,6 +366,27 @@ absl::Status RunCusolverMpGelsSolver(
   execution.Close();
   JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
       cuda_stream, nccl_comm, status_out, &status_words[0]));
+
+  // Stage 5: copy the solution before restoring the M-row B work buffer.
+  // Block-cyclic ownership is independent of M: each rank's solution rows
+  // are a prefix of its local B columns. Only the leading dimension changes.
+  if (status_words[0] == kStatusOk) {
+    const size_t element_bytes =
+        b_out->size_bytes() / static_cast<size_t>(b_out->element_count());
+    const int64_t solution_rows =
+        LocalNumroc(n, tile_size, process_row, process_rows);
+    const int64_t solution_cols =
+        LocalNumroc(nrhs, tile_size, process_col, process_cols);
+    JAXMG_RETURN_IF_CUDA_ERROR(cudaMemsetAsync(
+        x_out->untyped_data(), 0, x_out->size_bytes(), cuda_stream));
+    if (solution_rows > 0 && solution_cols > 0) {
+      JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpy2DAsync(
+          x_out->untyped_data(), x_out->dimensions()[0] * element_bytes,
+          b_out->untyped_data(), b_out->dimensions()[0] * element_bytes,
+          solution_rows * element_bytes, solution_cols,
+          cudaMemcpyDeviceToDevice, cuda_stream));
+    }
+  }
   return publish_status();
 }
 
@@ -373,10 +395,11 @@ absl::Status RunCusolverMpGelsSolver(
 absl::Status XlaCusolverMpGelsDispatch(
     se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t nrhs,
-    int64_t b_distribution_cols, int64_t tile_size,
+    int64_t b_distribution_cols, int64_t x_distribution_rows, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::AnyBuffer b,
     ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
+    ffi::Result<ffi::AnyBuffer> x_out,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
@@ -390,15 +413,17 @@ absl::Status XlaCusolverMpGelsDispatch(
 
   // Stage 1: validate the local padded buffers supplied by Python/JAX.
   if (a.dimensions().size() != 2 || b.dimensions().size() != 2 ||
-      a_work->dimensions().size() != 2 || b_out->dimensions().size() != 2) {
+      a_work->dimensions().size() != 2 || b_out->dimensions().size() != 2 ||
+      x_out->dimensions().size() != 2) {
     return absl::InvalidArgumentError(
-        "cusolvermp_gels expects rank-2 A/B buffers");
+        "cusolvermp_gels expects rank-2 A/B/X buffers");
   }
   if (a.element_type() != b.element_type() ||
       a.element_type() != a_work->element_type() ||
-      b.element_type() != b_out->element_type()) {
+      b.element_type() != b_out->element_type() ||
+      b.element_type() != x_out->element_type()) {
     return absl::InvalidArgumentError(
-        "cusolvermp_gels requires matching A/B dtypes");
+        "cusolvermp_gels requires matching A/B/X dtypes");
   }
   if (a.dimensions()[0] != a_work->dimensions()[0] ||
       a.dimensions()[1] != a_work->dimensions()[1] ||
@@ -408,15 +433,16 @@ absl::Status XlaCusolverMpGelsDispatch(
         "cusolvermp_gels input/output shapes must match");
   }
   if (a.dimensions()[0] != b.dimensions()[0] ||
-      b_distribution_cols < nrhs || m < n) {
+      nrhs <= 0 || b_distribution_cols < nrhs || n <= 0 || m < n ||
+      x_distribution_rows < n || x_distribution_rows > m) {
     return absl::InvalidArgumentError(
         "cusolvermp_gels received incompatible A/B dimensions");
   }
 
-  // Stage 2: allocate one scratch region large enough for either matrix.
+  // Stage 2: allocate one scratch region shared by A, B work, and X.
   const size_t element_bytes =
       a.size_bytes() / static_cast<size_t>(a.element_count());
-  const std::array<Padded2DRedistScratchRequest, 2> scratch_requests = {{
+  const std::array<Padded2DRedistScratchRequest, 3> scratch_requests = {{
       Padded2DRedistScratchRequest{
           process_rows, process_cols, tile_size, tile_size, m, n,
           a.dimensions()[0], a.dimensions()[1], rank_map,
@@ -424,6 +450,11 @@ absl::Status XlaCusolverMpGelsDispatch(
       Padded2DRedistScratchRequest{
           process_rows, process_cols, tile_size, tile_size, m,
           b_distribution_cols, b.dimensions()[0], b.dimensions()[1], rank_map,
+      },
+      Padded2DRedistScratchRequest{
+          process_rows, process_cols, tile_size, tile_size, x_distribution_rows,
+          b_distribution_cols, x_out->dimensions()[0], x_out->dimensions()[1],
+          rank_map,
       },
   }};
   absl::StatusOr<Padded2DRedistScratch> scratch_status =
@@ -504,10 +535,10 @@ absl::Status XlaCusolverMpGelsDispatch(
     return result;
   }
 
-  // Stage 5: execute GELS through the borrowed XLA communicator.
+  // Stage 5: execute GELS and extract X in the native block-cyclic layout.
   if (absl::Status result = RunCusolverMpGelsSolver(
           stream, cuda_stream, process_rows, process_cols, m, n, nrhs,
-          tile_size, grid_mapping, rank_map, a_work, b_out,
+          tile_size, grid_mapping, rank_map, a_work, b_out, x_out,
           status, collective_params, collective_cliques);
       !result.ok()) {
     return return_after_cleanup(result);
@@ -519,7 +550,8 @@ absl::Status XlaCusolverMpGelsDispatch(
     return result;
   }
 
-  // Stage 6: restore B; Python returns only its first N solution rows.
+  // Stage 6: preserve B's M-row work layout and restore X independently.
+  // The two reverse paths reuse the same scratch allocation and communicator.
   if (absl::Status result = ExecutePadded2DNativePlanRaw(
           "cusolvermp_gels/b_reverse", stream, comm_stream, cuda_stream,
           process_rows, process_cols, tile_size, tile_size, m,
@@ -531,6 +563,21 @@ absl::Status XlaCusolverMpGelsDispatch(
   }
   if (absl::Status result = ConvertColumnMajorToRowMajorInPlace(
           cuda_stream, "cusolvermp_gels/b_layout_restore", *b_out,
+          scratch_base, scratch_elements);
+      !result.ok()) {
+    return return_after_cleanup(result);
+  }
+  if (absl::Status result = ExecutePadded2DNativePlanRaw(
+          "cusolvermp_gels/x_reverse", stream, comm_stream, cuda_stream,
+          process_rows, process_cols, tile_size, tile_size, x_distribution_rows,
+          b_distribution_cols, /*reverse=*/1, rank_map, *x_out,
+          x_out->device_memory(), scratch_base, scratch_elements,
+          collective_params, collective_cliques);
+      !result.ok()) {
+    return return_after_cleanup(result);
+  }
+  if (absl::Status result = ConvertColumnMajorToRowMajorInPlace(
+          cuda_stream, "cusolvermp_gels/x_layout_restore", *x_out,
           scratch_base, scratch_elements);
       !result.ok()) {
     return return_after_cleanup(result);
