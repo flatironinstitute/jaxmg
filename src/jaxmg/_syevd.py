@@ -273,7 +273,7 @@ def syevd_shardmap_ctx(
     in_specs: P | Tuple[P] | List[P] | None = None,
     return_eigenvectors: bool = True,
     pad: bool = True,
-):
+) -> Union[Tuple[Array, Array, Array], Tuple[Array, Array, Array, Array]]:
     """Compute a distributed eigendecomposition inside a caller's shard map.
 
     The input and eigenvectors are local matrix blocks. Eigenvalues are
@@ -289,7 +289,7 @@ def syevd_shardmap_ctx(
         pad: Allow tile-capacity padding; otherwise require aligned blocks.
 
     Returns:
-        ``(a_work, eigenvalues, eigenvectors, status)``, or
+        tuple: ``(a_work, eigenvalues, eigenvectors, status)``, or
         ``(a_work, eigenvalues, status)`` without vectors. ``a_work`` is padded
         local storage, eigenvectors are unpadded local blocks, and status is
         this rank's diagnostic vector. Return ``a_work`` from the outer jitted
