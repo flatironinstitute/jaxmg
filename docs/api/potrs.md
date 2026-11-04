@@ -1,22 +1,18 @@
 # jaxmg.potrs
 
-`potrs` is the high-level Cholesky solve interface. It validates the arrays and
-mesh, applies tile-capacity padding when required, runs the internally compiled
-fused backend, and returns the solution in the JAX-facing layout.
+`potrs` is the high-level solver for symmetric or Hermitian positive-definite
+matrices. It uses cuSOLVERMp `Potrf` followed by `Potrs`, with memory-layout
+conversion, redistribution, and solver execution in one fused native call.
 
-Use `potrs` for a direct solve, `potrs_jit_ctx` to include the solve within a
-larger compiled calculation, or `potrs_shardmap_ctx` when working inside an
-existing `jax.shard_map`. The first two interfaces accept global arrays;
-`potrs_shardmap_ctx` accepts the local blocks supplied by `shard_map`. All three
-use the same distributed Cholesky solver.
+Use `potrs_jit_ctx` when the solve is part of a larger caller-owned
+`jax.jit` computation. Inside an existing `jax.shard_map`, use
+`potrs_shardmap_ctx` with local matrix and RHS blocks instead. Both use the
+same distributed solver.
 
 !!! Note "Context API migration"
 
-    The previous `potrs_shardmap_ctx` interface for global arrays is now named
-    `potrs_jit_ctx`, with the same arguments and outputs. Existing callers
-    should use that name; `potrs_shardmap_ctx` now operates on local blocks
-    inside `jax.shard_map`. The other routines retain their existing context
-    interfaces for now.
+    The previous global-array `potrs_shardmap_ctx` is now named
+    `potrs_jit_ctx`, with the same arguments and outputs.
 
 All three interfaces accept `return_logdet=True`. Since the factorization
 produces $A=LL^H$, the backend computes
