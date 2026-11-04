@@ -14,6 +14,7 @@ from jax.sharding import Mesh, PartitionSpec as P
     ("lu_solve", {}), ("potrf", {}), ("getrf", {}),
     ("syevd", {"return_eigenvectors": True}),
     ("syevd", {"return_eigenvectors": False}),
+    ("qr", {}),
 ])
 @pytest.mark.parametrize("check_vma", [True, False])
 def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_vma):
@@ -35,11 +36,15 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
     mesh = Mesh(np.asarray(jax.devices()[:1]).reshape(1, 1), ("pr", "pc"))
     specs = P("pr", "pc")
     inputs = (jnp.eye(6), jnp.ones((6, 1))) if routine == "lu_solve" else (jnp.eye(6),)
+    if routine == "qr":
+        inputs = (jnp.eye(10, 6),)
     outputs = (specs, specs) if routine == "lu_solve" else (specs,)
     if routine == "getrf":
         outputs += (P(),)
     if routine == "syevd":
         outputs = (specs, P()) + ((specs,) if options["return_eigenvectors"] else ())
+    if routine == "qr":
+        outputs = (specs, specs)
     solve = jax.jit(jax.shard_map(
         partial(call, T_A=4, **options), mesh=mesh, in_specs=(specs,) * len(inputs),
         out_specs=outputs + (P(("pr", "pc")),), check_vma=check_vma,
@@ -62,6 +67,9 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
         if routine == "getrf":
             assert result[1].shape == (6,)
             assert result[1].sharding.is_fully_replicated
+        if routine == "qr":
+            assert result[1].shape == (6, 6)
+            assert captured["m"] == 10
 
     with pytest.raises(ValueError, match="inside jax.shard_map"):
         call(*inputs, T_A=4, **options)

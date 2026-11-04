@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from jax.sharding import Mesh, PartitionSpec as P
 
 import jaxmg._qr as qr_module
-from jaxmg import qr, qr_shardmap_ctx
+from jaxmg import qr, qr_jit_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_QR_STATUS_SIZE
 
 
@@ -57,12 +57,12 @@ def test_qr_returns_reduced_factors_and_status(monkeypatch):
     assert status.shape == (_CUSOLVERMP_QR_STATUS_SIZE,)
 
 
-def test_qr_shardmap_ctx_supports_outer_donation(monkeypatch):
+def test_qr_jit_ctx_supports_outer_donation(monkeypatch):
     _install_fake_qr_backend(monkeypatch)
     mesh = _one_rank_mesh()
     decomposition = jax.jit(
         partial(
-            qr_shardmap_ctx,
+            qr_jit_ctx,
             T_A=2,
             mesh=mesh,
             matrix_specs=P("pr", "pc"),
