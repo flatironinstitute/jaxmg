@@ -4,21 +4,19 @@
 mesh, applies tile-capacity padding when required, runs the internally compiled
 fused backend, and returns the solution in the JAX-facing layout.
 
-The solver comes in three layers, each wrapping the one below it:
+Use `potrs` for a direct solve, `potrs_jit_ctx` to include the solve within a
+larger compiled calculation, or `potrs_shardmap_ctx` when working inside an
+existing `jax.shard_map`. The first two interfaces accept global arrays;
+`potrs_shardmap_ctx` accepts the local blocks supplied by `shard_map`. All three
+use the same distributed Cholesky solver.
 
-| Function | Called on | Adds |
-|---|---|---|
-| `potrs_shardmap_ctx` | local blocks inside a caller's `jax.shard_map` | the per-shard solve: tile padding, the fused native call, and unpadding |
-| `potrs_jit_ctx` | global sharded arrays inside a caller's `jax.jit` | `jax.shard_map`, placement of `a` and `b` in the matrix sharding, and restoration of the solution's layout |
-| `potrs` | global sharded arrays | an internal `jax.jit` with buffer donation |
+!!! Note "Context API migration"
 
-Use `potrs` for a direct solve. Use `potrs_jit_ctx` when the solve must be
-embedded inside a larger caller-owned `jax.jit` computation, and
-`potrs_shardmap_ctx` when it is one step of a caller-owned `jax.shard_map`. All
-three run the same native solver pipeline.
-
-Up to version 1.4.0, `potrs_shardmap_ctx` was the name of what is now
-`potrs_jit_ctx`.
+    The previous `potrs_shardmap_ctx` interface for global arrays is now named
+    `potrs_jit_ctx`, with the same arguments and outputs. Existing callers
+    should use that name; `potrs_shardmap_ctx` now operates on local blocks
+    inside `jax.shard_map`. The other routines retain their existing context
+    interfaces for now.
 
 All three interfaces accept `return_logdet=True`. Since the factorization
 produces $A=LL^H$, the backend computes

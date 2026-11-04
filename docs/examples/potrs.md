@@ -207,11 +207,10 @@ not arguments of `build_and_solve`. Only donate an outer argument such as
 
 ## Advanced: call from inside `jax.shard_map`
 
-`potrs_shardmap_ctx` is the per-shard core that `potrs_jit_ctx` and `potrs`
-wrap. Call it from the body of your own `jax.shard_map` when the solve is one
-step of a computation on local blocks. It receives this process's blocks of `a`
-and `b`, reads the process grid from the context mesh, and returns local blocks
-of `a_work`, `x`, and the per-process `status`:
+Use `potrs_shardmap_ctx` when the solve forms part of a larger calculation
+inside `jax.shard_map`. It accepts local blocks of `a` and `b` and uses the
+enclosing mesh for distributed execution. This example solves the system and
+scales the local solution before returning it:
 
 ```python
 from functools import partial
@@ -229,7 +228,7 @@ from jaxmg import potrs_shardmap_ctx
 def local_solve(a_block, b_block):
     a_work, x_block, status = potrs_shardmap_ctx(a_block, b_block, T_A=T_A)
 
-    # Further shard-local operations on x_block can follow here.
+    # Scale the solution within the same shard-local calculation.
     return a_work, 2.0 * x_block, status
 
 
@@ -243,13 +242,17 @@ if jax.process_index() == 0:
     print(correct)
 ```
 
-The mesh of the `shard_map` must contain exactly the matrix axes. `b` may be
-sharded like `a`, or replicated over the column axis as here. In the replicated
-case every process column solves its own identical copy, so `x` can be returned
-with the same spec at the cost of one extra solve per process column. The
-status output has one shard per process, so its spec maps over both matrix
-axes. With `return_logdet=True`, add `P()` for the log determinant before the
-status spec. As with `potrs_jit_ctx`, return `a_work` when `a` is donated.
+The enclosing mesh must contain exactly the matrix axes. `b` must share the
+row sharding of `a`, but its columns may be distributed or replicated. Here,
+the replicated copies are solved as duplicate RHS columns using a single
+distributed Cholesky factorization. This preserves the replicated solution
+layout, with additional RHS storage and solve work but no repeated
+factorization.
+
+The status output retains one diagnostic vector per rank, so its spec includes
+both mesh axes. With `return_logdet=True`, add `P()` for the replicated log
+determinant before the status spec. As with `potrs_jit_ctx`, return `a_work`
+from the outer jitted function when donating `a`.
 
 
 See the [`potrs` API reference](../api/potrs.md) for the complete argument and
