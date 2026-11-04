@@ -345,6 +345,10 @@ def run_case() -> None:
     assert np.all(ranks[:, 22:24] >= 0), ranks  # POTRF workspace diagnostics
     assert np.all(ranks[:, 26] == 1), ranks  # potrf_called
     assert np.all(ranks[:, 27] == 0), ranks  # potrf_info
+    expected_nrhs = case.nrhs
+    if interface == "shardmap" and case.rhs_mode == "matrix_row_sharded":
+        expected_nrhs *= case.process_cols  # Replicated RHS columns are solved together.
+    assert np.all(ranks[:, 36] == expected_nrhs), ranks  # Logical RHS count.
     assert_close_scaled(out, expected)
     if interface in ("abstract_mesh", "inferred"):
         expected_mapping = 1 if case.grid_order == "row_major" else 0

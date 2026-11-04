@@ -10,8 +10,8 @@ The three entry points are layered:
 
 - :func:`potrs_shardmap_ctx` runs on local blocks inside a caller's
   ``jax.shard_map``;
-- :func:`potrs_jit_ctx` wraps it in ``jax.shard_map`` for global arrays inside a
-  caller-owned ``jax.jit``;
+- :func:`potrs_jit_ctx` wraps the same local implementation in ``jax.shard_map``
+  for global arrays inside a caller-owned ``jax.jit``;
 - :func:`potrs` wraps that pipeline in an internal ``jax.jit`` with donation.
 """
 
@@ -228,7 +228,6 @@ def potrs_jit_ctx(
           column-major local layout, redistributes to 2D block-cyclic layout,
           calls ``cusolverMpPotrf``/``cusolverMpPotrs``, and redistributes the
           result back.
-        - Up to 1.4.0 this function was named ``potrs_shardmap_ctx``.
     """
     b, vector_rhs, layout, rhs_specs, b_distribution_cols = (
         _prepare_global_potrs_call(
@@ -274,9 +273,10 @@ def potrs_shardmap_ctx(
 ) -> Union[Tuple[Array, Array, Array], Tuple[Array, Array, Array, Array]]:
     """Solve A x = B on local blocks inside a caller's ``jax.shard_map``.
 
-    This is the per-shard core of :func:`jaxmg.potrs`. Call it from the body of
-    a ``jax.shard_map`` whose mesh contains exactly the matrix axes, with
-    ``a`` and ``b`` both sharded by ``matrix_specs``.
+    Use this interface when a distributed solve forms part of a larger
+    shard-local calculation. The enclosing mesh must contain exactly the
+    matrix axes. A follows ``matrix_specs``; B must share its row sharding,
+    but may be distributed or replicated over the process-column axis.
 
     Args:
         a (Array): Local block of a 2D, symmetric positive-definite matrix.
@@ -286,7 +286,7 @@ def potrs_shardmap_ctx(
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
             dimension must be a multiple of ``T_A`` after padding.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            PartitionSpec of ``a`` and ``b`` in the enclosing ``shard_map``.
+            PartitionSpec of ``a`` in the enclosing ``shard_map``.
             If omitted, defaults to the context mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         return_logdet (bool, optional): If True return the replicated Cholesky
@@ -307,63 +307,22 @@ def potrs_shardmap_ctx(
         TypeError: If dtypes or ``PartitionSpec`` inputs are unsupported.
         ValueError: If called outside ``jax.shard_map``, or if shapes, tile
             sizes, or mesh layouts are incompatible.
+
+    Notes:
+        - When B is replicated over process columns, its copies are solved
+          as duplicate right-hand sides using one distributed factorization.
+        - Return ``a_work`` from the outer jitted function when donating A;
+          it provides the corresponding matrix-sized output buffer.
     """
-    b, vector_rhs, layout, b_padding, nrhs = _prepare_local_potrs_call(
+    return _potrs_shardmap_impl(
         a,
         b,
         T_A,
         matrix_specs,
         in_specs=in_specs,
-        pad=pad,
-        caller="potrs_shardmap_ctx",
-    )
-    b_varying = jax.typeof(b).manual_axis_type.varying
-
-    ensure_init_jaxmg_backend()
-
-    a_padding = layout.padding
-    a = pad_local_2d(
-        a,
-        row_padding=a_padding.row_padding_per_process,
-        col_padding=a_padding.col_padding_per_process,
-    )
-    b = pad_local_2d(
-        b,
-        row_padding=b_padding.row_padding_per_process,
-        col_padding=b_padding.col_padding_per_process,
-    )
-    result = _potrs_native_call(
-        a,
-        b,
-        grid=layout.grid,
-        partition_slots=layout.partition_slots,
-        n=a_padding.logical_rows,
-        nrhs=nrhs,
-        tile_size=layout.tile_shape.rows,
         return_logdet=return_logdet,
+        pad=pad,
     )
-    a_work, x, *logdet, status = result
-    x = unpad_local_2d(
-        x,
-        local_rows=b_padding.local_logical_rows,
-        local_cols=b_padding.local_logical_cols,
-    )
-    if vector_rhs:
-        x = x[:, 0]
-    # The native outputs differ per rank but are typed invariant.
-    row_axis, _ = layout.matrix_specs
-    axes = tuple(
-        axis
-        for axis in layout.matrix_specs
-        if axis is not None and layout.mesh.shape[axis] > 1
-    )
-    x_axes = tuple(axis for axis in axes if axis == row_axis or axis in b_varying)
-    a_work = mark_varying(a_work, axes)
-    x = mark_varying(x, x_axes)
-    status = mark_varying(status, axes)
-    if return_logdet:
-        return a_work, x, logdet[0][0], status
-    return a_work, x, status
 
 
 def _check_potrs_operands(a: Array, b: Array, tile_size: int, caller: str):
@@ -451,9 +410,14 @@ def _prepare_local_potrs_call(
 ):
     """Validate a Cholesky solve on local blocks and derive its layouts.
 
-    The global shapes follow from the local blocks and the process grid of the
-    context mesh. Because B is sharded like A, every one of its global columns
-    is passed to cuSOLVERMp as a right-hand side.
+    Preparation proceeds as follows:
+
+    1. Validate operand ranks and dtypes, matching local row counts, and a
+       positive tile size; normalize a vector B to a one-column block.
+    2. Resolve the process grid and rank map from the enclosing shard_map,
+       reconstruct A's global dimensions, and require a square matrix.
+    3. Calculate tile-aligned capacity for A and B. The distributed B width
+       includes duplicate columns when B is replicated over process columns.
     """
     b, vector_rhs = _check_potrs_operands(a, b, tile_size, caller)
     layout = prepare_local_matrix_layout(
@@ -499,6 +463,84 @@ def _real_dtype_for_logdet(dtype):
     raise TypeError("potrs supports float32, float64, complex64, and complex128.")
 
 
+def _potrs_shardmap_impl(
+    a: Array,
+    b: Array,
+    T_A: int,
+    matrix_specs: P | Tuple[P] | List[P] | None,
+    *,
+    in_specs: P | Tuple[P] | List[P] | None = None,
+    return_logdet: bool,
+    pad: bool,
+    nrhs: int | None = None,
+):
+    """Pad local blocks, execute the shared solver, and restore local outputs.
+
+    The global wrapper supplies the logical RHS count separately from the
+    routing width. Direct shard-local calls use all supplied columns, including
+    duplicate RHS columns when B is replicated over process columns.
+    """
+    b, vector_rhs, layout, b_padding, b_distribution_cols = _prepare_local_potrs_call(
+        a,
+        b,
+        T_A,
+        matrix_specs,
+        in_specs=in_specs,
+        pad=pad,
+        caller="potrs_shardmap_ctx",
+    )
+    b_varying = jax.typeof(b).manual_axis_type.varying
+    ensure_init_jaxmg_backend()
+
+    # Stage 1: provide tile-aligned capacity for each local input.
+    a_padding = layout.padding
+    a = pad_local_2d(
+        a,
+        row_padding=a_padding.row_padding_per_process,
+        col_padding=a_padding.col_padding_per_process,
+    )
+    b = pad_local_2d(
+        b,
+        row_padding=b_padding.row_padding_per_process,
+        col_padding=b_padding.col_padding_per_process,
+    )
+
+    # Stage 2: run the fused redistribution, factorization, and solve.
+    a_work, x, *logdet, status = _potrs_native_call(
+        a,
+        b,
+        grid=layout.grid,
+        partition_slots=layout.partition_slots,
+        n=a_padding.logical_rows,
+        nrhs=b_distribution_cols if nrhs is None else nrhs,
+        b_distribution_cols=b_distribution_cols,
+        tile_size=layout.tile_shape.rows,
+        return_logdet=return_logdet,
+    )
+
+    # Stage 3: remove tile padding and describe which outputs vary by rank.
+    x = unpad_local_2d(
+        x,
+        local_rows=b_padding.local_logical_rows,
+        local_cols=b_padding.local_logical_cols,
+    )
+    if vector_rhs:
+        x = x[:, 0]
+    row_axis, _ = layout.matrix_specs
+    axes = tuple(
+        axis
+        for axis in layout.matrix_specs
+        if axis is not None and layout.mesh.shape[axis] > 1
+    )
+    x_axes = tuple(axis for axis in axes if axis == row_axis or axis in b_varying)
+    a_work = mark_varying(a_work, axes)
+    x = mark_varying(x, x_axes)
+    status = mark_varying(status, axes)
+    if return_logdet:
+        return a_work, x, logdet[0][0], status
+    return a_work, x, status
+
+
 _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
@@ -510,6 +552,7 @@ def _potrs_native_call(
     partition_slots: tuple[int, ...],
     n: int,
     nrhs: int,
+    b_distribution_cols: int,
     tile_size: int,
     return_logdet: bool,
 ):
@@ -560,7 +603,7 @@ def _potrs_native_call(
         partition_slots=np.asarray(partition_slots, dtype=np.int64),
         n=int(n),
         nrhs=int(nrhs),
-        b_distribution_cols=int(nrhs),
+        b_distribution_cols=int(b_distribution_cols),
         tile_size=int(tile_size),
     )
 
@@ -580,10 +623,10 @@ def _potrs_pipeline(
 ):
     """Build and cache the unjitted global POTRS pipeline.
 
-    The pipeline places A and B in the matrix sharding, runs
-    :func:`potrs_shardmap_ctx` under ``jax.shard_map``, and restores the
-    solution to the JAX-facing RHS sharding.  It is cached by static
-    configuration so repeated solves reuse the same ``jax.shard_map``.
+    The pipeline places A and B in the matrix sharding, runs the shared local
+    solver under ``jax.shard_map``, and restores the solution to the JAX-facing
+    RHS sharding. It is cached by static configuration so repeated solves reuse
+    the same ``jax.shard_map``.
     """
     b_distribution_padding = int(b_distribution_cols) - int(nrhs)
     if return_logdet:
@@ -592,11 +635,12 @@ def _potrs_pipeline(
         out_specs = (matrix_specs, matrix_specs, native_status_specs)
     solve = jax.shard_map(
         partial(
-            potrs_shardmap_ctx,
+            _potrs_shardmap_impl,
             T_A=tile_size,
             matrix_specs=matrix_specs,
             return_logdet=return_logdet,
             pad=pad,
+            nrhs=nrhs,
         ),
         mesh=mesh,
         in_specs=(matrix_specs, matrix_specs),

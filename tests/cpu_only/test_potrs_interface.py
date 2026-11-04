@@ -515,7 +515,7 @@ import jax.numpy as jnp
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
 import jaxmg._potrs as potrs_module
-from jaxmg import potrs_jit_ctx, potrs_shardmap_ctx
+from jaxmg import potrs, potrs_jit_ctx, potrs_shardmap_ctx
 
 seen = []
 
@@ -533,12 +533,23 @@ mesh = Mesh(np.asarray(jax.devices()).reshape(2, 2), ("pr", "pc"))
 specs = P("pr", "pc")
 a = jax.device_put(jnp.eye(8), NamedSharding(mesh, specs))
 
-# Global arrays: a skinny RHS gains one routing column to shard like A.
-b = jax.device_put(jnp.arange(8.0)[:, None], NamedSharding(mesh, P("pr", None)))
-_, x, _ = jax.jit(partial(potrs_jit_ctx, T_A=2))(a, b)
-np.testing.assert_array_equal(x, b)
-assert x.sharding.is_equivalent_to(b.sharding, 2), x.sharding
-assert seen[-1]["nrhs"] == 2 and seen[-1]["n"] == 8, seen[-1]
+# Routing padding changes the storage width, not the number of solved columns.
+for nrhs in (1, 3):
+    b = jax.device_put(
+        jnp.arange(8.0 * nrhs).reshape(8, nrhs),
+        NamedSharding(mesh, P("pr", None)),
+    )
+    for solve in (
+        partial(potrs, T_A=2, donate=False),
+        jax.jit(partial(potrs_jit_ctx, T_A=2)),
+    ):
+        result = solve(a, b)
+        x = result[1] if isinstance(result, tuple) else result
+        np.testing.assert_array_equal(x, b)
+        assert x.sharding.is_equivalent_to(b.sharding, 2), x.sharding
+        assert seen[-1]["nrhs"] == nrhs, seen[-1]
+        assert seen[-1]["b_distribution_cols"] == nrhs + 1, seen[-1]
+        assert seen[-1]["n"] == 8, seen[-1]
 
 # Local blocks with B sharded like A.
 b = jax.device_put(jnp.arange(16.0).reshape(8, 2), NamedSharding(mesh, specs))
@@ -548,6 +559,7 @@ _, x, _ = jax.jit(jax.shard_map(
 ))(a, b)
 np.testing.assert_array_equal(x, b)
 assert seen[-1]["nrhs"] == 2, seen[-1]
+assert seen[-1]["b_distribution_cols"] == 2, seen[-1]
 
 # Local blocks with B replicated over the column axis.
 b = jax.device_put(jnp.arange(8.0), NamedSharding(mesh, P("pr")))
@@ -556,6 +568,9 @@ _, x, _ = jax.jit(jax.shard_map(
     in_specs=(specs, P("pr")), out_specs=(specs, P("pr"), P(("pr", "pc"))),
 ))(a, b)
 np.testing.assert_array_equal(x, b)
+assert x.sharding.is_equivalent_to(b.sharding, 1), x.sharding
+assert seen[-1]["nrhs"] == 2, seen[-1]
+assert seen[-1]["b_distribution_cols"] == 2, seen[-1]
 print("ok")
 """
 
@@ -573,6 +588,7 @@ def test_potrs_layers_move_data_on_a_2x2_cpu_mesh():
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().endswith("ok")

@@ -50,8 +50,10 @@ SHARDMAP_CASES = (
     # B sharded like A on 1x2 and 2x2 grids, the latter with tile padding.
     pytest.param(2, "row_major_no_padding", marks=pytest.mark.multi_gpu),
     pytest.param(4, "column_major_padding", marks=pytest.mark.multi_gpu),
-    # B replicated over the column axis: one solve per process column.
+    # A row-only process grid has no duplicate RHS columns.
     pytest.param(2, "column_grid_no_padding", marks=pytest.mark.multi_gpu),
+    # Replicated B contributes duplicate RHS columns to one distributed solve.
+    pytest.param(2, "skinny_rhs", marks=pytest.mark.multi_gpu),
     pytest.param(4, "skinny_rhs", marks=pytest.mark.multi_gpu),
 )
 SINGULAR_PROCESS_COUNTS = (
@@ -84,12 +86,15 @@ def test_potrs_logdet(requested_procs, case_name, dtype_name, monkeypatch):
 
 
 @pytest.mark.multi_gpu
-def test_potrs_jit_ctx_two_gpu():
+@pytest.mark.parametrize(
+    "case_name", ("column_grid_no_padding", "skinny_rhs_explicit_mesh")
+)
+def test_potrs_jit_ctx_two_gpu(case_name):
     """Run the caller-jitted POTRS context interface on two GPUs."""
     run_gpu_test(
         GPU_TEST,
         2,
-        "column_grid_no_padding",
+        case_name,
         "float32",
         interface="context",
     )
@@ -104,11 +109,15 @@ def test_potrs_shardmap_ctx(requested_procs, case_name):
 
 
 @pytest.mark.multi_gpu
-def test_potrs_shardmap_ctx_logdet(monkeypatch):
+@pytest.mark.parametrize(
+    "requested_procs,case_name",
+    ((2, "column_major_padding"), (4, "column_major_padding")),
+)
+def test_potrs_shardmap_ctx_logdet(requested_procs, case_name, monkeypatch):
     """The per-shard interface returns the replicated log determinant."""
     monkeypatch.setenv("JAXMG_TEST_POTRS_LOGDET", "1")
     run_gpu_test(
-        GPU_TEST, 4, "column_major_padding", "float64", interface="shardmap"
+        GPU_TEST, requested_procs, case_name, "float64", interface="shardmap"
     )
 
 
