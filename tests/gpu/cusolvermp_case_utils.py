@@ -108,7 +108,7 @@ def _first_valid_n(process_rows: int, process_cols: int, tile: int, *, padded: b
 
 
 def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCase:
-    """Build a named test case for the POTRS, LU solve, or SYEVD GPU runners."""
+    """Build a named test case for the solver and factorization GPU runners."""
     rhs_mode = "matrix_2d_sharded"
     axis_types = "auto"
     has_rhs = routine in ("potrs", "lu_solve")
@@ -134,8 +134,10 @@ def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCa
         if has_rhs:
             rhs_mode = "matrix_row_sharded"
     elif case_name == "replicated_input":
-        if routine != "syevd":
-            raise ValueError("replicated_input is only used by the SYEVD test")
+        if routine not in ("syevd", "potrf", "getrf"):
+            raise ValueError(
+                "replicated_input is only used by the SYEVD, POTRF, and GETRF tests"
+            )
         rows, cols, tile, padded, nrhs = 1, num_processes, 64, False, 1
         grid_order = "row_major"
         axis_types = "explicit"

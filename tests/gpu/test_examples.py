@@ -4,6 +4,8 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -48,56 +50,65 @@ def _run_example(script_name, num_processes=2):
     timeout = int(os.environ.get("JAXMG_GPU_TEST_TIMEOUT", "300"))
     coord = f"127.0.0.1:{_find_free_port()}"
 
-    procs = []
-    for rank in range(num_processes):
-        rank_env = os.environ.copy()
-        rank_env["CUDA_VISIBLE_DEVICES"] = str(rank)
-        rank_env["JAXMG_LOCAL_DEVICE_ID"] = "0"
-        procs.append(
-            subprocess.Popen(
-                [
-                    sys.executable,
-                    "-u",
-                    str(script),
-                    "--coordinator",
-                    coord,
-                    "--process-id",
-                    str(rank),
-                    "--num-processes",
-                    str(num_processes),
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                env=rank_env,
-                text=True,
-            )
+    procs, logs = [], []
+    failure = None
+    exits = []
+    # Files avoid blocking a rank on a full pipe while its peer is being read.
+    with tempfile.TemporaryDirectory(prefix="jaxmg-example-") as log_dir:
+        try:
+            deadline = time.monotonic() + timeout
+            for rank in range(num_processes):
+                rank_env = os.environ.copy()
+                rank_env["CUDA_VISIBLE_DEVICES"] = str(rank)
+                rank_env["JAXMG_LOCAL_DEVICE_ID"] = "0"
+                # Bind on the same interface used to select the free port.
+                rank_env["JAX_COORDINATOR_BIND_ADDRESS"] = coord
+                log = open(Path(log_dir) / f"rank-{rank}.log", "w+")
+                logs.append(log)
+                procs.append(subprocess.Popen(
+                    [
+                        sys.executable, "-u",
+                        str(Path(__file__).with_name("run_example_diagnostic.py")),
+                        str(script), "--coordinator", coord,
+                        "--process-id", str(rank),
+                        "--num-processes", str(num_processes),
+                    ],
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    env=rank_env,
+                    text=True,
+                ))
+
+            while True:
+                exits = [proc.poll() for proc in procs]
+                if any(code not in (None, 0) for code in exits):
+                    failure = "a rank exited unsuccessfully"
+                    break
+                if all(code is not None for code in exits):
+                    break
+                if time.monotonic() >= deadline:
+                    failure = f"did not finish within {timeout}s"
+                    break
+                time.sleep(0.05)
+        finally:
+            for proc in procs:
+                if proc.poll() is None:
+                    proc.kill()
+            for proc in procs:
+                proc.wait()
+            outputs = []
+            for log in logs:
+                log.seek(0)
+                outputs.append(log.read())
+                log.close()
+
+    if failure:
+        joined = "\n".join(
+            f"--- rank {i}: before cleanup={exits[i]}, "
+            f"after cleanup={proc.returncode} ---\n{output}"
+            for i, (proc, output) in enumerate(zip(procs, outputs))
         )
-
-    outputs = []
-    try:
-        for proc in procs:
-            outputs.append(proc.communicate(timeout=timeout)[0])
-    except subprocess.TimeoutExpired:
-        for proc in procs:
-            proc.kill()
-        for proc in procs:
-            proc.communicate()
-        pytest.fail(f"{script_name} did not finish within {timeout}s")
-    finally:
-        for proc in procs:
-            if proc.poll() is None:
-                proc.kill()
-
-    # A peer that dies takes the collective down with it, so report every rank
-    # rather than only rank 0 -- the real error is often elsewhere.
-    for rank, proc in enumerate(procs):
-        if proc.returncode != 0:
-            joined = "\n".join(
-                f"--- rank {i} ---\n{out}" for i, out in enumerate(outputs)
-            )
-            pytest.fail(
-                f"{script_name} rank {rank} exited {proc.returncode}\n{joined}"
-            )
+        pytest.fail(f"{script_name}: {failure}\n{joined}")
     return outputs[0]
 
 

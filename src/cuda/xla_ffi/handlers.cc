@@ -108,6 +108,24 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
 
+// Registers the factor-only POTRF target that returns the lower Cholesky
+// factor, aliased to A, plus a status vector.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpPotrfFFI, XlaCusolverMpPotrfDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("n")
+        .Attr<int64_t>("tile_size")
+        .Attr<absl::Span<const int64_t>>("partition_slots")
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
 // Registers the runtime LU-solve target that receives a general square matrix,
 // factorizes it with GETRF, and solves the right-hand side with GETRS.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
@@ -126,6 +144,25 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Arg<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
         .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+// Registers the factor-only GETRF target that returns the packed LU factor,
+// aliased to A, the replicated 0-based pivots, and a status vector.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpGetrfFFI, XlaCusolverMpGetrfDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("n")
+        .Attr<int64_t>("tile_size")
+        .Attr<absl::Span<const int64_t>>("partition_slots")
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
         .Ret<ffi::BufferR1<S32>>()
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());

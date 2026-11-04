@@ -316,8 +316,15 @@ differences are the cuSOLVERMp call sequence and solver workspace:
 - `potrs` calls `cusolverMpPotrf` followed by `cusolverMpPotrs`. If
   `return_logdet=True`, each process reads the Cholesky diagonal entries it owns
   and the rank-local sums are combined by an in-place NCCL all-reduce.
+- `potrf` calls `cusolverMpPotrf` without a solve. cuSOLVERMp leaves the input
+  in the strict upper triangle, so a kernel zeros it in the block-cyclic layout
+  before the factor is reverse-redistributed in place of the donated A.
 - `lu_solve` calls `cusolverMpGetrf` followed by `cusolverMpGetrs` and allocates
   a pivot vector according to the local cuSOLVERMp column ownership.
+- `getrf` calls `cusolverMpGetrf` without a solve and reverse-redistributes the
+  packed LU factor in place of the donated A. Each rank scatters the pivots of
+  the columns it owns into a global vector, and an NCCL max all-reduce
+  replicates that vector on every rank.
 - `least_squares` calls `cusolverMpGels`. The solve input has $M$ rows on entry
   and is overwritten in place, with the $N$ solution rows restored to their
   original JAX-facing sharding.
@@ -373,7 +380,10 @@ Native C++/CUDA is responsible for:
 |--------|
 |[src/cuda/cusolvermp_routines/cusolvermp_potrs.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_potrs.cc) |
 |[src/cuda/cusolvermp_routines/potrs_logdet.cu.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/potrs_logdet.cu.cc) |
+|[src/cuda/cusolvermp_routines/cusolvermp_potrf.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_potrf.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc) |
+|[src/cuda/cusolvermp_routines/cusolvermp_getrf.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_getrf.cc) |
+|[src/cuda/cusolvermp_routines/factor_extract.cu.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/factor_extract.cu.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_gels.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gels.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_qr.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_qr.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_syevd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_syevd.cc) |

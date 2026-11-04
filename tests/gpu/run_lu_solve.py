@@ -177,6 +177,12 @@ def run_case() -> None:
     status_words = native_status_words(status)
     assert status_words.size % _CUSOLVERMP_LU_SOLVE_STATUS_SIZE == 0, status_words
     assert np.all(status_words[::_CUSOLVERMP_LU_SOLVE_STATUS_SIZE] == 0), status_words
+    ranks = status_words.reshape(-1, _CUSOLVERMP_LU_SOLVE_STATUS_SIZE)
+    assert np.all(ranks[:, 22:24] >= 0), ranks  # GETRF workspace diagnostics
+    assert np.all(ranks[:, 26] == 1), ranks  # getrf_called
+    assert np.all(ranks[:, 27] == 0), ranks  # getrf_info
+    expected_ipiv_len = np.maximum(ranks[:, 19], ranks[:, 18] + case.tile_size)
+    np.testing.assert_array_equal(ranks[:, 33], expected_ipiv_len)
     assert_close_scaled(out, expected)
     assert out.sharding.is_equivalent_to(expected_output_sharding, out.ndim)
 

@@ -158,10 +158,14 @@ enum CusolverMpStatusCode : int32_t {
   kOrgqrWorkspaceFailed = 59,
   kOrgqrFailed = 60,
   kOrgqrInfoNonzero = 61,
+  kFactorExtractFailed = 62,
+  kPivotGatherFailed = 63,
 };
 
 inline constexpr int kPotrsStatusSize = 40;
+inline constexpr int kPotrfStatusSize = 26;
 inline constexpr int kLuSolveStatusSize = 41;
+inline constexpr int kGetrfStatusSize = 28;
 inline constexpr int kSyevdStatusSize = 36;
 inline constexpr int kGesvdStatusSize = 42;
 inline constexpr int kPolarStatusSize = 32;
@@ -211,14 +215,45 @@ std::pair<int32_t, int32_t> ProcessCoordFromRank(int nccl_rank,
                                                  int64_t process_cols,
                                                  int64_t grid_mapping);
 
-// Returns a linked cuSOLVERMp API table and marks the status vector to show
-// that the direct cuSOLVERMp runtime dependency was available.
-template <size_t StatusSize>
-CusolverMpApi LinkedCusolverMpApi(std::array<int32_t, StatusSize>* status) {
-  static_assert(StatusSize > 7, "cuSOLVERMp status vector is too small");
-  (*status)[7] = 1;
-  return CusolverMpApi{};
-}
+// Owns one invocation's cuSOLVERMp handle and grid, but only borrows XLA's
+// NCCL communicator. The caller's status vector must outlive this object;
+// its first ten fields follow the common runtime diagnostic layout.
+// The raw cuSOLVER status is at index 11, except for QR which uses index 12.
+// Matrix descriptors and solver-specific workspace remain with the caller.
+class CusolverMpExecution {
+ public:
+  explicit CusolverMpExecution(absl::Span<int32_t> status,
+                              size_t raw_status_index = 11)
+      : status_(status), raw_status_index_(raw_status_index) {}
+  ~CusolverMpExecution() { Close(); }
+  CusolverMpExecution(const CusolverMpExecution&) = delete;
+  CusolverMpExecution& operator=(const CusolverMpExecution&) = delete;
+
+  // Select the matrix's CUDA device, borrow the assigned communicator,
+  // validate its process grid, and create the handle/grid. Runtime failures
+  // set status[0]; invalid grid mappings return an absl::Status error.
+  absl::Status Initialize(
+      const char* caller, cudaStream_t cuda_stream, const void* matrix,
+      int64_t process_rows, int64_t process_cols, int64_t grid_mapping,
+      absl::Span<const int64_t> rank_map,
+      const CollectiveParams* collective_params,
+      const CollectiveCliques* collective_cliques);
+
+  // Close explicitly before collective status agreement so cleanup failures
+  // are included. The destructor also covers early returns; repeated closes
+  // are harmless. The borrowed NCCL communicator remains valid afterwards.
+  void Close();
+
+  CusolverMpApi api;
+  cusolverMpHandle_t handle = nullptr;
+  cusolverMpGrid_t grid = nullptr;
+  ncclComm_t nccl_comm = nullptr;
+  int nccl_rank = -1;
+
+ private:
+  absl::Span<int32_t> status_;
+  size_t raw_status_index_;
+};
 
 // Computes the ScaLAPACK/NUMROC local length owned by one process coordinate
 // for a block-cyclic axis.
@@ -237,12 +272,6 @@ absl::Status CopyStatusToDevice(se::Stream* stream,
 
 // Encodes workspace byte sizes compactly in status vectors as KiB.
 int32_t SizeToKiBForStatus(size_t bytes);
-
-// Copies an input buffer into an output/work buffer only when XLA did not alias
-// the two buffers for the current FFI call.
-absl::Status CopyAnyBufferToOutputIfNeeded(cudaStream_t cuda_stream,
-                                           ffi::AnyBuffer input,
-                                           ffi::Result<ffi::AnyBuffer> output);
 
 // Propagates a nonzero status to otherwise successful ranks at a shared
 // checkpoint after solver execution. Reuses the first device status word as

@@ -341,6 +341,10 @@ def run_case() -> None:
     status_words = native_status_words(status)
     assert status_words.size % _CUSOLVERMP_POTRS_STATUS_SIZE == 0, status_words
     assert np.all(status_words[::_CUSOLVERMP_POTRS_STATUS_SIZE] == 0), status_words
+    ranks = status_words.reshape(-1, _CUSOLVERMP_POTRS_STATUS_SIZE)
+    assert np.all(ranks[:, 22:24] >= 0), ranks  # POTRF workspace diagnostics
+    assert np.all(ranks[:, 26] == 1), ranks  # potrf_called
+    assert np.all(ranks[:, 27] == 0), ranks  # potrf_info
     assert_close_scaled(out, expected)
     if interface in ("abstract_mesh", "inferred"):
         expected_mapping = 1 if case.grid_order == "row_major" else 0
