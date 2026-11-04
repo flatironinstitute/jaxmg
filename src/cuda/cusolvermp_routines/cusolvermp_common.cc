@@ -332,24 +332,6 @@ int32_t SizeToKiBForStatus(size_t bytes) {
   return static_cast<int32_t>(kib);
 }
 
-// Copies an input/work buffer only when XLA did not alias it with the output
-// buffer requested by the fused solver handler.
-absl::Status CopyAnyBufferToOutputIfNeeded(cudaStream_t cuda_stream,
-                                           ffi::AnyBuffer input,
-                                           ffi::Result<ffi::AnyBuffer> output) {
-  if (input.untyped_data() == output->untyped_data()) {
-    return absl::OkStatus();
-  }
-  if (input.size_bytes() != output->size_bytes()) {
-    return absl::InvalidArgumentError(
-        "cuSOLVERMp received mismatched input/output buffer sizes");
-  }
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
-      output->untyped_data(), input.untyped_data(), input.size_bytes(),
-      cudaMemcpyDeviceToDevice, cuda_stream));
-  return absl::OkStatus();
-}
-
 namespace {
 
 // Fills one result buffer with the NaN that SolverTraits stores for DataType.

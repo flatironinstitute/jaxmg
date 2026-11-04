@@ -54,11 +54,10 @@ absl::Status RunCusolverMpDistributedPotrs(
     cusolverMpGrid_t grid, cudaStream_t cuda_stream, int64_t n,
     int64_t nrhs, int64_t tile_size, int64_t local_physical_rows,
     int64_t local_physical_cols_a, int64_t local_physical_cols_b,
-    int32_t process_row, int32_t process_col, int32_t nccl_rank,
-    ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_out,
+    int32_t process_row, int32_t process_col,
+    ffi::Result<ffi::AnyBuffer> a_out,
     ffi::Result<ffi::AnyBuffer> b_out,
     std::array<int32_t, kPotrsStatusSize>* status_words) {
-  (void)nccl_rank;
   const int32_t process_rows = (*status_words)[4];
   const int32_t process_cols = (*status_words)[5];
   const int64_t local_rows = LocalNumroc(n, tile_size, process_row,
@@ -159,8 +158,6 @@ absl::Status RunCusolverMpDistributedPotrs(
     }
   }
 
-  JAXMG_RETURN_IF_ERROR(CopyAnyBufferToOutputIfNeeded(cuda_stream, a, a_out));
-  JAXMG_RETURN_IF_ERROR(CopyAnyBufferToOutputIfNeeded(cuda_stream, b, b_out));
   JAXMG_RETURN_IF_CUDA_ERROR(
       cudaMemsetAsync(d_potrs_info, 0, sizeof(int), cuda_stream));
 
@@ -209,8 +206,8 @@ absl::Status RunCusolverMpPotrsSolver(
     se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
     int64_t tile_size, int64_t grid_mapping,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
-    ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
+    absl::Span<const int64_t> rank_map, ffi::Result<ffi::AnyBuffer> a_out,
+    ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     ffi::Result<ffi::AnyBuffer>* logdet_out,
     const CollectiveParams* collective_params,
@@ -223,25 +220,15 @@ absl::Status RunCusolverMpPotrsSolver(
     return absl::InvalidArgumentError(
         "cusolvermp_potrs requires XLA and CUDA streams");
   }
-  if (a.dimensions().size() != 2 || b.dimensions().size() != 2 ||
-      a_out->dimensions().size() != 2 || b_out->dimensions().size() != 2) {
+  if (a_out->dimensions().size() != 2 || b_out->dimensions().size() != 2) {
     return absl::InvalidArgumentError(
         "cusolvermp_potrs expects rank-2 A and B buffers");
   }
-  if (a.element_type() != b.element_type() ||
-      a.element_type() != a_out->element_type() ||
-      b.element_type() != b_out->element_type()) {
+  if (a_out->element_type() != b_out->element_type()) {
     return absl::InvalidArgumentError(
         "cusolvermp_potrs requires matching A/B dtypes");
   }
-  if (a.dimensions()[0] != a_out->dimensions()[0] ||
-      a.dimensions()[1] != a_out->dimensions()[1] ||
-      b.dimensions()[0] != b_out->dimensions()[0] ||
-      b.dimensions()[1] != b_out->dimensions()[1]) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_potrs input/output shapes must match");
-  }
-  if (a.dimensions()[0] != b.dimensions()[0]) {
+  if (a_out->dimensions()[0] != b_out->dimensions()[0]) {
     return absl::InvalidArgumentError(
         "cusolvermp_potrs expects A and B to have the same "
         "local row capacity");
@@ -266,12 +253,12 @@ absl::Status RunCusolverMpPotrsSolver(
       0,   // cusolverMpGrid_t created.
       0,   // cusolverMpMatrixDescriptor_t for A created.
       0,   // raw cuSOLVER status from the failing call, if any.
-      static_cast<int32_t>(a.size_bytes()),
+      static_cast<int32_t>(a_out->size_bytes()),
       static_cast<int32_t>(n),
       static_cast<int32_t>(tile_size),
-      static_cast<int32_t>(a.dimensions()[0]),
-      static_cast<int32_t>(a.dimensions()[1]),
-      static_cast<int32_t>(b.dimensions()[0]),
+      static_cast<int32_t>(a_out->dimensions()[0]),
+      static_cast<int32_t>(a_out->dimensions()[1]),
+      static_cast<int32_t>(b_out->dimensions()[0]),
       -1,  // local NUMROC rows for A.
       -1,  // local NUMROC cols for A.
       -1,  // local NUMROC rows for B.
@@ -289,7 +276,7 @@ absl::Status RunCusolverMpPotrsSolver(
       0,   // B reverse redistribution completed.
       0,   // Cholesky logdet reduction completed.
       -1,  // dtype code.
-      static_cast<int32_t>(b.dimensions()[1]),
+      static_cast<int32_t>(b_out->dimensions()[1]),
       static_cast<int32_t>(nrhs),
       0,  // A native redistribution flag.
       0,  // B native redistribution flag.
@@ -314,7 +301,7 @@ absl::Status RunCusolverMpPotrsSolver(
   }
   CusolverMpExecution execution(absl::MakeSpan(status_words));
   JAXMG_RETURN_IF_ERROR(execution.Initialize(
-      "cusolvermp_potrs", cuda_stream, a.untyped_data(),
+      "cusolvermp_potrs", cuda_stream, a_out->untyped_data(),
       process_rows, process_cols, grid_mapping, rank_map,
       collective_params, collective_cliques));
   if (status_words[0] != kStatusOk) {
@@ -334,38 +321,38 @@ absl::Status RunCusolverMpPotrsSolver(
   // Stage 3: dispatch on the XLA primitive dtype and run POTRF/POTRS.
   absl::Status potrs_status;
   cudaDataType_t logdet_dtype = CUDA_R_32F;
-  switch (a.element_type()) {
+  switch (a_out->element_type()) {
     case F32:
       status_words[34] = 1;
       logdet_dtype = CUDA_R_32F;
       potrs_status = RunCusolverMpDistributedPotrs<float>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
-          a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
-          process_row, process_col, nccl_rank, a, b, a_out, b_out, &status_words);
+          a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
+          process_row, process_col, a_out, b_out, &status_words);
       break;
     case F64:
       status_words[34] = 2;
       logdet_dtype = CUDA_R_64F;
       potrs_status = RunCusolverMpDistributedPotrs<double>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
-          a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
-          process_row, process_col, nccl_rank, a, b, a_out, b_out, &status_words);
+          a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
+          process_row, process_col, a_out, b_out, &status_words);
       break;
     case C64:
       status_words[34] = 3;
       logdet_dtype = CUDA_C_32F;
       potrs_status = RunCusolverMpDistributedPotrs<cuFloatComplex>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
-          a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
-          process_row, process_col, nccl_rank, a, b, a_out, b_out, &status_words);
+          a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
+          process_row, process_col, a_out, b_out, &status_words);
       break;
     case C128:
       status_words[34] = 4;
       logdet_dtype = CUDA_C_64F;
       potrs_status = RunCusolverMpDistributedPotrs<cuDoubleComplex>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
-          a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
-          process_row, process_col, nccl_rank, a, b, a_out, b_out, &status_words);
+          a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
+          process_row, process_col, a_out, b_out, &status_words);
       break;
     default:
       status_words[0] = kUnsupportedDtype;
@@ -390,7 +377,7 @@ absl::Status RunCusolverMpPotrsSolver(
     JAXMG_RETURN_IF_CUDA_ERROR(AccumulateLocalCholeskyLogdet(
         cuda_stream, logdet_dtype, a_out->untyped_data(), n, tile_size,
         process_rows, process_cols, process_row, process_col,
-        a.dimensions()[0], logdet_data));
+        a_out->dimensions()[0], logdet_data));
     const ncclDataType_t logdet_nccl_dtype =
         ((*logdet_out)->element_type() == F32) ? ncclFloat : ncclDouble;
     JAXMG_RETURN_IF_ERROR(RunRawNcclAllReduceReal(
@@ -617,13 +604,11 @@ absl::Status XlaCusolverMpPotrsDispatchImpl(
     return status;
   }
 
-  ffi::AnyBuffer a_cyclic = *a_work;
-  ffi::AnyBuffer b_cyclic = *b_out;
   // Stage 5: run potrf/potrs on the redistributed buffers.  The shared helper
   // handles the cuSOLVERMp ABI boundary and borrowed NCCL communicator.
   if (absl::Status solver_call_status = RunCusolverMpPotrsSolver(
           stream, comm_stream, cuda_stream, process_rows, process_cols, n,
-          nrhs, tile_size, grid_mapping, rank_map, a_cyclic, b_cyclic, a_work,
+          nrhs, tile_size, grid_mapping, rank_map, a_work,
           b_out, status, logdet, collective_params, collective_cliques);
       !solver_call_status.ok()) {
     return return_after_cleanup(solver_call_status);

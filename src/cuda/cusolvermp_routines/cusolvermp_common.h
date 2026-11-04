@@ -273,12 +273,6 @@ absl::Status CopyStatusToDevice(se::Stream* stream,
 // Encodes workspace byte sizes compactly in status vectors as KiB.
 int32_t SizeToKiBForStatus(size_t bytes);
 
-// Copies an input buffer into an output/work buffer only when XLA did not alias
-// the two buffers for the current FFI call.
-absl::Status CopyAnyBufferToOutputIfNeeded(cudaStream_t cuda_stream,
-                                           ffi::AnyBuffer input,
-                                           ffi::Result<ffi::AnyBuffer> output);
-
 // Propagates a nonzero status to otherwise successful ranks at a shared
 // checkpoint after solver execution. Reuses the first device status word as
 // collective scratch; all other per-rank diagnostics remain unchanged.

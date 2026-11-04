@@ -178,6 +178,10 @@ RectCopySpec BuildRectCopySpec(int64_t local_rows, int64_t row_start,
 // the buffers for the fused call.
 absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream, ffi::AnyBuffer matrix,
                                 ffi::Result<ffi::AnyBuffer> matrix_out) {
+  if (matrix.size_bytes() != matrix_out->size_bytes()) {
+    return absl::InvalidArgumentError(
+        "cuSOLVERMp received mismatched input/output buffer sizes");
+  }
   // Aliased buffers need no copy. A distinct output receives the input once
   // before the in-place redistribution begins.
   se::DeviceAddressBase matrix_base = matrix.device_memory();

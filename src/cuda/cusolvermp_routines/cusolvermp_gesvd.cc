@@ -52,7 +52,7 @@ absl::Status RunCusolverMpGesvd(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpGrid_t grid, cudaStream_t cuda_stream, int64_t m, int64_t n,
     int64_t tile_size, int32_t process_row, int32_t process_col,
-    ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> singular_values_out,
+    ffi::Result<ffi::AnyBuffer> singular_values_out,
     ffi::Result<ffi::AnyBuffer> work_out, ffi::AnyBuffer* u_out,
     ffi::AnyBuffer* vh_out, bool compute_u, bool compute_vh,
     bool full_matrices,
@@ -79,8 +79,8 @@ absl::Status RunCusolverMpGesvd(
       LocalNumroc(n, tile_size, process_col, process_cols);
   (*status_words)[18] = static_cast<int32_t>(a_numroc_rows);
   (*status_words)[19] = static_cast<int32_t>(a_numroc_cols);
-  if (a.dimensions()[0] < a_numroc_rows ||
-      a.dimensions()[1] < a_numroc_cols) {
+  if (work_out->dimensions()[0] < a_numroc_rows ||
+      work_out->dimensions()[1] < a_numroc_cols) {
     (*status_words)[0] = kOutputShapeMismatch;
     return absl::OkStatus();
   }
@@ -203,7 +203,7 @@ absl::Status RunCusolverMpGesvd(
   // allocation and can be passed to cuSOLVERMp as null descriptors.
   solver_status = api.create_matrix_desc(
       &desc_a, grid, SolverTraits<DataType>::cuda_data_type, m, n, tile_size,
-      tile_size, /*RSRC_A=*/0, /*CSRC_A=*/0, a.dimensions()[0]);
+      tile_size, /*RSRC_A=*/0, /*CSRC_A=*/0, work_out->dimensions()[0]);
   if (solver_status != CUSOLVER_STATUS_SUCCESS || desc_a == nullptr) {
     (*status_words)[0] = kCreateMatrixDescFailed;
     (*status_words)[11] = static_cast<int32_t>(solver_status);
@@ -240,14 +240,7 @@ absl::Status RunCusolverMpGesvd(
     (*status_words)[26] = 1;
   }
 
-  // GESVD overwrites A. The public input is therefore aliased or copied into
-  // the A-sized work result before cuSOLVERMp receives the pointer.
-  if (absl::Status copy_status =
-          CopyAnyBufferToOutputIfNeeded(cuda_stream, a, work_out);
-      !copy_status.ok()) {
-    cleanup();
-    return copy_status;
-  }
+  // The outer dispatch has already populated and redistributed the work buffer.
   cudaError_t cuda_status = cudaStreamSynchronize(cuda_stream);
   if (cuda_status != cudaSuccess) {
     return cuda_error_after_cleanup(cuda_status,
@@ -380,17 +373,16 @@ absl::Status RunCusolverMpGesvd(
 // This layer owns the common cuSOLVERMp handle/grid lifecycle and dispatches
 // the matrix scalar type to the templated solver implementation above.
 absl::Status RunCusolverMpGesvdSolver(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
     int64_t tile_size, int64_t grid_mapping,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    absl::Span<const int64_t> rank_map,
     ffi::Result<ffi::AnyBuffer> singular_values,
     ffi::Result<ffi::AnyBuffer> work, ffi::AnyBuffer* u, ffi::AnyBuffer* vh,
     bool compute_u, bool compute_vh, bool full_matrices,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
-  (void)comm_stream;
   const int64_t k = std::min(m, n);
   // Stage 1: validate the local FFI buffers for the selected output mode. U
   // and V^H are independent optional outputs, while every mode returns the
@@ -399,7 +391,7 @@ absl::Status RunCusolverMpGesvdSolver(
     return absl::InvalidArgumentError(
         "cusolvermp_gesvd requires XLA and CUDA streams");
   }
-  if (a.dimensions().size() != 2 || work->dimensions().size() != 2 ||
+  if (work->dimensions().size() != 2 ||
       singular_values->dimensions().size() != 1 ||
       (compute_u && (u == nullptr || u->dimensions().size() != 2)) ||
       (compute_vh && (vh == nullptr || vh->dimensions().size() != 2))) {
@@ -407,23 +399,17 @@ absl::Status RunCusolverMpGesvdSolver(
         "cusolvermp_gesvd expects rank-2 matrix buffers and a rank-1 "
         "singular-value output");
   }
-  if (a.element_type() != work->element_type() ||
-      (compute_u && a.element_type() != u->element_type()) ||
-      (compute_vh && a.element_type() != vh->element_type())) {
+  if ((compute_u && work->element_type() != u->element_type()) ||
+      (compute_vh && work->element_type() != vh->element_type())) {
     return absl::InvalidArgumentError(
         "cusolvermp_gesvd requires matching matrix dtypes");
   }
   const PrimitiveType expected_singular_type =
-      (a.element_type() == F32 || a.element_type() == C64) ? F32 : F64;
+      (work->element_type() == F32 || work->element_type() == C64) ? F32 : F64;
   if (singular_values->element_type() != expected_singular_type ||
       singular_values->dimensions()[0] != k) {
     return absl::InvalidArgumentError(
         "cusolvermp_gesvd received an invalid singular-value output");
-  }
-  if (a.dimensions()[0] != work->dimensions()[0] ||
-      a.dimensions()[1] != work->dimensions()[1]) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_gesvd input and work shapes must match");
   }
   if (status_out->dimensions().size() != 1 ||
       status_out->dimensions()[0] != kGesvdStatusSize) {
@@ -444,12 +430,12 @@ absl::Status RunCusolverMpGesvdSolver(
       0,   // cusolverMpGrid_t created.
       0,   // matrix descriptor for A created.
       0,   // raw cuSOLVER status from the failing call, if any.
-      static_cast<int32_t>(a.size_bytes()),       // Local A size, bytes.
-      static_cast<int32_t>(m),                    // Global A rows.
-      static_cast<int32_t>(n),                    // Global A columns.
-      static_cast<int32_t>(tile_size),            // Solver tile size.
-      static_cast<int32_t>(a.dimensions()[0]),    // Local A row capacity.
-      static_cast<int32_t>(a.dimensions()[1]),    // Local A column capacity.
+      static_cast<int32_t>(work->size_bytes()),     // Local A size, bytes.
+      static_cast<int32_t>(m),                      // Global A rows.
+      static_cast<int32_t>(n),                      // Global A columns.
+      static_cast<int32_t>(tile_size),              // Solver tile size.
+      static_cast<int32_t>(work->dimensions()[0]),   // Local A row capacity.
+      static_cast<int32_t>(work->dimensions()[1]),   // Local A column capacity.
       -1,  // local NUMROC rows for A.
       -1,  // local NUMROC cols for A.
       static_cast<int32_t>(singular_values->size_bytes()),  // S size, bytes.
@@ -495,7 +481,7 @@ absl::Status RunCusolverMpGesvdSolver(
   }
   CusolverMpExecution execution(absl::MakeSpan(status_words));
   JAXMG_RETURN_IF_ERROR(execution.Initialize(
-      "cusolvermp_gesvd", cuda_stream, a.untyped_data(),
+      "cusolvermp_gesvd", cuda_stream, work->untyped_data(),
       process_rows, process_cols, grid_mapping, rank_map,
       collective_params, collective_cliques));
   if (status_words[0] != kStatusOk) {
@@ -515,33 +501,33 @@ absl::Status RunCusolverMpGesvdSolver(
   // helper. Its job flags and descriptors reflect the statically selected
   // combination of U, V^H, and thin/full outputs.
   absl::Status gesvd_status;
-  switch (a.element_type()) {
+  switch (work->element_type()) {
     case F32:
       status_words[36] = 1;
       gesvd_status = RunCusolverMpGesvd<float>(
           api, handle, grid, cuda_stream, m, n, tile_size, process_row,
-          process_col, a, singular_values, work, u, vh, compute_u, compute_vh,
+          process_col, singular_values, work, u, vh, compute_u, compute_vh,
           full_matrices, &status_words);
       break;
     case F64:
       status_words[36] = 2;
       gesvd_status = RunCusolverMpGesvd<double>(
           api, handle, grid, cuda_stream, m, n, tile_size, process_row,
-          process_col, a, singular_values, work, u, vh, compute_u, compute_vh,
+          process_col, singular_values, work, u, vh, compute_u, compute_vh,
           full_matrices, &status_words);
       break;
     case C64:
       status_words[36] = 3;
       gesvd_status = RunCusolverMpGesvd<cuFloatComplex>(
           api, handle, grid, cuda_stream, m, n, tile_size, process_row,
-          process_col, a, singular_values, work, u, vh, compute_u, compute_vh,
+          process_col, singular_values, work, u, vh, compute_u, compute_vh,
           full_matrices, &status_words);
       break;
     case C128:
       status_words[36] = 4;
       gesvd_status = RunCusolverMpGesvd<cuDoubleComplex>(
           api, handle, grid, cuda_stream, m, n, tile_size, process_row,
-          process_col, a, singular_values, work, u, vh, compute_u, compute_vh,
+          process_col, singular_values, work, u, vh, compute_u, compute_vh,
           full_matrices, &status_words);
       break;
     default:
@@ -690,10 +676,9 @@ absl::Status RunCusolverMpGesvdDispatch(
   // Stage 5: run GESVD. Singular values are replicated, while requested vector
   // outputs remain in 2D block-cyclic column-major storage until restored
   // below. Values-only mode can release scratch and return immediately.
-  ffi::AnyBuffer a_cyclic = *work;
   if (absl::Status solver_status = RunCusolverMpGesvdSolver(
-          stream, comm_stream, cuda_stream, process_rows, process_cols, m, n,
-          tile_size, grid_mapping, rank_map, a_cyclic, singular_values, work,
+          stream, cuda_stream, process_rows, process_cols, m, n,
+          tile_size, grid_mapping, rank_map, singular_values, work,
           u, vh, compute_u, compute_vh, full_matrices != 0, status,
           collective_params, collective_cliques);
       !solver_status.ok()) {
