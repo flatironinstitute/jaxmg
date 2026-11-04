@@ -91,7 +91,7 @@ the advanced interface below instead of wrapping `lu_solve` in another
 
 ## Advanced: control the outer `jax.jit`
 
-`lu_solve_shardmap_ctx` runs the same padding, redistribution, LU
+`lu_solve_jit_ctx` runs the same padding, redistribution, LU
 factorization, solve, and reverse redistribution as `lu_solve`. The difference
 is that it does not create an internal `jax.jit`. This allows the solve to
 become one stage of a larger function compiled by the caller.
@@ -106,7 +106,7 @@ The advanced examples additionally use:
 ```python
 from functools import partial
 
-from jaxmg import lu_solve_shardmap_ctx
+from jaxmg import lu_solve_jit_ctx
 ```
 
 ### Case 1: `a` and `b` are arguments of the jitted function
@@ -118,7 +118,7 @@ $A$-sized output alias at the outer compiled boundary:
 ```python
 @partial(jax.jit, donate_argnums=(0, 1))
 def compiled_solve(a, b):
-    a_work, x, status = lu_solve_shardmap_ctx(
+    a_work, x, status = lu_solve_jit_ctx(
         a,
         b,
         T_A=T_A,
@@ -162,7 +162,7 @@ def build_and_solve(diagonal):
     b = a @ expected_x
     b = jax.reshard(b, b_sharding)
 
-    _, x, status = lu_solve_shardmap_ctx(
+    _, x, status = lu_solve_jit_ctx(
         a,
         b,
         T_A=T_A,
@@ -181,6 +181,36 @@ scaled_x.block_until_ready()
 `donate_argnums` is not needed for the internally created `a` and `b`. It only
 applies to arguments of the outer jitted function. Donate an outer argument such
 as `diagonal` only when the caller no longer needs it after the call.
+
+## Advanced: call from inside `jax.shard_map`
+
+Use `lu_solve_shardmap_ctx` for a solve within an existing shard-local
+calculation. The inputs and numerical result are local blocks; B must share
+A's row sharding, but its columns may be replicated as in this example.
+
+```python
+from jaxmg import lu_solve_shardmap_ctx
+
+
+@partial(jax.jit, donate_argnums=(0, 1))
+@partial(
+    jax.shard_map,
+    mesh=mesh,
+    in_specs=(matrix_specs, P("pr", None)),
+    out_specs=(matrix_specs, P("pr", None), P(("pr", "pc"))),
+)
+def local_solve(a_block, b_block):
+    return lu_solve_shardmap_ctx(a_block, b_block, T_A=T_A)
+
+
+a, b = make_problem()
+a_work, x, status = local_solve(a, b)
+x.block_until_ready()
+```
+
+Return `a_work` from the outer jitted function when donating A. Replicated RHS
+columns are solved as duplicate columns using one LU factorization; they do
+not require separate factorizations.
 
 Use `lu_solve` for general matrices. For symmetric or Hermitian
 positive-definite matrices, `potrs` is normally faster and uses less workspace.

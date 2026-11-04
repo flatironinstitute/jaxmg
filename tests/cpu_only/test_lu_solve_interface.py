@@ -12,7 +12,7 @@ import jax.numpy as jnp
 from jax.sharding import Mesh, PartitionSpec as P
 
 import jaxmg._lu_solve as lu_solve_module
-from jaxmg import lu_solve, lu_solve_shardmap_ctx
+from jaxmg import lu_solve, lu_solve_jit_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_LU_SOLVE_STATUS_SIZE
 
 
@@ -117,12 +117,12 @@ def test_lu_solve_public_api_can_be_wrapped_in_external_jit(monkeypatch):
     assert out.shape == (4, 1)
 
 
-def test_lu_solve_shardmap_ctx_returns_work_solution_and_status(monkeypatch):
+def test_lu_solve_jit_ctx_returns_work_solution_and_status(monkeypatch):
     captured = _install_fake_lu_solve_backend(monkeypatch)
     a = jnp.eye(4, dtype=jnp.float32)
     b = jnp.ones((4, 2), dtype=jnp.float32)
 
-    a_work, out, status = lu_solve_shardmap_ctx(
+    a_work, out, status = lu_solve_jit_ctx(
         a,
         b,
         2,
@@ -138,12 +138,12 @@ def test_lu_solve_shardmap_ctx_returns_work_solution_and_status(monkeypatch):
     assert captured["pipeline_kwargs"]["tile_size"] == 2
 
 
-def test_lu_solve_shardmap_ctx_preserves_vector_rhs_rank(monkeypatch):
+def test_lu_solve_jit_ctx_preserves_vector_rhs_rank(monkeypatch):
     captured = _install_fake_lu_solve_backend(monkeypatch)
     a = jnp.eye(4, dtype=jnp.float64)
     b = jnp.ones((4,), dtype=jnp.float64)
 
-    a_work, out, status = lu_solve_shardmap_ctx(
+    a_work, out, status = lu_solve_jit_ctx(
         a,
         b,
         2,
@@ -157,11 +157,11 @@ def test_lu_solve_shardmap_ctx_preserves_vector_rhs_rank(monkeypatch):
     assert captured["pipeline_kwargs"]["nrhs"] == 1
 
 
-def test_lu_solve_shardmap_ctx_can_be_wrapped_in_external_jit(monkeypatch):
+def test_lu_solve_jit_ctx_can_be_wrapped_in_external_jit(monkeypatch):
     _install_fake_lu_solve_backend(monkeypatch)
     mesh = _one_rank_mesh()
     solve = jax.jit(
-        partial(lu_solve_shardmap_ctx, T_A=2, mesh=mesh, matrix_specs=P("pr", "pc")),
+        partial(lu_solve_jit_ctx, T_A=2, mesh=mesh, matrix_specs=P("pr", "pc")),
         donate_argnums=(0, 1),
     )
 

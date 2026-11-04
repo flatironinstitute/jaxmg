@@ -20,9 +20,11 @@ from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
     infer_rhs_specs,
-    make_local_pad_fn,
-    make_local_unpad_fn,
+    mark_varying,
+    pad_local_2d,
+    unpad_local_2d,
     prepare_input_matrix_layout,
+    prepare_local_matrix_layout,
     prepare_matrix_padding,
     use_abstract_mesh_decorator,
     place_for_native_work,
@@ -145,7 +147,7 @@ def lu_solve(
     return out
 
 
-def lu_solve_shardmap_ctx(
+def lu_solve_jit_ctx(
     a: Array,
     b: Array,
     T_A: int,
@@ -198,7 +200,7 @@ def lu_solve_shardmap_ctx(
             matrix_specs,
             in_specs=in_specs,
             pad=pad,
-            caller="lu_solve_shardmap_ctx",
+            caller="lu_solve_jit_ctx",
         )
     )
     nrhs = int(b.shape[1])
@@ -225,6 +227,52 @@ def lu_solve_shardmap_ctx(
     return a_work, out, native_status
 
 
+def lu_solve_shardmap_ctx(
+    a: Array,
+    b: Array,
+    T_A: int,
+    matrix_specs: P | Tuple[P] | List[P] | None = None,
+    *,
+    in_specs: P | Tuple[P] | List[P] | None = None,
+    pad: bool = True,
+) -> Tuple[Array, Array, Array]:
+    """Solve A x = B on local blocks inside a caller's ``jax.shard_map``.
+
+    A follows ``matrix_specs``; B shares its row sharding and may have
+    distributed or replicated columns. Replicated copies are solved as
+    duplicate right-hand sides using a single distributed LU factorization.
+
+    Args:
+        a: Local block of a square, nonsingular global matrix.
+        b: Local RHS matrix or vector, with the same dtype and row layout as A.
+        T_A: Square tile width used by cuSOLVERMp.
+        matrix_specs: A's partition specification in the enclosing shard map;
+            defaults to the context mesh axes in order.
+        in_specs: Backwards-compatible alias for ``matrix_specs``.
+        pad: Allow local tile-capacity padding; otherwise require aligned blocks.
+
+    Returns:
+        ``(a_work, x, status)``: the padded local work buffer, local solution
+        and this rank's diagnostic vector. Return ``a_work`` from the outer
+        jitted function when donating A.
+
+    Raises:
+        TypeError: If operand dtypes or partition specifications are unsupported.
+        ValueError: If called outside shard_map or shapes/layouts are incompatible.
+    """
+    b, vector_rhs, layout, _, b_padding, nrhs = _prepare_lu_solve_call(
+        a, b, T_A, None, matrix_specs, in_specs=in_specs, pad=pad,
+        caller="lu_solve_shardmap_ctx", local=True,
+    )
+    ensure_init_jaxmg_backend()
+    a_work, x, status = _lu_solve_local_pipeline(
+        layout.matrix_specs, layout.grid, layout.partition_slots,
+        layout.padding, b_padding, n=layout.padding.logical_rows,
+        nrhs=nrhs, b_distribution_cols=nrhs, tile_size=int(T_A),
+    )(a, b)
+    return a_work, x[:, 0] if vector_rhs else x, status
+
+
 def _prepare_lu_solve_call(
     a: Array,
     b: Array,
@@ -235,6 +283,7 @@ def _prepare_lu_solve_call(
     in_specs: P | Tuple[P] | List[P] | None,
     pad: bool,
     caller: str,
+    local: bool = False,
 ):
     """Validate an LU solve and derive its matrix and RHS layouts.
 
@@ -243,7 +292,8 @@ def _prepare_lu_solve_call(
     1. Validate A and normalize a vector B to a one-column matrix.
     2. Require matching supported dtypes, compatible leading dimensions, a
        square A, and a positive tile size.
-    3. Resolve the mesh, process grid, rank map, and tile-aligned layout of A.
+    3. Resolve the mesh, process grid, rank map, and tile-aligned layout of A;
+       for local blocks, reconstruct the global dimensions from the context mesh.
     4. Infer the JAX-facing B sharding, add any required routing columns, and
        derive its tile-aligned native work layout.
     """
@@ -257,31 +307,36 @@ def _prepare_lu_solve_call(
     if a.dtype != b.dtype:
         raise TypeError(f"{caller} requires matching A/B dtypes.")
     _check_supported_lu_solve_dtype(a.dtype)
-    if a.shape[0] != a.shape[1]:
+    if not local and a.shape[0] != a.shape[1]:
         raise ValueError(f"{caller} expects A to be square.")
     if a.shape[0] != b.shape[0]:
         raise ValueError("A and B must have matching leading dimensions.")
     if int(tile_size) <= 0:
         raise ValueError("T_A must be positive.")
 
-    layout = prepare_input_matrix_layout(
-        a,
-        tile_size,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
-        in_specs=in_specs,
-        pad=pad,
-        caller=caller,
-    )
-    rhs_specs = infer_rhs_specs(b, matrix_specs=layout.matrix_specs)
+    if local:
+        layout = prepare_local_matrix_layout(
+            a, tile_size, matrix_specs=matrix_specs, in_specs=in_specs,
+            pad=pad, caller=caller,
+        )
+        if layout.padding.logical_rows != layout.padding.logical_cols:
+            raise ValueError(f"{caller} expects A to be square.")
+    else:
+        layout = prepare_input_matrix_layout(
+            a, tile_size, mesh=mesh, matrix_specs=matrix_specs,
+            in_specs=in_specs, pad=pad, caller=caller,
+        )
+    rhs_specs = layout.matrix_specs if local else infer_rhs_specs(b, matrix_specs=layout.matrix_specs)
     nrhs = int(b.shape[1])
+    if local:
+        nrhs *= layout.grid.process_cols
     b_distribution_cols = rhs_distribution_columns(
         nrhs,
         process_cols=layout.grid.process_cols,
         pad=pad,
     )
     b_padding = prepare_matrix_padding(
-        logical_rows=b.shape[0],
+        logical_rows=layout.padding.logical_rows,
         logical_cols=b_distribution_cols,
         grid=layout.grid,
         tile_shape=layout.tile_shape,
@@ -302,33 +357,31 @@ def _check_supported_lu_solve_dtype(dtype) -> None:
 _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
-@lru_cache(maxsize=None)
-def _lu_solve_pipeline(
-    mesh: Mesh | AbstractMesh,
+def _lu_solve_local_pipeline(
     matrix_specs: P,
-    native_status_specs: P,
     grid: ProcessGrid,
     partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     b_padding: MatrixPadding2D,
-    rhs_specs: P,
     *,
     n: int,
     nrhs: int,
     b_distribution_cols: int,
     tile_size: int,
 ):
-    """Build and cache the unjitted JAX-visible LU-solve execution pipeline."""
+    """Build the local padding, native LU solve, and output-restoration stages."""
     process_rows = grid.process_rows
     process_cols = grid.process_cols
     slots_attr = np.asarray(partition_slots, dtype=np.int64)
-    b_distribution_padding = int(b_distribution_cols) - int(nrhs)
-    pad_a = make_local_pad_fn(mesh, matrix_specs, a_padding)
-    pad_b = make_local_pad_fn(mesh, matrix_specs, b_padding)
-    unpad_b = make_local_unpad_fn(mesh, matrix_specs, b_padding)
 
     def lu_solve_ffi(_a: Array, _b: Array) -> tuple[Array, Array, Array]:
-        """Call fused native redistribution and ``getrf/getrs`` on one shard."""
+        """Execute the shared shard-local solve without adding a shard map."""
+        b_varying = jax.typeof(_b).manual_axis_type.varying
+        # Stage 1: provide tile-aligned capacity for both operands.
+        _a = pad_local_2d(_a, row_padding=a_padding.row_padding_per_process,
+                          col_padding=a_padding.col_padding_per_process)
+        _b = pad_local_2d(_b, row_padding=b_padding.row_padding_per_process,
+                          col_padding=b_padding.col_padding_per_process)
         if _a.ndim != 2 or _b.ndim != 2:
             raise ValueError("cusolvermp_lu_solve expects rank-2 A and B buffers.")
         if _a.dtype != _b.dtype:
@@ -337,6 +390,7 @@ def _lu_solve_pipeline(
         if _a.shape[0] != _b.shape[0]:
             raise ValueError("A and B must have matching local row capacity.")
 
+        # Stage 2: execute the fused redistribution, factorization and solve.
         out_type = (
             jax.ShapeDtypeStruct(_a.shape, _a.dtype),
             jax.ShapeDtypeStruct(_b.shape, _b.dtype),
@@ -363,20 +417,51 @@ def _lu_solve_pipeline(
             tile_size=int(tile_size),
         )
         a_work, b_out, status = ffi_fn(_a, _b)
-        return a_work, b_out, status
+        # Stage 3: restore the local RHS shape and per-rank output types.
+        b_out = unpad_local_2d(b_out, local_rows=b_padding.local_logical_rows,
+                              local_cols=b_padding.local_logical_cols)
+        axes = tuple(axis for axis, size in zip(matrix_specs, (grid.process_rows, grid.process_cols))
+                     if axis is not None and size > 1)
+        x_axes = tuple(axis for axis in axes if axis == matrix_specs[0] or axis in b_varying)
+        return mark_varying(a_work, axes), mark_varying(b_out, x_axes), mark_varying(status, axes)
+
+    return lu_solve_ffi
+
+
+@lru_cache(maxsize=None)
+def _lu_solve_pipeline(
+    mesh: Mesh | AbstractMesh,
+    matrix_specs: P,
+    native_status_specs: P,
+    grid: ProcessGrid,
+    partition_slots: tuple[int, ...],
+    a_padding: MatrixPadding2D,
+    b_padding: MatrixPadding2D,
+    rhs_specs: P,
+    *,
+    n: int,
+    nrhs: int,
+    b_distribution_cols: int,
+    tile_size: int,
+):
+    """Place global inputs, map the local solve, and restore the RHS layout."""
+    b_distribution_padding = int(b_distribution_cols) - int(nrhs)
 
     lu_solve_shardmap = jax.shard_map(
-        lu_solve_ffi,
+        _lu_solve_local_pipeline(
+            matrix_specs, grid, partition_slots, a_padding, b_padding,
+            n=n, nrhs=nrhs, b_distribution_cols=b_distribution_cols, tile_size=tile_size,
+        ),
         mesh=mesh,
         in_specs=(matrix_specs, matrix_specs),
         out_specs=(matrix_specs, matrix_specs, native_status_specs),
-        check_vma=False,
+        check_vma=True,
     )
 
     @use_abstract_mesh_decorator(mesh)
     def impl(_a: Array, _b: Array) -> tuple[Array, Array, Array]:
         """Run padding, fused native LU solve, and unpadding."""
-        a_padded = pad_a(_a)
+        _a = place_for_native_work(_a, mesh=mesh, matrix_specs=matrix_specs)
         if b_distribution_padding:
             b_distribution = jnp.pad(_b, ((0, 0), (0, b_distribution_padding)))
         else:
@@ -389,11 +474,9 @@ def _lu_solve_pipeline(
             mesh=mesh,
             matrix_specs=matrix_specs,
         )
-        b_padded = pad_b(b_distribution)
-        a_work_padded, b_solved_padded, native_status = lu_solve_shardmap(
-            a_padded, b_padded
+        a_work_padded, out, native_status = lu_solve_shardmap(
+            _a, b_distribution
         )
-        out = unpad_b(b_solved_padded)
         out = restore_rhs_from_native_work(
             out,
             rhs_specs=rhs_specs,

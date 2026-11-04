@@ -48,7 +48,7 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import lu_solve, lu_solve_shardmap_ctx
+from jaxmg import lu_solve, lu_solve_jit_ctx, lu_solve_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_LU_SOLVE_STATUS_SIZE
 
 
@@ -76,7 +76,7 @@ def run_singular_case(dtype) -> None:
     b_dev = jax.device_put(b, NamedSharding(mesh, P(None)))
 
     _, out, status = jax.jit(
-        lambda _a, _b: lu_solve_shardmap_ctx(
+        lambda _a, _b: lu_solve_jit_ctx(
             _a, _b, SINGULAR_TILE_SIZE, mesh=mesh, matrix_specs=matrix_specs
         )
     )(a_dev, b_dev)
@@ -145,7 +145,7 @@ def run_case() -> None:
             static_argnames=("tile_size",),
         )
         def solve(_a, _b, *, tile_size):
-            return lu_solve_shardmap_ctx(
+            return lu_solve_jit_ctx(
                 _a,
                 _b,
                 tile_size,
@@ -156,6 +156,14 @@ def run_case() -> None:
 
         a_work, out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
         a_work.block_until_ready()
+    elif interface == "shardmap":
+        solve = jax.jit(jax.shard_map(
+            partial(lu_solve_shardmap_ctx, T_A=case.tile_size, matrix_specs=matrix_specs),
+            mesh=mesh, in_specs=(matrix_specs, rhs_specs),
+            out_specs=(matrix_specs, rhs_specs, P(("pr", "pc"))),
+        ), donate_argnums=(0, 1))
+        _, out, status = solve(a_dev, b_dev)
+        expected_output_sharding = NamedSharding(mesh, rhs_specs)
     else:
 
         @partial(jax.jit, static_argnames=("tile_size",))
