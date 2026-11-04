@@ -197,7 +197,7 @@ from jaxmg import lu_solve_shardmap_ctx
     jax.shard_map,
     mesh=mesh,
     in_specs=(matrix_specs, P("pr", None)),
-    out_specs=(matrix_specs, P("pr", None), P(("pr", "pc"))),
+    out_specs=(matrix_specs, P("pr", None), P("pr")),
 )
 def local_solve(a_block, b_block):
     return lu_solve_shardmap_ctx(a_block, b_block, T_A=T_A)
