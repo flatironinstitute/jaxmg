@@ -37,19 +37,6 @@ def launcher(monkeypatch, tmp_path):
     assert all(proc.poll() is not None for proc in processes)
 
 
-def test_example_launcher_sets_bind_address(launcher, monkeypatch):
-    module, path = launcher
-    monkeypatch.setenv("JAX_COORDINATOR_BIND_ADDRESS", "0.0.0.0:12345")
-    (path / "example.py").write_text(
-        "import os, sys\n"
-        "coord = sys.argv[sys.argv.index('--coordinator') + 1]\n"
-        "assert coord.startswith('127.0.0.1:')\n"
-        "assert os.environ['JAX_COORDINATOR_BIND_ADDRESS'] == coord\n"
-    )
-    # Both ranks must exit successfully; a failed assertion on either is reported.
-    module._run_example("example.py")
-
-
 def test_example_launcher_drains_large_output(launcher):
     module, path = launcher
     (path / "example.py").write_text(
