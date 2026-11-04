@@ -416,7 +416,11 @@ def _lu_solve_local_pipeline(
             b_distribution_cols=int(b_distribution_cols),
             tile_size=int(tile_size),
         )
-        a_work, b_out, status = ffi_fn(_a, _b)
+        # FFI operands must agree on varying axes, even for replicated RHS columns.
+        input_axes = tuple(jax.typeof(_a).manual_axis_type.varying | b_varying)
+        a_work, b_out, status = ffi_fn(
+            mark_varying(_a, input_axes), mark_varying(_b, input_axes)
+        )
         # Stage 3: restore the local RHS shape and per-rank output types.
         b_out = unpad_local_2d(b_out, local_rows=b_padding.local_logical_rows,
                               local_cols=b_padding.local_logical_cols)
