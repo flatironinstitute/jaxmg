@@ -207,10 +207,9 @@ not arguments of `build_and_solve`. Only donate an outer argument such as
 
 ## Advanced: call from inside `jax.shard_map`
 
-Use `potrs_shardmap_ctx` when the solve forms part of a larger calculation
-inside `jax.shard_map`. It accepts local blocks of `a` and `b` and uses the
-enclosing mesh for distributed execution. This example solves the system and
-scales the local solution before returning it:
+Use `potrs_shardmap_ctx` for a solve within an existing shard-local
+calculation. The inputs and numerical result are local blocks; B must share
+A's row sharding, but its columns may be replicated as in this example.
 
 ```python
 from functools import partial
@@ -242,12 +241,11 @@ if jax.process_index() == 0:
     print(correct)
 ```
 
-The enclosing mesh must contain exactly the matrix axes. `b` must share the
-row sharding of `a`, but its columns may be distributed or replicated. Here,
-the replicated copies are solved as duplicate RHS columns using a single
-distributed Cholesky factorization. This preserves the replicated solution
-layout, with additional RHS storage and solve work but no repeated
-factorization.
+The enclosing mesh must contain exactly the matrix axes. `matrix_specs` must
+match A's specification in the enclosing shard map; it defaults to the mesh
+axes in order. Replicated RHS columns are solved as duplicate columns using
+one Cholesky factorization, preserving the RHS layout at the cost of additional
+RHS storage and solve work, not repeated factorizations.
 
 The status output retains one diagnostic vector per rank, so its spec includes
 both mesh axes. With `return_logdet=True`, add `P()` for the replicated log
