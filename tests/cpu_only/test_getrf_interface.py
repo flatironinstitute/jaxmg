@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from jax.sharding import AxisType, Mesh, NamedSharding, PartitionSpec as P
 
 import jaxmg._getrf as getrf_module
-from jaxmg import getrf, getrf_shardmap_ctx
+from jaxmg import getrf, getrf_jit_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_GETRF_STATUS_SIZE
 
 
@@ -69,11 +69,11 @@ def test_getrf_returns_factor_pivots_and_optional_status(monkeypatch):
     assert status.shape == (_CUSOLVERMP_GETRF_STATUS_SIZE,)
 
 
-def test_getrf_shardmap_ctx_supports_outer_donation(monkeypatch):
+def test_getrf_jit_ctx_supports_outer_donation(monkeypatch):
     _install_fake_getrf_backend(monkeypatch)
     mesh = _one_rank_mesh()
     factorize = jax.jit(
-        partial(getrf_shardmap_ctx, T_A=2, mesh=mesh, matrix_specs=P("pr", "pc")),
+        partial(getrf_jit_ctx, T_A=2, mesh=mesh, matrix_specs=P("pr", "pc")),
         donate_argnums=(0,),
     )
     lu, piv, status = factorize(jnp.eye(4, dtype=jnp.float32))
@@ -140,7 +140,7 @@ def test_getrf_pipeline_replicates_pivots(monkeypatch):
     mesh = Mesh(devices, ("pr",), axis_types=(AxisType.Explicit,))
     with jax.set_mesh(mesh):
         a = jax.device_put(jnp.eye(4), NamedSharding(mesh, P("pr", None)))
-        lu, piv, status = jax.eval_shape(partial(getrf_shardmap_ctx, T_A=2), a)
+        lu, piv, status = jax.eval_shape(partial(getrf_jit_ctx, T_A=2), a)
 
     assert lu.shape == (4, 4)
     assert lu.sharding.spec == P("pr", None)

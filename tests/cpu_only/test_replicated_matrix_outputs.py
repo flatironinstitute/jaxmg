@@ -23,7 +23,7 @@ import jaxmg._syevd as syevd_module
         (qr_module, qr_module.qr_shardmap_ctx, (0, 1), None),
         (polar_module, polar_module.polar_shardmap_ctx, (0, 1), None),
         (potrf_module, potrf_module.potrf_jit_ctx, (0,), None),
-        (getrf_module, getrf_module.getrf_shardmap_ctx, (0,), None),
+        (getrf_module, getrf_module.getrf_jit_ctx, (0,), None),
     ],
 )
 def test_decompositions_restore_replicated_matrix_results(

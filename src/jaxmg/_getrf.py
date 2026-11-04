@@ -19,9 +19,12 @@ from jax import Array
 from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
-    make_local_pad_fn,
-    make_local_unpad_fn,
+    mark_varying,
+    pad_local_2d,
+    unpad_local_2d,
+    place_for_native_work,
     prepare_input_matrix_layout,
+    prepare_local_matrix_layout,
     restore_matrix_result,
     use_abstract_mesh_decorator,
 )
@@ -129,7 +132,7 @@ def getrf(
     return (lu, piv, native_status) if return_status else (lu, piv)
 
 
-def getrf_shardmap_ctx(
+def getrf_jit_ctx(
     a: Array,
     T_A: int,
     mesh: Mesh | AbstractMesh | None = None,
@@ -183,7 +186,7 @@ def getrf_shardmap_ctx(
         matrix_specs,
         in_specs=in_specs,
         pad=pad,
-        caller="getrf_shardmap_ctx",
+        caller="getrf_jit_ctx",
     )
     ensure_init_jaxmg_backend()
     return _getrf_pipeline(
@@ -200,6 +203,47 @@ def getrf_shardmap_ctx(
     )(a)
 
 
+def getrf_shardmap_ctx(
+    a: Array,
+    T_A: int,
+    matrix_specs: P | Tuple[P] | List[P] | None = None,
+    *,
+    in_specs: P | Tuple[P] | List[P] | None = None,
+    pad: bool = True,
+) -> Tuple[Array, Array, Array]:
+    """Compute local LU-factor blocks inside a caller's ``jax.shard_map``.
+
+    The enclosing mesh contains the matrix axes. Factor blocks are local, but
+    the native backend returns the complete pivot vector on every rank.
+
+    Args:
+        a: Local block of a square, nonsingular global matrix.
+        T_A: Square tile width used by cuSOLVERMp.
+        matrix_specs: A's partition specification in the enclosing shard map;
+            defaults to the context mesh axes in order.
+        in_specs: Backwards-compatible alias for ``matrix_specs``.
+        pad: Allow tile-capacity padding; otherwise require aligned blocks.
+
+    Returns:
+        ``(lu, piv, status)``: the unpadded local factor block, replicated
+        zero-based pivots and this rank's diagnostic vector. The factor reuses
+        the input work buffer; no separate ``a_work`` output is needed.
+
+    Raises:
+        TypeError: If the dtype or partition specification is unsupported.
+        ValueError: If called outside shard_map or the global matrix is invalid.
+    """
+    layout = _prepare_getrf_call(
+        a, T_A, None, matrix_specs, in_specs=in_specs, pad=pad,
+        caller="getrf_shardmap_ctx", local=True,
+    )
+    ensure_init_jaxmg_backend()
+    return _getrf_local_pipeline(
+        layout.matrix_specs, layout.grid, layout.partition_slots, layout.padding,
+        n=layout.padding.logical_rows, tile_size=int(T_A),
+    )(a)
+
+
 def _prepare_getrf_call(
     a: Array,
     tile_size: int,
@@ -209,22 +253,32 @@ def _prepare_getrf_call(
     in_specs: P | Tuple[P] | List[P] | None,
     pad: bool,
     caller: str,
+    local: bool = False,
 ):
     """Validate an LU factorization and derive its distributed layout.
 
     Preparation proceeds as follows:
 
     1. Validate the input rank, dtype, square shape, and tile size.
-    2. Resolve the mesh, process grid, rank map, and tile-aligned layout of A.
+    2. Resolve the mesh, process grid, rank map, and tile-aligned layout of A;
+       local blocks use the enclosing mesh to reconstruct the global shape.
     """
     if a.ndim != 2:
         raise ValueError(f"{caller} expects a rank-2 matrix A.")
     _check_supported_getrf_dtype(a.dtype)
-    if a.shape[0] != a.shape[1]:
+    if not local and a.shape[0] != a.shape[1]:
         raise ValueError(f"{caller} expects A to be square.")
     if int(tile_size) <= 0:
         raise ValueError("T_A must be positive.")
 
+    if local:
+        layout = prepare_local_matrix_layout(
+            a, tile_size, matrix_specs=matrix_specs, in_specs=in_specs,
+            pad=pad, caller=caller,
+        )
+        if layout.padding.logical_rows != layout.padding.logical_cols:
+            raise ValueError(f"{caller} expects A to be square.")
+        return layout
     return prepare_input_matrix_layout(
         a,
         tile_size,
@@ -245,38 +299,29 @@ def _check_supported_getrf_dtype(dtype) -> None:
 _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
-@lru_cache(maxsize=None)
-def _getrf_pipeline(
-    mesh: Mesh | AbstractMesh,
+def _getrf_local_pipeline(
     matrix_specs: P,
-    native_status_specs: P,
     grid: ProcessGrid,
     partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     *,
-    matrix_result_specs: P,
     n: int,
     tile_size: int,
-    dtype,
 ):
-    """Build and cache the unjitted JAX-visible GETRF execution pipeline."""
+    """Build the local padding, factorization, and factor-restoration stages."""
     process_rows = grid.process_rows
     process_cols = grid.process_cols
     slots_attr = np.asarray(partition_slots, dtype=np.int64)
-    pad_a = make_local_pad_fn(mesh, matrix_specs, a_padding)
-    unpad_lu = make_local_unpad_fn(mesh, matrix_specs, a_padding)
-    restore_result = partial(
-        restore_matrix_result,
-        result_specs=matrix_result_specs,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
-    )
 
     def getrf_ffi(_a: Array):
         """Declare local FFI buffers and static LU metadata."""
+        # Stage 1: provide tile-aligned capacity for the local input.
+        _a = pad_local_2d(_a, row_padding=a_padding.row_padding_per_process,
+                          col_padding=a_padding.col_padding_per_process)
         if _a.ndim != 2:
             raise ValueError("cusolvermp_getrf expects a rank-2 matrix buffer.")
         _check_supported_getrf_dtype(_a.dtype)
+        # Stage 2: factorize and gather the global pivot vector in native code.
         ffi_fn = partial(
             jax.ffi.ffi_call(
                 "cusolvermp_getrf",
@@ -295,23 +340,51 @@ def _getrf_pipeline(
             n=int(n),
             tile_size=int(tile_size),
         )
-        return ffi_fn(_a)
+        lu, piv, status = ffi_fn(_a)
+        # Stage 3: remove tile padding; pivots remain identical across ranks.
+        lu = unpad_local_2d(lu, local_rows=a_padding.local_logical_rows,
+                           local_cols=a_padding.local_logical_cols)
+        axes = tuple(axis for axis, size in zip(matrix_specs, (process_rows, process_cols))
+                     if axis is not None and size > 1)
+        return mark_varying(lu, axes), piv, mark_varying(status, axes)
+
+    return getrf_ffi
+
+
+@lru_cache(maxsize=None)
+def _getrf_pipeline(
+    mesh: Mesh | AbstractMesh,
+    matrix_specs: P,
+    native_status_specs: P,
+    grid: ProcessGrid,
+    partition_slots: tuple[int, ...],
+    a_padding: MatrixPadding2D,
+    *,
+    matrix_result_specs: P,
+    n: int,
+    tile_size: int,
+    dtype,
+):
+    """Map the shared local factorization and restore global output sharding."""
 
     # The native call replicates the pivots across every rank before it
     # returns, so the pivot vector leaves the shard map unsharded.
     getrf_shardmap = jax.shard_map(
-        getrf_ffi,
+        _getrf_local_pipeline(matrix_specs, grid, partition_slots, a_padding,
+                              n=n, tile_size=tile_size),
         mesh=mesh,
         in_specs=matrix_specs,
         out_specs=(matrix_specs, P(), native_status_specs),
-        check_vma=False,
+        check_vma=True,
     )
 
     @use_abstract_mesh_decorator(mesh)
     def impl(_a: Array):
         """Apply local padding, fused LU factorization, and unpadding."""
-        lu_padded, piv, native_status = getrf_shardmap(pad_a(_a))
-        return restore_result(unpad_lu(lu_padded)), piv, native_status
+        _a = place_for_native_work(_a, mesh=mesh, matrix_specs=matrix_specs)
+        lu, piv, native_status = getrf_shardmap(_a)
+        return restore_matrix_result(lu, result_specs=matrix_result_specs,
+                                     mesh=mesh, matrix_specs=matrix_specs), piv, native_status
 
     return impl
 

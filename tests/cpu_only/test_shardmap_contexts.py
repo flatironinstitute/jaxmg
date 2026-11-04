@@ -10,7 +10,7 @@ import pytest
 from jax.sharding import Mesh, PartitionSpec as P
 
 
-@pytest.mark.parametrize("routine", ["lu_solve", "potrf"])
+@pytest.mark.parametrize("routine", ["lu_solve", "potrf", "getrf"])
 @pytest.mark.parametrize("check_vma", [True, False])
 def test_local_context_padding_and_outputs(monkeypatch, routine, check_vma):
     """Run padding and output restoration with a shape-correct FFI stand-in."""
@@ -32,6 +32,8 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, check_vma):
     specs = P("pr", "pc")
     inputs = (jnp.eye(6), jnp.ones((6, 1))) if routine == "lu_solve" else (jnp.eye(6),)
     outputs = (specs, specs) if routine == "lu_solve" else (specs,)
+    if routine == "getrf":
+        outputs += (P(),)
     solve = jax.jit(jax.shard_map(
         partial(call, T_A=4), mesh=mesh, in_specs=(specs,) * len(inputs),
         out_specs=outputs + (P(("pr", "pc")),), check_vma=check_vma,
@@ -45,6 +47,9 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, check_vma):
         assert captured["nrhs"] == 1
     else:
         np.testing.assert_array_equal(result[0], inputs[0])
+        if routine == "getrf":
+            assert result[1].shape == (6,)
+            assert result[1].sharding.is_fully_replicated
 
     with pytest.raises(ValueError, match="inside jax.shard_map"):
         call(*inputs, T_A=4)

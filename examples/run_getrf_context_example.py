@@ -10,7 +10,7 @@ jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
 from jax.sharding import NamedSharding, PartitionSpec as P
-from jaxmg import getrf_shardmap_ctx
+from jaxmg import getrf_jit_ctx
 
 
 T_A = 128
@@ -80,7 +80,7 @@ def main() -> None:
         expected_lu = jax.reshard(expected_lu, matrix_sharding)
 
         # The packed LU factor directly reuses A because GETRF overwrites it.
-        lu, piv, _ = getrf_shardmap_ctx(a, T_A=T_A)
+        lu, piv, _ = getrf_jit_ctx(a, T_A=T_A)
         permutation = jax.lax.linalg.lu_pivots_to_permutation(piv, n)
         return jnp.allclose(lu, expected_lu) & jnp.array_equal(
             permutation, jnp.arange(n - 1, -1, -1, dtype=permutation.dtype)
