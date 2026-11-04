@@ -595,9 +595,13 @@ def _potrs_native_call(
         output_layouts=output_layouts,
         input_output_aliases={0: 0, 1: 1},
     )
+    # Replicated RHS columns still participate in the same per-rank FFI call.
+    input_axes = tuple(
+        jax.typeof(a).manual_axis_type.varying | jax.typeof(b).manual_axis_type.varying
+    )
     return ffi_fn(
-        a,
-        b,
+        mark_varying(a, input_axes),
+        mark_varying(b, input_axes),
         process_rows=grid.process_rows,
         process_cols=grid.process_cols,
         partition_slots=np.asarray(partition_slots, dtype=np.int64),
