@@ -17,6 +17,11 @@ from jax.sharding import Mesh, PartitionSpec as P
     ("qr", {}),
     ("polar", {"compute_h": True}),
     ("polar", {"compute_h": False}),
+    ("gesvd", {"compute_u": True, "compute_vh": True, "full_matrices": False}),
+    ("gesvd", {"compute_u": True, "compute_vh": True, "full_matrices": True}),
+    ("gesvd", {"compute_u": True, "compute_vh": False, "full_matrices": False}),
+    ("gesvd", {"compute_u": False, "compute_vh": True, "full_matrices": False}),
+    ("gesvd", {"compute_u": False, "compute_vh": False, "full_matrices": False}),
 ])
 @pytest.mark.parametrize("check_vma", [True, False])
 def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_vma):
@@ -38,7 +43,7 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
     mesh = Mesh(np.asarray(jax.devices()[:1]).reshape(1, 1), ("pr", "pc"))
     specs = P("pr", "pc")
     inputs = (jnp.eye(6), jnp.ones((6, 1))) if routine == "lu_solve" else (jnp.eye(6),)
-    if routine in ("qr", "polar"):
+    if routine in ("qr", "polar", "gesvd"):
         inputs = (jnp.eye(10, 6),)
     outputs = (specs, specs) if routine == "lu_solve" else (specs,)
     if routine == "getrf":
@@ -49,6 +54,9 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
         outputs = (specs, specs)
     if routine == "polar":
         outputs = (specs,) * (2 if options["compute_h"] else 1)
+    if routine == "gesvd":
+        outputs = ((specs,) + (specs,) * options["compute_u"] + (P(),)
+                   + (specs,) * options["compute_vh"])
     solve = jax.jit(jax.shard_map(
         partial(call, T_A=4, **options), mesh=mesh, in_specs=(specs,) * len(inputs),
         out_specs=outputs + (P(("pr", "pc")),), check_vma=check_vma,
@@ -66,6 +74,16 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
         assert result[1].sharding.is_fully_replicated
         if options["return_eigenvectors"]:
             assert result[2].shape == (6, 6)
+    elif routine == "gesvd":
+        assert result[0].shape == (12, 8)
+        index = 1
+        if options["compute_u"]:
+            assert result[index].shape == (10, 10 if options["full_matrices"] else 6)
+            index += 1
+        assert result[index].shape == (6,)
+        assert result[index].sharding.is_fully_replicated
+        if options["compute_vh"]:
+            assert result[index + 1].shape == (6, 6)
     else:
         np.testing.assert_array_equal(result[0], inputs[0])
         if routine == "getrf":

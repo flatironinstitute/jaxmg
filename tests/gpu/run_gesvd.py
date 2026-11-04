@@ -43,7 +43,7 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import gesvd, gesvd_shardmap_ctx
+from jaxmg import gesvd, gesvd_jit_ctx, gesvd_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_GESVD_STATUS_SIZE
 
 
@@ -95,7 +95,7 @@ def run_case() -> None:
 
         @partial(jax.jit, donate_argnums=(0,), static_argnames=("tile_size",))
         def decomposition(_a, *, tile_size):
-            return gesvd_shardmap_ctx(
+            return gesvd_jit_ctx(
                 _a,
                 tile_size,
                 mesh=mesh,
@@ -107,6 +107,21 @@ def run_case() -> None:
 
         outputs = decomposition(a_dev, tile_size=tile_size)
         a_work, *numerical_outputs, status = outputs
+        a_work.block_until_ready()
+    elif interface == "shardmap":
+        output_specs = (matrix_specs,)
+        if compute_u:
+            output_specs += (matrix_specs,)
+        output_specs += (P(),)
+        if compute_vh:
+            output_specs += (matrix_specs,)
+        decomposition = jax.jit(jax.shard_map(
+            partial(gesvd_shardmap_ctx, T_A=tile_size, compute_u=compute_u,
+                    compute_vh=compute_vh, full_matrices=full_matrices),
+            mesh=mesh, in_specs=matrix_specs,
+            out_specs=output_specs + (P(("pr", "pc")),),
+        ), donate_argnums=(0,))
+        a_work, *numerical_outputs, status = decomposition(a_dev)
         a_work.block_until_ready()
     else:
         outputs = gesvd(

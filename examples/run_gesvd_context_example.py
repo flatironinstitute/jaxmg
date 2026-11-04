@@ -10,7 +10,7 @@ jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
 from jax.sharding import NamedSharding, PartitionSpec as P
-from jaxmg import gesvd_shardmap_ctx
+from jaxmg import gesvd_jit_ctx
 
 
 T_A = 128
@@ -72,7 +72,7 @@ def main() -> None:
         a = jax.reshard(a, matrix_sharding)
 
         # a_work stays internal because A is created inside this function.
-        _, u, singular_values, vh, _ = gesvd_shardmap_ctx(
+        _, u, singular_values, vh, _ = gesvd_jit_ctx(
             a,
             T_A=T_A,
         )

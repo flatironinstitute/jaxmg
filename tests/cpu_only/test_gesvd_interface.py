@@ -12,7 +12,7 @@ import jax.numpy as jnp
 from jax.sharding import Mesh, PartitionSpec as P
 
 import jaxmg._gesvd as gesvd_module
-from jaxmg import gesvd, gesvd_shardmap_ctx
+from jaxmg import gesvd, gesvd_jit_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_GESVD_STATUS_SIZE
 from jaxmg._layout_types import ProcessGrid, TileShape
 
@@ -156,13 +156,13 @@ def test_gesvd_accepts_rank_1_matrix_specs(monkeypatch):
     assert captured["args"][1] == P("pr", None)
 
 
-def test_gesvd_shardmap_ctx_exposes_work_and_selected_outputs(monkeypatch):
+def test_gesvd_jit_ctx_exposes_work_and_selected_outputs(monkeypatch):
     """Return A work storage so an enclosing JIT can preserve input donation."""
     _install_fake_gesvd_backend(monkeypatch)
     mesh = _one_rank_mesh()
     decomposition = jax.jit(
         partial(
-            gesvd_shardmap_ctx,
+            gesvd_jit_ctx,
             T_A=2,
             mesh=mesh,
             matrix_specs=P("pr", "pc"),

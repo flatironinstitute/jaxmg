@@ -20,9 +20,12 @@ from jax import Array
 from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
-    make_local_pad_fn,
-    make_local_unpad_fn,
+    mark_varying,
+    pad_local_2d,
+    unpad_local_2d,
+    place_for_native_work,
     prepare_input_matrix_layout,
+    prepare_local_matrix_layout,
     prepare_rectangular_matrix_layout,
     restore_matrix_result,
     use_abstract_mesh_decorator,
@@ -172,7 +175,7 @@ def gesvd(
     return result
 
 
-def gesvd_shardmap_ctx(
+def gesvd_jit_ctx(
     a: Array,
     T_A: int,
     mesh: Mesh | AbstractMesh | None = None,
@@ -241,7 +244,7 @@ def gesvd_shardmap_ctx(
         compute_vh=compute_vh,
         full_matrices=full_matrices,
         pad=pad,
-        caller="gesvd_shardmap_ctx",
+        caller="gesvd_jit_ctx",
     )
     m, n = map(int, a.shape)
 
@@ -278,6 +281,64 @@ def gesvd_shardmap_ctx(
     return a_work, singular_values, native_status
 
 
+def gesvd_shardmap_ctx(
+    a: Array,
+    T_A: int,
+    matrix_specs: P | Tuple[P] | List[P] | None = None,
+    *,
+    in_specs: P | Tuple[P] | List[P] | None = None,
+    compute_u: bool = True,
+    compute_vh: bool = True,
+    full_matrices: bool = False,
+    pad: bool = True,
+) -> tuple[Array, ...]:
+    """Compute an SVD inside a caller's ``jax.shard_map``.
+
+    The enclosing mesh determines the global input and vector dimensions.
+    Singular values are replicated; requested singular vectors are local blocks.
+
+    Args:
+        a: Local block of the global input matrix.
+        T_A: Square tile width used by cuSOLVERMp.
+        matrix_specs: A's partition specification in the enclosing shard map;
+            defaults to the context mesh axes in order.
+        in_specs: Backwards-compatible alias for ``matrix_specs``.
+        compute_u: Static Python bool selecting left singular vectors.
+        compute_vh: Static Python bool selecting conjugate-transposed right vectors.
+        full_matrices: Request full rather than reduced vector matrices.
+        pad: Allow tile-capacity padding; otherwise require aligned blocks.
+
+    Returns:
+        tuple: ``(a_work, U, s, Vh, status)``, omitting U or Vh when disabled.
+            The opaque local ``a_work`` includes padding and exposes the input
+            donation alias. It cannot share storage with either vector output.
+            Status contains this rank's diagnostics.
+
+    Raises:
+        TypeError: If the dtype, modes, or partition specification is unsupported.
+        ValueError: If called outside shard_map or input/output layouts are invalid.
+    """
+    layout, u_padding, vh_padding = _prepare_gesvd_call(
+        a, T_A, None, matrix_specs, in_specs=in_specs, compute_u=compute_u,
+        compute_vh=compute_vh, full_matrices=full_matrices, pad=pad,
+        caller="gesvd_shardmap_ctx", local=True,
+    )
+    ensure_init_jaxmg_backend()
+    singular_values, a_work, *vectors, status = _gesvd_local_pipeline(
+        layout.matrix_specs, layout.grid, layout.partition_slots, layout.padding,
+        u_padding, vh_padding, m=layout.padding.logical_rows,
+        n=layout.padding.logical_cols, tile_size=int(T_A), dtype=a.dtype,
+        compute_u=compute_u, compute_vh=compute_vh, full_matrices=full_matrices,
+    )(a)
+    result = (a_work,)
+    if compute_u:
+        result += (vectors[0],)
+    result += (singular_values,)
+    if compute_vh:
+        result += (vectors[-1],)
+    return result + (status,)
+
+
 def _prepare_gesvd_call(
     a: Array,
     tile_size: int,
@@ -290,6 +351,7 @@ def _prepare_gesvd_call(
     full_matrices: bool,
     pad: bool,
     caller: str,
+    local: bool = False,
 ):
     """Validate an SVD call and derive its input and output layouts.
 
@@ -297,7 +359,8 @@ def _prepare_gesvd_call(
 
     1. Validate the input rank, dtype, and tile size.
     2. Require static Python booleans for the requested vector-output modes.
-    3. Resolve the mesh, process grid, rank map, and tile-aligned layout of A.
+    3. Resolve the mesh, process grid, rank map, and tile-aligned layout of A;
+       local blocks use the enclosing mesh to reconstruct the global shape.
     4. Derive the reduced or full U and Vh shapes and prepare only the
        requested distributed output layouts.
     """
@@ -314,16 +377,17 @@ def _prepare_gesvd_call(
         if not isinstance(value, bool):
             raise TypeError(f"{name} must be a Python bool.")
 
-    layout = prepare_input_matrix_layout(
-        a,
-        tile_size,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
-        in_specs=in_specs,
-        pad=pad,
-        caller=caller,
-    )
-    m, n = map(int, a.shape)
+    if local:
+        layout = prepare_local_matrix_layout(
+            a, tile_size, matrix_specs=matrix_specs, in_specs=in_specs,
+            pad=pad, caller=caller,
+        )
+    else:
+        layout = prepare_input_matrix_layout(
+            a, tile_size, mesh=mesh, matrix_specs=matrix_specs,
+            in_specs=in_specs, pad=pad, caller=caller,
+        )
+    m, n = layout.padding.logical_rows, layout.padding.logical_cols
     k = min(m, n)
     u_padding = (
         prepare_rectangular_matrix_layout(
@@ -377,18 +441,14 @@ def _real_dtype_for_singular_values(dtype):
 _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
-@lru_cache(maxsize=None)
-def _gesvd_pipeline(
-    mesh: Mesh | AbstractMesh,
+def _gesvd_local_pipeline(
     matrix_specs: P,
-    native_status_specs: P,
     grid: ProcessGrid,
     partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     u_padding: MatrixPadding2D | None,
     vh_padding: MatrixPadding2D | None,
     *,
-    matrix_result_specs: P,
     m: int,
     n: int,
     tile_size: int,
@@ -397,58 +457,29 @@ def _gesvd_pipeline(
     compute_vh: bool,
     full_matrices: bool,
 ):
-    """Build and cache the unjitted JAX-visible GESVD execution pipeline.
-
-    The cache key contains all static shape, mesh, partition, dtype, and output
-    mode metadata. Repeated calls with the same distributed configuration reuse
-    the same shard-map and FFI wrapper construction.
-    """
+    """Build local padding, selected SVD outputs, and vector restoration."""
     process_rows = grid.process_rows
     process_cols = grid.process_cols
     slots_attr = np.asarray(partition_slots, dtype=np.int64)
-    pad_a = make_local_pad_fn(mesh, matrix_specs, a_padding)
-    unpad_u = (
-        make_local_unpad_fn(mesh, matrix_specs, u_padding)
-        if u_padding is not None
-        else None
-    )
-    unpad_vh = (
-        make_local_unpad_fn(mesh, matrix_specs, vh_padding)
-        if vh_padding is not None
-        else None
-    )
-    restore_result = partial(
-        restore_matrix_result,
-        result_specs=matrix_result_specs,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
-    )
-
     if compute_u and compute_vh:
         ffi_target = "cusolvermp_gesvd_uv"
-        out_specs = (
-            P(None),
-            matrix_specs,
-            matrix_specs,
-            matrix_specs,
-            native_status_specs,
-        )
     elif compute_u:
         ffi_target = "cusolvermp_gesvd_u"
-        out_specs = (P(None), matrix_specs, matrix_specs, native_status_specs)
     elif compute_vh:
         ffi_target = "cusolvermp_gesvd_vh"
-        out_specs = (P(None), matrix_specs, matrix_specs, native_status_specs)
     else:
         ffi_target = "cusolvermp_gesvd_values"
-        out_specs = (P(None), matrix_specs, native_status_specs)
 
     def gesvd_ffi(_a: Array):
         """Declare the local FFI buffers and static rectangular metadata."""
+        # Stage 1: provide tile-aligned capacity for the local input.
+        _a = pad_local_2d(_a, row_padding=a_padding.row_padding_per_process,
+                          col_padding=a_padding.col_padding_per_process)
         if _a.ndim != 2:
             raise ValueError("cusolvermp_gesvd expects a rank-2 matrix buffer.")
         _check_supported_gesvd_dtype(_a.dtype)
 
+        # Stage 2: allocate only the requested vectors alongside the work alias.
         singular_type = jax.ShapeDtypeStruct(
             (min(int(m), int(n)),), _real_dtype_for_singular_values(dtype)
         )
@@ -496,46 +527,66 @@ def _gesvd_pipeline(
             tile_size=int(tile_size),
             full_matrices=int(full_matrices),
         )
-        return ffi_fn(_a)
+        singular_values, a_work, *vectors, status = ffi_fn(_a)
+        # Stage 3: restore vector shapes; keep opaque A work padded.
+        axes = tuple(axis for axis, size in zip(matrix_specs, (process_rows, process_cols))
+                     if axis is not None and size > 1)
+        result = (singular_values, mark_varying(a_work, axes))
+        requested_padding = tuple(p for p in (u_padding, vh_padding) if p is not None)
+        for vector, padding in zip(vectors, requested_padding):
+            vector = unpad_local_2d(vector, local_rows=padding.local_logical_rows,
+                                   local_cols=padding.local_logical_cols)
+            result += (mark_varying(vector, axes),)
+        return result + (mark_varying(status, axes),)
+
+    return gesvd_ffi
+
+
+@lru_cache(maxsize=None)
+def _gesvd_pipeline(
+    mesh: Mesh | AbstractMesh,
+    matrix_specs: P,
+    native_status_specs: P,
+    grid: ProcessGrid,
+    partition_slots: tuple[int, ...],
+    a_padding: MatrixPadding2D,
+    u_padding: MatrixPadding2D | None,
+    vh_padding: MatrixPadding2D | None,
+    *,
+    matrix_result_specs: P,
+    m: int,
+    n: int,
+    tile_size: int,
+    dtype,
+    compute_u: bool,
+    compute_vh: bool,
+    full_matrices: bool,
+):
+    """Map the shared local SVD and restore global singular-vector sharding."""
+    restore_result = partial(restore_matrix_result, result_specs=matrix_result_specs,
+                             mesh=mesh, matrix_specs=matrix_specs)
+    out_specs = (P(None), matrix_specs) + (matrix_specs,) * (compute_u + compute_vh)
+    out_specs += (native_status_specs,)
 
     gesvd_shardmap = jax.shard_map(
-        gesvd_ffi,
+        _gesvd_local_pipeline(
+            matrix_specs, grid, partition_slots, a_padding, u_padding, vh_padding,
+            m=m, n=n, tile_size=tile_size, dtype=dtype, compute_u=compute_u,
+            compute_vh=compute_vh, full_matrices=full_matrices,
+        ),
         mesh=mesh,
         in_specs=matrix_specs,
         out_specs=out_specs,
-        check_vma=False,
+        check_vma=True,
     )
 
     @use_abstract_mesh_decorator(mesh)
     def impl(_a: Array):
         """Apply local padding, fused GESVD, and requested output slicing."""
-        outputs = gesvd_shardmap(pad_a(_a))
-        if compute_u and compute_vh:
-            singular_values, a_work, u_padded, vh_padded, native_status = outputs
-            return (
-                singular_values,
-                a_work,
-                restore_result(unpad_u(u_padded)),
-                restore_result(unpad_vh(vh_padded)),
-                native_status,
-            )
-        if compute_u:
-            singular_values, a_work, u_padded, native_status = outputs
-            return (
-                singular_values,
-                a_work,
-                restore_result(unpad_u(u_padded)),
-                native_status,
-            )
-        if compute_vh:
-            singular_values, a_work, vh_padded, native_status = outputs
-            return (
-                singular_values,
-                a_work,
-                restore_result(unpad_vh(vh_padded)),
-                native_status,
-            )
-        return outputs
+        _a = place_for_native_work(_a, mesh=mesh, matrix_specs=matrix_specs)
+        singular_values, a_work, *vectors, native_status = gesvd_shardmap(_a)
+        return (singular_values, a_work,
+                *(restore_result(vector) for vector in vectors), native_status)
 
     return impl
 

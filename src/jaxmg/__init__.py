@@ -22,7 +22,7 @@ Main Entry Points:
 
 from importlib.metadata import version
 
-from ._gesvd import gesvd, gesvd_shardmap_ctx
+from ._gesvd import gesvd, gesvd_jit_ctx, gesvd_shardmap_ctx
 from ._getrf import getrf, getrf_jit_ctx, getrf_shardmap_ctx
 from ._least_squares import least_squares, least_squares_shardmap_ctx
 from ._lu_solve import lu_solve, lu_solve_jit_ctx, lu_solve_shardmap_ctx
@@ -38,6 +38,7 @@ __version__ = version("jaxmg")
 __all__ = [
     "__version__",
     "gesvd",
+    "gesvd_jit_ctx",
     "gesvd_shardmap_ctx",
     "getrf",
     "getrf_jit_ctx",
