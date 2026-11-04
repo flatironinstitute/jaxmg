@@ -71,7 +71,7 @@ def main():
                     (u * values) @ vh, a_host, rtol=5e-4, atol=5e-4
                 )
             np.testing.assert_array_equal(global_array_to_numpy(a), a_host)
-            native_name = "GELS" if routine == "least_squares" else routine.upper()
+            native_name = routine.upper()
             status_size = getattr(
                 _cusolvermp_status, f"_CUSOLVERMP_{native_name}_STATUS_SIZE"
             )

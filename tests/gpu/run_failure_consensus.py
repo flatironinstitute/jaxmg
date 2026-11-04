@@ -68,7 +68,7 @@ def main():
         status.block_until_ready()
         os.environ["JAXMG_TEST_FAIL_DESTROY"] = "0"
 
-        native_name = "GELS" if routine == "least_squares" else routine.upper()
+        native_name = routine.upper()
         status_size = getattr(_cusolvermp_status, f"_CUSOLVERMP_{native_name}_STATUS_SIZE")
         words = native_status_words(status).reshape(num_procs, status_size)
         if routine == "getrf":
