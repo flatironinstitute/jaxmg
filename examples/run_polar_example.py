@@ -9,6 +9,7 @@ import jax
 jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
+from jax.experimental import multihost_utils
 from jax.sharding import NamedSharding, PartitionSpec as P
 from jaxmg import polar
 
@@ -84,6 +85,9 @@ def main() -> None:
     correct.block_until_ready()
     if jax.process_index() == 0:
         print("Polar decomposition correct:", bool(correct))
+
+    # Wait for every rank to finish before any process exits.
+    multihost_utils.sync_global_devices("example_complete")
 
 
 if __name__ == "__main__":
