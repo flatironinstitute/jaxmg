@@ -11,7 +11,7 @@ import jax.numpy as jnp
 from jax.sharding import Mesh, PartitionSpec as P
 
 import jaxmg._syevd as syevd_module
-from jaxmg import syevd, syevd_shardmap_ctx
+from jaxmg import syevd, syevd_jit_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_SYEVD_STATUS_SIZE
 
 
@@ -127,11 +127,11 @@ def test_syevd_can_return_native_status(monkeypatch):
     assert status.shape == (_CUSOLVERMP_SYEVD_STATUS_SIZE,)
 
 
-def test_syevd_shardmap_ctx_returns_work_eigensystem_and_status(monkeypatch):
+def test_syevd_jit_ctx_returns_work_eigensystem_and_status(monkeypatch):
     captured = _install_fake_syevd_backend(monkeypatch)
     a = jnp.eye(4, dtype=jnp.float32)
 
-    a_work, eigenvalues, eigenvectors, status = syevd_shardmap_ctx(
+    a_work, eigenvalues, eigenvectors, status = syevd_jit_ctx(
         a,
         2,
         mesh=_one_rank_mesh(),
@@ -147,11 +147,11 @@ def test_syevd_shardmap_ctx_returns_work_eigensystem_and_status(monkeypatch):
     assert captured["pipeline_kwargs"]["return_eigenvectors"] is True
 
 
-def test_syevd_shardmap_ctx_returns_values_only_work_and_status(monkeypatch):
+def test_syevd_jit_ctx_returns_values_only_work_and_status(monkeypatch):
     captured = _install_fake_syevd_backend(monkeypatch)
     a = jnp.eye(4, dtype=jnp.float32)
 
-    a_work, eigenvalues, status = syevd_shardmap_ctx(
+    a_work, eigenvalues, status = syevd_jit_ctx(
         a,
         2,
         mesh=_one_rank_mesh(),
@@ -165,12 +165,12 @@ def test_syevd_shardmap_ctx_returns_values_only_work_and_status(monkeypatch):
     assert captured["pipeline_kwargs"]["return_eigenvectors"] is False
 
 
-def test_syevd_shardmap_ctx_can_be_wrapped_in_external_jit(monkeypatch):
+def test_syevd_jit_ctx_can_be_wrapped_in_external_jit(monkeypatch):
     _install_fake_syevd_backend(monkeypatch)
     mesh = _one_rank_mesh()
     eigensolve = jax.jit(
         partial(
-            syevd_shardmap_ctx,
+            syevd_jit_ctx,
             T_A=2,
             mesh=mesh,
             matrix_specs=P("pr", "pc"),
@@ -193,7 +193,7 @@ def test_syevd_external_jit_can_lower_from_shape_specs(monkeypatch):
     mesh = _one_rank_mesh()
     eigensolve = jax.jit(
         partial(
-            syevd_shardmap_ctx,
+            syevd_jit_ctx,
             T_A=2,
             mesh=mesh,
             matrix_specs=P("pr", "pc"),
@@ -213,7 +213,7 @@ def test_syevd_values_only_external_jit_can_lower(monkeypatch):
     mesh = _one_rank_mesh()
     eigensolve = jax.jit(
         partial(
-            syevd_shardmap_ctx,
+            syevd_jit_ctx,
             T_A=2,
             mesh=mesh,
             matrix_specs=P("pr", "pc"),
@@ -318,11 +318,11 @@ def test_syevd_rejects_required_padding_when_disabled():
         )
 
 
-def test_syevd_shardmap_ctx_rejects_required_padding_when_disabled():
+def test_syevd_jit_ctx_rejects_required_padding_when_disabled():
     with pytest.raises(
-        ValueError, match=r"syevd_shardmap_ctx\(A\) requires tile-aligned"
+        ValueError, match=r"syevd_jit_ctx\(A\) requires tile-aligned"
     ):
-        syevd_shardmap_ctx(
+        syevd_jit_ctx(
             jnp.eye(3),
             2,
             mesh=_one_rank_mesh(),

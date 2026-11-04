@@ -10,9 +10,13 @@ import pytest
 from jax.sharding import Mesh, PartitionSpec as P
 
 
-@pytest.mark.parametrize("routine", ["lu_solve", "potrf", "getrf"])
+@pytest.mark.parametrize("routine,options", [
+    ("lu_solve", {}), ("potrf", {}), ("getrf", {}),
+    ("syevd", {"return_eigenvectors": True}),
+    ("syevd", {"return_eigenvectors": False}),
+])
 @pytest.mark.parametrize("check_vma", [True, False])
-def test_local_context_padding_and_outputs(monkeypatch, routine, check_vma):
+def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_vma):
     """Run padding and output restoration with a shape-correct FFI stand-in."""
     module = importlib.import_module(f"jaxmg._{routine}")
     call = getattr(module, f"{routine}_shardmap_ctx")
@@ -34,8 +38,10 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, check_vma):
     outputs = (specs, specs) if routine == "lu_solve" else (specs,)
     if routine == "getrf":
         outputs += (P(),)
+    if routine == "syevd":
+        outputs = (specs, P()) + ((specs,) if options["return_eigenvectors"] else ())
     solve = jax.jit(jax.shard_map(
-        partial(call, T_A=4), mesh=mesh, in_specs=(specs,) * len(inputs),
+        partial(call, T_A=4, **options), mesh=mesh, in_specs=(specs,) * len(inputs),
         out_specs=outputs + (P(("pr", "pc")),), check_vma=check_vma,
     ))
     result = solve(*inputs)
@@ -45,6 +51,12 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, check_vma):
         assert result[0].shape == (8, 8)
         np.testing.assert_array_equal(result[1], inputs[1])
         assert captured["nrhs"] == 1
+    elif routine == "syevd":
+        assert result[0].shape == (8, 8)
+        assert result[1].shape == (6,)
+        assert result[1].sharding.is_fully_replicated
+        if options["return_eigenvectors"]:
+            assert result[2].shape == (6, 6)
     else:
         np.testing.assert_array_equal(result[0], inputs[0])
         if routine == "getrf":
@@ -52,4 +64,4 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, check_vma):
             assert result[1].sharding.is_fully_replicated
 
     with pytest.raises(ValueError, match="inside jax.shard_map"):
-        call(*inputs, T_A=4)
+        call(*inputs, T_A=4, **options)

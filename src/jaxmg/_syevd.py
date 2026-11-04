@@ -20,9 +20,12 @@ from jax import Array
 from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
-    make_local_pad_fn,
-    make_local_unpad_fn,
+    mark_varying,
+    pad_local_2d,
+    unpad_local_2d,
+    place_for_native_work,
     prepare_input_matrix_layout,
+    prepare_local_matrix_layout,
     restore_matrix_result,
     use_abstract_mesh_decorator,
 )
@@ -148,7 +151,7 @@ def syevd(
     return eigenvalues, vectors
 
 
-def syevd_shardmap_ctx(
+def syevd_jit_ctx(
     a: Array,
     T_A: int,
     mesh: Mesh | AbstractMesh | None = None,
@@ -235,7 +238,7 @@ def syevd_shardmap_ctx(
         in_specs=in_specs,
         return_eigenvectors=return_eigenvectors,
         pad=pad,
-        caller="syevd_shardmap_ctx",
+        caller="syevd_jit_ctx",
     )
 
     ensure_init_jaxmg_backend()
@@ -262,6 +265,54 @@ def syevd_shardmap_ctx(
     return a_work, eigenvalues, eigenvectors, native_status
 
 
+def syevd_shardmap_ctx(
+    a: Array,
+    T_A: int,
+    matrix_specs: P | Tuple[P] | List[P] | None = None,
+    *,
+    in_specs: P | Tuple[P] | List[P] | None = None,
+    return_eigenvectors: bool = True,
+    pad: bool = True,
+):
+    """Compute a distributed eigendecomposition inside a caller's shard map.
+
+    The input and eigenvectors are local matrix blocks. Eigenvalues are
+    replicated by the native backend and use ``P()`` in the output specification.
+
+    Args:
+        a: Local block of a symmetric or Hermitian global matrix.
+        T_A: Square tile width used by cuSOLVERMp.
+        matrix_specs: A's partition specification in the enclosing shard map;
+            defaults to the context mesh axes in order.
+        in_specs: Backwards-compatible alias for ``matrix_specs``.
+        return_eigenvectors: Static Python bool selecting whether to compute vectors.
+        pad: Allow tile-capacity padding; otherwise require aligned blocks.
+
+    Returns:
+        ``(a_work, eigenvalues, eigenvectors, status)``, or
+        ``(a_work, eigenvalues, status)`` without vectors. ``a_work`` is padded
+        local storage, eigenvectors are unpadded local blocks, and status is
+        this rank's diagnostic vector. Return ``a_work`` from the outer jitted
+        function when donating A; eigenvectors use a separate allocation.
+
+    Raises:
+        TypeError: If the dtype, specification or vector mode is unsupported.
+        ValueError: If called outside shard_map or the global matrix is invalid.
+    """
+    layout = _prepare_syevd_call(
+        a, T_A, None, matrix_specs, in_specs=in_specs,
+        return_eigenvectors=return_eigenvectors, pad=pad,
+        caller="syevd_shardmap_ctx", local=True,
+    )
+    ensure_init_jaxmg_backend()
+    values, work, *rest = _syevd_local_pipeline(
+        layout.matrix_specs, layout.grid, layout.partition_slots, layout.padding,
+        n=layout.padding.logical_rows, tile_size=int(T_A), dtype=a.dtype,
+        return_eigenvectors=return_eigenvectors,
+    )(a)
+    return work, values, *rest
+
+
 def _prepare_syevd_call(
     a: Array,
     tile_size: int,
@@ -272,6 +323,7 @@ def _prepare_syevd_call(
     return_eigenvectors: bool,
     pad: bool,
     caller: str,
+    local: bool = False,
 ):
     """Validate an eigensolver call and derive its distributed layout.
 
@@ -280,17 +332,26 @@ def _prepare_syevd_call(
     1. Validate that A is a square matrix with a supported dtype.
     2. Validate the tile size and static ``return_eigenvectors`` mode.
     3. Resolve the mesh, process grid, rank map, and tile-aligned layout shared
-       by A and the optional eigenvector output.
+       by A and the optional eigenvector output. Local blocks use the enclosing
+       mesh to reconstruct the global dimensions.
     """
     if a.ndim != 2:
         raise ValueError(f"{caller} expects a rank-2 matrix A.")
     _check_supported_syevd_dtype(a.dtype)
-    if a.shape[0] != a.shape[1]:
+    if not local and a.shape[0] != a.shape[1]:
         raise ValueError(f"{caller} expects A to be square.")
     if int(tile_size) <= 0:
         raise ValueError("T_A must be positive.")
     if not isinstance(return_eigenvectors, bool):
         raise TypeError("return_eigenvectors must be a Python bool.")
+    if local:
+        layout = prepare_local_matrix_layout(
+            a, tile_size, matrix_specs=matrix_specs, in_specs=in_specs,
+            pad=pad, caller=caller,
+        )
+        if layout.padding.logical_rows != layout.padding.logical_cols:
+            raise ValueError(f"{caller} expects A to be square.")
+        return layout
     return prepare_input_matrix_layout(
         a,
         tile_size,
@@ -333,46 +394,25 @@ def _real_dtype_for_eigenvalues(dtype):
 _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
-@lru_cache(maxsize=None)
-def _syevd_pipeline(
-    mesh: Mesh | AbstractMesh,
+def _syevd_local_pipeline(
     matrix_specs: P,
-    native_status_specs: P,
     grid: ProcessGrid,
     partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     *,
-    matrix_result_specs: P,
     n: int,
     tile_size: int,
     dtype,
     return_eigenvectors: bool,
 ):
-    """Build and cache the unjitted JAX-visible SYEVD execution pipeline.
-
-    The cache key is the static solver configuration: mesh, sharding spec,
-    process-grid shape, partition mapping, padded local shape, matrix size, tile
-    size, dtype, and output mode. Reusing this factory avoids rebuilding the
-    same ``jax.shard_map`` structure for repeated eigensolves with identical
-    layout metadata.
-    """
+    """Build the local padding, eigensolve and optional vector-restoration stages."""
     process_rows = grid.process_rows
     process_cols = grid.process_cols
     slots_attr = np.asarray(partition_slots, dtype=np.int64)
-    pad_a = make_local_pad_fn(mesh, matrix_specs, a_padding)
     if return_eigenvectors:
-        unpad_vectors = make_local_unpad_fn(mesh, matrix_specs, a_padding)
         ffi_target = "cusolvermp_syevd"
-        out_specs = (
-            P(None),
-            matrix_specs,
-            matrix_specs,
-            native_status_specs,
-        )
     else:
-        unpad_vectors = None
         ffi_target = "cusolvermp_syevd_values"
-        out_specs = (P(None), matrix_specs, native_status_specs)
 
     def syevd_ffi(_a: Array):
         """Call fused native redistribution and the selected SYEVD mode.
@@ -381,10 +421,14 @@ def _syevd_pipeline(
         symbol, buffer layouts, result shapes, and static process-grid metadata;
         all heavy work is then performed by the C++/CUDA handler.
         """
+        # Stage 1: provide tile-aligned capacity for the local input.
+        _a = pad_local_2d(_a, row_padding=a_padding.row_padding_per_process,
+                          col_padding=a_padding.col_padding_per_process)
         if _a.ndim != 2:
             raise ValueError("cusolvermp_syevd expects a rank-2 matrix buffer.")
         _check_supported_syevd_dtype(_a.dtype)
 
+        # Stage 2: allocate only the outputs requested by the selected mode.
         eigenvalue_type = jax.ShapeDtypeStruct(
             (int(n),), _real_dtype_for_eigenvalues(dtype)
         )
@@ -418,27 +462,63 @@ def _syevd_pipeline(
             n=int(n),
             tile_size=int(tile_size),
         )
-        return ffi_fn(_a)
+        values, work, *rest = ffi_fn(_a)
+        # Stage 3: restore local vector blocks; eigenvalues stay replicated.
+        axes = tuple(axis for axis, size in zip(matrix_specs, (process_rows, process_cols))
+                     if axis is not None and size > 1)
+        work = mark_varying(work, axes)
+        status = mark_varying(rest[-1], axes)
+        if not return_eigenvectors:
+            return values, work, status
+        vectors = unpad_local_2d(rest[0], local_rows=a_padding.local_logical_rows,
+                                local_cols=a_padding.local_logical_cols)
+        return values, work, mark_varying(vectors, axes), status
+
+    return syevd_ffi
+
+
+@lru_cache(maxsize=None)
+def _syevd_pipeline(
+    mesh: Mesh | AbstractMesh,
+    matrix_specs: P,
+    native_status_specs: P,
+    grid: ProcessGrid,
+    partition_slots: tuple[int, ...],
+    a_padding: MatrixPadding2D,
+    *,
+    matrix_result_specs: P,
+    n: int,
+    tile_size: int,
+    dtype,
+    return_eigenvectors: bool,
+):
+    """Map the shared local eigensolve and restore global vector sharding."""
+    out_specs = (P(), matrix_specs)
+    if return_eigenvectors:
+        out_specs += (matrix_specs,)
+    out_specs += (native_status_specs,)
 
     syevd_shardmap = jax.shard_map(
-        syevd_ffi,
+        _syevd_local_pipeline(matrix_specs, grid, partition_slots, a_padding,
+                              n=n, tile_size=tile_size, dtype=dtype,
+                              return_eigenvectors=return_eigenvectors),
         mesh=mesh,
         in_specs=matrix_specs,
         out_specs=out_specs,
-        check_vma=False,
+        check_vma=True,
     )
 
     @use_abstract_mesh_decorator(mesh)
     def impl(_a: Array):
         """Run padding, fused native SYEVD, and optional vector unpadding."""
-        a_padded = pad_a(_a)
-        outputs = syevd_shardmap(a_padded)
+        _a = place_for_native_work(_a, mesh=mesh, matrix_specs=matrix_specs)
+        outputs = syevd_shardmap(_a)
         if not return_eigenvectors:
             return outputs
 
-        eigenvalues, work_padded, vectors_padded, native_status = outputs
+        eigenvalues, work_padded, vectors_local, native_status = outputs
         vectors = restore_matrix_result(
-            unpad_vectors(vectors_padded),
+            vectors_local,
             result_specs=matrix_result_specs,
             mesh=mesh,
             matrix_specs=matrix_specs,

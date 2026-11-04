@@ -30,7 +30,7 @@ from ._potrf import potrf, potrf_jit_ctx, potrf_shardmap_ctx
 from ._potrs import potrs, potrs_jit_ctx, potrs_shardmap_ctx
 from ._polar import polar, polar_shardmap_ctx
 from ._qr import qr, qr_shardmap_ctx
-from ._syevd import syevd, syevd_shardmap_ctx
+from ._syevd import syevd, syevd_jit_ctx, syevd_shardmap_ctx
 from ._device import device_supports_vmm
 
 __version__ = version("jaxmg")
@@ -58,6 +58,7 @@ __all__ = [
     "qr",
     "qr_shardmap_ctx",
     "syevd",
+    "syevd_jit_ctx",
     "syevd_shardmap_ctx",
     "device_supports_vmm",
 ]
