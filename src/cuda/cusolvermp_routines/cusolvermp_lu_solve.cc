@@ -32,6 +32,8 @@
 #include <array>
 #include <cstdlib>
 
+#include "absl/cleanup/cleanup.h"
+
 #include "cusolvermp_common.h"
 #include "cusolvermp_routines.h"
 #include "factorization.h"
@@ -79,6 +81,27 @@ absl::Status RunCusolverMpDistributedLuSolve(
 
   cusolverMpMatrixDescriptor_t desc_a = nullptr;
   cusolverMpMatrixDescriptor_t desc_b = nullptr;
+  int64_t* d_ipiv = nullptr;
+  void* d_getrs_work = nullptr;
+  void* h_getrs_work = nullptr;
+  int* d_getrs_info = nullptr;
+  // Release partial allocations and descriptors even when a CUDA check returns.
+  absl::Cleanup cleanup = [&]() {
+    if (d_ipiv != nullptr) cudaFree(d_ipiv);
+    if (d_getrs_work != nullptr) cudaFree(d_getrs_work);
+    if (d_getrs_info != nullptr) cudaFree(d_getrs_info);
+    if (h_getrs_work != nullptr) std::free(h_getrs_work);
+    auto record_destroy_failure = [&](cusolverStatus_t result) {
+      if (result != CUSOLVER_STATUS_SUCCESS && (*status_words)[0] == kStatusOk) {
+        (*status_words)[0] = kDestroyMatrixDescFailed;
+        (*status_words)[11] = static_cast<int32_t>(result);
+      }
+    };
+    if (desc_b != nullptr)
+      record_destroy_failure(api.destroy_matrix_desc(desc_b));
+    if (desc_a != nullptr)
+      record_destroy_failure(api.destroy_matrix_desc(desc_a));
+  };
   cusolverStatus_t status = api.create_matrix_desc(
       &desc_a, grid, SolverTraits<DataType>::cuda_data_type, n, n, tile_size,
       tile_size, /*RSRC_A=*/0, /*CSRC_A=*/0, local_physical_rows);
@@ -96,22 +119,8 @@ absl::Status RunCusolverMpDistributedLuSolve(
   if (status != CUSOLVER_STATUS_SUCCESS || desc_b == nullptr) {
     (*status_words)[0] = kCreateMatrixDescFailed;
     (*status_words)[11] = static_cast<int32_t>(status);
-    api.destroy_matrix_desc(desc_a);
     return absl::OkStatus();
   }
-
-  int64_t* d_ipiv = nullptr;
-  void* d_getrs_work = nullptr;
-  void* h_getrs_work = nullptr;
-  int* d_getrs_info = nullptr;
-  auto cleanup = [&]() {
-    if (d_ipiv != nullptr) cudaFree(d_ipiv);
-    if (d_getrs_work != nullptr) cudaFree(d_getrs_work);
-    if (d_getrs_info != nullptr) cudaFree(d_getrs_info);
-    if (h_getrs_work != nullptr) std::free(h_getrs_work);
-    api.destroy_matrix_desc(desc_b);
-    api.destroy_matrix_desc(desc_a);
-  };
 
   // Retain the native pivots through GETRS, using the factor-only allocation
   // policy for both row- and column-distributed grids.
@@ -125,7 +134,6 @@ absl::Status RunCusolverMpDistributedLuSolve(
       cudaMalloc(reinterpret_cast<void**>(&d_ipiv), ipiv_bytes);
   if (cuda_status != cudaSuccess) {
     (*status_words)[0] = kDeviceAllocFailed;
-    cleanup();
     return absl::OkStatus();
   }
 
@@ -139,7 +147,6 @@ absl::Status RunCusolverMpDistributedLuSolve(
   if (status != CUSOLVER_STATUS_SUCCESS) {
     (*status_words)[0] = kGetrsWorkspaceFailed;
     (*status_words)[11] = static_cast<int32_t>(status);
-    cleanup();
     return absl::OkStatus();
   }
   (*status_words)[24] = SizeToKiBForStatus(getrs_workspace_device);
@@ -149,7 +156,6 @@ absl::Status RunCusolverMpDistributedLuSolve(
     cuda_status = cudaMalloc(&d_getrs_work, getrs_workspace_device);
     if (cuda_status != cudaSuccess) {
       (*status_words)[0] = kDeviceAllocFailed;
-      cleanup();
       return absl::OkStatus();
     }
   }
@@ -157,14 +163,12 @@ absl::Status RunCusolverMpDistributedLuSolve(
                            sizeof(int));
   if (cuda_status != cudaSuccess) {
     (*status_words)[0] = kDeviceAllocFailed;
-    cleanup();
     return absl::OkStatus();
   }
   if (getrs_workspace_host > 0) {
     h_getrs_work = std::malloc(getrs_workspace_host);
     if (h_getrs_work == nullptr) {
       (*status_words)[0] = kHostAllocFailed;
-      cleanup();
       return absl::OkStatus();
     }
   }
@@ -182,7 +186,6 @@ absl::Status RunCusolverMpDistributedLuSolve(
       {(*status_words)[0], (*status_words)[11], (*status_words)[22],
        (*status_words)[23], (*status_words)[26], (*status_words)[27]});
   if (!factor_status.ok() || (*status_words)[0] != kStatusOk) {
-    cleanup();
     return factor_status;
   }
 
@@ -196,7 +199,6 @@ absl::Status RunCusolverMpDistributedLuSolve(
   if (status != CUSOLVER_STATUS_SUCCESS) {
     (*status_words)[0] = kGetrsFailed;
     (*status_words)[11] = static_cast<int32_t>(status);
-    cleanup();
     return absl::OkStatus();
   }
   (*status_words)[28] = 1;
@@ -209,12 +211,8 @@ absl::Status RunCusolverMpDistributedLuSolve(
   (*status_words)[29] = h_getrs_info;
   if (h_getrs_info != 0) {
     (*status_words)[0] = kGetrsInfoNonzero;
-    cleanup();
     return absl::OkStatus();
   }
-
-
-  cleanup();
   return absl::OkStatus();
 }
 

@@ -34,6 +34,8 @@
 #include <array>
 #include <cstdlib>
 
+#include "absl/cleanup/cleanup.h"
+
 #include "cusolvermp_common.h"
 #include "cusolvermp_routines.h"
 
@@ -85,7 +87,26 @@ absl::Status RunCusolverMpSyevd(
 
   cusolverMpMatrixDescriptor_t desc_a = nullptr;
   cusolverMpMatrixDescriptor_t desc_q = nullptr;
-  bool owns_desc_q = false;
+  void* d_work = nullptr;
+  void* h_work = nullptr;
+  int* d_info = nullptr;
+  // Release partial allocations and descriptors even when a CUDA check returns.
+  absl::Cleanup cleanup = [&]() {
+    if (d_work != nullptr) cudaFree(d_work);
+    if (d_info != nullptr) cudaFree(d_info);
+    if (h_work != nullptr) std::free(h_work);
+    auto record_destroy_failure = [&](cusolverStatus_t result) {
+      if (result != CUSOLVER_STATUS_SUCCESS && (*status_words)[0] == kStatusOk) {
+        (*status_words)[0] = kDestroyMatrixDescFailed;
+        (*status_words)[11] = static_cast<int32_t>(result);
+      }
+    };
+    if (desc_q != nullptr && desc_q != desc_a) {
+      record_destroy_failure(api.destroy_matrix_desc(desc_q));
+    }
+    if (desc_a != nullptr)
+      record_destroy_failure(api.destroy_matrix_desc(desc_a));
+  };
   CusolverMpDebug(debug_rank, "create desc_a begin");
   cusolverStatus_t status = api.create_matrix_desc(
       &desc_a, grid, SolverTraits<DataType>::cuda_data_type, n, n, tile_size,
@@ -103,10 +124,10 @@ absl::Status RunCusolverMpSyevd(
   if (compute_eigenvectors) {
     if (vectors_out == nullptr) {
       (*status_words)[0] = kOutputShapeMismatch;
-      api.destroy_matrix_desc(desc_a);
       return absl::OkStatus();
     }
     CusolverMpDebug(debug_rank, "create desc_q begin");
+    desc_q = nullptr;
     status = api.create_matrix_desc(
         &desc_q, grid, SolverTraits<DataType>::cuda_data_type, n, n, tile_size,
         tile_size, /*RSRC_Q=*/0, /*CSRC_Q=*/0, local_physical_rows);
@@ -115,25 +136,10 @@ absl::Status RunCusolverMpSyevd(
     if (status != CUSOLVER_STATUS_SUCCESS || desc_q == nullptr) {
       (*status_words)[0] = kCreateMatrixDescFailed;
       (*status_words)[11] = static_cast<int32_t>(status);
-      api.destroy_matrix_desc(desc_a);
       return absl::OkStatus();
     }
-    owns_desc_q = true;
     (*status_words)[27] = 1;
   }
-
-  void* d_work = nullptr;
-  void* h_work = nullptr;
-  int* d_info = nullptr;
-  auto cleanup = [&]() {
-    if (d_work != nullptr) cudaFree(d_work);
-    if (d_info != nullptr) cudaFree(d_info);
-    if (h_work != nullptr) std::free(h_work);
-    if (owns_desc_q) {
-      api.destroy_matrix_desc(desc_q);
-    }
-    api.destroy_matrix_desc(desc_a);
-  };
 
   // cuSOLVERMp SYEVD overwrites d_A and writes eigenvectors to d_Q when
   // requested. Keep those buffers distinct in vector mode: the donated JAX
@@ -169,7 +175,6 @@ absl::Status RunCusolverMpSyevd(
   if (status != CUSOLVER_STATUS_SUCCESS) {
     (*status_words)[0] = kSyevdWorkspaceFailed;
     (*status_words)[11] = static_cast<int32_t>(status);
-    cleanup();
     return absl::OkStatus();
   }
   (*status_words)[21] = SizeToKiBForStatus(workspace_device);
@@ -184,7 +189,6 @@ absl::Status RunCusolverMpSyevd(
                     static_cast<int>(cuda_status), d_work);
     if (cuda_status != cudaSuccess) {
       (*status_words)[0] = kDeviceAllocFailed;
-      cleanup();
       return absl::OkStatus();
     }
   }
@@ -194,7 +198,6 @@ absl::Status RunCusolverMpSyevd(
     CusolverMpDebug(debug_rank, "malloc h_work end ptr=%p", h_work);
     if (h_work == nullptr) {
       (*status_words)[0] = kHostAllocFailed;
-      cleanup();
       return absl::OkStatus();
     }
   }
@@ -204,7 +207,6 @@ absl::Status RunCusolverMpSyevd(
                   static_cast<int>(cuda_status), d_info);
   if (cuda_status != cudaSuccess) {
     (*status_words)[0] = kDeviceAllocFailed;
-    cleanup();
     return absl::OkStatus();
   }
   JAXMG_RETURN_IF_CUDA_ERROR(
@@ -222,7 +224,6 @@ absl::Status RunCusolverMpSyevd(
   if (status != CUSOLVER_STATUS_SUCCESS) {
     (*status_words)[0] = kSyevdFailed;
     (*status_words)[11] = static_cast<int32_t>(status);
-    cleanup();
     return absl::OkStatus();
   }
   (*status_words)[23] = 1;
@@ -239,8 +240,6 @@ absl::Status RunCusolverMpSyevd(
   if (h_info != 0) {
     (*status_words)[0] = kSyevdInfoNonzero;
   }
-
-  cleanup();
   return absl::OkStatus();
 }
 

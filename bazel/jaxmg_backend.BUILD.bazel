@@ -149,6 +149,7 @@ cc_binary(
         "@xla//xla:future",
         "@xla//xla/stream_executor:stream",
         "@xla//xla/tsl/cuda:nccl",
+        "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
