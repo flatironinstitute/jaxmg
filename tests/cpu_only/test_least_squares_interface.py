@@ -23,30 +23,29 @@ def _one_rank_mesh() -> Mesh:
 
 
 def _install_fake_backend(monkeypatch):
-    """Replace the native pipeline with a shape-correct stand-in."""
+    """Run the public wrappers with only the native FFI replaced."""
     captured = {}
 
-    def fake_pipeline(*args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-
-        def impl(_a, _b):
-            status = jnp.zeros(
-                (_CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE,), dtype=jnp.int32
-            )
-            return _a, _b, _b[: kwargs["n"]], status
-
+    def fake_ffi(target, result_types, **options):
+        def impl(*inputs, **attrs):
+            captured["native_kwargs"] = attrs
+            captured["target"] = target
+            aliases = {out: arg for arg, out in options["input_output_aliases"].items()}
+            return tuple(inputs[aliases[i]] if i in aliases else jnp.zeros(t.shape, t.dtype)
+                         for i, t in enumerate(result_types))
         return impl
 
-    monkeypatch.setattr(
-        least_squares_module, "ensure_init_jaxmg_backend", lambda: None
-    )
-    monkeypatch.setattr(
-        least_squares_module, "_least_squares_pipeline", fake_pipeline
-    )
-    monkeypatch.setattr(
-        least_squares_module, "_least_squares_compiled", fake_pipeline
-    )
+    compiled = least_squares_module._least_squares_compiled
+    compiled.cache_clear()
+
+    def record_compiled(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return compiled(*args, **kwargs)
+
+    monkeypatch.setattr(least_squares_module, "ensure_init_jaxmg_backend", lambda: None)
+    monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi)
+    monkeypatch.setattr(least_squares_module, "_least_squares_compiled", record_compiled)
     return captured
 
 
@@ -62,8 +61,8 @@ def test_least_squares_returns_solution_shape_and_status(monkeypatch):
     )
     assert x.shape == (4, 2)
     assert status.shape == (_CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE,)
-    assert captured["kwargs"]["m"] == 6
-    assert captured["kwargs"]["n"] == 4
+    assert captured["native_kwargs"]["m"] == 6
+    assert captured["native_kwargs"]["n"] == 4
 
 
 def test_least_squares_preserves_vector_rank(monkeypatch):

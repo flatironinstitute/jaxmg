@@ -28,36 +28,29 @@ def _single_axis_mesh() -> Mesh:
 
 
 def _install_fake_syevd_backend(monkeypatch):
-    """Replace native backend entry points with a small Python stand-in."""
+    """Run the public wrappers with only the native FFI replaced."""
     captured = {}
 
-    def fake_pipeline(*args, **kwargs):
-        captured["pipeline_args"] = args
-        captured["pipeline_kwargs"] = kwargs
-
-        def impl(_a):
-            n = int(kwargs["n"])
-            eigenvalue_dtype = (
-                jnp.float32
-                if _a.dtype in (jnp.float32, jnp.complex64)
-                else jnp.float64
-            )
-            eigenvalues = jnp.arange(n, dtype=eigenvalue_dtype)
-            status = jnp.zeros((_CUSOLVERMP_SYEVD_STATUS_SIZE,), dtype=jnp.int32)
-            if not kwargs["return_eigenvectors"]:
-                return eigenvalues, _a, status
-            return eigenvalues, _a, _a, status
-
+    def fake_ffi(target, result_types, **options):
+        def impl(*inputs, **attrs):
+            captured["native_kwargs"] = attrs
+            captured["target"] = target
+            aliases = {out: arg for arg, out in options["input_output_aliases"].items()}
+            return tuple(inputs[aliases[i]] if i in aliases else jnp.zeros(t.shape, t.dtype)
+                         for i, t in enumerate(result_types))
         return impl
 
-    def fake_compiled(*args, **kwargs):
+    compiled = syevd_module._syevd_compiled
+    compiled.cache_clear()
+
+    def record_compiled(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
-        return fake_pipeline(*args, **kwargs)
+        return compiled(*args, **kwargs)
 
     monkeypatch.setattr(syevd_module, "ensure_init_jaxmg_backend", lambda: None)
-    monkeypatch.setattr(syevd_module, "_syevd_pipeline", fake_pipeline)
-    monkeypatch.setattr(syevd_module, "_syevd_compiled", fake_compiled)
+    monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi)
+    monkeypatch.setattr(syevd_module, "_syevd_compiled", record_compiled)
     return captured
 
 
@@ -74,8 +67,8 @@ def test_syevd_accepts_current_2d_mesh_contract(monkeypatch):
 
     assert eigenvalues.shape == (4,)
     assert vectors.shape == a.shape
-    assert captured["kwargs"]["n"] == 4
-    assert captured["kwargs"]["tile_size"] == 2
+    assert captured["native_kwargs"]["n"] == 4
+    assert captured["native_kwargs"]["tile_size"] == 2
     assert captured["kwargs"]["return_eigenvectors"] is True
 
 
@@ -142,9 +135,9 @@ def test_syevd_jit_ctx_returns_work_eigensystem_and_status(monkeypatch):
     assert eigenvalues.shape == (4,)
     assert eigenvectors.shape == a.shape
     assert status.shape == (_CUSOLVERMP_SYEVD_STATUS_SIZE,)
-    assert captured["pipeline_kwargs"]["n"] == 4
-    assert captured["pipeline_kwargs"]["tile_size"] == 2
-    assert captured["pipeline_kwargs"]["return_eigenvectors"] is True
+    assert captured["native_kwargs"]["n"] == 4
+    assert captured["native_kwargs"]["tile_size"] == 2
+    assert captured["target"] == "cusolvermp_syevd"
 
 
 def test_syevd_jit_ctx_returns_values_only_work_and_status(monkeypatch):
@@ -162,7 +155,7 @@ def test_syevd_jit_ctx_returns_values_only_work_and_status(monkeypatch):
     assert a_work.shape == a.shape
     assert eigenvalues.shape == (4,)
     assert status.shape == (_CUSOLVERMP_SYEVD_STATUS_SIZE,)
-    assert captured["pipeline_kwargs"]["return_eigenvectors"] is False
+    assert captured["target"] == "cusolvermp_syevd_values"
 
 
 def test_syevd_jit_ctx_can_be_wrapped_in_external_jit(monkeypatch):
@@ -279,7 +272,7 @@ def test_syevd_accepts_degenerate_column_grid(monkeypatch):
 
     assert eigenvalues.shape == (4,)
     assert vectors.shape == (4, 4)
-    grid = captured["args"][3]
+    grid = captured["args"][0].grid
     assert (grid.process_rows, grid.process_cols) == (1, 1)
 
 
@@ -294,7 +287,7 @@ def test_syevd_accepts_rank_1_matrix_specs(monkeypatch):
         matrix_specs=P("pr"),
     )
 
-    assert captured["args"][1] == P("pr", None)
+    assert captured["args"][0].matrix_specs == P("pr", None)
 
 
 def test_syevd_rejects_fully_replicated_matrix_specs():

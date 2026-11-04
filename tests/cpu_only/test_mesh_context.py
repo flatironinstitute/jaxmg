@@ -4,7 +4,7 @@ import pytest
 import jax
 from jax.sharding import Mesh, PartitionSpec as P
 
-from jaxmg._cusolvermp_layout import infer_rhs_specs, use_abstract_mesh_decorator
+from jaxmg._cusolvermp_layout import infer_rhs_specs
 
 
 def _mesh(axis_name: str) -> Mesh:
@@ -12,63 +12,30 @@ def _mesh(axis_name: str) -> Mesh:
     return Mesh(devices, (axis_name,))
 
 
-def test_use_abstract_mesh_decorator_sets_and_restores_context():
+@pytest.mark.parametrize("compiled", [False, True])
+def test_solver_restores_foreign_context_mesh(monkeypatch, compiled):
+    """Global context calls temporarily select their mesh, including under jit."""
+    from jaxmg import _potrf as module
+
+    monkeypatch.setattr(module, "ensure_init_jaxmg_backend", lambda: None)
+
+    def fake_ffi(target, result_types, **options):
+        return lambda a, **attrs: (a, jax.numpy.zeros(result_types[1].shape, dtype="int32"))
+
+    monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi)
     mesh = _mesh("pr")
-    before = jax.sharding.get_abstract_mesh()
+    caller_mesh = _mesh("caller")
 
-    @use_abstract_mesh_decorator(mesh)
-    def body():
-        return jax.sharding.get_abstract_mesh()
+    def solve(a):
+        return module.potrf_jit_ctx(a, T_A=2, mesh=mesh, matrix_specs=P("pr", None))
 
-    assert body() == mesh.abstract_mesh
-    assert jax.sharding.get_abstract_mesh() == before
-
-
-def test_use_abstract_mesh_decorator_applies_inside_jit():
-    """Solvers are traced inside jax.jit, where set_mesh cannot be used."""
-    mesh = _mesh("pr")
-    seen = {}
-
-    @jax.jit
-    def f(x):
-        @use_abstract_mesh_decorator(mesh)
-        def body(x):
-            seen["mesh"] = jax.sharding.get_abstract_mesh()
-            return x + 1
-
-        return body(x)
-
-    f(jax.numpy.zeros((2,)))
-    assert seen["mesh"] == mesh.abstract_mesh
-
-
-def test_shard_map_runs_under_a_foreign_context_mesh():
-    """A caller with its own context mesh must not have to switch it themselves."""
-    mesh = _mesh("pr")
-    caller_mesh = Mesh(np.asarray(jax.devices()[:1], dtype=object), ("caller",))
-
-    @use_abstract_mesh_decorator(mesh)
-    def shard_mapped(x):
-        return jax.shard_map(
-            lambda block: block * 2,
-            mesh=mesh,
-            in_specs=P("pr"),
-            out_specs=P("pr"),
-            check_vma=False,
-        )(x)
-
-    x = jax.numpy.ones((4,))
+    if compiled:
+        solve = jax.jit(solve)
+    x = jax.numpy.eye(4)
     with jax.sharding.use_abstract_mesh(caller_mesh.abstract_mesh):
-        np.testing.assert_allclose(np.asarray(shard_mapped(x)), 2.0)
-        # without the decorator, jax rejects the mismatched context mesh
-        with pytest.raises(ValueError, match="context mesh"):
-            jax.shard_map(
-                lambda block: block * 2,
-                mesh=mesh,
-                in_specs=P("pr"),
-                out_specs=P("pr"),
-                check_vma=False,
-            )(x)
+        result, _ = solve(x)
+        np.testing.assert_array_equal(result, x)
+        assert jax.sharding.get_abstract_mesh() == caller_mesh.abstract_mesh
 
 
 @pytest.mark.parametrize(

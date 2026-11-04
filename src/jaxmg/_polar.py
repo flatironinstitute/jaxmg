@@ -27,10 +27,8 @@ from ._cusolvermp_layout import (
     prepare_local_matrix_layout,
     prepare_rectangular_matrix_layout,
     restore_matrix_result,
-    use_abstract_mesh_decorator,
 )
 from ._cusolvermp_status import _CUSOLVERMP_POLAR_STATUS_SIZE
-from ._layout_types import MatrixPadding2D, ProcessGrid
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -103,23 +101,9 @@ def polar(
         pad=pad,
         caller="polar",
     )
-    m, n = map(int, a.shape)
-    ensure_init_jaxmg_backend()
+
     impl = _polar_compiled(
-        layout.mesh,
-        layout.matrix_specs,
-        layout.native_status_specs,
-        layout.grid,
-        layout.partition_slots,
-        layout.padding,
-        h_padding,
-        matrix_result_specs=layout.matrix_result_specs,
-        m=m,
-        n=n,
-        tile_size=int(T_A),
-        dtype=a.dtype,
-        compute_h=compute_h,
-        donate=donate,
+        (layout, h_padding), int(T_A), compute_h=compute_h, pad=pad, donate=donate,
     )
     outputs = impl(a)
     if compute_h:
@@ -138,6 +122,7 @@ def polar_jit_ctx(
     in_specs: P | Tuple[P] | List[P] | None = None,
     compute_h: bool = True,
     pad: bool = True,
+    _prepared=None,
 ) -> tuple[Array, ...]:
     """Compute a polar decomposition inside a caller-owned ``jax.jit``.
 
@@ -181,33 +166,30 @@ def polar_jit_ctx(
         - If the native solver fails, ``Up`` and ``H`` are filled with NaN
           and the status is non-zero.
     """
-    layout, h_padding = _prepare_polar_call(
-        a,
-        T_A,
-        mesh,
-        matrix_specs,
-        in_specs=in_specs,
-        compute_h=compute_h,
-        pad=pad,
-        caller="polar_jit_ctx",
-    )
-    m, n = map(int, a.shape)
-    ensure_init_jaxmg_backend()
-    return _polar_pipeline(
-        layout.mesh,
-        layout.matrix_specs,
-        layout.native_status_specs,
-        layout.grid,
-        layout.partition_slots,
-        layout.padding,
-        h_padding,
-        matrix_result_specs=layout.matrix_result_specs,
-        m=m,
-        n=n,
-        tile_size=int(T_A),
-        dtype=a.dtype,
-        compute_h=compute_h,
-    )(a)
+    # Preserve concrete-array layout metadata across the public JIT boundary.
+    if _prepared is None:
+        _prepared = _prepare_polar_call(
+            a, T_A, mesh, matrix_specs, in_specs=in_specs,
+            compute_h=compute_h, pad=pad, caller="polar_jit_ctx",
+        )
+    layout, _ = _prepared
+
+    specs = layout.matrix_specs
+    with jax.sharding.use_abstract_mesh(layout.mesh.abstract_mesh):
+        a = place_for_native_work(a, mesh=layout.mesh, matrix_specs=specs)
+        outputs = jax.shard_map(
+            partial(polar_shardmap_ctx, T_A=T_A, matrix_specs=specs,
+                    compute_h=compute_h, pad=pad),
+            mesh=layout.mesh,
+            in_specs=specs,
+            out_specs=(specs,) * (2 if compute_h else 1) + (layout.native_status_specs,),
+        )(a)
+        restore = partial(
+            restore_matrix_result, result_specs=layout.matrix_result_specs,
+            mesh=layout.mesh, matrix_specs=specs,
+        )
+        *factors, status = outputs
+        return tuple(restore(factor) for factor in factors) + (status,)
 
 
 def polar_shardmap_ctx(
@@ -246,12 +228,63 @@ def polar_shardmap_ctx(
         a, T_A, None, matrix_specs, in_specs=in_specs, compute_h=compute_h,
         pad=pad, caller="polar_shardmap_ctx", local=True,
     )
+
     ensure_init_jaxmg_backend()
-    return _polar_local_pipeline(
-        layout.matrix_specs, layout.grid, layout.partition_slots, layout.padding,
-        h_padding, m=layout.padding.logical_rows, n=layout.padding.logical_cols,
-        tile_size=int(T_A), compute_h=compute_h,
-    )(a)
+    a_padding = layout.padding
+    matrix_specs, grid = layout.matrix_specs, layout.grid
+    partition_slots = layout.partition_slots
+    m, n = a_padding.logical_rows, a_padding.logical_cols
+    tile_size = int(T_A)
+    process_rows = grid.process_rows
+    process_cols = grid.process_cols
+    slots_attr = np.asarray(partition_slots, dtype=np.int64)
+    ffi_target = "cusolvermp_polar_uh" if compute_h else "cusolvermp_polar_u"
+
+    # Stage 1: provide tile-aligned capacity for the local input.
+    a = pad_local_2d(a, row_padding=a_padding.row_padding_per_process,
+                      col_padding=a_padding.col_padding_per_process)
+    # Stage 2: compute Up and, when requested, H in native code.
+    output_types = [jax.ShapeDtypeStruct(a.shape, a.dtype)]
+    output_layouts = [_ROW_MAJOR_JAX_LAYOUT]
+    if compute_h:
+        output_types.append(
+            jax.ShapeDtypeStruct(
+                (h_padding.local_physical_rows, h_padding.local_physical_cols),
+                a.dtype,
+            )
+        )
+        output_layouts.append(_ROW_MAJOR_JAX_LAYOUT)
+    output_types.append(
+        jax.ShapeDtypeStruct((_CUSOLVERMP_POLAR_STATUS_SIZE,), jnp.int32)
+    )
+    output_layouts.append((0,))
+    ffi_fn = partial(
+        jax.ffi.ffi_call(
+            ffi_target,
+            tuple(output_types),
+            input_layouts=(_ROW_MAJOR_JAX_LAYOUT,),
+            output_layouts=tuple(output_layouts),
+            input_output_aliases={0: 0},
+        ),
+        process_rows=process_rows,
+        process_cols=process_cols,
+        partition_slots=slots_attr,
+        m=int(m),
+        n=int(n),
+        tile_size=int(tile_size),
+    )
+    outputs = ffi_fn(a)
+    # Stage 3: restore each factor's logical local shape.
+    up = unpad_local_2d(outputs[0], local_rows=a_padding.local_logical_rows,
+                       local_cols=a_padding.local_logical_cols)
+    axes = tuple(axis for axis, size in zip(matrix_specs, (process_rows, process_cols))
+                 if axis is not None and size > 1)
+    result = (mark_varying(up, axes),)
+    if compute_h:
+        h = unpad_local_2d(outputs[1], local_rows=h_padding.local_logical_rows,
+                          local_cols=h_padding.local_logical_cols)
+        result += (mark_varying(h, axes),)
+    return result + (mark_varying(outputs[-1], axes),)
 
 
 def _prepare_polar_call(
@@ -324,156 +357,10 @@ def _check_supported_polar_dtype(dtype) -> None:
 _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
-def _polar_local_pipeline(
-    matrix_specs: P,
-    grid: ProcessGrid,
-    partition_slots: tuple[int, ...],
-    a_padding: MatrixPadding2D,
-    h_padding: MatrixPadding2D | None,
-    *,
-    m: int,
-    n: int,
-    tile_size: int,
-    compute_h: bool,
-):
-    """Build local padding, polar decomposition, and factor restoration."""
-    process_rows = grid.process_rows
-    process_cols = grid.process_cols
-    slots_attr = np.asarray(partition_slots, dtype=np.int64)
-    ffi_target = "cusolvermp_polar_uh" if compute_h else "cusolvermp_polar_u"
-
-    def polar_ffi(_a: Array):
-        """Declare local FFI buffers and static rectangular metadata."""
-        # Stage 1: provide tile-aligned capacity for the local input.
-        _a = pad_local_2d(_a, row_padding=a_padding.row_padding_per_process,
-                          col_padding=a_padding.col_padding_per_process)
-        if _a.ndim != 2:
-            raise ValueError("cusolvermp_polar expects a rank-2 matrix buffer.")
-        _check_supported_polar_dtype(_a.dtype)
-        # Stage 2: compute Up and, when requested, H in native code.
-        output_types = [jax.ShapeDtypeStruct(_a.shape, _a.dtype)]
-        output_layouts = [_ROW_MAJOR_JAX_LAYOUT]
-        if compute_h:
-            output_types.append(
-                jax.ShapeDtypeStruct(
-                    (h_padding.local_physical_rows, h_padding.local_physical_cols),
-                    _a.dtype,
-                )
-            )
-            output_layouts.append(_ROW_MAJOR_JAX_LAYOUT)
-        output_types.append(
-            jax.ShapeDtypeStruct((_CUSOLVERMP_POLAR_STATUS_SIZE,), jnp.int32)
-        )
-        output_layouts.append((0,))
-        ffi_fn = partial(
-            jax.ffi.ffi_call(
-                ffi_target,
-                tuple(output_types),
-                input_layouts=(_ROW_MAJOR_JAX_LAYOUT,),
-                output_layouts=tuple(output_layouts),
-                input_output_aliases={0: 0},
-            ),
-            process_rows=process_rows,
-            process_cols=process_cols,
-            partition_slots=slots_attr,
-            m=int(m),
-            n=int(n),
-            tile_size=int(tile_size),
-        )
-        outputs = ffi_fn(_a)
-        # Stage 3: restore each factor's logical local shape.
-        up = unpad_local_2d(outputs[0], local_rows=a_padding.local_logical_rows,
-                           local_cols=a_padding.local_logical_cols)
-        axes = tuple(axis for axis, size in zip(matrix_specs, (process_rows, process_cols))
-                     if axis is not None and size > 1)
-        result = (mark_varying(up, axes),)
-        if compute_h:
-            h = unpad_local_2d(outputs[1], local_rows=h_padding.local_logical_rows,
-                              local_cols=h_padding.local_logical_cols)
-            result += (mark_varying(h, axes),)
-        return result + (mark_varying(outputs[-1], axes),)
-
-    return polar_ffi
-
-
 @lru_cache(maxsize=None)
-def _polar_pipeline(
-    mesh: Mesh | AbstractMesh,
-    matrix_specs: P,
-    native_status_specs: P,
-    grid: ProcessGrid,
-    partition_slots: tuple[int, ...],
-    a_padding: MatrixPadding2D,
-    h_padding: MatrixPadding2D | None,
-    *,
-    matrix_result_specs: P,
-    m: int,
-    n: int,
-    tile_size: int,
-    dtype,
-    compute_h: bool,
-):
-    """Map the shared local polar decomposition and restore global sharding."""
-    restore_result = partial(restore_matrix_result, result_specs=matrix_result_specs,
-                             mesh=mesh, matrix_specs=matrix_specs)
-    out_specs = (matrix_specs,) * (2 if compute_h else 1) + (native_status_specs,)
-
-    polar_shardmap = jax.shard_map(
-        _polar_local_pipeline(matrix_specs, grid, partition_slots, a_padding, h_padding,
-                              m=m, n=n, tile_size=tile_size, compute_h=compute_h),
-        mesh=mesh,
-        in_specs=matrix_specs,
-        out_specs=out_specs,
-        check_vma=True,
+def _polar_compiled(prepared, tile_size: int, *, compute_h: bool, pad: bool, donate: bool):
+    """Cache the public JIT wrapper around the global context interface."""
+    return jax.jit(
+        partial(polar_jit_ctx, T_A=tile_size, compute_h=compute_h, pad=pad, _prepared=prepared),
+        donate_argnums=(0,) if donate else (),
     )
-
-    @use_abstract_mesh_decorator(mesh)
-    def impl(_a: Array):
-        """Apply local padding, fused polar decomposition, and output slicing."""
-        _a = place_for_native_work(_a, mesh=mesh, matrix_specs=matrix_specs)
-        *factors, native_status = polar_shardmap(_a)
-        return tuple(restore_result(factor) for factor in factors) + (native_status,)
-
-    return impl
-
-
-@lru_cache(maxsize=None)
-def _polar_compiled(
-    mesh: Mesh | AbstractMesh,
-    matrix_specs: P,
-    native_status_specs: P,
-    grid: ProcessGrid,
-    partition_slots: tuple[int, ...],
-    a_padding: MatrixPadding2D,
-    h_padding: MatrixPadding2D | None,
-    *,
-    matrix_result_specs: P,
-    m: int,
-    n: int,
-    tile_size: int,
-    dtype,
-    compute_h: bool,
-    donate: bool,
-):
-    """Build and cache the internally jitted public polar pipeline."""
-    pipeline = _polar_pipeline(
-        mesh,
-        matrix_specs,
-        native_status_specs,
-        grid,
-        partition_slots,
-        a_padding,
-        h_padding,
-        matrix_result_specs=matrix_result_specs,
-        m=m,
-        n=n,
-        tile_size=tile_size,
-        dtype=dtype,
-        compute_h=compute_h,
-    )
-
-    @partial(jax.jit, donate_argnums=(0,) if donate else ())
-    def impl(_a: Array):
-        return pipeline(_a)
-
-    return impl

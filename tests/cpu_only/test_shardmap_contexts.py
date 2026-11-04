@@ -4,13 +4,71 @@ import importlib
 import os
 import subprocess
 import sys
-from functools import partial
+from functools import partial, wraps
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from jax.sharding import AxisType, Mesh, NamedSharding, PartitionSpec as P
+
+
+@pytest.mark.parametrize("routine", [
+    "potrs", "lu_solve", "least_squares", "potrf", "getrf",
+    "qr", "polar", "syevd", "gesvd",
+])
+@pytest.mark.parametrize("shape", [(1, 1), (2, 2)])
+def test_public_context_hierarchy_and_cache(monkeypatch, routine, shape):
+    """Public calls traverse both context interfaces and reuse their compiled JIT."""
+    count = int(np.prod(shape))
+    if jax.device_count() < count:
+        pytest.skip("requires multiple CPU devices or GPUs")
+    module = importlib.import_module(f"jaxmg._{routine}")
+    compiled = getattr(module, f"_{routine}_compiled")
+    compiled.cache_clear()
+    calls = []
+
+    def trace(name, fn):
+        @wraps(fn)
+        def wrapped(*args, **kwargs):
+            calls.append(name)
+            return fn(*args, **kwargs)
+        return wrapped
+
+    for suffix in ("jit_ctx", "shardmap_ctx"):
+        name = f"{routine}_{suffix}"
+        monkeypatch.setattr(module, name, trace(suffix, getattr(module, name)))
+
+    def fake_ffi(target, result_types, **options):
+        def run(*inputs, **attrs):
+            calls.append("ffi")
+            if "nrhs" in attrs:
+                assert attrs["nrhs"] == 3
+                assert attrs["b_distribution_cols"] == (4 if shape[1] == 2 else 3)
+            aliases = {out: arg for arg, out in options["input_output_aliases"].items()}
+            return tuple(inputs[aliases[i]] if i in aliases else jnp.zeros(t.shape, t.dtype)
+                         for i, t in enumerate(result_types))
+        return run
+
+    monkeypatch.setattr(module, "ensure_init_jaxmg_backend", lambda: None)
+    monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi)
+    mesh = Mesh(np.asarray(jax.devices()[:count]).reshape(shape), ("pr", "pc"))
+    inputs = (jnp.eye(8),)
+    if routine in ("potrs", "lu_solve", "least_squares"):
+        inputs += (jnp.ones((8, 3)),)
+    inputs = tuple(jax.device_put(x, NamedSharding(mesh, P())) for x in inputs)
+    call = partial(getattr(module, routine), T_A=2, mesh=mesh,
+                   matrix_specs=P("pr", "pc"), donate=False)
+    try:
+        results = jax.block_until_ready(call(*inputs))
+        assert all(x.sharding.is_fully_replicated for x in jax.tree.leaves(results))
+        assert calls == ["jit_ctx", "shardmap_ctx", "ffi"]
+        jax.block_until_ready(call(*inputs))
+        assert calls == ["jit_ctx", "shardmap_ctx", "ffi"]
+        assert compiled.cache_info().hits == 1
+        np.testing.assert_array_equal(inputs[0], np.eye(8))
+    finally:
+        compiled.cache_clear()
 
 
 def test_multi_device_local_contexts():
@@ -20,7 +78,7 @@ def test_multi_device_local_contexts():
     env.pop("JAX_NUM_CPU_DEVICES", None)
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", __file__,
-         "-k", "solution_rows or local_ffi"],
+         "-k", "solution_rows or local_ffi or public_context_hierarchy"],
         env=env, capture_output=True, text=True, timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr
@@ -198,6 +256,8 @@ def test_least_squares_solution_rows(monkeypatch, shape, n, rhs_specs, axis_type
     assert x.sharding.is_equivalent_to(b.sharding, 2)
     assert b_work.sharding.is_equivalent_to(b.sharding, 2)
     assert captured["n"] == n
+    assert captured["nrhs"] == 5
+    assert captured["b_distribution_cols"] == ((5 + shape[1] - 1) // shape[1]) * shape[1]
     assert captured["x_distribution_rows"] >= n
     assert captured["x_distribution_rows"] % shape[0] == 0
 

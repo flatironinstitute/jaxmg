@@ -18,28 +18,29 @@ def _one_rank_mesh() -> Mesh:
 
 
 def _install_fake_qr_backend(monkeypatch):
+    """Run the public wrappers with only the native FFI replaced."""
     captured = {}
 
-    def fake_pipeline(*args, **kwargs):
-        captured["pipeline_args"] = args
-        captured["pipeline_kwargs"] = kwargs
-
-        def impl(_a):
-            q = _a
-            r = jnp.eye(kwargs["n"], dtype=_a.dtype)
-            status = jnp.zeros((_CUSOLVERMP_QR_STATUS_SIZE,), dtype=jnp.int32)
-            return q, r, status
-
+    def fake_ffi(target, result_types, **options):
+        def impl(*inputs, **attrs):
+            captured["native_kwargs"] = attrs
+            captured["target"] = target
+            aliases = {out: arg for arg, out in options["input_output_aliases"].items()}
+            return tuple(inputs[aliases[i]] if i in aliases else jnp.zeros(t.shape, t.dtype)
+                         for i, t in enumerate(result_types))
         return impl
 
-    def fake_compiled(*args, **kwargs):
+    compiled = qr_module._qr_compiled
+    compiled.cache_clear()
+
+    def record_compiled(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
-        return fake_pipeline(*args, **kwargs)
+        return compiled(*args, **kwargs)
 
     monkeypatch.setattr(qr_module, "ensure_init_jaxmg_backend", lambda: None)
-    monkeypatch.setattr(qr_module, "_qr_pipeline", fake_pipeline)
-    monkeypatch.setattr(qr_module, "_qr_compiled", fake_compiled)
+    monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi)
+    monkeypatch.setattr(qr_module, "_qr_compiled", record_compiled)
     return captured
 
 

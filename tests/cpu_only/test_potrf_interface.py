@@ -20,24 +20,24 @@ def _one_rank_mesh() -> Mesh:
 def _install_fake_potrf_backend(monkeypatch):
     captured = {}
 
-    def fake_pipeline(*args, **kwargs):
-        captured["pipeline_args"] = args
-        captured["pipeline_kwargs"] = kwargs
-
-        def impl(_a):
+    def fake_ffi(target, result_types, **options):
+        def impl(_a, **attrs):
+            captured.update(attrs)
             status = jnp.zeros((_CUSOLVERMP_POTRF_STATUS_SIZE,), dtype=jnp.int32)
             return jnp.tril(_a), status
-
         return impl
 
-    def fake_compiled(*args, **kwargs):
+    compiled = potrf_module._potrf_compiled
+    compiled.cache_clear()
+
+    def record_compiled(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
-        return fake_pipeline(*args, **kwargs)
+        return compiled(*args, **kwargs)
 
     monkeypatch.setattr(potrf_module, "ensure_init_jaxmg_backend", lambda: None)
-    monkeypatch.setattr(potrf_module, "_potrf_pipeline", fake_pipeline)
-    monkeypatch.setattr(potrf_module, "_potrf_compiled", fake_compiled)
+    monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi)
+    monkeypatch.setattr(potrf_module, "_potrf_compiled", record_compiled)
     return captured
 
 
@@ -47,8 +47,8 @@ def test_potrf_returns_factor_and_optional_status(monkeypatch):
 
     factor = potrf(a, 2, mesh=_one_rank_mesh(), matrix_specs=P("pr", "pc"))
     assert factor.shape == (4, 4)
-    assert captured["kwargs"]["n"] == 4
-    assert captured["kwargs"]["tile_size"] == 2
+    assert captured["n"] == 4
+    assert captured["tile_size"] == 2
 
     factor, status = potrf(
         jnp.eye(4, dtype=jnp.float32),

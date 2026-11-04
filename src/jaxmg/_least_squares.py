@@ -31,12 +31,9 @@ from ._cusolvermp_layout import (
     prepare_matrix_padding,
     restore_rhs_from_native_work,
     rhs_distribution_columns,
-    use_abstract_mesh_decorator,
 )
 from ._cusolvermp_status import _CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE
 from ._layout_types import (
-    MatrixPadding2D,
-    ProcessGrid,
     validate_nonempty_block_cyclic_ownership,
 )
 from ._setup import ensure_init_jaxmg_backend
@@ -106,23 +103,9 @@ def least_squares(
         )
     )
 
-    ensure_init_jaxmg_backend()
     impl = _least_squares_compiled(
-        layout.mesh,
-        layout.matrix_specs,
-        layout.native_status_specs,
-        layout.grid,
-        layout.partition_slots,
-        layout.padding,
-        b_padding,
-        x_padding,
-        rhs_specs,
-        m=int(a.shape[0]),
-        n=int(a.shape[1]),
-        nrhs=int(b.shape[1]),
-        b_distribution_cols=b_distribution_cols,
-        tile_size=layout.tile_shape.rows,
-        donate=donate,
+        (layout, rhs_specs, b_padding, x_padding, b_distribution_cols),
+        int(T_A), pad=pad, donate=donate,
     )
     _, _, out, native_status = impl(a, b)
     if vector_rhs:
@@ -141,6 +124,7 @@ def least_squares_jit_ctx(
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
     pad: bool = True,
+    _prepared=None,
 ) -> Tuple[Array, Array, Array, Array]:
     """Solve a least-squares system inside a caller-owned ``jax.jit``.
 
@@ -177,41 +161,46 @@ def least_squares_jit_ctx(
         - If the native solver fails, the solution is filled with NaN and
           the status is non-zero.
     """
-    b, vector_rhs, layout, rhs_specs, b_padding, x_padding, b_distribution_cols = (
-        _prepare_least_squares_call(
-            a,
-            b,
-            T_A,
-            mesh,
-            matrix_specs,
-            in_specs=in_specs,
-            pad=pad,
-            caller="least_squares_jit_ctx",
+    # Preserve concrete-array layout metadata across the public JIT boundary.
+    if _prepared is None:
+        b, vector_rhs, layout, rhs_specs, b_padding, x_padding, b_distribution_cols = (
+            _prepare_least_squares_call(
+                a,
+                b,
+                T_A,
+                mesh,
+                matrix_specs,
+                in_specs=in_specs,
+                pad=pad,
+                caller="least_squares_jit_ctx",
+            )
         )
-    )
-
-    ensure_init_jaxmg_backend()
-    impl = _least_squares_pipeline(
-        layout.mesh,
-        layout.matrix_specs,
-        layout.native_status_specs,
-        layout.grid,
-        layout.partition_slots,
-        layout.padding,
-        b_padding,
-        x_padding,
-        rhs_specs,
-        m=int(a.shape[0]),
-        n=int(a.shape[1]),
-        nrhs=int(b.shape[1]),
-        b_distribution_cols=b_distribution_cols,
-        tile_size=layout.tile_shape.rows,
-    )
-    a_work, b_work, out, native_status = impl(a, b)
+    else:
+        layout, rhs_specs, b_padding, x_padding, b_distribution_cols = _prepared
+        vector_rhs = False
+    nrhs = int(b.shape[1])
+    specs = layout.matrix_specs
+    with jax.sharding.use_abstract_mesh(layout.mesh.abstract_mesh):
+        a = place_for_native_work(a, mesh=layout.mesh, matrix_specs=specs)
+        # Routing columns make B shardable without changing the logical solve.
+        if b_distribution_cols != nrhs:
+            b = jnp.pad(b, ((0, 0), (0, b_distribution_cols - nrhs)))
+        b = place_for_native_work(b, mesh=layout.mesh, matrix_specs=specs)
+        a_work, b_work, x, status = jax.shard_map(
+            partial(least_squares_shardmap_ctx, T_A=T_A, matrix_specs=specs, pad=pad,
+                    _prepared=(layout, b_padding, x_padding, nrhs)),
+            mesh=layout.mesh, in_specs=(specs, specs),
+            out_specs=(specs, specs, specs, layout.native_status_specs),
+        )(a, b)
+        b_work = restore_rhs_from_native_work(
+            b_work, rhs_specs=rhs_specs, mesh=layout.mesh, matrix_specs=specs,
+        )[:, :nrhs]
+        x = restore_rhs_from_native_work(
+            x, rhs_specs=rhs_specs, mesh=layout.mesh, matrix_specs=specs,
+        )[:layout.padding.logical_cols, :nrhs]
     if vector_rhs:
-        b_work = b_work[:, 0]
-        out = out[:, 0]
-    return a_work, b_work, out, native_status
+        b_work, x = b_work[:, 0], x[:, 0]
+    return a_work, b_work, x, status
 
 
 def least_squares_shardmap_ctx(
@@ -222,6 +211,7 @@ def least_squares_shardmap_ctx(
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
     pad: bool = True,
+    _prepared=None,
 ) -> Tuple[Array, Array, Array, Array]:
     """Solve a least-squares system inside a caller's ``jax.shard_map``.
 
@@ -251,20 +241,81 @@ def least_squares_shardmap_ctx(
         ValueError: If called outside shard_map, shapes are incompatible, or a
             process column owns no logical B tile.
     """
-    b, vector_rhs, layout, _, b_padding, x_padding, nrhs = _prepare_least_squares_call(
-        a, b, T_A, None, matrix_specs, in_specs=in_specs, pad=pad,
-        caller="least_squares_shardmap_ctx", local=True,
-    )
+    # The global wrapper supplies logical NRHS and output-only routing rows.
+    if _prepared is None:
+        b, vector_rhs, layout, _, b_padding, x_padding, nrhs = _prepare_least_squares_call(
+            a, b, T_A, None, matrix_specs, in_specs=in_specs, pad=pad,
+            caller="least_squares_shardmap_ctx", local=True,
+        )
+    else:
+        layout, b_padding, x_padding, nrhs = _prepared
+        vector_rhs = False
     ensure_init_jaxmg_backend()
-    m, n = layout.padding.logical_rows, layout.padding.logical_cols
-    a_work, b_work, x, status = _least_squares_local_pipeline(
-        layout.matrix_specs, layout.grid, layout.partition_slots,
-        layout.padding, b_padding, x_padding, m=m, n=n, nrhs=nrhs,
-        b_distribution_cols=nrhs, tile_size=int(T_A),
-    )(a, b)
+    a_padding = layout.padding
+    m, n = a_padding.logical_rows, a_padding.logical_cols
+    matrix_specs, grid = layout.matrix_specs, layout.grid
+    process_rows, process_cols = grid.process_rows, grid.process_cols
+    slots_attr = np.asarray(layout.partition_slots, dtype=np.int64)
+    b_distribution_cols = b_padding.logical_cols
+    tile_size = int(T_A)
+    b_varying = jax.typeof(b).manual_axis_type.varying
+    # Stage 1: provide tile-aligned capacity for both local inputs.
+    a = pad_local_2d(a, row_padding=a_padding.row_padding_per_process,
+                      col_padding=a_padding.col_padding_per_process)
+    b = pad_local_2d(b, row_padding=b_padding.row_padding_per_process,
+                      col_padding=b_padding.col_padding_per_process)
+    # Stage 2: factorize A and solve all logical RHS columns in native code.
+    out_type = (
+        jax.ShapeDtypeStruct(a.shape, a.dtype),
+        jax.ShapeDtypeStruct(b.shape, b.dtype),
+        jax.ShapeDtypeStruct(
+            (x_padding.local_physical_rows, x_padding.local_physical_cols),
+            b.dtype,
+        ),
+        jax.ShapeDtypeStruct(
+            (_CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE,), jnp.int32
+        ),
+    )
+    ffi_fn = partial(
+        jax.ffi.ffi_call(
+            "cusolvermp_gels",
+            out_type,
+            input_layouts=(_ROW_MAJOR_JAX_LAYOUT, _ROW_MAJOR_JAX_LAYOUT),
+            output_layouts=(
+                _ROW_MAJOR_JAX_LAYOUT,
+                _ROW_MAJOR_JAX_LAYOUT,
+                _ROW_MAJOR_JAX_LAYOUT,
+                (0,),
+            ),
+            input_output_aliases={0: 0, 1: 1},
+        ),
+        process_rows=process_rows,
+        process_cols=process_cols,
+        partition_slots=slots_attr,
+        m=int(m),
+        n=int(n),
+        nrhs=int(nrhs),
+        b_distribution_cols=int(b_distribution_cols),
+        x_distribution_rows=int(x_padding.logical_rows),
+        tile_size=int(tile_size),
+    )
+    # FFI operands must agree on varying axes, even for replicated RHS columns.
+    input_axes = tuple(jax.typeof(a).manual_axis_type.varying | b_varying)
+    a_work, b_work, x, status = ffi_fn(
+        mark_varying(a, input_axes), mark_varying(b, input_axes)
+    )
+    # Stage 3: remove local tile padding from the two restored outputs.
+    b_work = unpad_local_2d(b_work, local_rows=b_padding.local_logical_rows,
+                           local_cols=b_padding.local_logical_cols)
+    x = unpad_local_2d(x, local_rows=x_padding.local_logical_rows,
+                      local_cols=x_padding.local_logical_cols)
+    axes = tuple(axis for axis, size in zip(matrix_specs, (process_rows, process_cols))
+                 if axis is not None and size > 1)
+    b_axes = tuple(axis for axis in axes if axis == matrix_specs[0] or axis in b_varying)
     if vector_rhs:
         b_work, x = b_work[:, 0], x[:, 0]
-    return a_work, b_work, x, status
+    return (mark_varying(a_work, axes), mark_varying(b_work, b_axes),
+            mark_varying(x, b_axes), mark_varying(status, axes))
 
 
 def _prepare_least_squares_call(
@@ -379,183 +430,10 @@ def _prepare_least_squares_call(
 _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
-def _least_squares_local_pipeline(
-    matrix_specs: P,
-    grid: ProcessGrid,
-    partition_slots: tuple[int, ...],
-    a_padding: MatrixPadding2D,
-    b_padding: MatrixPadding2D,
-    x_padding: MatrixPadding2D,
-    *,
-    m: int,
-    n: int,
-    nrhs: int,
-    b_distribution_cols: int,
-    tile_size: int,
-):
-    """Build local padding, native GELS, and work/solution output restoration."""
-    process_rows = grid.process_rows
-    process_cols = grid.process_cols
-    slots_attr = np.asarray(partition_slots, dtype=np.int64)
-
-    def gels_ffi(_a: Array, _b: Array) -> tuple[Array, Array, Array, Array]:
-        """Call fused native redistribution and ``cusolverMpGels``."""
-        b_varying = jax.typeof(_b).manual_axis_type.varying
-        # Stage 1: provide tile-aligned capacity for both local inputs.
-        _a = pad_local_2d(_a, row_padding=a_padding.row_padding_per_process,
-                          col_padding=a_padding.col_padding_per_process)
-        _b = pad_local_2d(_b, row_padding=b_padding.row_padding_per_process,
-                          col_padding=b_padding.col_padding_per_process)
-        # Stage 2: factorize A and solve all logical RHS columns in native code.
-        out_type = (
-            jax.ShapeDtypeStruct(_a.shape, _a.dtype),
-            jax.ShapeDtypeStruct(_b.shape, _b.dtype),
-            jax.ShapeDtypeStruct(
-                (x_padding.local_physical_rows, x_padding.local_physical_cols),
-                _b.dtype,
-            ),
-            jax.ShapeDtypeStruct(
-                (_CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE,), jnp.int32
-            ),
-        )
-        ffi_fn = partial(
-            jax.ffi.ffi_call(
-                "cusolvermp_gels",
-                out_type,
-                input_layouts=(_ROW_MAJOR_JAX_LAYOUT, _ROW_MAJOR_JAX_LAYOUT),
-                output_layouts=(
-                    _ROW_MAJOR_JAX_LAYOUT,
-                    _ROW_MAJOR_JAX_LAYOUT,
-                    _ROW_MAJOR_JAX_LAYOUT,
-                    (0,),
-                ),
-                input_output_aliases={0: 0, 1: 1},
-            ),
-            process_rows=process_rows,
-            process_cols=process_cols,
-            partition_slots=slots_attr,
-            m=int(m),
-            n=int(n),
-            nrhs=int(nrhs),
-            b_distribution_cols=int(b_distribution_cols),
-            x_distribution_rows=int(x_padding.logical_rows),
-            tile_size=int(tile_size),
-        )
-        # FFI operands must agree on varying axes, even for replicated RHS columns.
-        input_axes = tuple(jax.typeof(_a).manual_axis_type.varying | b_varying)
-        a_work, b_work, x, status = ffi_fn(
-            mark_varying(_a, input_axes), mark_varying(_b, input_axes)
-        )
-        # Stage 3: remove local tile padding from the two restored outputs.
-        b_work = unpad_local_2d(b_work, local_rows=b_padding.local_logical_rows,
-                               local_cols=b_padding.local_logical_cols)
-        x = unpad_local_2d(x, local_rows=x_padding.local_logical_rows,
-                          local_cols=x_padding.local_logical_cols)
-        axes = tuple(axis for axis, size in zip(matrix_specs, (process_rows, process_cols))
-                     if axis is not None and size > 1)
-        b_axes = tuple(axis for axis in axes if axis == matrix_specs[0] or axis in b_varying)
-        return (mark_varying(a_work, axes), mark_varying(b_work, b_axes),
-                mark_varying(x, b_axes), mark_varying(status, axes))
-
-    return gels_ffi
-
-
 @lru_cache(maxsize=None)
-def _least_squares_pipeline(
-    mesh: Mesh | AbstractMesh,
-    matrix_specs: P,
-    native_status_specs: P,
-    grid: ProcessGrid,
-    partition_slots: tuple[int, ...],
-    a_padding: MatrixPadding2D,
-    b_padding: MatrixPadding2D,
-    x_padding: MatrixPadding2D,
-    rhs_specs: P,
-    *,
-    m: int,
-    n: int,
-    nrhs: int,
-    b_distribution_cols: int,
-    tile_size: int,
-):
-    """Map local GELS, then restore the global RHS layout and solution rows."""
-    b_distribution_padding = int(b_distribution_cols) - int(nrhs)
-
-    gels_shardmap = jax.shard_map(
-        _least_squares_local_pipeline(
-            matrix_specs, grid, partition_slots, a_padding, b_padding, x_padding,
-            m=m, n=n, nrhs=nrhs, b_distribution_cols=b_distribution_cols,
-            tile_size=tile_size,
-        ),
-        mesh=mesh,
-        in_specs=(matrix_specs, matrix_specs),
-        out_specs=(matrix_specs, matrix_specs, matrix_specs, native_status_specs),
-        check_vma=True,
+def _least_squares_compiled(prepared, tile_size: int, *, pad: bool, donate: bool):
+    """Cache the public JIT wrapper around the global context interface."""
+    return jax.jit(
+        partial(least_squares_jit_ctx, T_A=tile_size, pad=pad, _prepared=prepared),
+        donate_argnums=(0, 1) if donate else (),
     )
-
-    @use_abstract_mesh_decorator(mesh)
-    def impl(_a: Array, _b: Array) -> tuple[Array, Array, Array, Array]:
-        """Run padding, fused native least squares, and output restoration."""
-        _a = place_for_native_work(_a, mesh=mesh, matrix_specs=matrix_specs)
-        if b_distribution_padding:
-            b_distribution = jnp.pad(_b, ((0, 0), (0, b_distribution_padding)))
-        else:
-            b_distribution = _b
-        b_distribution = place_for_native_work(
-            b_distribution, mesh=mesh, matrix_specs=matrix_specs
-        )
-        a_work, b_work, x, native_status = gels_shardmap(_a, b_distribution)
-        b_work = restore_rhs_from_native_work(
-            b_work, rhs_specs=rhs_specs, mesh=mesh, matrix_specs=matrix_specs
-        )
-        b_work = b_work[:, :nrhs]
-        x = restore_rhs_from_native_work(
-            x, rhs_specs=rhs_specs, mesh=mesh, matrix_specs=matrix_specs
-        )
-        return a_work, b_work, x[:n, :nrhs], native_status
-
-    return impl
-
-
-@lru_cache(maxsize=None)
-def _least_squares_compiled(
-    mesh: Mesh | AbstractMesh,
-    matrix_specs: P,
-    native_status_specs: P,
-    grid: ProcessGrid,
-    partition_slots: tuple[int, ...],
-    a_padding: MatrixPadding2D,
-    b_padding: MatrixPadding2D,
-    x_padding: MatrixPadding2D,
-    rhs_specs: P,
-    *,
-    m: int,
-    n: int,
-    nrhs: int,
-    b_distribution_cols: int,
-    tile_size: int,
-    donate: bool,
-):
-    """Build and cache the internally jitted least-squares pipeline."""
-    pipeline = _least_squares_pipeline(
-        mesh,
-        matrix_specs,
-        native_status_specs,
-        grid,
-        partition_slots,
-        a_padding,
-        b_padding,
-        x_padding,
-        rhs_specs,
-        m=m,
-        n=n,
-        nrhs=nrhs,
-        b_distribution_cols=b_distribution_cols,
-        tile_size=tile_size,
-    )
-
-    @partial(jax.jit, donate_argnums=(0, 1) if donate else ())
-    def impl(_a: Array, _b: Array) -> tuple[Array, Array, Array, Array]:
-        return pipeline(_a, _b)
-
-    return impl

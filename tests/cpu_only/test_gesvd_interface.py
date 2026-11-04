@@ -30,45 +30,29 @@ def _single_axis_mesh() -> Mesh:
 
 
 def _install_fake_gesvd_backend(monkeypatch):
-    """Replace native GESVD factories with shape-correct Python stand-ins."""
+    """Run the public wrappers with only the native FFI replaced."""
     captured = {}
 
-    def fake_pipeline(*args, **kwargs):
-        captured["pipeline_args"] = args
-        captured["pipeline_kwargs"] = kwargs
-
-        def impl(_a):
-            m = int(kwargs["m"])
-            n = int(kwargs["n"])
-            k = min(m, n)
-            vector_dtype = _a.dtype
-            singular_dtype = (
-                jnp.float32
-                if vector_dtype in (jnp.float32, jnp.complex64)
-                else jnp.float64
-            )
-            singular_values = jnp.arange(k, dtype=singular_dtype)
-            status = jnp.zeros((_CUSOLVERMP_GESVD_STATUS_SIZE,), dtype=jnp.int32)
-            outputs = [singular_values, _a]
-            if kwargs["compute_u"]:
-                u_cols = m if kwargs["full_matrices"] else k
-                outputs.append(jnp.zeros((m, u_cols), dtype=vector_dtype))
-            if kwargs["compute_vh"]:
-                vh_rows = n if kwargs["full_matrices"] else k
-                outputs.append(jnp.zeros((vh_rows, n), dtype=vector_dtype))
-            outputs.append(status)
-            return tuple(outputs)
-
+    def fake_ffi(target, result_types, **options):
+        def impl(*inputs, **attrs):
+            captured["native_kwargs"] = attrs
+            captured["target"] = target
+            aliases = {out: arg for arg, out in options["input_output_aliases"].items()}
+            return tuple(inputs[aliases[i]] if i in aliases else jnp.zeros(t.shape, t.dtype)
+                         for i, t in enumerate(result_types))
         return impl
 
-    def fake_compiled(*args, **kwargs):
+    compiled = gesvd_module._gesvd_compiled
+    compiled.cache_clear()
+
+    def record_compiled(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
-        return fake_pipeline(*args, **kwargs)
+        return compiled(*args, **kwargs)
 
     monkeypatch.setattr(gesvd_module, "ensure_init_jaxmg_backend", lambda: None)
-    monkeypatch.setattr(gesvd_module, "_gesvd_pipeline", fake_pipeline)
-    monkeypatch.setattr(gesvd_module, "_gesvd_compiled", fake_compiled)
+    monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi)
+    monkeypatch.setattr(gesvd_module, "_gesvd_compiled", record_compiled)
     return captured
 
 
@@ -153,7 +137,7 @@ def test_gesvd_accepts_rank_1_matrix_specs(monkeypatch):
     )
 
     assert singular_values.shape == (4,)
-    assert captured["args"][1] == P("pr", None)
+    assert captured["args"][0][0].matrix_specs == P("pr", None)
 
 
 def test_gesvd_jit_ctx_exposes_work_and_selected_outputs(monkeypatch):
