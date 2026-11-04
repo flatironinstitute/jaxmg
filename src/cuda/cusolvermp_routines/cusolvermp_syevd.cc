@@ -351,142 +351,33 @@ absl::Status RunCusolverMpSyevdSolver(
     return CopyStatusToDevice(stream, status_words, status_out);
   };
 
-  // Stage 2: bind cuSOLVERMp to the CUDA device that owns this rank's local
-  // matrix shard, independent of the process's current-device state.
-  absl::StatusOr<int> buffer_device = DeviceForCudaPointer(a.untyped_data());
-  if (!buffer_device.ok()) {
-    status_words[0] = kCudaDeviceFailed;
-    return publish_status();
-  }
-  int cuda_device = *buffer_device;
-  cudaError_t cuda_status = cudaSetDevice(cuda_device);
-  if (cuda_status != cudaSuccess) {
-    status_words[0] = kCudaDeviceFailed;
-    return publish_status();
-  }
-  status_words[1] = cuda_device;
-  CusolverMpDebug(-1, "syevd dispatch device=%d n=%lld tile=%lld grid=%lldx%lld "
-                      "vectors=%d",
-                  cuda_device, static_cast<long long>(n),
-                  static_cast<long long>(tile_size),
-                  static_cast<long long>(process_rows),
-                  static_cast<long long>(process_cols),
-                  compute_eigenvectors ? 1 : 0);
-
-  // Stage 3: borrow the XLA-created NCCL communicator for this rank.  The
-  // communicator rank is then converted to a cuSOLVERMp process-grid
-  // coordinate using the requested row-major or column-major mapping.
-  if (collective_params == nullptr || collective_cliques == nullptr) {
-    status_words[0] = kCollectiveContextMissing;
-    return publish_status();
-  }
-
-  absl::StatusOr<GpuCliqueKey> clique_key =
-      AllAssignedDevicesP2PCliqueKey(*collective_params);
-  if (!clique_key.ok()) {
-    status_words[0] = kCliqueKeyFailed;
-    return publish_status();
-  }
-
-  absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
-      *clique_key, collective_params->global_device_id);
-  if (!gpu_comm.ok() || *gpu_comm == nullptr) {
-    status_words[0] = kCommunicatorMissing;
-    return publish_status();
-  }
-
-  void* platform_handle = (*gpu_comm)->platform_comm().handle;
-  if (platform_handle == nullptr) {
-    status_words[0] = kNcclHandleMissing;
-    return publish_status();
-  }
-  ncclComm_t nccl_comm = reinterpret_cast<ncclComm_t>(platform_handle);
-
-  int nccl_rank = -1;
-  int nccl_count = -1;
-  ncclResult_t rank_status = ncclCommUserRank(nccl_comm, &nccl_rank);
-  ncclResult_t count_status = ncclCommCount(nccl_comm, &nccl_count);
-  if (rank_status != ncclSuccess || count_status != ncclSuccess) {
-    status_words[0] = kNcclRankMismatch;
-    return publish_status();
-  }
-  status_words[2] = nccl_rank;
-  status_words[3] = nccl_count;
-  CusolverMpDebug(nccl_rank, "nccl communicator rank=%d count=%d",
-                  nccl_rank, nccl_count);
-
-  // Stage 4: validate grid and rank metadata before creating cuSOLVERMp objects.
-  if (process_rows <= 0 || process_cols <= 0 ||
-      process_rows * process_cols != nccl_count || n <= 0 ||
-      tile_size <= 0) {
+  // Stage 2: bind the matrix's device and create the handle/grid using XLA's
+  // borrowed communicator. Mathematical and output contracts stay routine-local.
+  if (n <= 0 || tile_size <= 0) {
     status_words[0] = kGridShapeMismatch;
     return publish_status();
   }
-  JAXMG_RETURN_IF_ERROR(
-      ValidateCusolverMpGridMapping("cusolvermp_syevd", grid_mapping));
-  if (!rank_map.empty()) {
-    JAXMG_RETURN_IF_ERROR(ValidateStandardRankMapForGridMapping(
-        "cusolvermp_syevd", rank_map, process_rows, process_cols,
-        grid_mapping));
-  }
-
-  CusolverMpApi api = LinkedCusolverMpApi(&status_words);
-
-  // Stage 5: create the cuSOLVERMp handle and grid against the borrowed NCCL
-  // communicator.  The heavy local-buffer redistribution has already happened
-  // in memory_redist; this stage only defines cuSOLVERMp's view of the grid.
-  cusolverMpHandle_t handle = nullptr;
-  CusolverMpDebug(nccl_rank, "cusolverMpCreate begin device=%d stream=%p",
-                  cuda_device, reinterpret_cast<void*>(cuda_stream));
-  cusolverStatus_t cusolver_status =
-      api.create(&handle, cuda_device, cuda_stream);
-  CusolverMpDebug(nccl_rank, "cusolverMpCreate end status=%d handle=%p",
-                  static_cast<int>(cusolver_status), handle);
-  if (cusolver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
-    status_words[0] = kCreateHandleFailed;
-    status_words[11] = static_cast<int32_t>(cusolver_status);
+  CusolverMpExecution execution(absl::MakeSpan(status_words));
+  JAXMG_RETURN_IF_ERROR(execution.Initialize(
+      "cusolvermp_syevd", cuda_stream, a.untyped_data(),
+      process_rows, process_cols, grid_mapping, rank_map,
+      collective_params, collective_cliques));
+  if (status_words[0] != kStatusOk) {
+    execution.Close();
     return publish_status();
   }
-  status_words[8] = 1;
-
-  int version = -1;
-  cusolver_status = api.get_version(handle, &version);
-  if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
-    status_words[0] = kGetVersionFailed;
-    status_words[11] = static_cast<int32_t>(cusolver_status);
-    api.destroy(handle);
-    return publish_status();
-  }
-  status_words[6] = version;
-  CusolverMpDebug(nccl_rank, "cusolverMp version=%d", version);
-
-  cusolverMpGrid_t grid = nullptr;
-  CusolverMpDebug(nccl_rank,
-                  "cusolverMpCreateDeviceGrid begin rows=%lld cols=%lld "
-                  "mapping=%lld",
-                  static_cast<long long>(process_rows),
-                  static_cast<long long>(process_cols),
-                  static_cast<long long>(grid_mapping));
-  cusolver_status = api.create_grid(
-      handle, &grid, nccl_comm, static_cast<int32_t>(process_rows),
-      static_cast<int32_t>(process_cols),
-      ToCusolverMpGridMapping(grid_mapping));
-  CusolverMpDebug(nccl_rank, "cusolverMpCreateDeviceGrid end status=%d grid=%p",
-                  static_cast<int>(cusolver_status), grid);
-  if (cusolver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
-    status_words[0] = kCreateGridFailed;
-    status_words[11] = static_cast<int32_t>(cusolver_status);
-    api.destroy(handle);
-    return publish_status();
-  }
-  status_words[9] = 1;
+  const auto& api = execution.api;
+  const auto handle = execution.handle;
+  const auto grid = execution.grid;
+  const auto nccl_comm = execution.nccl_comm;
+  const int nccl_rank = execution.nccl_rank;
 
   const auto [process_row, process_col] = ProcessCoordFromRank(
       nccl_rank, process_rows, process_cols, grid_mapping);
   CusolverMpDebug(nccl_rank, "dispatch process_coord=(%d,%d) element_type=%d",
                   process_row, process_col, static_cast<int>(a.element_type()));
 
-  // Stage 6: dispatch on dtype and run the shared SYEVD helper. Vector mode
+  // Stage 3: dispatch on dtype and run the shared SYEVD helper. Vector mode
   // keeps d_A and d_Q separate; values-only mode does not allocate d_Q.
   absl::Status syevd_status;
   switch (a.element_type()) {
@@ -523,31 +414,11 @@ absl::Status RunCusolverMpSyevdSolver(
       break;
   }
   if (!syevd_status.ok()) {
-    api.destroy_grid(grid);
-    api.destroy(handle);
     return syevd_status;
   }
 
-  // Stage 7: release cuSOLVERMp objects and return status to Python.
-  if (status_words[0] == kStatusOk) {
-    cusolver_status = api.destroy_grid(grid);
-    if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
-      status_words[0] = kDestroyGridFailed;
-      status_words[11] = static_cast<int32_t>(cusolver_status);
-    }
-  } else {
-    api.destroy_grid(grid);
-  }
-
-  if (status_words[0] == kStatusOk) {
-    cusolver_status = api.destroy(handle);
-    if (cusolver_status != CUSOLVER_STATUS_SUCCESS) {
-      status_words[0] = kDestroyHandleFailed;
-      status_words[11] = static_cast<int32_t>(cusolver_status);
-    }
-  } else {
-    api.destroy(handle);
-  }
+  // Stage 4: include cleanup failures in the collective result status.
+  execution.Close();
   JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
       cuda_stream, nccl_comm, status_out, &status_words[0]));
   return publish_status();

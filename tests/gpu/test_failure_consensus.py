@@ -29,7 +29,11 @@ def failed_cleanup_library(tmp_path_factory):
     return library
 
 
-@pytest.mark.parametrize("routine", ("potrs", "lu_solve", "potrf", "getrf", "syevd"))
+@pytest.mark.parametrize(
+    "routine",
+    ("potrs", "lu_solve", "potrf", "getrf", "syevd", "gesvd", "polar", "qr",
+     "least_squares"),
+)
 @pytest.mark.multi_gpu
 def test_rank_local_failure_returns_nan(routine, failed_cleanup_library, monkeypatch):
     """One rank's cleanup failure invalidates distributed and scalar outputs."""

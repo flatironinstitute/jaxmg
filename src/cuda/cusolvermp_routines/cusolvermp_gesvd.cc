@@ -487,109 +487,31 @@ absl::Status RunCusolverMpGesvdSolver(
     return CopyStatusToDevice(stream, status_words, status_out);
   };
 
-  // Stage 2: bind cuSOLVERMp to the CUDA device that owns this rank's local A
-  // shard. This avoids relying on ambient host-thread CUDA device state.
-  absl::StatusOr<int> buffer_device = DeviceForCudaPointer(a.untyped_data());
-  if (!buffer_device.ok() || cudaSetDevice(*buffer_device) != cudaSuccess) {
-    status_words[0] = kCudaDeviceFailed;
-    return publish_status();
-  }
-  const int cuda_device = *buffer_device;
-  status_words[1] = cuda_device;
-
-  // Stage 3: borrow the communicator that XLA created for the compiled
-  // program. The same NCCL communicator is used by native redistribution and
-  // passed to cuSOLVERMp; GESVD does not create a second communicator.
-  if (collective_params == nullptr || collective_cliques == nullptr) {
-    status_words[0] = kCollectiveContextMissing;
-    return publish_status();
-  }
-  absl::StatusOr<GpuCliqueKey> clique_key =
-      AllAssignedDevicesP2PCliqueKey(*collective_params);
-  if (!clique_key.ok()) {
-    status_words[0] = kCliqueKeyFailed;
-    return publish_status();
-  }
-  absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
-      *clique_key, collective_params->global_device_id);
-  if (!gpu_comm.ok() || *gpu_comm == nullptr) {
-    status_words[0] = kCommunicatorMissing;
-    return publish_status();
-  }
-  void* platform_handle = (*gpu_comm)->platform_comm().handle;
-  if (platform_handle == nullptr) {
-    status_words[0] = kNcclHandleMissing;
-    return publish_status();
-  }
-  ncclComm_t nccl_comm = reinterpret_cast<ncclComm_t>(platform_handle);
-  int nccl_rank = -1;
-  int nccl_count = -1;
-  if (ncclCommUserRank(nccl_comm, &nccl_rank) != ncclSuccess ||
-      ncclCommCount(nccl_comm, &nccl_count) != ncclSuccess) {
-    status_words[0] = kNcclRankMismatch;
-    return publish_status();
-  }
-  status_words[2] = nccl_rank;
-  status_words[3] = nccl_count;
-
-  // Stage 4: validate the process-grid shape and rank mapping before creating
-  // cuSOLVERMp resources. Both row-major and column-major dense mesh mappings
-  // are accepted, but arbitrary rank permutations are rejected.
-  if (process_rows <= 0 || process_cols <= 0 ||
-      process_rows * process_cols != nccl_count || m <= 0 || n <= 0 ||
-      tile_size <= 0) {
+  // Stage 2: bind the matrix's device and create the handle/grid using XLA's
+  // borrowed communicator. Mathematical and output contracts stay routine-local.
+  if (m <= 0 || n <= 0 || tile_size <= 0) {
     status_words[0] = kGridShapeMismatch;
     return publish_status();
   }
-  JAXMG_RETURN_IF_ERROR(
-      ValidateCusolverMpGridMapping("cusolvermp_gesvd", grid_mapping));
-  if (!rank_map.empty()) {
-    JAXMG_RETURN_IF_ERROR(ValidateStandardRankMapForGridMapping(
-        "cusolvermp_gesvd", rank_map, process_rows, process_cols,
-        grid_mapping));
-  }
-
-  // Stage 5: create the cuSOLVERMp handle and process grid against the
-  // borrowed NCCL communicator. The grid mapping preserves the corresponding
-  // row-major or column-major JAX device ordering.
-  CusolverMpApi api = LinkedCusolverMpApi(&status_words);
-  cusolverMpHandle_t handle = nullptr;
-  cusolverStatus_t solver_status =
-      api.create(&handle, cuda_device, cuda_stream);
-  if (solver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
-    status_words[0] = kCreateHandleFailed;
-    status_words[11] = static_cast<int32_t>(solver_status);
+  CusolverMpExecution execution(absl::MakeSpan(status_words));
+  JAXMG_RETURN_IF_ERROR(execution.Initialize(
+      "cusolvermp_gesvd", cuda_stream, a.untyped_data(),
+      process_rows, process_cols, grid_mapping, rank_map,
+      collective_params, collective_cliques));
+  if (status_words[0] != kStatusOk) {
+    execution.Close();
     return publish_status();
   }
-  status_words[8] = 1;
-
-  int version = -1;
-  solver_status = api.get_version(handle, &version);
-  if (solver_status != CUSOLVER_STATUS_SUCCESS) {
-    status_words[0] = kGetVersionFailed;
-    status_words[11] = static_cast<int32_t>(solver_status);
-    api.destroy(handle);
-    return publish_status();
-  }
-  status_words[6] = version;
-
-  cusolverMpGrid_t grid = nullptr;
-  solver_status = api.create_grid(
-      handle, &grid, nccl_comm, static_cast<int32_t>(process_rows),
-      static_cast<int32_t>(process_cols),
-      ToCusolverMpGridMapping(grid_mapping));
-  if (solver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
-    status_words[0] = kCreateGridFailed;
-    status_words[11] = static_cast<int32_t>(solver_status);
-    api.destroy(handle);
-    return publish_status();
-  }
-  status_words[9] = 1;
+  const auto& api = execution.api;
+  const auto handle = execution.handle;
+  const auto grid = execution.grid;
+  const auto nccl_comm = execution.nccl_comm;
+  const int nccl_rank = execution.nccl_rank;
 
   const auto [process_row, process_col] = ProcessCoordFromRank(
       nccl_rank, process_rows, process_cols, grid_mapping);
 
-  // Stage 6: dispatch on the XLA primitive dtype and run the shared GESVD
+  // Stage 3: dispatch on the XLA primitive dtype and run the shared GESVD
   // helper. Its job flags and descriptors reflect the statically selected
   // combination of U, V^H, and thin/full outputs.
   absl::Status gesvd_status;
@@ -627,31 +549,11 @@ absl::Status RunCusolverMpGesvdSolver(
       break;
   }
   if (!gesvd_status.ok()) {
-    api.destroy_grid(grid);
-    api.destroy(handle);
     return gesvd_status;
   }
 
-  // Stage 7: release the cuSOLVERMp grid and handle in reverse construction
-  // order, then return the per-rank status vector to Python.
-  if (status_words[0] == kStatusOk) {
-    solver_status = api.destroy_grid(grid);
-    if (solver_status != CUSOLVER_STATUS_SUCCESS) {
-      status_words[0] = kDestroyGridFailed;
-      status_words[11] = static_cast<int32_t>(solver_status);
-    }
-  } else {
-    api.destroy_grid(grid);
-  }
-  if (status_words[0] == kStatusOk) {
-    solver_status = api.destroy(handle);
-    if (solver_status != CUSOLVER_STATUS_SUCCESS) {
-      status_words[0] = kDestroyHandleFailed;
-      status_words[11] = static_cast<int32_t>(solver_status);
-    }
-  } else {
-    api.destroy(handle);
-  }
+  // Stage 4: include cleanup failures in the collective result status.
+  execution.Close();
   JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
       cuda_stream, nccl_comm, status_out, &status_words[0]));
   return publish_status();

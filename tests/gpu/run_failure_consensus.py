@@ -53,7 +53,7 @@ def main():
         )
         # Only the last rank reports an error, after releasing its real handle.
         os.environ["JAXMG_TEST_FAIL_DESTROY"] = str(int(proc_id == num_procs - 1))
-        if routine in ("potrs", "lu_solve"):
+        if routine in ("potrs", "lu_solve", "least_squares"):
             b = jax.device_put(
                 jnp.ones(n, dtype=jnp.float32), NamedSharding(mesh, P("pr"))
             )
@@ -68,16 +68,19 @@ def main():
         status.block_until_ready()
         os.environ["JAXMG_TEST_FAIL_DESTROY"] = "0"
 
-        status_size = getattr(
-            _cusolvermp_status, f"_CUSOLVERMP_{routine.upper()}_STATUS_SIZE"
-        )
+        native_name = "GELS" if routine == "least_squares" else routine.upper()
+        status_size = getattr(_cusolvermp_status, f"_CUSOLVERMP_{native_name}_STATUS_SIZE")
         words = native_status_words(status).reshape(num_procs, status_size)
         if routine == "getrf":
             pivots = results.pop()
             assert np.all(global_array_to_numpy(pivots) == -1)
-        # kDestroyHandleFailed is 16. Other diagnostics remain rank-local:
-        # only the last rank saw CUSOLVER_STATUS_INTERNAL_ERROR (field 11).
-        np.testing.assert_array_equal(words[:, 11], [0] * (num_procs - 1) + [7])
+        # kDestroyHandleFailed is 16; the raw error remains rank-local.
+        raw_status_index = 12 if routine == "qr" else 11
+        np.testing.assert_array_equal(
+            words[:, raw_status_index], [0] * (num_procs - 1) + [7]
+        )
+        if routine == "qr":
+            np.testing.assert_array_equal(words[:, 11], 1)  # R descriptor created
         assert_rank_failure_with_nan(words.ravel(), status_size, (16,), *results)
         multihost_utils.sync_global_devices(f"{routine}_failure_consensus_complete")
         record["status"] = "ok"

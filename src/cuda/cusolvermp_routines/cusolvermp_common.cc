@@ -39,7 +39,7 @@ absl::Status CusolverMpExecution::Initialize(
     absl::Span<const int64_t> rank_map,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
-  if (status_.size() < 12) {
+  if (status_.size() < 10 || raw_status_index_ >= status_.size()) {
     return absl::InvalidArgumentError("cuSOLVERMp runtime status is too small");
   }
 
@@ -97,10 +97,14 @@ absl::Status CusolverMpExecution::Initialize(
 
   // Stage 4: own only cuSOLVERMp resources; cleanup never destroys NCCL.
   status_[7] = 1;
+  CusolverMpDebug(nccl_rank, "%s create handle begin device=%d", caller,
+                  *buffer_device);
   cusolverStatus_t solver_status = api.create(&handle, *buffer_device, cuda_stream);
+  CusolverMpDebug(nccl_rank, "%s create handle end status=%d", caller,
+                  static_cast<int>(solver_status));
   if (solver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
     status_[0] = kCreateHandleFailed;
-    status_[11] = static_cast<int32_t>(solver_status);
+    status_[raw_status_index_] = static_cast<int32_t>(solver_status);
     return absl::OkStatus();
   }
   status_[8] = 1;
@@ -108,16 +112,21 @@ absl::Status CusolverMpExecution::Initialize(
   solver_status = api.get_version(handle, &version);
   if (solver_status != CUSOLVER_STATUS_SUCCESS) {
     status_[0] = kGetVersionFailed;
-    status_[11] = static_cast<int32_t>(solver_status);
+    status_[raw_status_index_] = static_cast<int32_t>(solver_status);
     return absl::OkStatus();
   }
   status_[6] = version;
+  CusolverMpDebug(nccl_rank, "%s version=%d create grid begin rows=%lld cols=%lld",
+                  caller, version, static_cast<long long>(process_rows),
+                  static_cast<long long>(process_cols));
   solver_status = api.create_grid(
       handle, &grid, nccl_comm, static_cast<int32_t>(process_rows),
       static_cast<int32_t>(process_cols), ToCusolverMpGridMapping(grid_mapping));
+  CusolverMpDebug(nccl_rank, "%s create grid end status=%d", caller,
+                  static_cast<int>(solver_status));
   if (solver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
     status_[0] = kCreateGridFailed;
-    status_[11] = static_cast<int32_t>(solver_status);
+    status_[raw_status_index_] = static_cast<int32_t>(solver_status);
     return absl::OkStatus();
   }
   status_[9] = 1;
@@ -129,14 +138,14 @@ void CusolverMpExecution::Close() {
     const cusolverStatus_t result = api.destroy_grid(std::exchange(grid, nullptr));
     if (result != CUSOLVER_STATUS_SUCCESS && status_[0] == kStatusOk) {
       status_[0] = kDestroyGridFailed;
-      status_[11] = static_cast<int32_t>(result);
+      status_[raw_status_index_] = static_cast<int32_t>(result);
     }
   }
   if (handle != nullptr) {
     const cusolverStatus_t result = api.destroy(std::exchange(handle, nullptr));
     if (result != CUSOLVER_STATUS_SUCCESS && status_[0] == kStatusOk) {
       status_[0] = kDestroyHandleFailed;
-      status_[11] = static_cast<int32_t>(result);
+      status_[raw_status_index_] = static_cast<int32_t>(result);
     }
   }
 }
