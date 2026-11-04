@@ -53,6 +53,8 @@ def _run_example(script_name, num_processes=2):
         rank_env = os.environ.copy()
         rank_env["CUDA_VISIBLE_DEVICES"] = str(rank)
         rank_env["JAXMG_LOCAL_DEVICE_ID"] = "0"
+        # Bind on the same interface used to select the free port.
+        rank_env["JAX_COORDINATOR_BIND_ADDRESS"] = coord
         procs.append(
             subprocess.Popen(
                 [
