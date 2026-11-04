@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from jax.sharding import Mesh, PartitionSpec as P
 
 import jaxmg._polar as polar_module
-from jaxmg import polar, polar_shardmap_ctx
+from jaxmg import polar, polar_jit_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_POLAR_STATUS_SIZE
 
 
@@ -69,12 +69,12 @@ def test_polar_can_omit_h_and_append_status(monkeypatch):
     assert status.shape == (_CUSOLVERMP_POLAR_STATUS_SIZE,)
 
 
-def test_polar_shardmap_ctx_supports_outer_donation(monkeypatch):
+def test_polar_jit_ctx_supports_outer_donation(monkeypatch):
     _install_fake_polar_backend(monkeypatch)
     mesh = _one_rank_mesh()
     decomposition = jax.jit(
         partial(
-            polar_shardmap_ctx,
+            polar_jit_ctx,
             T_A=2,
             mesh=mesh,
             matrix_specs=P("pr", "pc"),

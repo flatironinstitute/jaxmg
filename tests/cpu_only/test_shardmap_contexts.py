@@ -15,6 +15,8 @@ from jax.sharding import Mesh, PartitionSpec as P
     ("syevd", {"return_eigenvectors": True}),
     ("syevd", {"return_eigenvectors": False}),
     ("qr", {}),
+    ("polar", {"compute_h": True}),
+    ("polar", {"compute_h": False}),
 ])
 @pytest.mark.parametrize("check_vma", [True, False])
 def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_vma):
@@ -36,7 +38,7 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
     mesh = Mesh(np.asarray(jax.devices()[:1]).reshape(1, 1), ("pr", "pc"))
     specs = P("pr", "pc")
     inputs = (jnp.eye(6), jnp.ones((6, 1))) if routine == "lu_solve" else (jnp.eye(6),)
-    if routine == "qr":
+    if routine in ("qr", "polar"):
         inputs = (jnp.eye(10, 6),)
     outputs = (specs, specs) if routine == "lu_solve" else (specs,)
     if routine == "getrf":
@@ -45,6 +47,8 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
         outputs = (specs, P()) + ((specs,) if options["return_eigenvectors"] else ())
     if routine == "qr":
         outputs = (specs, specs)
+    if routine == "polar":
+        outputs = (specs,) * (2 if options["compute_h"] else 1)
     solve = jax.jit(jax.shard_map(
         partial(call, T_A=4, **options), mesh=mesh, in_specs=(specs,) * len(inputs),
         out_specs=outputs + (P(("pr", "pc")),), check_vma=check_vma,
@@ -70,6 +74,8 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
         if routine == "qr":
             assert result[1].shape == (6, 6)
             assert captured["m"] == 10
+        if routine == "polar" and options["compute_h"]:
+            assert result[1].shape == (6, 6)
 
     with pytest.raises(ValueError, match="inside jax.shard_map"):
         call(*inputs, T_A=4, **options)

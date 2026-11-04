@@ -42,7 +42,7 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import polar, polar_shardmap_ctx
+from jaxmg import polar, polar_jit_ctx, polar_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_POLAR_STATUS_SIZE
 
 
@@ -100,7 +100,7 @@ def run_case() -> None:
 
         @partial(jax.jit, donate_argnums=(0,), static_argnames=("tile_size",))
         def decomposition(_a, *, tile_size):
-            return polar_shardmap_ctx(
+            return polar_jit_ctx(
                 _a,
                 tile_size,
                 mesh=mesh,
@@ -109,6 +109,13 @@ def run_case() -> None:
             )
 
         outputs = decomposition(a_dev, tile_size=tile_size)
+    elif interface == "shardmap":
+        decomposition = jax.jit(jax.shard_map(
+            partial(polar_shardmap_ctx, T_A=tile_size, compute_h=compute_h),
+            mesh=mesh, in_specs=matrix_specs,
+            out_specs=(matrix_specs,) * (2 if compute_h else 1) + (P(("pr", "pc")),),
+        ), donate_argnums=(0,))
+        outputs = decomposition(a_dev)
     else:
         outputs = polar(
             a_dev,
