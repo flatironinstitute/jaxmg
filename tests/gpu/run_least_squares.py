@@ -41,7 +41,7 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import least_squares, least_squares_shardmap_ctx
+from jaxmg import least_squares, least_squares_jit_ctx, least_squares_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE
 
 
@@ -120,7 +120,7 @@ def run_case() -> None:
 
         @partial(jax.jit, donate_argnums=(0, 1))
         def solve(_a, _b):
-            return least_squares_shardmap_ctx(
+            return least_squares_jit_ctx(
                 _a, _b, case.tile_size, mesh=mesh, matrix_specs=matrix_specs
             )
 
@@ -130,6 +130,15 @@ def run_case() -> None:
         assert b_work.sharding.is_equivalent_to(
             expected_output_sharding, b_work.ndim
         )
+    elif interface == "shardmap":
+        solve = jax.jit(jax.shard_map(
+            partial(least_squares_shardmap_ctx, T_A=tile_size), mesh=mesh,
+            in_specs=(matrix_specs, rhs_specs),
+            out_specs=(matrix_specs, rhs_specs, rhs_specs, P(("pr", "pc"))),
+        ), donate_argnums=(0, 1))
+        a_work, b_work, out, status = solve(a, b)
+        a_work.block_until_ready()
+        b_work.block_until_ready()
     else:
         out, status = least_squares(
             a,

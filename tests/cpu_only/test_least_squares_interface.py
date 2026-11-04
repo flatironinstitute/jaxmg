@@ -12,7 +12,7 @@ if not jax.config.jax_enable_x64:
     jax.config.update("jax_enable_x64", True)
 
 import jaxmg._least_squares as least_squares_module
-from jaxmg import least_squares, least_squares_shardmap_ctx
+from jaxmg import least_squares, least_squares_jit_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE
 from jaxmg._layout_types import ProcessGrid, TileShape
 
@@ -83,7 +83,7 @@ def test_least_squares_context_supports_external_jit(monkeypatch):
     mesh = _one_rank_mesh()
     solve = jax.jit(
         partial(
-            least_squares_shardmap_ctx,
+            least_squares_jit_ctx,
             T_A=2,
             mesh=mesh,
             matrix_specs=P("pr", "pc"),

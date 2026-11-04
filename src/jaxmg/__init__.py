@@ -24,7 +24,7 @@ from importlib.metadata import version
 
 from ._gesvd import gesvd, gesvd_jit_ctx, gesvd_shardmap_ctx
 from ._getrf import getrf, getrf_jit_ctx, getrf_shardmap_ctx
-from ._least_squares import least_squares, least_squares_shardmap_ctx
+from ._least_squares import least_squares, least_squares_jit_ctx, least_squares_shardmap_ctx
 from ._lu_solve import lu_solve, lu_solve_jit_ctx, lu_solve_shardmap_ctx
 from ._potrf import potrf, potrf_jit_ctx, potrf_shardmap_ctx
 from ._potrs import potrs, potrs_jit_ctx, potrs_shardmap_ctx
@@ -47,6 +47,7 @@ __all__ = [
     "lu_solve_jit_ctx",
     "lu_solve_shardmap_ctx",
     "least_squares",
+    "least_squares_jit_ctx",
     "least_squares_shardmap_ctx",
     "potrf",
     "potrf_jit_ctx",

@@ -81,7 +81,7 @@ calculation.
 
 ## Advanced: control the outer `jax.jit`
 
-`least_squares_shardmap_ctx` runs the same distributed pipeline but leaves the
+`least_squares_jit_ctx` runs the same distributed pipeline but leaves the
 outer `jax.jit` boundary to the caller. It returns
 `(a_work, b_work, x, status)`. The two work outputs provide shape-compatible
 alias targets because cuSOLVERMp overwrites both inputs.
@@ -91,7 +91,7 @@ The advanced examples additionally use:
 ```python
 from functools import partial
 
-from jaxmg import least_squares_shardmap_ctx
+from jaxmg import least_squares_jit_ctx
 ```
 
 ### Case 1: `a` and `b` are arguments of the jitted function
@@ -101,7 +101,7 @@ Donate both arguments and retain both work outputs in the returned pytree:
 ```python
 @partial(jax.jit, donate_argnums=(0, 1))
 def compiled_solve(a, b):
-    a_work, b_work, x, status = least_squares_shardmap_ctx(
+    a_work, b_work, x, status = least_squares_jit_ctx(
         a,
         b,
         T_A=T_A,
@@ -131,7 +131,7 @@ def build_and_solve():
     a = jax.reshard(a, matrix_sharding)
     b = jax.reshard(a @ expected_x, solve_sharding)
 
-    _, _, x, status = least_squares_shardmap_ctx(
+    _, _, x, status = least_squares_jit_ctx(
         a,
         b,
         T_A=T_A,
@@ -140,6 +140,28 @@ def build_and_solve():
 
 
 x, status = build_and_solve()
+x.block_until_ready()
+```
+
+## Advanced: call from inside `jax.shard_map`
+
+`least_squares_shardmap_ctx` consumes local A and B blocks with matching row
+sharding. It redistributes the solution from B's M-row layout to the N-row
+output layout, preserving any replication of the RHS columns.
+
+```python
+from jaxmg import least_squares_shardmap_ctx
+
+
+@partial(jax.jit, donate_argnums=(0, 1))
+@partial(jax.shard_map, mesh=mesh, in_specs=(P("pr", "pc"), P("pr")),
+         out_specs=(P("pr", "pc"), P("pr"), P("pr"), P(("pr", "pc"))))
+def local_solve(a_block, b_block):
+    return least_squares_shardmap_ctx(a_block, b_block, T_A=T_A)
+
+
+a, b = make_problem()
+a_work, b_work, x, status = local_solve(a, b)
 x.block_until_ready()
 ```
 

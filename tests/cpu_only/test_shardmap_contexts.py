@@ -22,6 +22,7 @@ from jax.sharding import Mesh, PartitionSpec as P
     ("gesvd", {"compute_u": True, "compute_vh": False, "full_matrices": False}),
     ("gesvd", {"compute_u": False, "compute_vh": True, "full_matrices": False}),
     ("gesvd", {"compute_u": False, "compute_vh": False, "full_matrices": False}),
+    ("least_squares", {}),
 ])
 @pytest.mark.parametrize("check_vma", [True, False])
 def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_vma):
@@ -45,6 +46,8 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
     inputs = (jnp.eye(6), jnp.ones((6, 1))) if routine == "lu_solve" else (jnp.eye(6),)
     if routine in ("qr", "polar", "gesvd"):
         inputs = (jnp.eye(10, 6),)
+    if routine == "least_squares":
+        inputs = (jnp.eye(10, 6, dtype=jnp.float32), jnp.arange(10., dtype=jnp.float32)[:, None])
     outputs = (specs, specs) if routine == "lu_solve" else (specs,)
     if routine == "getrf":
         outputs += (P(),)
@@ -57,6 +60,8 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
     if routine == "gesvd":
         outputs = ((specs,) + (specs,) * options["compute_u"] + (P(),)
                    + (specs,) * options["compute_vh"])
+    if routine == "least_squares":
+        outputs = (specs, specs, specs)
     solve = jax.jit(jax.shard_map(
         partial(call, T_A=4, **options), mesh=mesh, in_specs=(specs,) * len(inputs),
         out_specs=outputs + (P(("pr", "pc")),), check_vma=check_vma,
@@ -74,6 +79,11 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
         assert result[1].sharding.is_fully_replicated
         if options["return_eigenvectors"]:
             assert result[2].shape == (6, 6)
+    elif routine == "least_squares":
+        assert result[0].shape == (12, 8)
+        np.testing.assert_array_equal(result[1], inputs[1])
+        np.testing.assert_array_equal(result[2], inputs[1][:6])
+        assert captured["nrhs"] == 1
     elif routine == "gesvd":
         assert result[0].shape == (12, 8)
         index = 1
@@ -97,3 +107,42 @@ def test_local_context_padding_and_outputs(monkeypatch, routine, options, check_
 
     with pytest.raises(ValueError, match="inside jax.shard_map"):
         call(*inputs, T_A=4, **options)
+
+
+@pytest.mark.parametrize("process_rows", [2, 3, 4])
+@pytest.mark.parametrize("rows_per_rank,solution_rows_per_rank", [(10, 6), (8, 2), (6, 6)])
+def test_least_squares_solution_rows(process_rows, rows_per_rank, solution_rows_per_rank):
+    """Extract global B[:N], including solutions crossing work-block boundaries."""
+    from jaxmg._least_squares import _redistribute_solution_rows
+
+    if jax.device_count() < process_rows:
+        pytest.skip("requires multiple CPU devices or GPUs")
+    mesh = Mesh(np.asarray(jax.devices()[:process_rows]), ("pr",))
+    m, n = rows_per_rank * process_rows, solution_rows_per_rank * process_rows
+    b = jnp.arange(m * 3, dtype=jnp.float32).reshape(m, 3)
+    extract = jax.jit(jax.shard_map(
+        partial(_redistribute_solution_rows, n=n, row_axis="pr", process_rows=process_rows),
+        mesh=mesh, in_specs=P("pr", None), out_specs=P("pr", None),
+    ))
+    np.testing.assert_array_equal(extract(b), b[:n])
+
+
+@pytest.mark.parametrize("shape", [(1, 2), (2, 2)])
+def test_least_squares_local_ffi_with_replicated_rhs_columns(monkeypatch, shape):
+    """Trace the real FFI declaration, including its varying-axis requirements."""
+    from jaxmg import _least_squares as module
+
+    count = int(np.prod(shape))
+    if jax.device_count() < count:
+        pytest.skip("requires multiple CPU devices or GPUs")
+    monkeypatch.setattr(module, "ensure_init_jaxmg_backend", lambda: None)
+    mesh = Mesh(np.asarray(jax.devices()[:count]).reshape(shape), ("pr", "pc"))
+    specs, rhs_specs = P("pr", "pc"), P("pr", None)
+    solve = jax.shard_map(
+        partial(module.least_squares_shardmap_ctx, T_A=2), mesh=mesh,
+        in_specs=(specs, rhs_specs),
+        out_specs=(specs, rhs_specs, rhs_specs, P(("pr", "pc"))),
+    )
+    result = jax.eval_shape(solve, jax.ShapeDtypeStruct((12, 8), jnp.float32),
+                            jax.ShapeDtypeStruct((12, 2), jnp.float32))
+    assert result[2].shape == (8, 2)
