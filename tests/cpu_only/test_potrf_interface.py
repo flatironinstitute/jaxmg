@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from jax.sharding import AxisType, Mesh, NamedSharding, PartitionSpec as P
 
 import jaxmg._potrf as potrf_module
-from jaxmg import potrf, potrf_shardmap_ctx
+from jaxmg import potrf, potrf_jit_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_POTRF_STATUS_SIZE
 
 
@@ -61,11 +61,11 @@ def test_potrf_returns_factor_and_optional_status(monkeypatch):
     assert status.shape == (_CUSOLVERMP_POTRF_STATUS_SIZE,)
 
 
-def test_potrf_shardmap_ctx_supports_outer_donation(monkeypatch):
+def test_potrf_jit_ctx_supports_outer_donation(monkeypatch):
     _install_fake_potrf_backend(monkeypatch)
     mesh = _one_rank_mesh()
     factorize = jax.jit(
-        partial(potrf_shardmap_ctx, T_A=2, mesh=mesh, matrix_specs=P("pr", "pc")),
+        partial(potrf_jit_ctx, T_A=2, mesh=mesh, matrix_specs=P("pr", "pc")),
         donate_argnums=(0,),
     )
     factor, status = factorize(jnp.eye(4, dtype=jnp.float32))
@@ -131,7 +131,7 @@ def test_potrf_pipeline_keeps_factor_sharding(monkeypatch):
     mesh = Mesh(devices, ("pr",), axis_types=(AxisType.Explicit,))
     with jax.set_mesh(mesh):
         a = jax.device_put(jnp.eye(4), NamedSharding(mesh, P("pr", None)))
-        factor, status = jax.eval_shape(partial(potrf_shardmap_ctx, T_A=2), a)
+        factor, status = jax.eval_shape(partial(potrf_jit_ctx, T_A=2), a)
 
     assert factor.shape == (4, 4)
     assert factor.dtype == a.dtype

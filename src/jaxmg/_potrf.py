@@ -18,9 +18,12 @@ from jax import Array
 from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
-    make_local_pad_fn,
-    make_local_unpad_fn,
+    mark_varying,
+    pad_local_2d,
+    unpad_local_2d,
+    place_for_native_work,
     prepare_input_matrix_layout,
+    prepare_local_matrix_layout,
     restore_matrix_result,
     use_abstract_mesh_decorator,
 )
@@ -126,7 +129,7 @@ def potrf(
     return (factor, native_status) if return_status else factor
 
 
-def potrf_shardmap_ctx(
+def potrf_jit_ctx(
     a: Array,
     T_A: int,
     mesh: Mesh | AbstractMesh | None = None,
@@ -179,7 +182,7 @@ def potrf_shardmap_ctx(
         matrix_specs,
         in_specs=in_specs,
         pad=pad,
-        caller="potrf_shardmap_ctx",
+        caller="potrf_jit_ctx",
     )
     ensure_init_jaxmg_backend()
     return _potrf_pipeline(
@@ -196,6 +199,48 @@ def potrf_shardmap_ctx(
     )(a)
 
 
+def potrf_shardmap_ctx(
+    a: Array,
+    T_A: int,
+    matrix_specs: P | Tuple[P] | List[P] | None = None,
+    *,
+    in_specs: P | Tuple[P] | List[P] | None = None,
+    pad: bool = True,
+) -> Tuple[Array, Array]:
+    """Compute local Cholesky-factor blocks inside a caller's ``jax.shard_map``.
+
+    The enclosing mesh contains the matrix axes. The same native factorization
+    is used by :func:`potrf` and :func:`potrf_jit_ctx`; only the caller's
+    compilation and sharding context differs.
+
+    Args:
+        a: Local block of a symmetric or Hermitian positive-definite matrix.
+        T_A: Square tile width used by cuSOLVERMp.
+        matrix_specs: A's partition specification in the enclosing shard map;
+            defaults to the context mesh axes in order.
+        in_specs: Backwards-compatible alias for ``matrix_specs``.
+        pad: Allow tile-capacity padding; otherwise require aligned blocks.
+
+    Returns:
+        ``(L, status)``: the unpadded local factor block and this rank's
+        diagnostic vector. The factor reuses the input work buffer, so no
+        separate ``a_work`` output is needed for donation.
+
+    Raises:
+        TypeError: If the dtype or partition specification is unsupported.
+        ValueError: If called outside shard_map or the global matrix is invalid.
+    """
+    layout = _prepare_potrf_call(
+        a, T_A, None, matrix_specs, in_specs=in_specs, pad=pad,
+        caller="potrf_shardmap_ctx", local=True,
+    )
+    ensure_init_jaxmg_backend()
+    return _potrf_local_pipeline(
+        layout.matrix_specs, layout.grid, layout.partition_slots, layout.padding,
+        n=layout.padding.logical_rows, tile_size=int(T_A),
+    )(a)
+
+
 def _prepare_potrf_call(
     a: Array,
     tile_size: int,
@@ -205,22 +250,32 @@ def _prepare_potrf_call(
     in_specs: P | Tuple[P] | List[P] | None,
     pad: bool,
     caller: str,
+    local: bool = False,
 ):
     """Validate a Cholesky factorization and derive its distributed layout.
 
     Preparation proceeds as follows:
 
     1. Validate the input rank, dtype, square shape, and tile size.
-    2. Resolve the mesh, process grid, rank map, and tile-aligned layout of A.
+    2. Resolve the mesh, process grid, rank map, and tile-aligned layout of A;
+       local blocks use the enclosing mesh to reconstruct the global shape.
     """
     if a.ndim != 2:
         raise ValueError(f"{caller} expects a rank-2 matrix A.")
     _check_supported_potrf_dtype(a.dtype)
-    if a.shape[0] != a.shape[1]:
+    if not local and a.shape[0] != a.shape[1]:
         raise ValueError(f"{caller} expects A to be square.")
     if int(tile_size) <= 0:
         raise ValueError("T_A must be positive.")
 
+    if local:
+        layout = prepare_local_matrix_layout(
+            a, tile_size, matrix_specs=matrix_specs, in_specs=in_specs,
+            pad=pad, caller=caller,
+        )
+        if layout.padding.logical_rows != layout.padding.logical_cols:
+            raise ValueError(f"{caller} expects A to be square.")
+        return layout
     return prepare_input_matrix_layout(
         a,
         tile_size,
@@ -241,38 +296,29 @@ def _check_supported_potrf_dtype(dtype) -> None:
 _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
-@lru_cache(maxsize=None)
-def _potrf_pipeline(
-    mesh: Mesh | AbstractMesh,
+def _potrf_local_pipeline(
     matrix_specs: P,
-    native_status_specs: P,
     grid: ProcessGrid,
     partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     *,
-    matrix_result_specs: P,
     n: int,
     tile_size: int,
-    dtype,
 ):
-    """Build and cache the unjitted JAX-visible POTRF execution pipeline."""
+    """Build the local padding, factorization, and factor-restoration stages."""
     process_rows = grid.process_rows
     process_cols = grid.process_cols
     slots_attr = np.asarray(partition_slots, dtype=np.int64)
-    pad_a = make_local_pad_fn(mesh, matrix_specs, a_padding)
-    unpad_factor = make_local_unpad_fn(mesh, matrix_specs, a_padding)
-    restore_result = partial(
-        restore_matrix_result,
-        result_specs=matrix_result_specs,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
-    )
 
     def potrf_ffi(_a: Array):
         """Declare local FFI buffers and static Cholesky metadata."""
+        # Stage 1: provide tile-aligned capacity for the local input.
+        _a = pad_local_2d(_a, row_padding=a_padding.row_padding_per_process,
+                          col_padding=a_padding.col_padding_per_process)
         if _a.ndim != 2:
             raise ValueError("cusolvermp_potrf expects a rank-2 matrix buffer.")
         _check_supported_potrf_dtype(_a.dtype)
+        # Stage 2: factorize and restore the local memory layout in native code.
         ffi_fn = partial(
             jax.ffi.ffi_call(
                 "cusolvermp_potrf",
@@ -290,21 +336,49 @@ def _potrf_pipeline(
             n=int(n),
             tile_size=int(tile_size),
         )
-        return ffi_fn(_a)
+        factor, status = ffi_fn(_a)
+        # Stage 3: remove tile padding and retain rank-varying outputs.
+        factor = unpad_local_2d(factor, local_rows=a_padding.local_logical_rows,
+                               local_cols=a_padding.local_logical_cols)
+        axes = tuple(axis for axis, size in zip(matrix_specs, (process_rows, process_cols))
+                     if axis is not None and size > 1)
+        return mark_varying(factor, axes), mark_varying(status, axes)
+
+    return potrf_ffi
+
+
+@lru_cache(maxsize=None)
+def _potrf_pipeline(
+    mesh: Mesh | AbstractMesh,
+    matrix_specs: P,
+    native_status_specs: P,
+    grid: ProcessGrid,
+    partition_slots: tuple[int, ...],
+    a_padding: MatrixPadding2D,
+    *,
+    matrix_result_specs: P,
+    n: int,
+    tile_size: int,
+    dtype,
+):
+    """Map the shared local factorization and restore global output sharding."""
 
     potrf_shardmap = jax.shard_map(
-        potrf_ffi,
+        _potrf_local_pipeline(matrix_specs, grid, partition_slots, a_padding,
+                              n=n, tile_size=tile_size),
         mesh=mesh,
         in_specs=matrix_specs,
         out_specs=(matrix_specs, native_status_specs),
-        check_vma=False,
+        check_vma=True,
     )
 
     @use_abstract_mesh_decorator(mesh)
     def impl(_a: Array):
         """Apply local padding, fused Cholesky factorization, and unpadding."""
-        factor_padded, native_status = potrf_shardmap(pad_a(_a))
-        return restore_result(unpad_factor(factor_padded)), native_status
+        _a = place_for_native_work(_a, mesh=mesh, matrix_specs=matrix_specs)
+        factor, native_status = potrf_shardmap(_a)
+        return restore_matrix_result(factor, result_specs=matrix_result_specs,
+                                     mesh=mesh, matrix_specs=matrix_specs), native_status
 
     return impl
 

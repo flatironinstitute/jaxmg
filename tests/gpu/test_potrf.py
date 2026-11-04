@@ -20,6 +20,9 @@ SMOKE_CASES = (
     pytest.param(4, "column_major_padding", marks=pytest.mark.multi_gpu),
 )
 INTERFACE_CASES = (
+    pytest.param(1, "column_major_padding", "shardmap", marks=pytest.mark.single_gpu),
+    pytest.param(2, "column_major_padding", "shardmap", marks=pytest.mark.multi_gpu),
+    pytest.param(2, "column_grid_padding", "shardmap", marks=pytest.mark.multi_gpu),
     pytest.param(1, "row_major_no_padding", "context", marks=pytest.mark.single_gpu),
     pytest.param(1, "row_major_no_padding", "inferred", marks=pytest.mark.single_gpu),
     pytest.param(1, "replicated_input", "public", marks=pytest.mark.single_gpu),

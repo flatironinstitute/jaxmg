@@ -58,18 +58,18 @@ if jax.process_index() == 0:
 
 ## Advanced: control the outer `jax.jit`
 
-`potrf_shardmap_ctx` leaves the outer compilation and donation boundary to the
+`potrf_jit_ctx` leaves the outer compilation and donation boundary to the
 caller. Its first result is the factor, which aliases the input work buffer.
 
 ```python
 from functools import partial
 
-from jaxmg import potrf_shardmap_ctx
+from jaxmg import potrf_jit_ctx
 
 
 @partial(jax.jit, donate_argnums=(0,))
 def compiled_potrf(a):
-    return potrf_shardmap_ctx(a, T_A=T_A)
+    return potrf_jit_ctx(a, T_A=T_A)
 
 
 a, _ = make_matrix()
@@ -80,7 +80,29 @@ factor.block_until_ready()
 When `a` is created inside the compiled function, XLA owns its lifetime and
 `donate_argnums` is unnecessary.
 
-Ready-to-run scripts for both interfaces are provided in the
+## Advanced: call from inside `jax.shard_map`
+
+For a factorization within an existing shard-local calculation, pass the local
+matrix block to `potrf_shardmap_ctx`. It returns the corresponding local factor
+block, with tile padding removed.
+
+```python
+from jaxmg import potrf_shardmap_ctx
+
+
+@partial(jax.jit, donate_argnums=(0,))
+@partial(jax.shard_map, mesh=mesh, in_specs=P("pr", "pc"),
+         out_specs=(P("pr", "pc"), P(("pr", "pc"))))
+def local_factorize(a_block):
+    return potrf_shardmap_ctx(a_block, T_A=T_A)
+
+
+a, _ = make_matrix()
+factor, status = local_factorize(a)
+factor.block_until_ready()
+```
+
+Ready-to-run scripts for the direct and caller-jitted interfaces are provided in the
 [examples directory](https://github.com/flatironinstitute/jaxmg/tree/main/examples).
 See the [`potrf` API reference](../api/potrf.md) for the complete argument and
 return-value documentation.

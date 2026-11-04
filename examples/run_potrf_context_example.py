@@ -10,7 +10,7 @@ jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
 from jax.sharding import NamedSharding, PartitionSpec as P
-from jaxmg import potrf_shardmap_ctx
+from jaxmg import potrf_jit_ctx
 
 
 T_A = 128
@@ -75,7 +75,7 @@ def main() -> None:
         expected = jax.reshard(expected, matrix_sharding)
 
         # The factor directly reuses A because POTRF overwrites it in place.
-        factor, _ = potrf_shardmap_ctx(a, T_A=T_A)
+        factor, _ = potrf_jit_ctx(a, T_A=T_A)
         return jnp.allclose(factor, expected)
 
     correct = build_and_factor()
