@@ -10,7 +10,7 @@ jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
 from jax.sharding import NamedSharding, PartitionSpec as P
-from jaxmg import polar_shardmap_ctx
+from jaxmg import polar_jit_ctx
 
 
 T_A = 128
@@ -74,7 +74,7 @@ def main() -> None:
         expected_h = jax.reshard(jnp.diag(expected_h_diagonal), matrix_sharding)
 
         # Up directly reuses A because cuSOLVERMp overwrites the input matrix.
-        up, h, _ = polar_shardmap_ctx(
+        up, h, _ = polar_jit_ctx(
             a,
             T_A=T_A,
         )

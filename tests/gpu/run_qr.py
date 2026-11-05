@@ -42,7 +42,7 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import qr, qr_shardmap_ctx
+from jaxmg import qr, qr_jit_ctx, qr_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_QR_STATUS_SIZE
 
 
@@ -87,7 +87,7 @@ def run_case() -> None:
 
         @partial(jax.jit, donate_argnums=(0,), static_argnames=("tile_size",))
         def decomposition(_a, *, tile_size):
-            return qr_shardmap_ctx(
+            return qr_jit_ctx(
                 _a,
                 tile_size,
                 mesh=mesh,
@@ -95,6 +95,13 @@ def run_case() -> None:
             )
 
         q, r, status = decomposition(a_dev, tile_size=tile_size)
+    elif interface == "shardmap":
+        decomposition = jax.jit(jax.shard_map(
+            partial(qr_shardmap_ctx, T_A=tile_size), mesh=mesh,
+            in_specs=matrix_specs,
+            out_specs=(matrix_specs, matrix_specs, P(("pr", "pc"))),
+        ), donate_argnums=(0,))
+        q, r, status = decomposition(a_dev)
     else:
         q, r, status = qr(
             a_dev,

@@ -69,7 +69,7 @@ def test_lu_solve_rhs_placement_modes(requested_procs, case_name, dtype_name):
 
 
 @pytest.mark.multi_gpu
-def test_lu_solve_shardmap_ctx_two_gpu():
+def test_lu_solve_jit_ctx_two_gpu():
     """Run the caller-jitted LU context interface on two GPUs."""
     run_gpu_test(
         GPU_TEST,
@@ -78,6 +78,16 @@ def test_lu_solve_shardmap_ctx_two_gpu():
         "float32",
         interface="context",
     )
+
+
+@pytest.mark.parametrize("procs,case_name", [
+    pytest.param(1, "column_major_padding", marks=pytest.mark.single_gpu),
+    pytest.param(2, "column_major_padding", marks=pytest.mark.multi_gpu),
+    pytest.param(2, "skinny_rhs", marks=pytest.mark.multi_gpu),
+])
+def test_lu_solve_inside_shard_map(procs, case_name):
+    """Validate local-block solves, including padding and replicated RHS columns."""
+    run_gpu_test(GPU_TEST, procs, case_name, "float64", interface="shardmap")
 
 
 @pytest.mark.slow

@@ -41,7 +41,7 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import least_squares, least_squares_shardmap_ctx
+from jaxmg import least_squares, least_squares_jit_ctx, least_squares_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE
 
 
@@ -65,6 +65,12 @@ def run_case() -> None:
     elif case_name == "square_aligned":
         process_rows, process_cols = 1, 1
         m, n, tile_size, nrhs = 128, 128, 64, 64
+    elif case_name == "short_solution":
+        process_rows, process_cols = 2, 1
+        m, n, tile_size, nrhs = 192, 32, 64, 3
+    elif case_name == "uneven_solution_replicated":
+        process_rows, process_cols = 2, 1
+        m, n, tile_size, nrhs = 192, 65, 64, 3
     else:
         raise ValueError(f"unknown least-squares test case {case_name!r}")
     if process_rows * process_cols != num_procs:
@@ -75,6 +81,7 @@ def run_case() -> None:
         "matrix_replicated": "matrix_replicated",
         "matrix_2d_sharded": "matrix_2d_sharded",
         "vector_replicated": "vector_replicated",
+        "uneven_solution_replicated": "matrix_replicated",
     }.get(case_name, "matrix_row_sharded")
     case = SolverCase(
         process_rows=process_rows,
@@ -84,6 +91,8 @@ def run_case() -> None:
         tile_size=tile_size,
         nrhs=nrhs,
         rhs_mode=rhs_mode,
+        # The uneven solution requires its replicated RHS layout to survive JIT tracing.
+        axis_types="explicit" if case_name == "uneven_solution_replicated" else "auto",
     )
     mesh = make_process_mesh(case)
     matrix_specs = P("pr", "pc")
@@ -111,6 +120,7 @@ def run_case() -> None:
         "matrix_2d_sharded": matrix_specs,
         "vector": P("pr"),
         "vector_replicated": P(None),
+        "uneven_solution_replicated": P(None, None),
     }.get(case_name, P("pr", None))
     a = jax.device_put(jnp.asarray(a_host), NamedSharding(mesh, matrix_specs))
     b = jax.device_put(jnp.asarray(b_host), NamedSharding(mesh, rhs_specs))
@@ -120,7 +130,7 @@ def run_case() -> None:
 
         @partial(jax.jit, donate_argnums=(0, 1))
         def solve(_a, _b):
-            return least_squares_shardmap_ctx(
+            return least_squares_jit_ctx(
                 _a, _b, case.tile_size, mesh=mesh, matrix_specs=matrix_specs
             )
 
@@ -130,6 +140,15 @@ def run_case() -> None:
         assert b_work.sharding.is_equivalent_to(
             expected_output_sharding, b_work.ndim
         )
+    elif interface == "shardmap":
+        solve = jax.jit(jax.shard_map(
+            partial(least_squares_shardmap_ctx, T_A=tile_size), mesh=mesh,
+            in_specs=(matrix_specs, rhs_specs),
+            out_specs=(matrix_specs, rhs_specs, rhs_specs, P(("pr", "pc"))),
+        ), donate_argnums=(0, 1))
+        a_work, b_work, out, status = solve(a, b)
+        a_work.block_until_ready()
+        b_work.block_until_ready()
     else:
         out, status = least_squares(
             a,
@@ -155,6 +174,13 @@ def run_case() -> None:
     np.testing.assert_allclose(
         global_array_to_numpy(out), expected, rtol=tolerance, atol=tolerance
     )
+    if interface in ("context", "shardmap"):
+        # The separate solution output must not change B work's M-row layout.
+        assert b_work.shape == b_host.shape
+        np.testing.assert_allclose(
+            global_array_to_numpy(b_work)[:n], expected,
+            rtol=tolerance, atol=tolerance,
+        )
     assert out.sharding.is_equivalent_to(expected_output_sharding, out.ndim)
 
     emit(

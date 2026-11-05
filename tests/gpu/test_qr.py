@@ -20,7 +20,7 @@ def test_qr_padded_reduced_factors(dtype_name):
 
 
 @pytest.mark.multi_gpu
-def test_qr_shardmap_ctx():
+def test_qr_jit_ctx():
     """Run reduced QR under a caller-owned JIT with donated A storage."""
     run_gpu_test(GPU_TEST, 2, "padded_qr", "float32", interface="context")
 
@@ -35,3 +35,13 @@ def test_qr_column_grid():
 def test_qr_square_aligned():
     """Exercise the square boundary without local padding."""
     run_gpu_test(GPU_TEST, 1, "square_aligned", "float32")
+
+
+@pytest.mark.parametrize("num_procs,case", [
+    pytest.param(1, "square_aligned", marks=pytest.mark.single_gpu),
+    pytest.param(2, "padded_qr", marks=pytest.mark.multi_gpu),
+    pytest.param(2, "column_grid", marks=pytest.mark.multi_gpu),
+])
+def test_qr_shardmap_ctx(num_procs, case):
+    """Validate both factors from a caller-owned shard map on either grid axis."""
+    run_gpu_test(GPU_TEST, num_procs, case, "complex64", interface="shardmap")

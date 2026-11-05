@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from jax.sharding import Mesh, PartitionSpec as P
 
 import jaxmg._qr as qr_module
-from jaxmg import qr, qr_shardmap_ctx
+from jaxmg import qr, qr_jit_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_QR_STATUS_SIZE
 
 
@@ -18,28 +18,29 @@ def _one_rank_mesh() -> Mesh:
 
 
 def _install_fake_qr_backend(monkeypatch):
+    """Run the public wrappers with only the native FFI replaced."""
     captured = {}
 
-    def fake_pipeline(*args, **kwargs):
-        captured["pipeline_args"] = args
-        captured["pipeline_kwargs"] = kwargs
-
-        def impl(_a):
-            q = _a
-            r = jnp.eye(kwargs["n"], dtype=_a.dtype)
-            status = jnp.zeros((_CUSOLVERMP_QR_STATUS_SIZE,), dtype=jnp.int32)
-            return q, r, status
-
+    def fake_ffi(target, result_types, **options):
+        def impl(*inputs, **attrs):
+            captured["native_kwargs"] = attrs
+            captured["target"] = target
+            aliases = {out: arg for arg, out in options["input_output_aliases"].items()}
+            return tuple(inputs[aliases[i]] if i in aliases else jnp.zeros(t.shape, t.dtype)
+                         for i, t in enumerate(result_types))
         return impl
 
-    def fake_compiled(*args, **kwargs):
+    compiled = qr_module._qr_compiled
+    compiled.cache_clear()
+
+    def record_compiled(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
-        return fake_pipeline(*args, **kwargs)
+        return compiled(*args, **kwargs)
 
     monkeypatch.setattr(qr_module, "ensure_init_jaxmg_backend", lambda: None)
-    monkeypatch.setattr(qr_module, "_qr_pipeline", fake_pipeline)
-    monkeypatch.setattr(qr_module, "_qr_compiled", fake_compiled)
+    monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi)
+    monkeypatch.setattr(qr_module, "_qr_compiled", record_compiled)
     return captured
 
 
@@ -57,12 +58,12 @@ def test_qr_returns_reduced_factors_and_status(monkeypatch):
     assert status.shape == (_CUSOLVERMP_QR_STATUS_SIZE,)
 
 
-def test_qr_shardmap_ctx_supports_outer_donation(monkeypatch):
+def test_qr_jit_ctx_supports_outer_donation(monkeypatch):
     _install_fake_qr_backend(monkeypatch)
     mesh = _one_rank_mesh()
     decomposition = jax.jit(
         partial(
-            qr_shardmap_ctx,
+            qr_jit_ctx,
             T_A=2,
             mesh=mesh,
             matrix_specs=P("pr", "pc"),

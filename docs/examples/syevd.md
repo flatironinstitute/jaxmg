@@ -99,7 +99,7 @@ same process grid.
 
 ## Advanced: control the outer `jax.jit`
 
-`syevd_shardmap_ctx` runs the same selected eigensolver workflow as `syevd`.
+`syevd_jit_ctx` runs the same selected eigensolver workflow as `syevd`.
 The difference is that it does not create an internal `jax.jit`, allowing the
 eigensolve to become one stage of a larger function compiled by the caller.
 
@@ -118,7 +118,7 @@ The advanced examples additionally use:
 ```python
 from functools import partial
 
-from jaxmg import syevd_shardmap_ctx
+from jaxmg import syevd_jit_ctx
 ```
 
 ### Case 1: `a` is an argument of the jitted function
@@ -130,7 +130,7 @@ $A$-sized output alias at the outer compiled boundary:
 ```python
 @partial(jax.jit, donate_argnums=(0,))
 def compiled_eigensolve(a):
-    a_work, eigenvalues, eigenvectors, status = syevd_shardmap_ctx(
+    a_work, eigenvalues, eigenvectors, status = syevd_jit_ctx(
         a,
         T_A=T_A,
     )
@@ -168,7 +168,7 @@ def build_and_eigensolve(diagonal):
     a = jnp.diag(diagonal)
     a = jax.reshard(a, a_sharding)
 
-    _, eigenvalues, eigenvectors, status = syevd_shardmap_ctx(
+    _, eigenvalues, eigenvectors, status = syevd_jit_ctx(
         a,
         T_A=T_A,
     )
@@ -186,6 +186,30 @@ eigenvectors.block_until_ready()
 `donate_argnums` is not needed for the internally created `a`. It only applies
 to arguments of the outer jitted function. Donate an outer argument such as
 `diagonal` only when the caller no longer needs it after the call.
+
+## Advanced: call from inside `jax.shard_map`
+
+Use `syevd_shardmap_ctx` with local matrix blocks. Eigenvalues are replicated,
+while the eigenvectors and work buffer follow the matrix partitioning.
+
+```python
+from jaxmg import syevd_shardmap_ctx
+
+
+@partial(jax.jit, donate_argnums=(0,))
+@partial(jax.shard_map, mesh=mesh, in_specs=P("pr", "pc"),
+         out_specs=(P("pr", "pc"), P(), P("pr", "pc"), P(("pr", "pc"))))
+def local_eigensolve(a_block):
+    return syevd_shardmap_ctx(a_block, T_A=T_A)
+
+
+a, _ = make_problem()
+a_work, eigenvalues, eigenvectors, status = local_eigensolve(a)
+eigenvalues.block_until_ready()
+```
+
+For `return_eigenvectors=False`, omit the eigenvector output specification.
+Return `a_work` from the outer jitted function when donating A in either mode.
 
 See the [`syevd` API reference](../api/syevd.md) for the complete argument and
 return-value documentation.

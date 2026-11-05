@@ -10,7 +10,7 @@ jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
 from jax.sharding import NamedSharding, PartitionSpec as P
-from jaxmg import qr_shardmap_ctx
+from jaxmg import qr_jit_ctx
 
 
 T_A = 128
@@ -74,7 +74,7 @@ def main() -> None:
         expected_r = jax.reshard(jnp.diag(expected_r_diagonal), matrix_sharding)
 
         # Q directly reuses A because ORGQR overwrites the factorized matrix.
-        q, r, _ = qr_shardmap_ctx(
+        q, r, _ = qr_jit_ctx(
             a,
             T_A=T_A,
         )

@@ -18,12 +18,12 @@ import jaxmg._syevd as syevd_module
 @pytest.mark.parametrize(
     "module,fn,result_indices,work_index",
     [
-        (syevd_module, syevd_module.syevd_shardmap_ctx, (2,), 0),
-        (gesvd_module, gesvd_module.gesvd_shardmap_ctx, (1, 3), 0),
-        (qr_module, qr_module.qr_shardmap_ctx, (0, 1), None),
-        (polar_module, polar_module.polar_shardmap_ctx, (0, 1), None),
-        (potrf_module, potrf_module.potrf_shardmap_ctx, (0,), None),
-        (getrf_module, getrf_module.getrf_shardmap_ctx, (0,), None),
+        (syevd_module, syevd_module.syevd_jit_ctx, (2,), 0),
+        (gesvd_module, gesvd_module.gesvd_jit_ctx, (1, 3), 0),
+        (qr_module, qr_module.qr_jit_ctx, (0, 1), None),
+        (polar_module, polar_module.polar_jit_ctx, (0, 1), None),
+        (potrf_module, potrf_module.potrf_jit_ctx, (0,), None),
+        (getrf_module, getrf_module.getrf_jit_ctx, (0,), None),
     ],
 )
 def test_decompositions_restore_replicated_matrix_results(

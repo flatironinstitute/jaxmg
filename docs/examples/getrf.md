@@ -65,19 +65,19 @@ if jax.process_index() == 0:
 
 ## Advanced: control the outer `jax.jit`
 
-`getrf_shardmap_ctx` leaves the outer compilation and donation boundary to the
+`getrf_jit_ctx` leaves the outer compilation and donation boundary to the
 caller. The packed factor aliases the input work buffer; the pivot vector is
 a separate replicated result.
 
 ```python
 from functools import partial
 
-from jaxmg import getrf_shardmap_ctx
+from jaxmg import getrf_jit_ctx
 
 
 @partial(jax.jit, donate_argnums=(0,))
 def compiled_getrf(a):
-    return getrf_shardmap_ctx(a, T_A=T_A)
+    return getrf_jit_ctx(a, T_A=T_A)
 
 
 a, _ = make_matrix()
@@ -88,7 +88,29 @@ lu.block_until_ready()
 When `a` is created inside the compiled function, XLA owns its lifetime and
 `donate_argnums` is unnecessary.
 
-Ready-to-run scripts for both interfaces are provided in the
+## Advanced: call from inside `jax.shard_map`
+
+`getrf_shardmap_ctx` accepts the local matrix block. Its factor remains local,
+while the pivot vector is identical on every rank and uses `P()` in the output
+specification.
+
+```python
+from jaxmg import getrf_shardmap_ctx
+
+
+@partial(jax.jit, donate_argnums=(0,))
+@partial(jax.shard_map, mesh=mesh, in_specs=P("pr", "pc"),
+         out_specs=(P("pr", "pc"), P(), P(("pr", "pc"))))
+def local_factorize(a_block):
+    return getrf_shardmap_ctx(a_block, T_A=T_A)
+
+
+a, _ = make_matrix()
+lu, piv, status = local_factorize(a)
+lu.block_until_ready()
+```
+
+Ready-to-run scripts for the direct and caller-jitted interfaces are provided in the
 [examples directory](https://github.com/flatironinstitute/jaxmg/tree/main/examples).
 See the [`getrf` API reference](../api/getrf.md) for the complete argument and
 return-value documentation.

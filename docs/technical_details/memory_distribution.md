@@ -326,8 +326,9 @@ differences are the cuSOLVERMp call sequence and solver workspace:
   the columns it owns into a global vector, and an NCCL max all-reduce
   replicates that vector on every rank.
 - `least_squares` calls `cusolverMpGels`. The solve input has $M$ rows on entry
-  and is overwritten in place, with the $N$ solution rows restored to their
-  original JAX-facing sharding.
+  and is overwritten in place. The native backend copies its first $N$ rows
+  into a separate solution buffer while still in block-cyclic storage, then
+  restores the work buffer and solution using the same redistribution scratch.
 - `qr` calls `cusolverMpGeqrf`, copies the distributed upper triangle into the
   $R$ output, and calls `cusolverMpOrgqr` to overwrite the donated input with
   reduced $Q$. Both factors are then reverse-redistributed.

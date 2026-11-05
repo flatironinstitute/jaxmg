@@ -67,20 +67,20 @@ $N \times N$ factor.
 
 ## Advanced: control the outer `jax.jit`
 
-`polar_shardmap_ctx` leaves the outer compilation and donation boundary to the
-caller. Unlike the other decomposition context interfaces, its first result is
+`polar_jit_ctx` leaves the outer compilation and donation boundary to the
+caller. Its first result is
 the numerical factor `up`: cuSOLVERMp overwrites the input matrix with this
 factor, so no separate opaque work result is needed.
 
 ```python
 from functools import partial
 
-from jaxmg import polar_shardmap_ctx
+from jaxmg import polar_jit_ctx
 
 
 @partial(jax.jit, donate_argnums=(0,))
 def compiled_polar(a):
-    up, h, status = polar_shardmap_ctx(
+    up, h, status = polar_jit_ctx(
         a,
         T_A=T_A,
     )
@@ -94,6 +94,26 @@ h.block_until_ready()
 
 When `a` is instead created inside the compiled function, XLA owns its lifetime
 and `donate_argnums` is unnecessary.
+
+## Advanced: call from inside `jax.shard_map`
+
+`polar_shardmap_ctx` consumes local blocks and returns local blocks of the
+requested factors. The same `compute_h` option selects whether to return H.
+
+```python
+from jaxmg import polar_shardmap_ctx
+
+
+@partial(jax.jit, donate_argnums=(0,))
+@partial(jax.shard_map, mesh=mesh, in_specs=P("pr", "pc"),
+         out_specs=(P("pr", "pc"), P("pr", "pc"), P(("pr", "pc"))))
+def local_polar(a_block):
+    return polar_shardmap_ctx(a_block, T_A=T_A)
+
+
+up, h, status = local_polar(make_matrix())
+h.block_until_ready()
+```
 
 See the [`polar` API reference](../api/polar.md) for the complete argument and
 return-value documentation.

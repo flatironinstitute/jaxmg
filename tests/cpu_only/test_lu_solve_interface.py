@@ -12,7 +12,7 @@ import jax.numpy as jnp
 from jax.sharding import Mesh, PartitionSpec as P
 
 import jaxmg._lu_solve as lu_solve_module
-from jaxmg import lu_solve, lu_solve_shardmap_ctx
+from jaxmg import lu_solve, lu_solve_jit_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_LU_SOLVE_STATUS_SIZE
 
 
@@ -29,27 +29,29 @@ def _single_axis_mesh() -> Mesh:
 
 
 def _install_fake_lu_solve_backend(monkeypatch):
-    """Replace native backend entry points with a small Python stand-in."""
+    """Run the public wrappers with only the native FFI replaced."""
     captured = {}
 
-    def fake_pipeline(*args, **kwargs):
-        captured["pipeline_args"] = args
-        captured["pipeline_kwargs"] = kwargs
-
-        def impl(_a, _b):
-            status = jnp.zeros((_CUSOLVERMP_LU_SOLVE_STATUS_SIZE,), dtype=jnp.int32)
-            return _a, _b, status
-
+    def fake_ffi(target, result_types, **options):
+        def impl(*inputs, **attrs):
+            captured["native_kwargs"] = attrs
+            captured["target"] = target
+            aliases = {out: arg for arg, out in options["input_output_aliases"].items()}
+            return tuple(inputs[aliases[i]] if i in aliases else jnp.zeros(t.shape, t.dtype)
+                         for i, t in enumerate(result_types))
         return impl
 
-    def fake_compiled(*args, **kwargs):
+    compiled = lu_solve_module._lu_solve_compiled
+    compiled.cache_clear()
+
+    def record_compiled(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
-        return fake_pipeline(*args, **kwargs)
+        return compiled(*args, **kwargs)
 
     monkeypatch.setattr(lu_solve_module, "ensure_init_jaxmg_backend", lambda: None)
-    monkeypatch.setattr(lu_solve_module, "_lu_solve_pipeline", fake_pipeline)
-    monkeypatch.setattr(lu_solve_module, "_lu_solve_compiled", fake_compiled)
+    monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi)
+    monkeypatch.setattr(lu_solve_module, "_lu_solve_compiled", record_compiled)
     return captured
 
 
@@ -61,9 +63,9 @@ def test_lu_solve_accepts_current_2d_mesh_contract(monkeypatch):
     out = lu_solve(a, b, 2, mesh=_one_rank_mesh(), matrix_specs=P("pr", "pc"))
 
     assert out.shape == b.shape
-    assert captured["kwargs"]["n"] == 4
-    assert captured["kwargs"]["nrhs"] == 2
-    assert captured["kwargs"]["tile_size"] == 2
+    assert captured["native_kwargs"]["n"] == 4
+    assert captured["native_kwargs"]["nrhs"] == 2
+    assert captured["native_kwargs"]["tile_size"] == 2
 
 
 def test_lu_solve_preserves_vector_rhs_rank(monkeypatch):
@@ -82,7 +84,7 @@ def test_lu_solve_preserves_vector_rhs_rank(monkeypatch):
 
     assert out.shape == b.shape
     assert status.shape == (_CUSOLVERMP_LU_SOLVE_STATUS_SIZE,)
-    assert captured["kwargs"]["nrhs"] == 1
+    assert captured["native_kwargs"]["nrhs"] == 1
 
 
 def test_lu_solve_preserves_single_column_rhs_rank(monkeypatch):
@@ -117,12 +119,12 @@ def test_lu_solve_public_api_can_be_wrapped_in_external_jit(monkeypatch):
     assert out.shape == (4, 1)
 
 
-def test_lu_solve_shardmap_ctx_returns_work_solution_and_status(monkeypatch):
+def test_lu_solve_jit_ctx_returns_work_solution_and_status(monkeypatch):
     captured = _install_fake_lu_solve_backend(monkeypatch)
     a = jnp.eye(4, dtype=jnp.float32)
     b = jnp.ones((4, 2), dtype=jnp.float32)
 
-    a_work, out, status = lu_solve_shardmap_ctx(
+    a_work, out, status = lu_solve_jit_ctx(
         a,
         b,
         2,
@@ -133,17 +135,17 @@ def test_lu_solve_shardmap_ctx_returns_work_solution_and_status(monkeypatch):
     assert a_work.shape == a.shape
     assert out.shape == b.shape
     assert status.shape == (_CUSOLVERMP_LU_SOLVE_STATUS_SIZE,)
-    assert captured["pipeline_kwargs"]["n"] == 4
-    assert captured["pipeline_kwargs"]["nrhs"] == 2
-    assert captured["pipeline_kwargs"]["tile_size"] == 2
+    assert captured["native_kwargs"]["n"] == 4
+    assert captured["native_kwargs"]["nrhs"] == 2
+    assert captured["native_kwargs"]["tile_size"] == 2
 
 
-def test_lu_solve_shardmap_ctx_preserves_vector_rhs_rank(monkeypatch):
+def test_lu_solve_jit_ctx_preserves_vector_rhs_rank(monkeypatch):
     captured = _install_fake_lu_solve_backend(monkeypatch)
     a = jnp.eye(4, dtype=jnp.float64)
     b = jnp.ones((4,), dtype=jnp.float64)
 
-    a_work, out, status = lu_solve_shardmap_ctx(
+    a_work, out, status = lu_solve_jit_ctx(
         a,
         b,
         2,
@@ -154,14 +156,14 @@ def test_lu_solve_shardmap_ctx_preserves_vector_rhs_rank(monkeypatch):
     assert a_work.shape == a.shape
     assert out.shape == b.shape
     assert status.shape == (_CUSOLVERMP_LU_SOLVE_STATUS_SIZE,)
-    assert captured["pipeline_kwargs"]["nrhs"] == 1
+    assert captured["native_kwargs"]["nrhs"] == 1
 
 
-def test_lu_solve_shardmap_ctx_can_be_wrapped_in_external_jit(monkeypatch):
+def test_lu_solve_jit_ctx_can_be_wrapped_in_external_jit(monkeypatch):
     _install_fake_lu_solve_backend(monkeypatch)
     mesh = _one_rank_mesh()
     solve = jax.jit(
-        partial(lu_solve_shardmap_ctx, T_A=2, mesh=mesh, matrix_specs=P("pr", "pc")),
+        partial(lu_solve_jit_ctx, T_A=2, mesh=mesh, matrix_specs=P("pr", "pc")),
         donate_argnums=(0, 1),
     )
 
@@ -256,7 +258,7 @@ def test_lu_solve_accepts_degenerate_column_grid(monkeypatch):
     )
 
     assert out.shape == b.shape
-    grid = captured["args"][3]
+    grid = captured["args"][0][0].grid
     assert (grid.process_rows, grid.process_cols) == (1, 1)
 
 
@@ -274,7 +276,7 @@ def test_lu_solve_accepts_rank_1_matrix_specs(monkeypatch):
     )
 
     assert out.shape == b.shape
-    assert captured["args"][1] == P("pr", None)
+    assert captured["args"][0][0].matrix_specs == P("pr", None)
 
 
 def test_lu_solve_rejects_fully_replicated_matrix_specs():

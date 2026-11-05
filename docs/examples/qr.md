@@ -58,18 +58,18 @@ if jax.process_index() == 0:
 
 ## Advanced: control the outer `jax.jit`
 
-`qr_shardmap_ctx` leaves the outer compilation and donation boundary to the
+`qr_jit_ctx` leaves the outer compilation and donation boundary to the
 caller. Its first result is $Q$, which aliases the donated input matrix.
 
 ```python
 from functools import partial
 
-from jaxmg import qr_shardmap_ctx
+from jaxmg import qr_jit_ctx
 
 
 @partial(jax.jit, donate_argnums=(0,))
 def compiled_qr(a):
-    return qr_shardmap_ctx(
+    return qr_jit_ctx(
         a,
         T_A=T_A,
     )
@@ -82,6 +82,26 @@ r.block_until_ready()
 
 When `a` is created inside the compiled function, XLA owns its lifetime and
 `donate_argnums` is unnecessary.
+
+## Advanced: call from inside `jax.shard_map`
+
+`qr_shardmap_ctx` consumes local blocks and returns local blocks of both
+factors. The global input must be tall or square, even when a local block is wide.
+
+```python
+from jaxmg import qr_shardmap_ctx
+
+
+@partial(jax.jit, donate_argnums=(0,))
+@partial(jax.shard_map, mesh=mesh, in_specs=P("pr", "pc"),
+         out_specs=(P("pr", "pc"), P("pr", "pc"), P(("pr", "pc"))))
+def local_qr(a_block):
+    return qr_shardmap_ctx(a_block, T_A=T_A)
+
+
+q, r, status = local_qr(make_matrix())
+r.block_until_ready()
+```
 
 See the [`qr` API reference](../api/qr.md) for the complete argument and
 return-value documentation.

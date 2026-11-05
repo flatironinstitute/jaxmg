@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from jax.sharding import Mesh, PartitionSpec as P
 
 import jaxmg._polar as polar_module
-from jaxmg import polar, polar_shardmap_ctx
+from jaxmg import polar, polar_jit_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_POLAR_STATUS_SIZE
 
 
@@ -18,28 +18,29 @@ def _one_rank_mesh() -> Mesh:
 
 
 def _install_fake_polar_backend(monkeypatch):
+    """Run the public wrappers with only the native FFI replaced."""
     captured = {}
 
-    def fake_pipeline(*args, **kwargs):
-        captured["pipeline_args"] = args
-        captured["pipeline_kwargs"] = kwargs
-
-        def impl(_a):
-            status = jnp.zeros((_CUSOLVERMP_POLAR_STATUS_SIZE,), dtype=jnp.int32)
-            if kwargs["compute_h"]:
-                return _a, jnp.eye(kwargs["n"], dtype=_a.dtype), status
-            return _a, status
-
+    def fake_ffi(target, result_types, **options):
+        def impl(*inputs, **attrs):
+            captured["native_kwargs"] = attrs
+            captured["target"] = target
+            aliases = {out: arg for arg, out in options["input_output_aliases"].items()}
+            return tuple(inputs[aliases[i]] if i in aliases else jnp.zeros(t.shape, t.dtype)
+                         for i, t in enumerate(result_types))
         return impl
 
-    def fake_compiled(*args, **kwargs):
+    compiled = polar_module._polar_compiled
+    compiled.cache_clear()
+
+    def record_compiled(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
-        return fake_pipeline(*args, **kwargs)
+        return compiled(*args, **kwargs)
 
     monkeypatch.setattr(polar_module, "ensure_init_jaxmg_backend", lambda: None)
-    monkeypatch.setattr(polar_module, "_polar_pipeline", fake_pipeline)
-    monkeypatch.setattr(polar_module, "_polar_compiled", fake_compiled)
+    monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi)
+    monkeypatch.setattr(polar_module, "_polar_compiled", record_compiled)
     return captured
 
 
@@ -69,12 +70,12 @@ def test_polar_can_omit_h_and_append_status(monkeypatch):
     assert status.shape == (_CUSOLVERMP_POLAR_STATUS_SIZE,)
 
 
-def test_polar_shardmap_ctx_supports_outer_donation(monkeypatch):
+def test_polar_jit_ctx_supports_outer_donation(monkeypatch):
     _install_fake_polar_backend(monkeypatch)
     mesh = _one_rank_mesh()
     decomposition = jax.jit(
         partial(
-            polar_shardmap_ctx,
+            polar_jit_ctx,
             T_A=2,
             mesh=mesh,
             matrix_specs=P("pr", "pc"),

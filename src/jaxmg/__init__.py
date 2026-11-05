@@ -22,15 +22,15 @@ Main Entry Points:
 
 from importlib.metadata import version
 
-from ._gesvd import gesvd, gesvd_shardmap_ctx
-from ._getrf import getrf, getrf_shardmap_ctx
-from ._least_squares import least_squares, least_squares_shardmap_ctx
-from ._lu_solve import lu_solve, lu_solve_shardmap_ctx
-from ._potrf import potrf, potrf_shardmap_ctx
-from ._potrs import potrs, potrs_shardmap_ctx
-from ._polar import polar, polar_shardmap_ctx
-from ._qr import qr, qr_shardmap_ctx
-from ._syevd import syevd, syevd_shardmap_ctx
+from ._gesvd import gesvd, gesvd_jit_ctx, gesvd_shardmap_ctx
+from ._getrf import getrf, getrf_jit_ctx, getrf_shardmap_ctx
+from ._least_squares import least_squares, least_squares_jit_ctx, least_squares_shardmap_ctx
+from ._lu_solve import lu_solve, lu_solve_jit_ctx, lu_solve_shardmap_ctx
+from ._potrf import potrf, potrf_jit_ctx, potrf_shardmap_ctx
+from ._potrs import potrs, potrs_jit_ctx, potrs_shardmap_ctx
+from ._polar import polar, polar_jit_ctx, polar_shardmap_ctx
+from ._qr import qr, qr_jit_ctx, qr_shardmap_ctx
+from ._syevd import syevd, syevd_jit_ctx, syevd_shardmap_ctx
 from ._device import device_supports_vmm
 
 __version__ = version("jaxmg")
@@ -38,22 +38,31 @@ __version__ = version("jaxmg")
 __all__ = [
     "__version__",
     "gesvd",
+    "gesvd_jit_ctx",
     "gesvd_shardmap_ctx",
     "getrf",
+    "getrf_jit_ctx",
     "getrf_shardmap_ctx",
     "lu_solve",
+    "lu_solve_jit_ctx",
     "lu_solve_shardmap_ctx",
     "least_squares",
+    "least_squares_jit_ctx",
     "least_squares_shardmap_ctx",
     "potrf",
+    "potrf_jit_ctx",
     "potrf_shardmap_ctx",
     "potrs",
+    "potrs_jit_ctx",
     "potrs_shardmap_ctx",
     "polar",
+    "polar_jit_ctx",
     "polar_shardmap_ctx",
     "qr",
+    "qr_jit_ctx",
     "qr_shardmap_ctx",
     "syevd",
+    "syevd_jit_ctx",
     "syevd_shardmap_ctx",
     "device_supports_vmm",
 ]

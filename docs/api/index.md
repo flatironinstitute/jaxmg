@@ -9,6 +9,12 @@ mesh.
 The fused C++/CUDA backend converts those arrays into cuSOLVERMp's column-major,
 2D block-cyclic layout and restores the JAX-facing layout before returning.
 
+Each routine provides three nested interfaces. The public function adds JIT
+compilation and optional input donation to `*_jit_ctx`, which accepts global
+arrays and applies `jax.shard_map` to `*_shardmap_ctx`. The latter operates on
+local blocks inside a caller-owned shard map. Use the context interfaces when
+compilation or sharding is already managed by the surrounding calculation.
+
 !!! Warning
     Each solver requires a tile width `T_A`. Very small tiles can substantially
     reduce solver performance. If a local shard dimension is not divisible by

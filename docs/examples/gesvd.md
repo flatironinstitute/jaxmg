@@ -104,7 +104,7 @@ decomposition must be embedded in a larger compiled calculation.
 
 ## Advanced: control the outer `jax.jit`
 
-`gesvd_shardmap_ctx` runs the same padding, redistribution, and decomposition
+`gesvd_jit_ctx` runs the same padding, redistribution, and decomposition
 as `gesvd`, but leaves the outer `jax.jit` boundary to the caller. This allows
 the decomposition to become one stage of a larger compiled calculation.
 
@@ -117,7 +117,7 @@ The advanced examples additionally use:
 ```python
 from functools import partial
 
-from jaxmg import gesvd_shardmap_ctx
+from jaxmg import gesvd_jit_ctx
 ```
 
 ### Case 1: `a` is an argument of the jitted function
@@ -131,7 +131,7 @@ output alias at the outer compiled boundary:
 
 @partial(jax.jit, donate_argnums=(0,))
 def compiled_svd(a):
-    a_work, u, singular_values, vh, status = gesvd_shardmap_ctx(
+    a_work, u, singular_values, vh, status = gesvd_jit_ctx(
         a,
         T_A=T_A,
     )
@@ -174,7 +174,7 @@ def build_and_decompose(scale):
     a = a.at[jnp.arange(K), jnp.arange(K)].set(expected_singular_values)
     a = jax.reshard(a, matrix_sharding)
 
-    _, u, singular_values, vh, status = gesvd_shardmap_ctx(
+    _, u, singular_values, vh, status = gesvd_jit_ctx(
         a,
         T_A=T_A,
     )
@@ -199,6 +199,28 @@ if jax.process_index() == 0:
 `donate_argnums` is not needed for the internally created `a`, because it is
 not an argument of `build_and_decompose`. Only donate an outer argument such as
 `scale` if the caller no longer needs it after the call.
+
+## Advanced: call from inside `jax.shard_map`
+
+`gesvd_shardmap_ctx` returns local blocks of the requested vectors and work
+buffer, while singular values are replicated across the enclosing mesh.
+
+```python
+from jaxmg import gesvd_shardmap_ctx
+
+
+@partial(jax.jit, donate_argnums=(0,))
+@partial(jax.shard_map, mesh=mesh, in_specs=P("pr", "pc"),
+         out_specs=(P("pr", "pc"), P("pr", "pc"), P(),
+                    P("pr", "pc"), P(("pr", "pc"))))
+def local_svd(a_block):
+    return gesvd_shardmap_ctx(a_block, T_A=T_A)
+
+
+a, _ = make_matrix()
+a_work, u, singular_values, vh, status = local_svd(a)
+vh.block_until_ready()
+```
 
 See the [`gesvd` API reference](../api/gesvd.md) for the complete argument and
 return-value documentation.

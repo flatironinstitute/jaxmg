@@ -1,17 +1,21 @@
 # jaxmg.potrs
 
-`potrs` is the high-level Cholesky solve interface. It validates the arrays and
-mesh, applies tile-capacity padding when required, runs the internally compiled
-fused backend, and returns the solution in the JAX-facing layout.
+`potrs` is the high-level solver for symmetric or Hermitian positive-definite
+matrices. It uses cuSOLVERMp `Potrf` followed by `Potrs`, with memory-layout
+conversion, redistribution, and solver execution in one fused native call.
 
-Use `potrs` for a direct solve. Use `potrs_shardmap_ctx` only when the solve
-must be embedded inside a larger caller-owned `jax.jit` computation. Both
-interfaces run the same native solver pipeline; `_shardmap_ctx` means that the
-caller owns the surrounding compilation context, not that it selects a
-different solver or CUDA context.
+Use `potrs_jit_ctx` when the solve is part of a larger caller-owned
+`jax.jit` computation. Inside an existing `jax.shard_map`, use
+`potrs_shardmap_ctx` with local matrix and RHS blocks instead. Both use the
+same distributed solver.
 
-Both interfaces accept `return_logdet=True`. Since the factorization produces
-$A=LL^H$, the backend computes
+!!! Note "Context API migration"
+
+    The previous global-array `potrs_shardmap_ctx` is now named
+    `potrs_jit_ctx`, with the same arguments and outputs.
+
+All three interfaces accept `return_logdet=True`. Since the factorization
+produces $A=LL^H$, the backend computes
 
 $$
 \log\det(A) = 2\sum_i \log |L_{ii}|
@@ -20,5 +24,7 @@ $$
 directly from the distributed Cholesky factor.
 
 ::: jaxmg.potrs
+
+::: jaxmg.potrs_jit_ctx
 
 ::: jaxmg.potrs_shardmap_ctx
