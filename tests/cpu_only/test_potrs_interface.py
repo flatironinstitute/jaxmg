@@ -51,18 +51,18 @@ def _install_fake_potrs_backend(monkeypatch):
         # The native call returns the A work buffer, the solved RHS, and status.
         return _a, _b, status
 
-    pipeline = potrs_module._potrs_pipeline
+    compiled = potrs_module._potrs_compiled
 
-    def spy_pipeline(*args, **kwargs):
+    def spy_compiled(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
-        return pipeline(*args, **kwargs)
+        return compiled(*args, **kwargs)
 
-    # Cached pipelines would replay traces of an earlier test's fake.
-    pipeline.cache_clear()
+    # Cached wrappers would replay traces of an earlier test's fake.
+    compiled.cache_clear()
     monkeypatch.setattr(potrs_module, "ensure_init_jaxmg_backend", lambda: None)
     monkeypatch.setattr(potrs_module, "_potrs_native_call", fake_native_call)
-    monkeypatch.setattr(potrs_module, "_potrs_pipeline", spy_pipeline)
+    monkeypatch.setattr(potrs_module, "_potrs_compiled", spy_compiled)
     return captured
 
 
@@ -334,7 +334,7 @@ def test_potrs_accepts_rank_1_matrix_specs(monkeypatch):
     out = potrs(a, b, 2, mesh=_single_axis_mesh(), matrix_specs=P("pr"))
 
     assert out.shape == b.shape
-    assert captured["args"][1] == P("pr", None)
+    assert captured["args"][0][0].matrix_specs == P("pr", None)
 
 
 def test_potrs_rejects_fully_replicated_matrix_specs():

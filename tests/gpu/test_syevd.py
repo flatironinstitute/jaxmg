@@ -38,7 +38,7 @@ def test_syevd_rank_per_gpu_smoke(requested_procs, case_name, dtype_name):
 
 
 @pytest.mark.multi_gpu
-def test_syevd_shardmap_ctx_two_gpu():
+def test_syevd_jit_ctx_two_gpu():
     """Run the caller-jitted SYEVD context interface on two GPUs."""
     run_gpu_test(
         GPU_TEST,
@@ -85,6 +85,17 @@ def test_syevd_values_only_shardmap_ctx_two_gpu(monkeypatch):
         "float32",
         interface="context",
     )
+
+
+@pytest.mark.parametrize("procs", [
+    pytest.param(1, marks=pytest.mark.single_gpu),
+    pytest.param(2, marks=pytest.mark.multi_gpu),
+])
+@pytest.mark.parametrize("vectors", [True, False])
+def test_syevd_inside_shard_map(procs, vectors, monkeypatch):
+    """Check replicated eigenvalues and optional distributed vector blocks."""
+    monkeypatch.setenv("JAXMG_SYEVD_RETURN_EIGENVECTORS", str(int(vectors)))
+    run_gpu_test(GPU_TEST, procs, "column_major_padding", "float64", interface="shardmap")
 
 
 @pytest.mark.slow

@@ -37,7 +37,6 @@ from ._cusolvermp_layout import (
     restore_rhs_from_native_work,
     rhs_distribution_columns,
     unpad_local_2d,
-    use_abstract_mesh_decorator,
 )
 from ._cusolvermp_status import _CUSOLVERMP_POTRS_STATUS_SIZE
 from ._layout_types import ProcessGrid
@@ -132,22 +131,10 @@ def potrs(
         )
     )
 
-    ensure_init_jaxmg_backend()
-
-    pipeline = _potrs_pipeline(
-        layout.mesh,
-        layout.matrix_specs,
-        layout.native_status_specs,
-        rhs_specs,
-        nrhs=int(b.shape[1]),
-        b_distribution_cols=b_distribution_cols,
-        tile_size=layout.tile_shape.rows,
-        return_logdet=return_logdet,
-        pad=pad,
-    )
-    # The cached pipeline is the jit cache key, so a fresh wrapper still reuses
-    # earlier traces and compilations.
-    result = jax.jit(pipeline, donate_argnums=(0, 1) if donate else ())(a, b)
+    result = _potrs_compiled(
+        (layout, rhs_specs, b_distribution_cols), int(T_A),
+        return_logdet=return_logdet, pad=pad, donate=donate,
+    )(a, b)
     if return_logdet:
         _, out, logdet, native_status = result
     else:
@@ -173,6 +160,7 @@ def potrs_jit_ctx(
     in_specs: P | Tuple[P] | List[P] | None = None,
     return_logdet: bool = False,
     pad: bool = True,
+    _prepared=None,
 ) -> Union[Tuple[Array, Array, Array], Tuple[Array, Array, Array, Array]]:
     """Solve A x = B on global arrays inside a caller-owned ``jax.jit``.
 
@@ -229,36 +217,42 @@ def potrs_jit_ctx(
           calls ``cusolverMpPotrf``/``cusolverMpPotrs``, and redistributes the
           result back.
     """
-    b, vector_rhs, layout, rhs_specs, b_distribution_cols = (
-        _prepare_global_potrs_call(
-            a,
-            b,
-            T_A,
-            mesh,
-            matrix_specs,
-            in_specs=in_specs,
-            pad=pad,
-            caller="potrs_jit_ctx",
+    # Preserve concrete-array layout metadata across the public JIT boundary.
+    if _prepared is None:
+        b, vector_rhs, layout, rhs_specs, b_distribution_cols = (
+            _prepare_global_potrs_call(
+                a,
+                b,
+                T_A,
+                mesh,
+                matrix_specs,
+                in_specs=in_specs,
+                pad=pad,
+                caller="potrs_jit_ctx",
+            )
         )
-    )
-
-    ensure_init_jaxmg_backend()
-
-    impl = _potrs_pipeline(
-        layout.mesh,
-        layout.matrix_specs,
-        layout.native_status_specs,
-        rhs_specs,
-        nrhs=int(b.shape[1]),
-        b_distribution_cols=b_distribution_cols,
-        tile_size=layout.tile_shape.rows,
-        return_logdet=return_logdet,
-        pad=pad,
-    )
-    result = impl(a, b)
-    if vector_rhs:
-        result = (result[0], result[1][:, 0], *result[2:])
-    return result
+    else:
+        layout, rhs_specs, b_distribution_cols = _prepared
+        vector_rhs = False
+    nrhs = int(b.shape[1])
+    specs = layout.matrix_specs
+    out_specs = (specs, specs) + ((P(),) if return_logdet else ())
+    out_specs += (layout.native_status_specs,)
+    with jax.sharding.use_abstract_mesh(layout.mesh.abstract_mesh):
+        a = place_for_native_work(a, mesh=layout.mesh, matrix_specs=specs)
+        # Routing columns make B shardable without changing the logical solve.
+        if b_distribution_cols != nrhs:
+            b = jnp.pad(b, ((0, 0), (0, b_distribution_cols - nrhs)))
+        b = place_for_native_work(b, mesh=layout.mesh, matrix_specs=specs)
+        a_work, x, *rest = jax.shard_map(
+            partial(potrs_shardmap_ctx, T_A=T_A, matrix_specs=specs,
+                    return_logdet=return_logdet, pad=pad, _nrhs=nrhs),
+            mesh=layout.mesh, in_specs=(specs, specs), out_specs=out_specs,
+        )(a, b)
+        x = restore_rhs_from_native_work(
+            x, rhs_specs=rhs_specs, mesh=layout.mesh, matrix_specs=specs,
+        )[:, :nrhs]
+    return (a_work, x[:, 0] if vector_rhs else x, *rest)
 
 
 def potrs_shardmap_ctx(
@@ -270,6 +264,7 @@ def potrs_shardmap_ctx(
     in_specs: P | Tuple[P] | List[P] | None = None,
     return_logdet: bool = False,
     pad: bool = True,
+    _nrhs: int | None = None,
 ) -> Union[Tuple[Array, Array, Array], Tuple[Array, Array, Array, Array]]:
     """Solve A x = B on local blocks inside a caller's ``jax.shard_map``.
 
@@ -314,15 +309,66 @@ def potrs_shardmap_ctx(
         - Return ``a_work`` from the outer jitted function when donating A;
           it provides the corresponding matrix-sized output buffer.
     """
-    return _potrs_shardmap_impl(
+    # The global wrapper distinguishes logical RHS columns from routing padding.
+    b, vector_rhs, layout, b_padding, b_distribution_cols = _prepare_local_potrs_call(
         a,
         b,
         T_A,
         matrix_specs,
         in_specs=in_specs,
-        return_logdet=return_logdet,
         pad=pad,
+        caller="potrs_shardmap_ctx",
     )
+    b_varying = jax.typeof(b).manual_axis_type.varying
+    ensure_init_jaxmg_backend()
+
+    # Stage 1: provide tile-aligned capacity for each local input.
+    a_padding = layout.padding
+    a = pad_local_2d(
+        a,
+        row_padding=a_padding.row_padding_per_process,
+        col_padding=a_padding.col_padding_per_process,
+    )
+    b = pad_local_2d(
+        b,
+        row_padding=b_padding.row_padding_per_process,
+        col_padding=b_padding.col_padding_per_process,
+    )
+
+    # Stage 2: run the fused redistribution, factorization, and solve.
+    a_work, x, *logdet, status = _potrs_native_call(
+        a,
+        b,
+        grid=layout.grid,
+        partition_slots=layout.partition_slots,
+        n=a_padding.logical_rows,
+        nrhs=b_distribution_cols if _nrhs is None else _nrhs,
+        b_distribution_cols=b_distribution_cols,
+        tile_size=layout.tile_shape.rows,
+        return_logdet=return_logdet,
+    )
+
+    # Stage 3: remove tile padding and describe which outputs vary by rank.
+    x = unpad_local_2d(
+        x,
+        local_rows=b_padding.local_logical_rows,
+        local_cols=b_padding.local_logical_cols,
+    )
+    if vector_rhs:
+        x = x[:, 0]
+    row_axis, _ = layout.matrix_specs
+    axes = tuple(
+        axis
+        for axis in layout.matrix_specs
+        if axis is not None and layout.mesh.shape[axis] > 1
+    )
+    x_axes = tuple(axis for axis in axes if axis == row_axis or axis in b_varying)
+    a_work = mark_varying(a_work, axes)
+    x = mark_varying(x, x_axes)
+    status = mark_varying(status, axes)
+    if return_logdet:
+        return a_work, x, logdet[0][0], status
+    return a_work, x, status
 
 
 def _check_potrs_operands(a: Array, b: Array, tile_size: int, caller: str):
@@ -463,84 +509,6 @@ def _real_dtype_for_logdet(dtype):
     raise TypeError("potrs supports float32, float64, complex64, and complex128.")
 
 
-def _potrs_shardmap_impl(
-    a: Array,
-    b: Array,
-    T_A: int,
-    matrix_specs: P | Tuple[P] | List[P] | None,
-    *,
-    in_specs: P | Tuple[P] | List[P] | None = None,
-    return_logdet: bool,
-    pad: bool,
-    nrhs: int | None = None,
-):
-    """Pad local blocks, execute the shared solver, and restore local outputs.
-
-    The global wrapper supplies the logical RHS count separately from the
-    routing width. Direct shard-local calls use all supplied columns, including
-    duplicate RHS columns when B is replicated over process columns.
-    """
-    b, vector_rhs, layout, b_padding, b_distribution_cols = _prepare_local_potrs_call(
-        a,
-        b,
-        T_A,
-        matrix_specs,
-        in_specs=in_specs,
-        pad=pad,
-        caller="potrs_shardmap_ctx",
-    )
-    b_varying = jax.typeof(b).manual_axis_type.varying
-    ensure_init_jaxmg_backend()
-
-    # Stage 1: provide tile-aligned capacity for each local input.
-    a_padding = layout.padding
-    a = pad_local_2d(
-        a,
-        row_padding=a_padding.row_padding_per_process,
-        col_padding=a_padding.col_padding_per_process,
-    )
-    b = pad_local_2d(
-        b,
-        row_padding=b_padding.row_padding_per_process,
-        col_padding=b_padding.col_padding_per_process,
-    )
-
-    # Stage 2: run the fused redistribution, factorization, and solve.
-    a_work, x, *logdet, status = _potrs_native_call(
-        a,
-        b,
-        grid=layout.grid,
-        partition_slots=layout.partition_slots,
-        n=a_padding.logical_rows,
-        nrhs=b_distribution_cols if nrhs is None else nrhs,
-        b_distribution_cols=b_distribution_cols,
-        tile_size=layout.tile_shape.rows,
-        return_logdet=return_logdet,
-    )
-
-    # Stage 3: remove tile padding and describe which outputs vary by rank.
-    x = unpad_local_2d(
-        x,
-        local_rows=b_padding.local_logical_rows,
-        local_cols=b_padding.local_logical_cols,
-    )
-    if vector_rhs:
-        x = x[:, 0]
-    row_axis, _ = layout.matrix_specs
-    axes = tuple(
-        axis
-        for axis in layout.matrix_specs
-        if axis is not None and layout.mesh.shape[axis] > 1
-    )
-    x_axes = tuple(axis for axis in axes if axis == row_axis or axis in b_varying)
-    a_work = mark_varying(a_work, axes)
-    x = mark_varying(x, x_axes)
-    status = mark_varying(status, axes)
-    if return_logdet:
-        return a_work, x, logdet[0][0], status
-    return a_work, x, status
-
-
 _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
@@ -595,9 +563,13 @@ def _potrs_native_call(
         output_layouts=output_layouts,
         input_output_aliases={0: 0, 1: 1},
     )
+    # Replicated RHS columns still participate in the same per-rank FFI call.
+    input_axes = tuple(
+        jax.typeof(a).manual_axis_type.varying | jax.typeof(b).manual_axis_type.varying
+    )
     return ffi_fn(
-        a,
-        b,
+        mark_varying(a, input_axes),
+        mark_varying(b, input_axes),
         process_rows=grid.process_rows,
         process_cols=grid.process_cols,
         partition_slots=np.asarray(partition_slots, dtype=np.int64),
@@ -609,62 +581,10 @@ def _potrs_native_call(
 
 
 @lru_cache(maxsize=None)
-def _potrs_pipeline(
-    mesh: Mesh | AbstractMesh,
-    matrix_specs: P,
-    native_status_specs: P,
-    rhs_specs: P,
-    *,
-    nrhs: int,
-    b_distribution_cols: int,
-    tile_size: int,
-    return_logdet: bool,
-    pad: bool,
-):
-    """Build and cache the unjitted global POTRS pipeline.
-
-    The pipeline places A and B in the matrix sharding, runs the shared local
-    solver under ``jax.shard_map``, and restores the solution to the JAX-facing
-    RHS sharding. It is cached by static configuration so repeated solves reuse
-    the same ``jax.shard_map``.
-    """
-    b_distribution_padding = int(b_distribution_cols) - int(nrhs)
-    if return_logdet:
-        out_specs = (matrix_specs, matrix_specs, P(), native_status_specs)
-    else:
-        out_specs = (matrix_specs, matrix_specs, native_status_specs)
-    solve = jax.shard_map(
-        partial(
-            _potrs_shardmap_impl,
-            T_A=tile_size,
-            matrix_specs=matrix_specs,
-            return_logdet=return_logdet,
-            pad=pad,
-            nrhs=nrhs,
-        ),
-        mesh=mesh,
-        in_specs=(matrix_specs, matrix_specs),
-        out_specs=out_specs,
-        check_vma=True,
+def _potrs_compiled(prepared, tile_size: int, *, return_logdet: bool, pad: bool, donate: bool):
+    """Cache the public JIT wrapper around the global context interface."""
+    return jax.jit(
+        partial(potrs_jit_ctx, T_A=tile_size, return_logdet=return_logdet,
+                pad=pad, _prepared=prepared),
+        donate_argnums=(0, 1) if donate else (),
     )
-
-    @use_abstract_mesh_decorator(mesh)
-    def impl(_a: Array, _b: Array):
-        """Place the inputs, solve shard-locally, and restore the solution."""
-        _a = place_for_native_work(_a, mesh=mesh, matrix_specs=matrix_specs)
-        # The public API permits RHS sharding that differs from A, such as a
-        # replicated RHS-column axis, and RHS widths that are not divisible by
-        # the process-column count. Routing columns make B shardable like A.
-        if b_distribution_padding:
-            _b = jnp.pad(_b, ((0, 0), (0, b_distribution_padding)))
-        _b = place_for_native_work(_b, mesh=mesh, matrix_specs=matrix_specs)
-        a_work, out, *rest = solve(_a, _b)
-        out = restore_rhs_from_native_work(
-            out,
-            rhs_specs=rhs_specs,
-            mesh=mesh,
-            matrix_specs=matrix_specs,
-        )
-        return (a_work, out[:, :nrhs], *rest)
-
-    return impl

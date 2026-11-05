@@ -18,15 +18,16 @@ from jax import Array
 from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
-    make_local_pad_fn,
-    make_local_unpad_fn,
+    mark_varying,
+    pad_local_2d,
+    unpad_local_2d,
+    place_for_native_work,
     prepare_input_matrix_layout,
+    prepare_local_matrix_layout,
     prepare_rectangular_matrix_layout,
     restore_matrix_result,
-    use_abstract_mesh_decorator,
 )
 from ._cusolvermp_status import _CUSOLVERMP_QR_STATUS_SIZE
-from ._layout_types import MatrixPadding2D, ProcessGrid
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -90,28 +91,15 @@ def qr(
         pad=pad,
         caller="qr",
     )
-    m, n = map(int, a.shape)
-    ensure_init_jaxmg_backend()
+
     impl = _qr_compiled(
-        layout.mesh,
-        layout.matrix_specs,
-        layout.native_status_specs,
-        layout.grid,
-        layout.partition_slots,
-        layout.padding,
-        r_padding,
-        matrix_result_specs=layout.matrix_result_specs,
-        m=m,
-        n=n,
-        tile_size=int(T_A),
-        dtype=a.dtype,
-        donate=donate,
+        (layout, r_padding), int(T_A), pad=pad, donate=donate,
     )
     q, r, native_status = impl(a)
     return (q, r, native_status) if return_status else (q, r)
 
 
-def qr_shardmap_ctx(
+def qr_jit_ctx(
     a: Array,
     T_A: int,
     mesh: Mesh | AbstractMesh | None = None,
@@ -119,6 +107,7 @@ def qr_shardmap_ctx(
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
     pad: bool = True,
+    _prepared=None,
 ) -> tuple[Array, Array, Array]:
     """Compute reduced QR inside a caller-owned ``jax.jit``.
 
@@ -157,31 +146,112 @@ def qr_shardmap_ctx(
         - If the native solver fails, ``Q`` and ``R`` are filled with NaN
           and the status is non-zero.
     """
+    # Preserve concrete-array layout metadata across the public JIT boundary.
+    if _prepared is None:
+        _prepared = _prepare_qr_call(
+            a, T_A, mesh, matrix_specs, in_specs=in_specs,
+            pad=pad, caller="qr_jit_ctx",
+        )
+    layout, _ = _prepared
+
+    specs = layout.matrix_specs
+    with jax.sharding.use_abstract_mesh(layout.mesh.abstract_mesh):
+        a = place_for_native_work(a, mesh=layout.mesh, matrix_specs=specs)
+        outputs = jax.shard_map(
+            partial(qr_shardmap_ctx, T_A=T_A, matrix_specs=specs,
+                    pad=pad),
+            mesh=layout.mesh,
+            in_specs=specs,
+            out_specs=(specs, specs, layout.native_status_specs),
+        )(a)
+        restore = partial(
+            restore_matrix_result, result_specs=layout.matrix_result_specs,
+            mesh=layout.mesh, matrix_specs=specs,
+        )
+        q, r, status = outputs
+        return restore(q), restore(r), status
+
+
+def qr_shardmap_ctx(
+    a: Array,
+    T_A: int,
+    matrix_specs: P | Tuple[P] | List[P] | None = None,
+    *,
+    in_specs: P | Tuple[P] | List[P] | None = None,
+    pad: bool = True,
+) -> Tuple[Array, Array, Array]:
+    """Compute reduced QR factors inside a caller's ``jax.shard_map``.
+
+    The global matrix must be tall or square. Local blocks need not satisfy
+    that aspect ratio: the enclosing mesh determines the global dimensions.
+
+    Args:
+        a: Local block of the global M x N matrix, with M >= N.
+        T_A: Square tile width used by cuSOLVERMp.
+        matrix_specs: A's partition specification in the enclosing shard map;
+            defaults to the context mesh axes in order.
+        in_specs: Backwards-compatible alias for ``matrix_specs``.
+        pad: Allow tile-capacity padding; otherwise require aligned blocks.
+
+    Returns:
+        ``(q, r, status)``: local blocks of the M x N and N x N factors,
+        respectively, and this rank's diagnostic vector. Q reuses the input
+        work buffer, so no separate ``a_work`` output is needed for donation.
+
+    Raises:
+        TypeError: If the dtype or partition specification is unsupported.
+        ValueError: If called outside shard_map or input/output layouts are invalid.
+    """
     layout, r_padding = _prepare_qr_call(
-        a,
-        T_A,
-        mesh,
-        matrix_specs,
-        in_specs=in_specs,
-        pad=pad,
-        caller="qr_shardmap_ctx",
+        a, T_A, None, matrix_specs, in_specs=in_specs, pad=pad,
+        caller="qr_shardmap_ctx", local=True,
     )
-    m, n = map(int, a.shape)
+
     ensure_init_jaxmg_backend()
-    return _qr_pipeline(
-        layout.mesh,
-        layout.matrix_specs,
-        layout.native_status_specs,
-        layout.grid,
-        layout.partition_slots,
-        layout.padding,
-        r_padding,
-        matrix_result_specs=layout.matrix_result_specs,
-        m=m,
-        n=n,
-        tile_size=int(T_A),
-        dtype=a.dtype,
-    )(a)
+    a_padding = layout.padding
+    matrix_specs, grid = layout.matrix_specs, layout.grid
+    partition_slots = layout.partition_slots
+    m, n = a_padding.logical_rows, a_padding.logical_cols
+    tile_size = int(T_A)
+    process_rows = grid.process_rows
+    process_cols = grid.process_cols
+    slots_attr = np.asarray(partition_slots, dtype=np.int64)
+
+    # Stage 1: provide tile-aligned capacity for the local input.
+    a = pad_local_2d(a, row_padding=a_padding.row_padding_per_process,
+                      col_padding=a_padding.col_padding_per_process)
+    # Stage 2: factorize, form Q and extract R in native code.
+    ffi_fn = partial(
+        jax.ffi.ffi_call(
+            "cusolvermp_qr",
+            (
+                jax.ShapeDtypeStruct(a.shape, a.dtype),
+                jax.ShapeDtypeStruct(
+                    (r_padding.local_physical_rows, r_padding.local_physical_cols),
+                    a.dtype,
+                ),
+                jax.ShapeDtypeStruct((_CUSOLVERMP_QR_STATUS_SIZE,), jnp.int32),
+            ),
+            input_layouts=(_ROW_MAJOR_JAX_LAYOUT,),
+            output_layouts=(_ROW_MAJOR_JAX_LAYOUT, _ROW_MAJOR_JAX_LAYOUT, (0,)),
+            input_output_aliases={0: 0},
+        ),
+        process_rows=process_rows,
+        process_cols=process_cols,
+        partition_slots=slots_attr,
+        m=int(m),
+        n=int(n),
+        tile_size=int(tile_size),
+    )
+    q, r, status = ffi_fn(a)
+    # Stage 3: restore the distinct logical shapes of Q and R.
+    q = unpad_local_2d(q, local_rows=a_padding.local_logical_rows,
+                      local_cols=a_padding.local_logical_cols)
+    r = unpad_local_2d(r, local_rows=r_padding.local_logical_rows,
+                      local_cols=r_padding.local_logical_cols)
+    axes = tuple(axis for axis, size in zip(matrix_specs, (process_rows, process_cols))
+                 if axis is not None and size > 1)
+    return mark_varying(q, axes), mark_varying(r, axes), mark_varying(status, axes)
 
 
 def _prepare_qr_call(
@@ -193,6 +263,7 @@ def _prepare_qr_call(
     in_specs: P | Tuple[P] | List[P] | None,
     pad: bool,
     caller: str,
+    local: bool = False,
 ):
     """Validate a QR call and derive its distributed layouts.
 
@@ -200,7 +271,8 @@ def _prepare_qr_call(
 
     1. Validate the input rank, dtype, and tile size.
     2. Require a tall or square input for the reduced QR decomposition.
-    3. Resolve the mesh, process grid, rank map, and tile-aligned layout of A.
+    3. Resolve the mesh, process grid, rank map, and tile-aligned layout of A;
+       local blocks use the enclosing mesh to reconstruct the global shape.
     4. Validate and prepare the square R output layout.
     """
     if a.ndim != 2:
@@ -209,18 +281,22 @@ def _prepare_qr_call(
     if int(tile_size) <= 0:
         raise ValueError("T_A must be positive.")
     m, n = map(int, a.shape)
-    if m < n:
+    if not local and m < n:
         raise ValueError(f"{caller} requires a tall or square matrix with m >= n.")
 
-    layout = prepare_input_matrix_layout(
-        a,
-        tile_size,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
-        in_specs=in_specs,
-        pad=pad,
-        caller=caller,
-    )
+    if local:
+        layout = prepare_local_matrix_layout(
+            a, tile_size, matrix_specs=matrix_specs, in_specs=in_specs,
+            pad=pad, caller=caller,
+        )
+        m, n = layout.padding.logical_rows, layout.padding.logical_cols
+        if m < n:
+            raise ValueError(f"{caller} requires a tall or square matrix with m >= n.")
+    else:
+        layout = prepare_input_matrix_layout(
+            a, tile_size, mesh=mesh, matrix_specs=matrix_specs,
+            in_specs=in_specs, pad=pad, caller=caller,
+        )
     r_padding = prepare_rectangular_matrix_layout(
         n,
         n,
@@ -242,120 +318,9 @@ _ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
 @lru_cache(maxsize=None)
-def _qr_pipeline(
-    mesh: Mesh | AbstractMesh,
-    matrix_specs: P,
-    native_status_specs: P,
-    grid: ProcessGrid,
-    partition_slots: tuple[int, ...],
-    a_padding: MatrixPadding2D,
-    r_padding: MatrixPadding2D,
-    *,
-    matrix_result_specs: P,
-    m: int,
-    n: int,
-    tile_size: int,
-    dtype,
-):
-    """Build and cache the unjitted JAX-visible QR execution pipeline."""
-    process_rows = grid.process_rows
-    process_cols = grid.process_cols
-    slots_attr = np.asarray(partition_slots, dtype=np.int64)
-    pad_a = make_local_pad_fn(mesh, matrix_specs, a_padding)
-    unpad_q = make_local_unpad_fn(mesh, matrix_specs, a_padding)
-    unpad_r = make_local_unpad_fn(mesh, matrix_specs, r_padding)
-    restore_result = partial(
-        restore_matrix_result,
-        result_specs=matrix_result_specs,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
+def _qr_compiled(prepared, tile_size: int, *, pad: bool, donate: bool):
+    """Cache the public JIT wrapper around the global context interface."""
+    return jax.jit(
+        partial(qr_jit_ctx, T_A=tile_size, pad=pad, _prepared=prepared),
+        donate_argnums=(0,) if donate else (),
     )
-
-    def qr_ffi(_a: Array):
-        """Declare local FFI buffers and static reduced-QR metadata."""
-        if _a.ndim != 2:
-            raise ValueError("cusolvermp_qr expects a rank-2 matrix buffer.")
-        _check_supported_qr_dtype(_a.dtype)
-        ffi_fn = partial(
-            jax.ffi.ffi_call(
-                "cusolvermp_qr",
-                (
-                    jax.ShapeDtypeStruct(_a.shape, _a.dtype),
-                    jax.ShapeDtypeStruct(
-                        (r_padding.local_physical_rows, r_padding.local_physical_cols),
-                        _a.dtype,
-                    ),
-                    jax.ShapeDtypeStruct((_CUSOLVERMP_QR_STATUS_SIZE,), jnp.int32),
-                ),
-                input_layouts=(_ROW_MAJOR_JAX_LAYOUT,),
-                output_layouts=(_ROW_MAJOR_JAX_LAYOUT, _ROW_MAJOR_JAX_LAYOUT, (0,)),
-                input_output_aliases={0: 0},
-            ),
-            process_rows=process_rows,
-            process_cols=process_cols,
-            partition_slots=slots_attr,
-            m=int(m),
-            n=int(n),
-            tile_size=int(tile_size),
-        )
-        return ffi_fn(_a)
-
-    qr_shardmap = jax.shard_map(
-        qr_ffi,
-        mesh=mesh,
-        in_specs=matrix_specs,
-        out_specs=(matrix_specs, matrix_specs, native_status_specs),
-        check_vma=False,
-    )
-
-    @use_abstract_mesh_decorator(mesh)
-    def impl(_a: Array):
-        """Apply local padding, fused reduced QR, and output slicing."""
-        q_padded, r_padded, native_status = qr_shardmap(pad_a(_a))
-        return (
-            restore_result(unpad_q(q_padded)),
-            restore_result(unpad_r(r_padded)),
-            native_status,
-        )
-
-    return impl
-
-
-@lru_cache(maxsize=None)
-def _qr_compiled(
-    mesh: Mesh | AbstractMesh,
-    matrix_specs: P,
-    native_status_specs: P,
-    grid: ProcessGrid,
-    partition_slots: tuple[int, ...],
-    a_padding: MatrixPadding2D,
-    r_padding: MatrixPadding2D,
-    *,
-    matrix_result_specs: P,
-    m: int,
-    n: int,
-    tile_size: int,
-    dtype,
-    donate: bool,
-):
-    """Build and cache the internally jitted public QR pipeline."""
-    pipeline = _qr_pipeline(
-        mesh,
-        matrix_specs,
-        native_status_specs,
-        grid,
-        partition_slots,
-        a_padding,
-        r_padding,
-        matrix_result_specs=matrix_result_specs,
-        m=m,
-        n=n,
-        tile_size=tile_size,
-        dtype=dtype,
-    )
-
-    @partial(jax.jit, donate_argnums=(0,) if donate else ())
-    def impl(_a: Array):
-        return pipeline(_a)
-
-    return impl

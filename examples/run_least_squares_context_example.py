@@ -10,7 +10,7 @@ jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
 from jax.sharding import NamedSharding, PartitionSpec as P
-from jaxmg import least_squares_shardmap_ctx
+from jaxmg import least_squares_jit_ctx
 
 
 T_A = 128
@@ -74,7 +74,7 @@ def main() -> None:
         b = jax.reshard(a @ jnp.ones((n,), dtype=DTYPE), vector_sharding)
 
         # Work outputs remain internal because A and B are created here.
-        _, _, x, _ = least_squares_shardmap_ctx(
+        _, _, x, _ = least_squares_jit_ctx(
             a,
             b,
             T_A=T_A,

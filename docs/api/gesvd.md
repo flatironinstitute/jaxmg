@@ -13,7 +13,7 @@ singular-vector matrices. The left and right singular vectors can be requested
 independently with `compute_u` and `compute_vh`; outputs that are not requested
 are neither allocated nor redistributed.
 
-Use `gesvd` for a direct decomposition. Use `gesvd_shardmap_ctx` when the SVD
+Use `gesvd` for a direct decomposition. Use `gesvd_jit_ctx` when the SVD
 is part of a larger caller-owned `jax.jit`. The context interface returns the
 overwritten input-matrix work buffer so an outer compiled function can preserve
 the donated input alias. cuSOLVERMp requires separate storage for A, U, and Vh,
@@ -22,5 +22,12 @@ so requested singular-vector matrices cannot alias the donated input.
 ::: jaxmg.gesvd
 
 ---
+
+::: jaxmg.gesvd_jit_ctx
+
+---
+
+Use `gesvd_shardmap_ctx` for local blocks inside your own `jax.shard_map`.
+The previous global-array context interface is now named `gesvd_jit_ctx`.
 
 ::: jaxmg.gesvd_shardmap_ctx

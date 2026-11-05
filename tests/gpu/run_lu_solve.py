@@ -48,7 +48,7 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import lu_solve, lu_solve_shardmap_ctx
+from jaxmg import lu_solve, lu_solve_jit_ctx, lu_solve_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_LU_SOLVE_STATUS_SIZE
 
 
@@ -76,7 +76,7 @@ def run_singular_case(dtype) -> None:
     b_dev = jax.device_put(b, NamedSharding(mesh, P(None)))
 
     _, out, status = jax.jit(
-        lambda _a, _b: lu_solve_shardmap_ctx(
+        lambda _a, _b: lu_solve_jit_ctx(
             _a, _b, SINGULAR_TILE_SIZE, mesh=mesh, matrix_specs=matrix_specs
         )
     )(a_dev, b_dev)
@@ -117,6 +117,9 @@ def run_case() -> None:
     if case.rhs_mode == "vector_replicated":
         b = b[:, 0]
     expected = jnp.linalg.solve(a, b)
+    # device_put may reuse these buffers, so save residual references before donation.
+    a_host = np.array(a, copy=True)
+    b_host = np.array(b, copy=True)
 
     a_dev = jax.device_put(a, NamedSharding(mesh, matrix_specs))
     if case.rhs_mode == "vector_replicated":
@@ -145,7 +148,7 @@ def run_case() -> None:
             static_argnames=("tile_size",),
         )
         def solve(_a, _b, *, tile_size):
-            return lu_solve_shardmap_ctx(
+            return lu_solve_jit_ctx(
                 _a,
                 _b,
                 tile_size,
@@ -156,6 +159,14 @@ def run_case() -> None:
 
         a_work, out, status = solve(a_dev, b_dev, tile_size=case.tile_size)
         a_work.block_until_ready()
+    elif interface == "shardmap":
+        solve = jax.jit(jax.shard_map(
+            partial(lu_solve_shardmap_ctx, T_A=case.tile_size, matrix_specs=matrix_specs),
+            mesh=mesh, in_specs=(matrix_specs, rhs_specs),
+            out_specs=(matrix_specs, rhs_specs, P(("pr", "pc"))),
+        ), donate_argnums=(0, 1))
+        _, out, status = solve(a_dev, b_dev)
+        expected_output_sharding = NamedSharding(mesh, rhs_specs)
     else:
 
         @partial(jax.jit, static_argnames=("tile_size",))
@@ -187,8 +198,6 @@ def run_case() -> None:
     assert out.sharding.is_equivalent_to(expected_output_sharding, out.ndim)
 
     out_host = global_array_to_numpy(out)
-    a_host = np.asarray(a)
-    b_host = np.asarray(b)
     residual = np.linalg.norm(a_host @ out_host - b_host) / np.linalg.norm(b_host)
     assert float(residual) < 1e-3
 

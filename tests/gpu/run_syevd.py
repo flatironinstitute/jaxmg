@@ -47,7 +47,7 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import syevd, syevd_shardmap_ctx
+from jaxmg import syevd, syevd_jit_ctx, syevd_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_SYEVD_STATUS_SIZE
 
 
@@ -75,7 +75,7 @@ def run_case() -> None:
             static_argnames=("tile_size",),
         )
         def eigensolve(_a, *, tile_size):
-            return syevd_shardmap_ctx(
+            return syevd_jit_ctx(
                 _a,
                 tile_size,
                 mesh=mesh,
@@ -91,6 +91,20 @@ def run_case() -> None:
             a_work, eigenvalues, status = outputs
             vectors = None
         a_work.block_until_ready()
+    elif interface == "shardmap":
+        out_specs = (matrix_specs, P())
+        if return_eigenvectors:
+            out_specs += (matrix_specs,)
+        eigensolve = jax.jit(jax.shard_map(
+            partial(syevd_shardmap_ctx, T_A=case.tile_size,
+                    return_eigenvectors=return_eigenvectors),
+            mesh=mesh, in_specs=matrix_specs,
+            out_specs=out_specs + (P(("pr", "pc")),),
+        ), donate_argnums=(0,))
+        a_work, eigenvalues, *rest = eigensolve(a_dev)
+        vectors = rest[0] if return_eigenvectors else None
+        status = rest[-1]
+        assert eigenvalues.sharding.is_fully_replicated
     else:
 
         @partial(jax.jit, static_argnames=("tile_size",))

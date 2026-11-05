@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from jax.sharding import AxisType, Mesh, NamedSharding, PartitionSpec as P
 
 import jaxmg._getrf as getrf_module
-from jaxmg import getrf, getrf_shardmap_ctx
+from jaxmg import getrf, getrf_jit_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_GETRF_STATUS_SIZE
 
 
@@ -18,27 +18,29 @@ def _one_rank_mesh() -> Mesh:
 
 
 def _install_fake_getrf_backend(monkeypatch):
+    """Run the public wrappers with only the native FFI replaced."""
     captured = {}
 
-    def fake_pipeline(*args, **kwargs):
-        captured["pipeline_args"] = args
-        captured["pipeline_kwargs"] = kwargs
-
-        def impl(_a):
-            piv = jnp.arange(kwargs["n"], dtype=jnp.int32)
-            status = jnp.zeros((_CUSOLVERMP_GETRF_STATUS_SIZE,), dtype=jnp.int32)
-            return _a, piv, status
-
+    def fake_ffi(target, result_types, **options):
+        def impl(*inputs, **attrs):
+            captured["native_kwargs"] = attrs
+            captured["target"] = target
+            aliases = {out: arg for arg, out in options["input_output_aliases"].items()}
+            return tuple(inputs[aliases[i]] if i in aliases else jnp.zeros(t.shape, t.dtype)
+                         for i, t in enumerate(result_types))
         return impl
 
-    def fake_compiled(*args, **kwargs):
+    compiled = getrf_module._getrf_compiled
+    compiled.cache_clear()
+
+    def record_compiled(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
-        return fake_pipeline(*args, **kwargs)
+        return compiled(*args, **kwargs)
 
     monkeypatch.setattr(getrf_module, "ensure_init_jaxmg_backend", lambda: None)
-    monkeypatch.setattr(getrf_module, "_getrf_pipeline", fake_pipeline)
-    monkeypatch.setattr(getrf_module, "_getrf_compiled", fake_compiled)
+    monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi)
+    monkeypatch.setattr(getrf_module, "_getrf_compiled", record_compiled)
     return captured
 
 
@@ -54,8 +56,8 @@ def test_getrf_returns_factor_pivots_and_optional_status(monkeypatch):
     assert lu.shape == (4, 4)
     assert piv.shape == (4,)
     assert piv.dtype == jnp.int32
-    assert captured["kwargs"]["n"] == 4
-    assert captured["kwargs"]["tile_size"] == 2
+    assert captured["native_kwargs"]["n"] == 4
+    assert captured["native_kwargs"]["tile_size"] == 2
 
     lu, piv, status = getrf(
         jnp.eye(4, dtype=jnp.float32),
@@ -69,11 +71,11 @@ def test_getrf_returns_factor_pivots_and_optional_status(monkeypatch):
     assert status.shape == (_CUSOLVERMP_GETRF_STATUS_SIZE,)
 
 
-def test_getrf_shardmap_ctx_supports_outer_donation(monkeypatch):
+def test_getrf_jit_ctx_supports_outer_donation(monkeypatch):
     _install_fake_getrf_backend(monkeypatch)
     mesh = _one_rank_mesh()
     factorize = jax.jit(
-        partial(getrf_shardmap_ctx, T_A=2, mesh=mesh, matrix_specs=P("pr", "pc")),
+        partial(getrf_jit_ctx, T_A=2, mesh=mesh, matrix_specs=P("pr", "pc")),
         donate_argnums=(0,),
     )
     lu, piv, status = factorize(jnp.eye(4, dtype=jnp.float32))
@@ -140,7 +142,7 @@ def test_getrf_pipeline_replicates_pivots(monkeypatch):
     mesh = Mesh(devices, ("pr",), axis_types=(AxisType.Explicit,))
     with jax.set_mesh(mesh):
         a = jax.device_put(jnp.eye(4), NamedSharding(mesh, P("pr", None)))
-        lu, piv, status = jax.eval_shape(partial(getrf_shardmap_ctx, T_A=2), a)
+        lu, piv, status = jax.eval_shape(partial(getrf_jit_ctx, T_A=2), a)
 
     assert lu.shape == (4, 4)
     assert lu.sharding.spec == P("pr", None)

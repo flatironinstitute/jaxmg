@@ -46,7 +46,7 @@ jax.distributed.initialize(
     coordinator_bind_address=coord_addr if proc_id == 0 else None,
 )
 
-from jaxmg import getrf, getrf_shardmap_ctx
+from jaxmg import getrf, getrf_jit_ctx, getrf_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_GETRF_STATUS_SIZE
 
 
@@ -96,7 +96,7 @@ def run_singular_case(dtype) -> None:
     a_dev = jax.device_put(a, NamedSharding(mesh, matrix_specs))
 
     lu, piv, status = jax.jit(
-        lambda _a: getrf_shardmap_ctx(
+        lambda _a: getrf_jit_ctx(
             _a, SINGULAR_TILE_SIZE, mesh=mesh, matrix_specs=matrix_specs
         )
     )(a_dev)
@@ -130,11 +130,18 @@ def run_case() -> None:
 
         @partial(jax.jit, donate_argnums=(0,), static_argnames=("tile_size",))
         def factorize(_a, *, tile_size):
-            return getrf_shardmap_ctx(
+            return getrf_jit_ctx(
                 _a, tile_size, mesh=mesh, matrix_specs=matrix_specs
             )
 
         lu, piv, status = factorize(a_dev, tile_size=case.tile_size)
+    elif interface == "shardmap":
+        factorize = jax.jit(jax.shard_map(
+            partial(getrf_shardmap_ctx, T_A=case.tile_size, matrix_specs=matrix_specs),
+            mesh=mesh, in_specs=matrix_specs,
+            out_specs=(matrix_specs, P(), P(("pr", "pc"))),
+        ), donate_argnums=(0,))
+        lu, piv, status = factorize(a_dev)
     elif interface == "inferred":
         # Neither mesh nor matrix_specs: inside the caller's jit, JAXMg reads
         # them off the type of A and the abstract context mesh.

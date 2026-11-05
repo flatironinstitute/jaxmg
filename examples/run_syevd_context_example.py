@@ -9,7 +9,7 @@ jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
 from jax.sharding import NamedSharding, PartitionSpec as P
-from jaxmg import syevd_shardmap_ctx
+from jaxmg import syevd_jit_ctx
 
 
 T_A = 128
@@ -71,7 +71,7 @@ def main() -> None:
         )
 
         # Run the JAXMg eigensolver within the caller-owned JIT.
-        _, eigenvalues, eigenvectors, _ = syevd_shardmap_ctx(
+        _, eigenvalues, eigenvectors, _ = syevd_jit_ctx(
             a,
             T_A=T_A,
         )

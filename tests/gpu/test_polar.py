@@ -26,7 +26,7 @@ def test_polar_can_omit_h():
 
 
 @pytest.mark.multi_gpu
-def test_polar_shardmap_ctx():
+def test_polar_jit_ctx():
     """Run polar under a caller-owned JIT with donated A storage."""
     run_gpu_test(GPU_TEST, 2, "padded_uh", "float32", interface="context")
 
@@ -41,3 +41,14 @@ def test_polar_column_grid():
 def test_polar_square_aligned():
     """Exercise the square boundary without local padding."""
     run_gpu_test(GPU_TEST, 1, "square_aligned", "float32")
+
+
+@pytest.mark.parametrize("num_procs,case", [
+    pytest.param(1, "square_aligned", marks=pytest.mark.single_gpu),
+    pytest.param(2, "padded_uh", marks=pytest.mark.multi_gpu),
+    pytest.param(2, "padded_u", marks=pytest.mark.multi_gpu),
+    pytest.param(2, "column_grid", marks=pytest.mark.multi_gpu),
+])
+def test_polar_shardmap_ctx(num_procs, case):
+    """Validate local polar factors with either output mode and grid axis."""
+    run_gpu_test(GPU_TEST, num_procs, case, "float64", interface="shardmap")

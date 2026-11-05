@@ -13,7 +13,7 @@ The returned solution has shape `(N,)` or `(N, K)`, respectively.
 Each process-grid column must own at least one block-cyclic tile of $B$; a
 vector input therefore requires a process grid with one column.
 
-Use `least_squares` for a direct solve. Use `least_squares_shardmap_ctx` when
+Use `least_squares` for a direct solve. Use `least_squares_jit_ctx` when
 the solve is part of a larger caller-owned `jax.jit`. Since cuSOLVERMp
 overwrites both distributed inputs, the context interface returns `a_work` and
 `b_work` as shape-compatible alias targets for donated arguments.
@@ -21,5 +21,12 @@ overwrites both distributed inputs, the context interface returns `a_work` and
 ::: jaxmg.least_squares
 
 ---
+
+::: jaxmg.least_squares_jit_ctx
+
+---
+
+Use `least_squares_shardmap_ctx` for local blocks inside your own `jax.shard_map`.
+The previous global-array context interface is now named `least_squares_jit_ctx`.
 
 ::: jaxmg.least_squares_shardmap_ctx

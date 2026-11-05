@@ -37,7 +37,7 @@ def test_gesvd_full_matrices():
 
 
 @pytest.mark.multi_gpu
-def test_gesvd_shardmap_ctx():
+def test_gesvd_jit_ctx():
     """Run GESVD under a caller-owned JIT with donated A storage."""
     run_gpu_test(
         GPU_TEST,
@@ -46,6 +46,19 @@ def test_gesvd_shardmap_ctx():
         "float32",
         interface="context",
     )
+
+
+@pytest.mark.parametrize("num_procs,case", [
+    pytest.param(1, "tall_uv", marks=pytest.mark.single_gpu),
+    pytest.param(2, "tall_full_uv", marks=pytest.mark.multi_gpu),
+    pytest.param(2, "wide_padding_uv", marks=pytest.mark.multi_gpu),
+    pytest.param(2, "wide_padding_u", marks=pytest.mark.multi_gpu),
+    pytest.param(2, "wide_padding_vh", marks=pytest.mark.multi_gpu),
+    pytest.param(2, "wide_padding_values", marks=pytest.mark.multi_gpu),
+])
+def test_gesvd_shardmap_ctx(num_procs, case):
+    """Validate selected vectors and replicated values inside a shard map."""
+    run_gpu_test(GPU_TEST, num_procs, case, "float32", interface="shardmap")
 
 
 @pytest.mark.slow
