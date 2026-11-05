@@ -608,12 +608,58 @@
   
   
     <li class="md-nav__item">
+      <a href="../../examples/potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cholesky factorization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../examples/lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     LU solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    LU factorization
     
   </span>
   
@@ -842,12 +888,58 @@
   
   
     <li class="md-nav__item">
+      <a href="../../api/potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.potrf
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../api/lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     jaxmg.lu_solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.getrf
     
   </span>
   
@@ -1323,6 +1415,21 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Versioning">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#new-jax-releases" class="md-nav__link">
+    <span class="md-ellipsis">
+      New JAX releases
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -1463,6 +1570,21 @@
       Versioning
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Versioning">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#new-jax-releases" class="md-nav__link">
+    <span class="md-ellipsis">
+      New JAX releases
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1617,6 +1739,7 @@ not runtime-tested by Jenkins.</p>
 <li><code>.github/workflows/build-wheels.yml</code>;</li>
 <li><code>.github/workflows/ci.yml</code>;</li>
 <li><code>.github/workflows/jenkins-test.yml</code>;</li>
+<li><code>.github/workflows/jax-compat.yml</code>;</li>
 <li><code>.jenkins/Jenkinsfile</code>.</li>
 </ul>
 <h2 id="versioned-documentation">Versioned documentation<a class="headerlink" href="#versioned-documentation" title="Permanent link">¤</a></h2>
@@ -1683,11 +1806,11 @@ waits for approval, then publishes to PyPI and creates the GitHub release.</p>
 </tr>
 <tr>
 <td><code>MINOR</code></td>
-<td>One per tracked JAX release, so a new JAX always means a new minor.</td>
+<td>One per <code>JAX_GIT_TAG</code> bump, i.e. a rebuild against a new JAX.</td>
 </tr>
 <tr>
 <td><code>PATCH</code></td>
-<td>JAXMg fixes against the same JAX release.</td>
+<td>JAXMg fixes, or a widened JAX range, on the same build.</td>
 </tr>
 </tbody>
 </table>
@@ -1720,6 +1843,35 @@ waits for approval, then publishes to PyPI and creates the GitHub release.</p>
 </table>
 <p>Each JAXMg release must declare the JAX versions validated against its native
 backend in <code>pyproject.toml</code>, for example <code>jax&gt;=0.11.1,&lt;0.11.3</code>.</p>
+<blockquote>
+<p>The <code>JAX_IFRT_VERSION_NUMBER</code> tracks changes to the distributed runtime interface, and can be used as a guide to investigate breaking changes in the XLA backend.</p>
+</blockquote>
+<h3 id="new-jax-releases">New JAX releases<a class="headerlink" href="#new-jax-releases" title="Permanent link">¤</a></h3>
+<p>A new JAX release does not always need a rebuild: the existing backend may
+still work with it. <code>.github/jax-compat/latest_tested.txt</code> pins the newest
+validated JAX, and Dependabot opens a PR bumping it when JAX releases. That PR
+runs <code>.github/workflows/jax-compat.yml</code>, which:</p>
+<ol>
+<li>lists every JAX release between the current <code>pyproject.toml</code> range and the
+   new pin;</li>
+<li>takes the latest <code>ci.yml</code> wheel built from the same <code>JAX_GIT_TAG</code>, or builds
+   one if those artifacts have expired;</li>
+<li>runs the Jenkins A100 suite once per version, with that exact JAX installed;</li>
+<li>
+<p>on success, pushes a commit to the PR that raises the upper bound of every
+   <code>jax</code> requirement in <code>pyproject.toml</code>.</p>
+</li>
+<li>
+<p><strong>Green:</strong> merge the PR. The widened range ships in the next PATCH release;
+  add the new JAX to the compatibility tables (README.md, <code>docs/install.md</code> and
+  above) as part of that release.</p>
+</li>
+<li><strong>Red:</strong> close the PR (Dependabot then skips that release) and rebuild: bump
+  <code>JAX_GIT_TAG</code>, the <code>pyproject.toml</code> range and <code>latest_tested.txt</code> together,
+  as a new MINOR release.</li>
+</ol>
+<p>To test a version by hand, run the <code>JAX compatibility</code> workflow with
+<code>jax_version</code> set.</p>
 
 
 

@@ -610,12 +610,58 @@
   
   
     <li class="md-nav__item">
+      <a href="../../examples/potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cholesky factorization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../examples/lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     LU solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    LU factorization
     
   </span>
   
@@ -844,12 +890,58 @@
   
   
     <li class="md-nav__item">
+      <a href="../../api/potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.potrf
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../api/lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     jaxmg.lu_solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.getrf
     
   </span>
   
@@ -1911,8 +2003,15 @@ differences are the cuSOLVERMp call sequence and solver workspace:</p>
 <li><code>potrs</code> calls <code>cusolverMpPotrf</code> followed by <code>cusolverMpPotrs</code>. If
   <code>return_logdet=True</code>, each process reads the Cholesky diagonal entries it owns
   and the rank-local sums are combined by an in-place NCCL all-reduce.</li>
+<li><code>potrf</code> calls <code>cusolverMpPotrf</code> without a solve. cuSOLVERMp leaves the input
+  in the strict upper triangle, so a kernel zeros it in the block-cyclic layout
+  before the factor is reverse-redistributed in place of the donated A.</li>
 <li><code>lu_solve</code> calls <code>cusolverMpGetrf</code> followed by <code>cusolverMpGetrs</code> and allocates
   a pivot vector according to the local cuSOLVERMp column ownership.</li>
+<li><code>getrf</code> calls <code>cusolverMpGetrf</code> without a solve and reverse-redistributes the
+  packed LU factor in place of the donated A. Each rank scatters the pivots of
+  the columns it owns into a global vector, and an NCCL max all-reduce
+  replicates that vector on every rank.</li>
 <li><code>least_squares</code> calls <code>cusolverMpGels</code>. The solve input has <span class="arithmatex">\(M\)</span> rows on entry
   and is overwritten in place, with the <span class="arithmatex">\(N\)</span> solution rows restored to their
   original JAX-facing sharding.</li>
@@ -2003,7 +2102,16 @@ differences are the cuSOLVERMp call sequence and solver workspace:</p>
 <td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/potrs_logdet.cu.cc">src/cuda/cusolvermp_routines/potrs_logdet.cu.cc</a></td>
 </tr>
 <tr>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_potrf.cc">src/cuda/cusolvermp_routines/cusolvermp_potrf.cc</a></td>
+</tr>
+<tr>
 <td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc">src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_getrf.cc">src/cuda/cusolvermp_routines/cusolvermp_getrf.cc</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/factor_extract.cu.cc">src/cuda/cusolvermp_routines/factor_extract.cu.cc</a></td>
 </tr>
 <tr>
 <td><a href="https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gels.cc">src/cuda/cusolvermp_routines/cusolvermp_gels.cc</a></td>

@@ -610,12 +610,58 @@
   
   
     <li class="md-nav__item">
+      <a href="../examples/potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cholesky factorization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../examples/lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     LU solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    LU factorization
     
   </span>
   
@@ -862,9 +908,27 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#potrf" class="md-nav__link">
+    <span class="md-ellipsis">
+      potrf
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#lu_solve" class="md-nav__link">
     <span class="md-ellipsis">
       lu_solve
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#getrf" class="md-nav__link">
+    <span class="md-ellipsis">
+      getrf
     </span>
   </a>
   
@@ -954,12 +1018,58 @@
   
   
     <li class="md-nav__item">
+      <a href="potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.potrf
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     jaxmg.lu_solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.getrf
     
   </span>
   
@@ -1343,9 +1453,27 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#potrf" class="md-nav__link">
+    <span class="md-ellipsis">
+      potrf
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#lu_solve" class="md-nav__link">
     <span class="md-ellipsis">
       lu_solve
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#getrf" class="md-nav__link">
+    <span class="md-ellipsis">
+      getrf
     </span>
   </a>
   
@@ -1437,12 +1565,30 @@ A x = B, \quad A = L L^{\top} \;\text{(real)} \quad \text{or} \quad A = L L^{\da
 <p>Solve for <span class="arithmatex">\(x\)</span> using the Cholesky factors.</p>
 <p><a href="potrs/">POTRS API and usage</a></p>
 <hr />
+<h2 id="potrf"><code>potrf</code><a class="headerlink" href="#potrf" title="Permanent link">¤</a></h2>
+<p>Multi-GPU Cholesky factorization of a symmetric (Hermitian) positive-definite
+matrix, without a solve.</p>
+<div class="arithmatex">\[
+A = L L^{\top} \;\text{(real)} \quad \text{or} \quad A = L L^{\dagger}\;\text{(complex)}
+\]</div>
+<p>Returns the lower-triangular factor <span class="arithmatex">\(L\)</span>.</p>
+<p><a href="potrf/"><code>potrf</code> API and usage</a></p>
+<hr />
 <h2 id="lu_solve"><code>lu_solve</code><a class="headerlink" href="#lu_solve" title="Permanent link">¤</a></h2>
 <p>Multi-GPU pivoted LU solver for general nonsingular matrices.</p>
 <div class="arithmatex">\[
 P A = L U, \qquad A x = B.
 \]</div>
 <p><a href="lu_solve/"><code>lu_solve</code> API and usage</a></p>
+<hr />
+<h2 id="getrf"><code>getrf</code><a class="headerlink" href="#getrf" title="Permanent link">¤</a></h2>
+<p>Multi-GPU pivoted LU factorization of a square matrix, without a solve.</p>
+<div class="arithmatex">\[
+P A = L U.
+\]</div>
+<p>Returns the packed factors and the pivot indices, in the format of
+<code>jax.scipy.linalg.lu_factor</code>.</p>
+<p><a href="getrf/"><code>getrf</code> API and usage</a></p>
 <hr />
 <h2 id="least_squares"><code>least_squares</code><a class="headerlink" href="#least_squares" title="Permanent link">¤</a></h2>
 <p>Multi-GPU least-squares solver for overdetermined systems.</p>

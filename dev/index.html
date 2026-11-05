@@ -664,12 +664,58 @@
   
   
     <li class="md-nav__item">
+      <a href="examples/potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cholesky factorization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="examples/lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     LU solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="examples/getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    LU factorization
     
   </span>
   
@@ -898,12 +944,58 @@
   
   
     <li class="md-nav__item">
+      <a href="api/potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.potrf
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="api/lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     jaxmg.lu_solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="api/getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.getrf
     
   </span>
   
@@ -1316,9 +1408,15 @@ routines, while retaining a familiar JAX interface.</p>
 <li><a href="api/potrs/"><code>potrs</code></a>: Solves the system of linear equations <span class="arithmatex">\(Ax=B\)</span>, where
   <span class="arithmatex">\(A\)</span> is an <span class="arithmatex">\(N \times N\)</span> symmetric or Hermitian positive-definite matrix, using
   a Cholesky decomposition. It can also return the log determinant of <span class="arithmatex">\(A\)</span>.</li>
+<li><a href="api/potrf/"><code>potrf</code></a>: Computes the Cholesky factor <span class="arithmatex">\(L\)</span> of an
+  <span class="arithmatex">\(N \times N\)</span> symmetric or Hermitian positive-definite matrix <span class="arithmatex">\(A=LL^{\dagger}\)</span>,
+  without a solve.</li>
 <li><a href="api/lu_solve/"><code>lu_solve</code></a>: Solves the system of linear equations <span class="arithmatex">\(Ax=B\)</span>,
   where <span class="arithmatex">\(A\)</span> is an <span class="arithmatex">\(N \times N\)</span> general nonsingular matrix, using a pivoted LU
   decomposition.</li>
+<li><a href="api/getrf/"><code>getrf</code></a>: Computes the pivoted LU factorization <span class="arithmatex">\(PA=LU\)</span> of
+  an <span class="arithmatex">\(N \times N\)</span> matrix, returning the packed factors and pivot indices
+  without a solve.</li>
 <li><a href="api/least_squares/"><code>least_squares</code></a>: Solves the overdetermined system
   <span class="arithmatex">\(\min_X\lVert AX-B\rVert_2\)</span> for an <span class="arithmatex">\(M \times N\)</span> matrix with <span class="arithmatex">\(M\geq N\)</span> using
   a distributed QR factorization.</li>
@@ -1349,8 +1447,10 @@ memory overhead.</p>
 <ul>
 <li><code>potrs</code>: <a href="https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf"><code>cusolverMpPotrf</code></a>
   and <a href="https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrs"><code>cusolverMpPotrs</code></a></li>
+<li><code>potrf</code>: <a href="https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf"><code>cusolverMpPotrf</code></a></li>
 <li><code>lu_solve</code>: <a href="https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf"><code>cusolverMpGetrf</code></a>
   and <a href="https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs"><code>cusolverMpGetrs</code></a></li>
+<li><code>getrf</code>: <a href="https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf"><code>cusolverMpGetrf</code></a></li>
 <li><code>least_squares</code>: <a href="https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgels"><code>cusolverMpGels</code></a></li>
 <li><code>qr</code>: <a href="https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgeqrf"><code>cusolverMpGeqrf</code></a>
   and <a href="https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermporgqr"><code>cusolverMpOrgqr</code></a></li>
