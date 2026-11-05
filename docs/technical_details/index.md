@@ -88,8 +88,13 @@ The redistribution stages are shared by all public routines:
 - `potrs` calls `cusolverMpPotrf` followed by `cusolverMpPotrs`. When requested,
   it reads the distributed factor diagonal and performs a one-scalar NCCL
   all-reduce to return `log(det(A))`.
+- `potrf` calls `cusolverMpPotrf` only, zeros the strict upper triangle of the
+  distributed factor, and restores $L$ in place of the donated A.
 - `lu_solve` calls `cusolverMpGetrf` followed by `cusolverMpGetrs` and manages
   the distributed pivot allocation.
+- `getrf` calls `cusolverMpGetrf` only, restores the packed LU factor in place
+  of the donated A, and gathers the distributed pivots into one replicated
+  vector with an NCCL max all-reduce.
 - `least_squares` calls `cusolverMpGels` for overdetermined rectangular systems
   and restores the solution from the overwritten solve-input buffer.
 - `qr` calls `cusolverMpGeqrf`, preserves the upper-triangular factor, and then

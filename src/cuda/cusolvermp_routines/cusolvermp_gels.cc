@@ -46,8 +46,8 @@ absl::Status RunCusolverMpDistributedGels(
     int64_t nrhs, int64_t tile_size, int64_t local_physical_rows_a,
     int64_t local_physical_cols_a, int64_t local_physical_rows_b,
     int64_t local_physical_cols_b, int32_t process_row,
-    int32_t process_col, ffi::AnyBuffer a, ffi::AnyBuffer b,
-    ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
+    int32_t process_col, ffi::Result<ffi::AnyBuffer> a_out,
+    ffi::Result<ffi::AnyBuffer> b_out,
     std::array<int32_t, kGelsStatusSize>* status_words) {
   const int32_t process_rows = (*status_words)[4];
   const int32_t process_cols = (*status_words)[5];
@@ -155,18 +155,6 @@ absl::Status RunCusolverMpDistributedGels(
     return absl::OkStatus();
   }
 
-  if (absl::Status result =
-          CopyAnyBufferToOutputIfNeeded(cuda_stream, a, a_out);
-      !result.ok()) {
-    cleanup();
-    return result;
-  }
-  if (absl::Status result =
-          CopyAnyBufferToOutputIfNeeded(cuda_stream, b, b_out);
-      !result.ok()) {
-    cleanup();
-    return result;
-  }
   if (absl::Status result = check_cuda(
           cudaMemsetAsync(d_info, 0, sizeof(int), cuda_stream),
           "cusolvermp_gels info initialization");
@@ -229,34 +217,25 @@ absl::Status RunCusolverMpGelsSolver(
     se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t nrhs,
     int64_t tile_size, int64_t grid_mapping,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
-    ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
+    absl::Span<const int64_t> rank_map, ffi::Result<ffi::AnyBuffer> a_out,
+    ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
+  // Stage 1: validate the local FFI buffers and diagnostic output.
   if (stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         "cusolvermp_gels requires XLA and CUDA streams");
   }
-  if (a.dimensions().size() != 2 || b.dimensions().size() != 2 ||
-      a_out->dimensions().size() != 2 || b_out->dimensions().size() != 2) {
+  if (a_out->dimensions().size() != 2 || b_out->dimensions().size() != 2) {
     return absl::InvalidArgumentError(
         "cusolvermp_gels expects rank-2 A and B buffers");
   }
-  if (a.element_type() != b.element_type() ||
-      a.element_type() != a_out->element_type() ||
-      b.element_type() != b_out->element_type()) {
+  if (a_out->element_type() != b_out->element_type()) {
     return absl::InvalidArgumentError(
         "cusolvermp_gels requires matching A/B dtypes");
   }
-  if (a.dimensions()[0] != a_out->dimensions()[0] ||
-      a.dimensions()[1] != a_out->dimensions()[1] ||
-      b.dimensions()[0] != b_out->dimensions()[0] ||
-      b.dimensions()[1] != b_out->dimensions()[1]) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_gels input/output shapes must match");
-  }
-  if (a.dimensions()[0] != b.dimensions()[0]) {
+  if (a_out->dimensions()[0] != b_out->dimensions()[0]) {
     return absl::InvalidArgumentError(
         "cusolvermp_gels expects matching local row capacity for A and B");
   }
@@ -279,14 +258,14 @@ absl::Status RunCusolverMpGelsSolver(
       0,   // grid created.
       0,   // A descriptor created.
       0,   // raw cuSOLVER status.
-      static_cast<int32_t>(a.size_bytes()),
+      static_cast<int32_t>(a_out->size_bytes()),
       static_cast<int32_t>(m),
       static_cast<int32_t>(n),
       static_cast<int32_t>(tile_size),
-      static_cast<int32_t>(a.dimensions()[0]),
-      static_cast<int32_t>(a.dimensions()[1]),
-      static_cast<int32_t>(b.dimensions()[0]),
-      static_cast<int32_t>(b.dimensions()[1]),
+      static_cast<int32_t>(a_out->dimensions()[0]),
+      static_cast<int32_t>(a_out->dimensions()[1]),
+      static_cast<int32_t>(b_out->dimensions()[0]),
+      static_cast<int32_t>(b_out->dimensions()[1]),
       -1,  // local NUMROC rows for A.
       -1,  // local NUMROC cols for A.
       -1,  // local NUMROC rows for B.
@@ -301,7 +280,7 @@ absl::Status RunCusolverMpGelsSolver(
       -1,  // dtype code.
       static_cast<int32_t>(nrhs),
       -1,  // grid mapping.
-      static_cast<int32_t>(b.size_bytes()),
+      static_cast<int32_t>(b_out->size_bytes()),
   };
 
   // Publishes this rank's status. A failed solve leaves stale or partial
@@ -312,136 +291,64 @@ absl::Status RunCusolverMpGelsSolver(
     return CopyStatusToDevice(stream, status_words, status_out);
   };
 
-  // Stage 1: select the CUDA device owning this rank's local matrix shard.
-  absl::StatusOr<int> buffer_device = DeviceForCudaPointer(a.untyped_data());
-  if (!buffer_device.ok() || cudaSetDevice(*buffer_device) != cudaSuccess) {
-    status_words[0] = kCudaDeviceFailed;
-    return publish_status();
-  }
-  const int cuda_device = *buffer_device;
-  status_words[1] = cuda_device;
-
-  // Stage 2: borrow the all-assigned NCCL communicator created by XLA.
-  if (collective_params == nullptr || collective_cliques == nullptr) {
-    status_words[0] = kCollectiveContextMissing;
-    return publish_status();
-  }
-  absl::StatusOr<GpuCliqueKey> clique_key =
-      AllAssignedDevicesP2PCliqueKey(*collective_params);
-  if (!clique_key.ok()) {
-    status_words[0] = kCliqueKeyFailed;
-    return publish_status();
-  }
-  absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
-      *clique_key, collective_params->global_device_id);
-  if (!gpu_comm.ok() || *gpu_comm == nullptr) {
-    status_words[0] = kCommunicatorMissing;
-    return publish_status();
-  }
-  void* platform_handle = (*gpu_comm)->platform_comm().handle;
-  if (platform_handle == nullptr) {
-    status_words[0] = kNcclHandleMissing;
-    return publish_status();
-  }
-  ncclComm_t nccl_comm = reinterpret_cast<ncclComm_t>(platform_handle);
-
-  int nccl_rank = -1;
-  int nccl_count = -1;
-  if (ncclCommUserRank(nccl_comm, &nccl_rank) != ncclSuccess ||
-      ncclCommCount(nccl_comm, &nccl_count) != ncclSuccess) {
-    status_words[0] = kNcclRankMismatch;
-    return publish_status();
-  }
-  status_words[2] = nccl_rank;
-  status_words[3] = nccl_count;
-
-  // Stage 3: validate the overdetermined no-transpose GELS contract and grid.
-  if (process_rows <= 0 || process_cols <= 0 ||
-      process_rows * process_cols != nccl_count || m <= 0 || n <= 0 ||
-      m < n || nrhs <= 0 || tile_size <= 0) {
+  // Stage 2: bind the matrix's device and create the handle/grid using XLA's
+  // borrowed communicator. Mathematical and output contracts stay routine-local.
+  if (m < n || n <= 0 || nrhs <= 0 || tile_size <= 0) {
     status_words[0] = kGridShapeMismatch;
     return publish_status();
   }
-  JAXMG_RETURN_IF_ERROR(
-      ValidateCusolverMpGridMapping("cusolvermp_gels", grid_mapping));
+  CusolverMpExecution execution(absl::MakeSpan(status_words));
+  JAXMG_RETURN_IF_ERROR(execution.Initialize(
+      "cusolvermp_gels", cuda_stream, a_out->untyped_data(),
+      process_rows, process_cols, grid_mapping, rank_map,
+      collective_params, collective_cliques));
+  if (status_words[0] != kStatusOk) {
+    execution.Close();
+    return publish_status();
+  }
   status_words[33] = static_cast<int32_t>(grid_mapping);
-  if (!rank_map.empty()) {
-    JAXMG_RETURN_IF_ERROR(ValidateStandardRankMapForGridMapping(
-        "cusolvermp_gels", rank_map, process_rows, process_cols,
-        grid_mapping));
-  }
-
-  // Stage 4: create the cuSOLVERMp handle and process grid.
-  CusolverMpApi api = LinkedCusolverMpApi(&status_words);
-  cusolverMpHandle_t handle = nullptr;
-  cusolverStatus_t solver_status =
-      api.create(&handle, cuda_device, cuda_stream);
-  if (solver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
-    status_words[0] = kCreateHandleFailed;
-    status_words[11] = static_cast<int32_t>(solver_status);
-    return publish_status();
-  }
-  status_words[8] = 1;
-
-  int version = -1;
-  solver_status = api.get_version(handle, &version);
-  if (solver_status != CUSOLVER_STATUS_SUCCESS) {
-    status_words[0] = kGetVersionFailed;
-    status_words[11] = static_cast<int32_t>(solver_status);
-    api.destroy(handle);
-    return publish_status();
-  }
-  status_words[6] = version;
-
-  cusolverMpGrid_t grid = nullptr;
-  solver_status = api.create_grid(
-      handle, &grid, nccl_comm, static_cast<int32_t>(process_rows),
-      static_cast<int32_t>(process_cols),
-      ToCusolverMpGridMapping(grid_mapping));
-  if (solver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
-    status_words[0] = kCreateGridFailed;
-    status_words[11] = static_cast<int32_t>(solver_status);
-    api.destroy(handle);
-    return publish_status();
-  }
-  status_words[9] = 1;
+  const auto& api = execution.api;
+  const auto handle = execution.handle;
+  const auto grid = execution.grid;
+  const auto nccl_comm = execution.nccl_comm;
+  const int nccl_rank = execution.nccl_rank;
 
   const auto [process_row, process_col] = ProcessCoordFromRank(
       nccl_rank, process_rows, process_cols, grid_mapping);
 
-  // Stage 5: dispatch GELS using the matrix element type.
+  // Stage 3: dispatch GELS using the matrix element type.
   absl::Status gels_status;
-  switch (a.element_type()) {
+  switch (a_out->element_type()) {
     case F32:
       status_words[31] = 1;
       gels_status = RunCusolverMpDistributedGels<float>(
           api, handle, grid, cuda_stream, m, n, nrhs, tile_size,
-          a.dimensions()[0], a.dimensions()[1], b.dimensions()[0],
-          b.dimensions()[1], process_row, process_col, a, b, a_out, b_out,
+          a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[0],
+          b_out->dimensions()[1], process_row, process_col, a_out, b_out,
           &status_words);
       break;
     case F64:
       status_words[31] = 2;
       gels_status = RunCusolverMpDistributedGels<double>(
           api, handle, grid, cuda_stream, m, n, nrhs, tile_size,
-          a.dimensions()[0], a.dimensions()[1], b.dimensions()[0],
-          b.dimensions()[1], process_row, process_col, a, b, a_out, b_out,
+          a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[0],
+          b_out->dimensions()[1], process_row, process_col, a_out, b_out,
           &status_words);
       break;
     case C64:
       status_words[31] = 3;
       gels_status = RunCusolverMpDistributedGels<cuFloatComplex>(
           api, handle, grid, cuda_stream, m, n, nrhs, tile_size,
-          a.dimensions()[0], a.dimensions()[1], b.dimensions()[0],
-          b.dimensions()[1], process_row, process_col, a, b, a_out, b_out,
+          a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[0],
+          b_out->dimensions()[1], process_row, process_col, a_out, b_out,
           &status_words);
       break;
     case C128:
       status_words[31] = 4;
       gels_status = RunCusolverMpDistributedGels<cuDoubleComplex>(
           api, handle, grid, cuda_stream, m, n, nrhs, tile_size,
-          a.dimensions()[0], a.dimensions()[1], b.dimensions()[0],
-          b.dimensions()[1], process_row, process_col, a, b, a_out, b_out,
+          a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[0],
+          b_out->dimensions()[1], process_row, process_col, a_out, b_out,
           &status_words);
       break;
     default:
@@ -451,20 +358,11 @@ absl::Status RunCusolverMpGelsSolver(
   }
 
   if (!gels_status.ok()) {
-    api.destroy_grid(grid);
-    api.destroy(handle);
     return gels_status;
   }
 
-  // Stage 6: destroy native resources and publish per-rank diagnostics.
-  if (api.destroy_grid(grid) != CUSOLVER_STATUS_SUCCESS &&
-      status_words[0] == kStatusOk) {
-    status_words[0] = kDestroyGridFailed;
-  }
-  if (api.destroy(handle) != CUSOLVER_STATUS_SUCCESS &&
-      status_words[0] == kStatusOk) {
-    status_words[0] = kDestroyHandleFailed;
-  }
+  // Stage 4: include cleanup failures in the collective result status.
+  execution.Close();
   JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
       cuda_stream, nccl_comm, status_out, &status_words[0]));
   return publish_status();
@@ -609,7 +507,7 @@ absl::Status XlaCusolverMpGelsDispatch(
   // Stage 5: execute GELS through the borrowed XLA communicator.
   if (absl::Status result = RunCusolverMpGelsSolver(
           stream, cuda_stream, process_rows, process_cols, m, n, nrhs,
-          tile_size, grid_mapping, rank_map, *a_work, *b_out, a_work, b_out,
+          tile_size, grid_mapping, rank_map, a_work, b_out,
           status, collective_params, collective_cliques);
       !result.ok()) {
     return return_after_cleanup(result);

@@ -25,9 +25,15 @@ JAXMg currently provides a jittable API for the following routines:
   where $A$ is an $N \times N$ symmetric or Hermitian positive-definite matrix,
   using a Cholesky decomposition. It can also return the log determinant of
   $A$.
+- [`potrf`](https://flatironinstitute.github.io/jaxmg/latest/api/potrf/): Computes the Cholesky factor $L$ of an
+  $N \times N$ symmetric or Hermitian positive-definite matrix $A=LL^{\dagger}$,
+  without a solve.
 - [`lu_solve`](https://flatironinstitute.github.io/jaxmg/latest/api/lu_solve/): Solves the system of linear equations
   $Ax=B$, where $A$ is an $N \times N$ general nonsingular matrix, using a
   pivoted LU decomposition.
+- [`getrf`](https://flatironinstitute.github.io/jaxmg/latest/api/getrf/): Computes the pivoted LU factorization
+  $PA=LU$ of an $N \times N$ matrix, returning the packed factors and pivot
+  indices without a solve.
 - [`least_squares`](https://flatironinstitute.github.io/jaxmg/latest/api/least_squares/): Solves the overdetermined system
   $\min_X\lVert AX-B\rVert_2$, where $A$ is an $M \times N$ matrix with
   $M\geq N$, using a distributed QR factorization.
@@ -63,8 +69,10 @@ The operations are implemented using:
 
 - `potrs`: [`cusolverMpPotrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf)
   and [`cusolverMpPotrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrs)
+- `potrf`: [`cusolverMpPotrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf)
 - `lu_solve`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
   and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)
+- `getrf`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
 - `least_squares`: [`cusolverMpGels`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgels)
 - `qr`: [`cusolverMpGeqrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgeqrf)
   and [`cusolverMpOrgqr`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermporgqr)
