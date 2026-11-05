@@ -215,22 +215,16 @@ std::pair<int32_t, int32_t> ProcessCoordFromRank(int nccl_rank,
                                                  int64_t process_cols,
                                                  int64_t grid_mapping);
 
-// Returns a linked cuSOLVERMp API table and marks the status vector to show
-// that the direct cuSOLVERMp runtime dependency was available.
-template <size_t StatusSize>
-CusolverMpApi LinkedCusolverMpApi(std::array<int32_t, StatusSize>* status) {
-  static_assert(StatusSize > 7, "cuSOLVERMp status vector is too small");
-  (*status)[7] = 1;
-  return CusolverMpApi{};
-}
-
 // Owns one invocation's cuSOLVERMp handle and grid, but only borrows XLA's
 // NCCL communicator. The caller's status vector must outlive this object;
-// its first twelve fields follow the common runtime diagnostic layout.
+// its first ten fields follow the common runtime diagnostic layout.
+// The raw cuSOLVER status is at index 11, except for QR which uses index 12.
 // Matrix descriptors and solver-specific workspace remain with the caller.
 class CusolverMpExecution {
  public:
-  explicit CusolverMpExecution(absl::Span<int32_t> status) : status_(status) {}
+  explicit CusolverMpExecution(absl::Span<int32_t> status,
+                              size_t raw_status_index = 11)
+      : status_(status), raw_status_index_(raw_status_index) {}
   ~CusolverMpExecution() { Close(); }
   CusolverMpExecution(const CusolverMpExecution&) = delete;
   CusolverMpExecution& operator=(const CusolverMpExecution&) = delete;
@@ -258,6 +252,7 @@ class CusolverMpExecution {
 
  private:
   absl::Span<int32_t> status_;
+  size_t raw_status_index_;
 };
 
 // Computes the ScaLAPACK/NUMROC local length owned by one process coordinate
@@ -277,12 +272,6 @@ absl::Status CopyStatusToDevice(se::Stream* stream,
 
 // Encodes workspace byte sizes compactly in status vectors as KiB.
 int32_t SizeToKiBForStatus(size_t bytes);
-
-// Copies an input buffer into an output/work buffer only when XLA did not alias
-// the two buffers for the current FFI call.
-absl::Status CopyAnyBufferToOutputIfNeeded(cudaStream_t cuda_stream,
-                                           ffi::AnyBuffer input,
-                                           ffi::Result<ffi::AnyBuffer> output);
 
 // Propagates a nonzero status to otherwise successful ranks at a shared
 // checkpoint after solver execution. Reuses the first device status word as

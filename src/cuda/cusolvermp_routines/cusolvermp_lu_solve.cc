@@ -53,8 +53,8 @@ absl::Status RunCusolverMpDistributedLuSolve(
     cusolverMpGrid_t grid, cudaStream_t cuda_stream, int64_t n,
     int64_t nrhs, int64_t tile_size, int64_t local_physical_rows,
     int64_t local_physical_cols_a, int64_t local_physical_cols_b,
-    int32_t process_row, int32_t process_col, int32_t nccl_rank,
-    ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_out,
+    int32_t process_row, int32_t process_col,
+    ffi::Result<ffi::AnyBuffer> a_out,
     ffi::Result<ffi::AnyBuffer> b_out,
     std::array<int32_t, kLuSolveStatusSize>* status_words) {
   const int32_t process_rows = (*status_words)[4];
@@ -173,8 +173,6 @@ absl::Status RunCusolverMpDistributedLuSolve(
     }
   }
 
-  JAXMG_RETURN_IF_ERROR(CopyAnyBufferToOutputIfNeeded(cuda_stream, a, a_out));
-  JAXMG_RETURN_IF_ERROR(CopyAnyBufferToOutputIfNeeded(cuda_stream, b, b_out));
   JAXMG_RETURN_IF_CUDA_ERROR(
       cudaMemsetAsync(d_getrs_info, 0, sizeof(int), cuda_stream));
 
@@ -220,15 +218,14 @@ absl::Status RunCusolverMpDistributedLuSolve(
 // Creates the borrowed-XLA-communicator cuSOLVERMp handle/grid and dispatches
 // the dtype-specific GETRF/GETRS helper on redistributed A and B buffers.
 absl::Status RunCusolverMpLuSolveSolver(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
     int64_t tile_size, int64_t grid_mapping,
-    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a, ffi::AnyBuffer b,
-    ffi::Result<ffi::AnyBuffer> a_out, ffi::Result<ffi::AnyBuffer> b_out,
+    absl::Span<const int64_t> rank_map, ffi::Result<ffi::AnyBuffer> a_out,
+    ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
-  (void)comm_stream;
   // Stage 1: validate the static FFI contract. Python/JAX has already padded
   // the user arrays and memory_redist has produced local column-major 2D
   // block-cyclic buffers, so these checks cover local capacity and dtype
@@ -237,25 +234,15 @@ absl::Status RunCusolverMpLuSolveSolver(
     return absl::InvalidArgumentError(
         "cusolvermp_lu_solve requires XLA and CUDA streams");
   }
-  if (a.dimensions().size() != 2 || b.dimensions().size() != 2 ||
-      a_out->dimensions().size() != 2 || b_out->dimensions().size() != 2) {
+  if (a_out->dimensions().size() != 2 || b_out->dimensions().size() != 2) {
     return absl::InvalidArgumentError(
         "cusolvermp_lu_solve expects rank-2 A and B buffers");
   }
-  if (a.element_type() != b.element_type() ||
-      a.element_type() != a_out->element_type() ||
-      b.element_type() != b_out->element_type()) {
+  if (a_out->element_type() != b_out->element_type()) {
     return absl::InvalidArgumentError(
         "cusolvermp_lu_solve requires matching A/B dtypes");
   }
-  if (a.dimensions()[0] != a_out->dimensions()[0] ||
-      a.dimensions()[1] != a_out->dimensions()[1] ||
-      b.dimensions()[0] != b_out->dimensions()[0] ||
-      b.dimensions()[1] != b_out->dimensions()[1]) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_lu_solve input/output shapes must match");
-  }
-  if (a.dimensions()[0] != b.dimensions()[0]) {
+  if (a_out->dimensions()[0] != b_out->dimensions()[0]) {
     return absl::InvalidArgumentError(
         "cusolvermp_lu_solve expects A and B to have the same "
         "local row capacity");
@@ -280,12 +267,12 @@ absl::Status RunCusolverMpLuSolveSolver(
       0,   // cusolverMpGrid_t created.
       0,   // cusolverMpMatrixDescriptor_t for A created.
       0,   // raw cuSOLVER status from the failing call, if any.
-      static_cast<int32_t>(a.size_bytes()),
+      static_cast<int32_t>(a_out->size_bytes()),
       static_cast<int32_t>(n),
       static_cast<int32_t>(tile_size),
-      static_cast<int32_t>(a.dimensions()[0]),
-      static_cast<int32_t>(a.dimensions()[1]),
-      static_cast<int32_t>(b.dimensions()[0]),
+      static_cast<int32_t>(a_out->dimensions()[0]),
+      static_cast<int32_t>(a_out->dimensions()[1]),
+      static_cast<int32_t>(b_out->dimensions()[0]),
       -1,  // local NUMROC rows for A.
       -1,  // local NUMROC cols for A.
       -1,  // local NUMROC rows for B.
@@ -303,7 +290,7 @@ absl::Status RunCusolverMpLuSolveSolver(
       0,   // B reverse redistribution completed.
       -1,  // pivot vector length.
       -1,  // dtype code.
-      static_cast<int32_t>(b.dimensions()[1]),
+      static_cast<int32_t>(b_out->dimensions()[1]),
       static_cast<int32_t>(nrhs),
       0,  // A native redistribution flag.
       0,  // B native redistribution flag.
@@ -327,7 +314,7 @@ absl::Status RunCusolverMpLuSolveSolver(
   }
   CusolverMpExecution execution(absl::MakeSpan(status_words));
   JAXMG_RETURN_IF_ERROR(execution.Initialize(
-      "cusolvermp_lu_solve", cuda_stream, a.untyped_data(),
+      "cusolvermp_lu_solve", cuda_stream, a_out->untyped_data(),
       process_rows, process_cols, grid_mapping, rank_map,
       collective_params, collective_cliques));
   if (status_words[0] != kStatusOk) {
@@ -346,34 +333,34 @@ absl::Status RunCusolverMpLuSolveSolver(
 
   // Stage 3: dispatch on the XLA primitive dtype and run GETRF/GETRS.
   absl::Status lu_solve_status;
-  switch (a.element_type()) {
+  switch (a_out->element_type()) {
     case F32:
       status_words[34] = 1;
       lu_solve_status = RunCusolverMpDistributedLuSolve<float>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
-          a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
-          process_row, process_col, nccl_rank, a, b, a_out, b_out, &status_words);
+          a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
+          process_row, process_col, a_out, b_out, &status_words);
       break;
     case F64:
       status_words[34] = 2;
       lu_solve_status = RunCusolverMpDistributedLuSolve<double>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
-          a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
-          process_row, process_col, nccl_rank, a, b, a_out, b_out, &status_words);
+          a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
+          process_row, process_col, a_out, b_out, &status_words);
       break;
     case C64:
       status_words[34] = 3;
       lu_solve_status = RunCusolverMpDistributedLuSolve<cuFloatComplex>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
-          a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
-          process_row, process_col, nccl_rank, a, b, a_out, b_out, &status_words);
+          a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
+          process_row, process_col, a_out, b_out, &status_words);
       break;
     case C128:
       status_words[34] = 4;
       lu_solve_status = RunCusolverMpDistributedLuSolve<cuDoubleComplex>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
-          a.dimensions()[0], a.dimensions()[1], b.dimensions()[1],
-          process_row, process_col, nccl_rank, a, b, a_out, b_out, &status_words);
+          a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
+          process_row, process_col, a_out, b_out, &status_words);
       break;
     default:
       status_words[0] = kUnsupportedDtype;
@@ -587,13 +574,11 @@ absl::Status XlaCusolverMpLuSolveDispatch(
     return status;
   }
 
-  ffi::AnyBuffer a_cyclic = *a_work;
-  ffi::AnyBuffer b_cyclic = *b_out;
   // Stage 5: run GETRF/GETRS on the redistributed buffers.  The shared helper
   // handles the cuSOLVERMp ABI boundary and borrowed NCCL communicator.
   if (absl::Status solver_call_status = RunCusolverMpLuSolveSolver(
-          stream, comm_stream, cuda_stream, process_rows, process_cols, n,
-          nrhs, tile_size, grid_mapping, rank_map, a_cyclic, b_cyclic,
+          stream, cuda_stream, process_rows, process_cols, n,
+          nrhs, tile_size, grid_mapping, rank_map,
           a_work, b_out, status, collective_params, collective_cliques);
       !solver_call_status.ok()) {
     return return_after_cleanup(solver_call_status);
