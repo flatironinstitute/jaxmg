@@ -15,6 +15,7 @@ on:
       - '*.md'
       - 'LICENSE'
       - '.gitignore'
+      - '.github/jax-compat/**'   # Dependabot JAX bumps are tested by jax-compat.yml
   workflow_dispatch:
 
 concurrency:
