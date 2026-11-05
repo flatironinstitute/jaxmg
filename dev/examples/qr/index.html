@@ -783,6 +783,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#advanced-call-from-inside-jaxshard_map" class="md-nav__link">
+    <span class="md-ellipsis">
+      Advanced: call from inside jax.shard_map
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1416,6 +1425,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#advanced-call-from-inside-jaxshard_map" class="md-nav__link">
+    <span class="md-ellipsis">
+      Advanced: call from inside jax.shard_map
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1482,16 +1500,16 @@ orthonormal factor <span class="arithmatex">\(Q\)</span> and upper-triangular fa
  coexist.</p>
 </div>
 <h2 id="advanced-control-the-outer-jaxjit">Advanced: control the outer <code>jax.jit</code><a class="headerlink" href="#advanced-control-the-outer-jaxjit" title="Permanent link">¤</a></h2>
-<p><code>qr_shardmap_ctx</code> leaves the outer compilation and donation boundary to the
+<p><code>qr_jit_ctx</code> leaves the outer compilation and donation boundary to the
 caller. Its first result is <span class="arithmatex">\(Q\)</span>, which aliases the donated input matrix.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">qr_shardmap_ctx</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">qr_jit_ctx</span>
 
 
 <span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">donate_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">compiled_qr</span><span class="p">(</span><span class="n">a</span><span class="p">):</span>
-    <span class="k">return</span> <span class="n">qr_shardmap_ctx</span><span class="p">(</span>
+    <span class="k">return</span> <span class="n">qr_jit_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
     <span class="p">)</span>
@@ -1503,6 +1521,22 @@ caller. Its first result is <span class="arithmatex">\(Q\)</span>, which aliases
 </code></pre></div>
 <p>When <code>a</code> is created inside the compiled function, XLA owns its lifetime and
 <code>donate_argnums</code> is unnecessary.</p>
+<h2 id="advanced-call-from-inside-jaxshard_map">Advanced: call from inside <code>jax.shard_map</code><a class="headerlink" href="#advanced-call-from-inside-jaxshard_map" title="Permanent link">¤</a></h2>
+<p><code>qr_shardmap_ctx</code> consumes local blocks and returns local blocks of both
+factors. The global input must be tall or square, even when a local block is wide.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">qr_shardmap_ctx</span>
+
+
+<span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">donate_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+<span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">shard_map</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">),</span>
+         <span class="n">out_specs</span><span class="o">=</span><span class="p">(</span><span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">),</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">),</span> <span class="n">P</span><span class="p">((</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">))))</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">local_qr</span><span class="p">(</span><span class="n">a_block</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">qr_shardmap_ctx</span><span class="p">(</span><span class="n">a_block</span><span class="p">,</span> <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">)</span>
+
+
+<span class="n">q</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">local_qr</span><span class="p">(</span><span class="n">make_matrix</span><span class="p">())</span>
+<span class="n">r</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+</code></pre></div>
 <p>See the <a href="../../api/qr/"><code>qr</code> API reference</a> for the complete argument and
 return-value documentation.</p>
 

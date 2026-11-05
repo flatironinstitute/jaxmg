@@ -1548,6 +1548,11 @@ Supported datatypes are <code>jax.numpy.float32</code>, <code>jax.numpy.float64<
 mesh.
 The fused C++/CUDA backend converts those arrays into cuSOLVERMp's column-major,
 2D block-cyclic layout and restores the JAX-facing layout before returning.</p>
+<p>Each routine provides three nested interfaces. The public function adds JIT
+compilation and optional input donation to <code>*_jit_ctx</code>, which accepts global
+arrays and applies <code>jax.shard_map</code> to <code>*_shardmap_ctx</code>. The latter operates on
+local blocks inside a caller-owned shard map. Use the context interfaces when
+compilation or sharding is already managed by the surrounding calculation.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p>Each solver requires a tile width <code>T_A</code>. Very small tiles can substantially

@@ -784,6 +784,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#advanced-call-from-inside-jaxshard_map" class="md-nav__link">
+    <span class="md-ellipsis">
+      Advanced: call from inside jax.shard_map
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1464,6 +1473,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#advanced-call-from-inside-jaxshard_map" class="md-nav__link">
+    <span class="md-ellipsis">
+      Advanced: call from inside jax.shard_map
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1550,20 +1568,20 @@ input, so a vector solve input requires a process grid with one column.</p>
 interface below when the solve must be embedded in a larger compiled
 calculation.</p>
 <h2 id="advanced-control-the-outer-jaxjit">Advanced: control the outer <code>jax.jit</code><a class="headerlink" href="#advanced-control-the-outer-jaxjit" title="Permanent link">¤</a></h2>
-<p><code>least_squares_shardmap_ctx</code> runs the same distributed pipeline but leaves the
+<p><code>least_squares_jit_ctx</code> runs the same distributed pipeline but leaves the
 outer <code>jax.jit</code> boundary to the caller. It returns
 <code>(a_work, b_work, x, status)</code>. The two work outputs provide shape-compatible
 alias targets because cuSOLVERMp overwrites both inputs.</p>
 <p>The advanced examples additionally use:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">least_squares_shardmap_ctx</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">least_squares_jit_ctx</span>
 </code></pre></div>
 <h3 id="case-1-a-and-b-are-arguments-of-the-jitted-function">Case 1: <code>a</code> and <code>b</code> are arguments of the jitted function<a class="headerlink" href="#case-1-a-and-b-are-arguments-of-the-jitted-function" title="Permanent link">¤</a></h3>
 <p>Donate both arguments and retain both work outputs in the returned pytree:</p>
 <div class="highlight"><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">donate_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">compiled_solve</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
-    <span class="n">a_work</span><span class="p">,</span> <span class="n">b_work</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">least_squares_shardmap_ctx</span><span class="p">(</span>
+    <span class="n">a_work</span><span class="p">,</span> <span class="n">b_work</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">least_squares_jit_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
         <span class="n">b</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
@@ -1588,7 +1606,7 @@ and the work outputs can remain internal:</p>
     <span class="n">a</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">reshard</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">matrix_sharding</span><span class="p">)</span>
     <span class="n">b</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">reshard</span><span class="p">(</span><span class="n">a</span> <span class="o">@</span> <span class="n">expected_x</span><span class="p">,</span> <span class="n">solve_sharding</span><span class="p">)</span>
 
-    <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">least_squares_shardmap_ctx</span><span class="p">(</span>
+    <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">least_squares_jit_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
         <span class="n">b</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
@@ -1597,6 +1615,24 @@ and the work outputs can remain internal:</p>
 
 
 <span class="n">x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">build_and_solve</span><span class="p">()</span>
+<span class="n">x</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+</code></pre></div>
+<h2 id="advanced-call-from-inside-jaxshard_map">Advanced: call from inside <code>jax.shard_map</code><a class="headerlink" href="#advanced-call-from-inside-jaxshard_map" title="Permanent link">¤</a></h2>
+<p><code>least_squares_shardmap_ctx</code> consumes local A and B blocks with matching row
+sharding. The native backend restores the N-row solution and the M-row B work
+buffer separately, preserving any replication of the RHS columns.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">least_squares_shardmap_ctx</span>
+
+
+<span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">donate_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+<span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">shard_map</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="p">(</span><span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">),</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">)),</span>
+         <span class="n">out_specs</span><span class="o">=</span><span class="p">(</span><span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">),</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">),</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">),</span> <span class="n">P</span><span class="p">((</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">))))</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">local_solve</span><span class="p">(</span><span class="n">a_block</span><span class="p">,</span> <span class="n">b_block</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">least_squares_shardmap_ctx</span><span class="p">(</span><span class="n">a_block</span><span class="p">,</span> <span class="n">b_block</span><span class="p">,</span> <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">)</span>
+
+
+<span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">make_problem</span><span class="p">()</span>
+<span class="n">a_work</span><span class="p">,</span> <span class="n">b_work</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">local_solve</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
 <span class="n">x</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
 </code></pre></div>
 <p>See the <a href="../../api/least_squares/"><code>least_squares</code> API reference</a> for the

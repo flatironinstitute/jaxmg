@@ -830,6 +830,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#advanced-call-from-inside-jaxshard_map" class="md-nav__link">
+    <span class="md-ellipsis">
+      Advanced: call from inside jax.shard_map
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1464,6 +1473,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#advanced-call-from-inside-jaxshard_map" class="md-nav__link">
+    <span class="md-ellipsis">
+      Advanced: call from inside jax.shard_map
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1563,7 +1581,7 @@ eigenvector matrix and uses solver-specific workspace. It therefore reaches
 the GPU memory limit at a smaller matrix size than <code>potrs</code> or <code>lu_solve</code> on the
 same process grid.</p>
 <h2 id="advanced-control-the-outer-jaxjit">Advanced: control the outer <code>jax.jit</code><a class="headerlink" href="#advanced-control-the-outer-jaxjit" title="Permanent link">¤</a></h2>
-<p><code>syevd_shardmap_ctx</code> runs the same selected eigensolver workflow as <code>syevd</code>.
+<p><code>syevd_jit_ctx</code> runs the same selected eigensolver workflow as <code>syevd</code>.
 The difference is that it does not create an internal <code>jax.jit</code>, allowing the
 eigensolve to become one stage of a larger function compiled by the caller.</p>
 <p>The context interface returns
@@ -1577,7 +1595,7 @@ matrix-sized allocation.</p>
 <p>The advanced examples additionally use:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">syevd_shardmap_ctx</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">syevd_jit_ctx</span>
 </code></pre></div>
 <h3 id="case-1-a-is-an-argument-of-the-jitted-function">Case 1: <code>a</code> is an argument of the jitted function<a class="headerlink" href="#case-1-a-is-an-argument-of-the-jitted-function" title="Permanent link">¤</a></h3>
 <p>When an existing matrix enters the outer jitted function as an argument, donate
@@ -1585,7 +1603,7 @@ it with <code>donate_argnums</code>. Return <code>a_work</code> so the donated i
 <span class="arithmatex">\(A\)</span>-sized output alias at the outer compiled boundary:</p>
 <div class="highlight"><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">donate_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">compiled_eigensolve</span><span class="p">(</span><span class="n">a</span><span class="p">):</span>
-    <span class="n">a_work</span><span class="p">,</span> <span class="n">eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">syevd_shardmap_ctx</span><span class="p">(</span>
+    <span class="n">a_work</span><span class="p">,</span> <span class="n">eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">syevd_jit_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
     <span class="p">)</span>
@@ -1618,7 +1636,7 @@ from the outer function:</p>
     <span class="n">a</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">diagonal</span><span class="p">)</span>
     <span class="n">a</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">reshard</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">a_sharding</span><span class="p">)</span>
 
-    <span class="n">_</span><span class="p">,</span> <span class="n">eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">syevd_shardmap_ctx</span><span class="p">(</span>
+    <span class="n">_</span><span class="p">,</span> <span class="n">eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">syevd_jit_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
     <span class="p">)</span>
@@ -1635,6 +1653,25 @@ from the outer function:</p>
 <p><code>donate_argnums</code> is not needed for the internally created <code>a</code>. It only applies
 to arguments of the outer jitted function. Donate an outer argument such as
 <code>diagonal</code> only when the caller no longer needs it after the call.</p>
+<h2 id="advanced-call-from-inside-jaxshard_map">Advanced: call from inside <code>jax.shard_map</code><a class="headerlink" href="#advanced-call-from-inside-jaxshard_map" title="Permanent link">¤</a></h2>
+<p>Use <code>syevd_shardmap_ctx</code> with local matrix blocks. Eigenvalues are replicated,
+while the eigenvectors and work buffer follow the matrix partitioning.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">syevd_shardmap_ctx</span>
+
+
+<span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">donate_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,))</span>
+<span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">shard_map</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">),</span>
+         <span class="n">out_specs</span><span class="o">=</span><span class="p">(</span><span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">),</span> <span class="n">P</span><span class="p">(),</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">),</span> <span class="n">P</span><span class="p">((</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">))))</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">local_eigensolve</span><span class="p">(</span><span class="n">a_block</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">syevd_shardmap_ctx</span><span class="p">(</span><span class="n">a_block</span><span class="p">,</span> <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">)</span>
+
+
+<span class="n">a</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">make_problem</span><span class="p">()</span>
+<span class="n">a_work</span><span class="p">,</span> <span class="n">eigenvalues</span><span class="p">,</span> <span class="n">eigenvectors</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">local_eigensolve</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+<span class="n">eigenvalues</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+</code></pre></div>
+<p>For <code>return_eigenvectors=False</code>, omit the eigenvector output specification.
+Return <code>a_work</code> from the outer jitted function when donating A in either mode.</p>
 <p>See the <a href="../../api/syevd/"><code>syevd</code> API reference</a> for the complete argument and
 return-value documentation.</p>
 
