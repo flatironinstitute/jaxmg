@@ -117,6 +117,9 @@ def run_case() -> None:
     if case.rhs_mode == "vector_replicated":
         b = b[:, 0]
     expected = jnp.linalg.solve(a, b)
+    # device_put may reuse these buffers, so save residual references before donation.
+    a_host = np.array(a, copy=True)
+    b_host = np.array(b, copy=True)
 
     a_dev = jax.device_put(a, NamedSharding(mesh, matrix_specs))
     if case.rhs_mode == "vector_replicated":
@@ -195,8 +198,6 @@ def run_case() -> None:
     assert out.sharding.is_equivalent_to(expected_output_sharding, out.ndim)
 
     out_host = global_array_to_numpy(out)
-    a_host = np.asarray(a)
-    b_host = np.asarray(b)
     residual = np.linalg.norm(a_host @ out_host - b_host) / np.linalg.norm(b_host)
     assert float(residual) < 1e-3
 

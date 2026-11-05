@@ -91,6 +91,8 @@ def run_case() -> None:
         tile_size=tile_size,
         nrhs=nrhs,
         rhs_mode=rhs_mode,
+        # The uneven solution requires its replicated RHS layout to survive JIT tracing.
+        axis_types="explicit" if case_name == "uneven_solution_replicated" else "auto",
     )
     mesh = make_process_mesh(case)
     matrix_specs = P("pr", "pc")
