@@ -167,14 +167,14 @@ silently replace the documentation for a released wheel.
 This section is for maintainers.
 
 Before a final release, run `.github/workflows/release.yml` manually with a
-release candidate such as `1.4.0rc1`. The workflow builds all wheels, runs the
+release candidate such as `1.4.2rc1`. The workflow builds all wheels, runs the
 Jenkins GPU tests, and publishes to TestPyPI.
 
 After checking the TestPyPI installation, create the final tag:
 
 ```bash
-git tag v1.4.0
-git push origin v1.4.0
+git tag v1.4.2
+git push origin v1.4.2
 ```
 
 The tagged workflow repeats the build and test process, publishes to TestPyPI,
@@ -203,7 +203,7 @@ Compatibility by release:
 | `1.0.0` to `1.1.1` | `0.10.1` |
 | `1.2.0` | `0.11.0` |
 | `1.3.0` | `0.11.1` |
-| `1.4.0` to `1.4.1` | `0.11.1`, `0.11.2`, `0.12.0`, `0.12.0.1` |
+| `1.4.0` to `1.4.2` | `0.11.1`, `0.11.2`, `0.12.0`, `0.12.0.1` |
 
 Each JAXMg release must declare the JAX versions validated against its native
 backend in `pyproject.toml`, for example `jax>=0.11.1,<0.11.3`.
