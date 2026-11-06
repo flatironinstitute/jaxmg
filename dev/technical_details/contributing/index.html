@@ -1778,11 +1778,11 @@ silently replace the documentation for a released wheel.</p>
 <h2 id="release-process">Release process<a class="headerlink" href="#release-process" title="Permanent link">¤</a></h2>
 <p>This section is for maintainers.</p>
 <p>Before a final release, run <code>.github/workflows/release.yml</code> manually with a
-release candidate such as <code>1.4.0rc1</code>. The workflow builds all wheels, runs the
+release candidate such as <code>1.4.2rc1</code>. The workflow builds all wheels, runs the
 Jenkins GPU tests, and publishes to TestPyPI.</p>
 <p>After checking the TestPyPI installation, create the final tag:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>tag<span class="w"> </span>v1.4.0
-git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>v1.4.0
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>tag<span class="w"> </span>v1.4.2
+git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>v1.4.2
 </code></pre></div>
 <p>The tagged workflow repeats the build and test process, publishes to TestPyPI,
 waits for approval, then publishes to PyPI and creates the GitHub release.</p>
@@ -1836,7 +1836,7 @@ waits for approval, then publishes to PyPI and creates the GitHub release.</p>
 <td><code>0.11.1</code></td>
 </tr>
 <tr>
-<td><code>1.4.0</code> to <code>1.4.1</code></td>
+<td><code>1.4.0</code> to <code>1.4.2</code></td>
 <td><code>0.11.1</code>, <code>0.11.2</code>, <code>0.12.0</code>, <code>0.12.0.1</code></td>
 </tr>
 </tbody>
