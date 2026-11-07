@@ -18,7 +18,7 @@
         <link rel="prev" href="../choose_tile_size/">
       
       
-        <link rel="next" href="../lu_solve/">
+        <link rel="next" href="../potrf/">
       
       
       <link rel="icon" href="../../_static/square.png">
@@ -692,10 +692,42 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#advanced-call-from-inside-jaxshard_map" class="md-nav__link">
+    <span class="md-ellipsis">
+      Advanced: call from inside jax.shard_map
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cholesky factorization
+    
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -714,6 +746,29 @@
   
   <span class="md-ellipsis">
     LU solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    LU factorization
     
   </span>
   
@@ -942,12 +997,58 @@
   
   
     <li class="md-nav__item">
+      <a href="../../api/potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.potrf
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../api/lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     jaxmg.lu_solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.getrf
     
   </span>
   
@@ -1372,6 +1473,15 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#advanced-call-from-inside-jaxshard_map" class="md-nav__link">
+    <span class="md-ellipsis">
+      Advanced: call from inside jax.shard_map
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1483,10 +1593,10 @@ one-dimensional solution.</p>
 </div>
 <p>There is no need to apply <code>jax.jit</code> or specify <code>donate_argnums</code>: <code>potrs</code> uses
 an internally cached jitted wrapper and manages donation and aliasing itself.
-If the solve must be embedded inside a larger jitted calculation, use the
-advanced interface below instead of wrapping <code>potrs</code> in another <code>jax.jit</code>.</p>
+If the solve must be embedded inside a larger jitted calculation, use one of
+the advanced interfaces below instead of wrapping <code>potrs</code> in another <code>jax.jit</code>.</p>
 <h2 id="advanced-control-the-outer-jaxjit">Advanced: control the outer <code>jax.jit</code><a class="headerlink" href="#advanced-control-the-outer-jaxjit" title="Permanent link">¤</a></h2>
-<p><code>potrs_shardmap_ctx</code> runs the same padding, redistribution, Cholesky
+<p><code>potrs_jit_ctx</code> runs the same padding, redistribution, Cholesky
 factorization, solve, and reverse redistribution as <code>potrs</code>. The difference is
 that it does not create an internal <code>jax.jit</code>. This allows the solve to become
 one stage of a larger function compiled by the caller.</p>
@@ -1497,7 +1607,7 @@ created.</p>
 <p>The advanced examples additionally use:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">potrs_shardmap_ctx</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">potrs_jit_ctx</span>
 </code></pre></div>
 <h3 id="case-1-a-and-b-are-arguments-of-the-jitted-function">Case 1: <code>a</code> and <code>b</code> are arguments of the jitted function<a class="headerlink" href="#case-1-a-and-b-are-arguments-of-the-jitted-function" title="Permanent link">¤</a></h3>
 <p>When existing arrays enter the outer jitted function as arguments, donate them
@@ -1505,7 +1615,7 @@ with <code>donate_argnums</code>. Return <code>a_work</code> so the donated inpu
 <span class="arithmatex">\(A\)</span>-sized output alias at the outer compiled boundary:</p>
 <div class="highlight"><pre><span></span><code><span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">donate_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">compiled_solve</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
-    <span class="n">a_work</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">potrs_shardmap_ctx</span><span class="p">(</span>
+    <span class="n">a_work</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">potrs_jit_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
         <span class="n">b</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
@@ -1543,7 +1653,7 @@ the compiled function:</p>
     <span class="n">a</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">reshard</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">a_sharding</span><span class="p">)</span>
     <span class="n">b</span> <span class="o">=</span> <span class="n">jax</span><span class="o">.</span><span class="n">reshard</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">b_sharding</span><span class="p">)</span>
 
-    <span class="n">_</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">potrs_shardmap_ctx</span><span class="p">(</span>
+    <span class="n">_</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">potrs_jit_ctx</span><span class="p">(</span>
         <span class="n">a</span><span class="p">,</span>
         <span class="n">b</span><span class="p">,</span>
         <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">,</span>
@@ -1561,6 +1671,47 @@ the compiled function:</p>
 <p><code>donate_argnums</code> is not needed for the internally created <code>a</code> and <code>b</code>: they are
 not arguments of <code>build_and_solve</code>. Only donate an outer argument such as
 <code>diagonal</code> if the caller no longer needs that input after the call.</p>
+<h2 id="advanced-call-from-inside-jaxshard_map">Advanced: call from inside <code>jax.shard_map</code><a class="headerlink" href="#advanced-call-from-inside-jaxshard_map" title="Permanent link">¤</a></h2>
+<p>Use <code>potrs_shardmap_ctx</code> for a solve within an existing shard-local
+calculation. The inputs and numerical result are local blocks; B must share
+A's row sharding, but its columns may be replicated as in this example.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">partial</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">jaxmg</span><span class="w"> </span><span class="kn">import</span> <span class="n">potrs_shardmap_ctx</span>
+
+
+<span class="nd">@partial</span><span class="p">(</span><span class="n">jax</span><span class="o">.</span><span class="n">jit</span><span class="p">,</span> <span class="n">donate_argnums</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+<span class="nd">@partial</span><span class="p">(</span>
+    <span class="n">jax</span><span class="o">.</span><span class="n">shard_map</span><span class="p">,</span>
+    <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
+    <span class="n">in_specs</span><span class="o">=</span><span class="p">(</span><span class="n">matrix_specs</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)),</span>
+    <span class="n">out_specs</span><span class="o">=</span><span class="p">(</span><span class="n">matrix_specs</span><span class="p">,</span> <span class="n">P</span><span class="p">(</span><span class="s2">"pr"</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span> <span class="n">P</span><span class="p">((</span><span class="s2">"pr"</span><span class="p">,</span> <span class="s2">"pc"</span><span class="p">))),</span>
+<span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">local_solve</span><span class="p">(</span><span class="n">a_block</span><span class="p">,</span> <span class="n">b_block</span><span class="p">):</span>
+    <span class="n">a_work</span><span class="p">,</span> <span class="n">x_block</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">potrs_shardmap_ctx</span><span class="p">(</span><span class="n">a_block</span><span class="p">,</span> <span class="n">b_block</span><span class="p">,</span> <span class="n">T_A</span><span class="o">=</span><span class="n">T_A</span><span class="p">)</span>
+
+    <span class="c1"># Scale the solution within the same shard-local calculation.</span>
+    <span class="k">return</span> <span class="n">a_work</span><span class="p">,</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">x_block</span><span class="p">,</span> <span class="n">status</span>
+
+
+<span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">make_problem</span><span class="p">()</span>
+<span class="n">a_work</span><span class="p">,</span> <span class="n">scaled_x</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">local_solve</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
+
+<span class="n">correct</span> <span class="o">=</span> <span class="n">jnp</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">scaled_x</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">expected</span><span class="p">)</span>
+<span class="n">correct</span><span class="o">.</span><span class="n">block_until_ready</span><span class="p">()</span>
+
+<span class="k">if</span> <span class="n">jax</span><span class="o">.</span><span class="n">process_index</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">correct</span><span class="p">)</span>
+</code></pre></div>
+<p>The enclosing mesh must contain exactly the matrix axes. <code>matrix_specs</code> must
+match A's specification in the enclosing shard map; it defaults to the mesh
+axes in order. Replicated RHS columns are solved as duplicate columns using
+one Cholesky factorization, preserving the RHS layout at the cost of additional
+RHS storage and solve work, not repeated factorizations.</p>
+<p>The status output retains one diagnostic vector per rank, so its spec includes
+both mesh axes. With <code>return_logdet=True</code>, add <code>P()</code> for the replicated log
+determinant before the status spec. As with <code>potrs_jit_ctx</code>, return <code>a_work</code>
+from the outer jitted function when donating <code>a</code>.</p>
 <p>See the <a href="../../api/potrs/"><code>potrs</code> API reference</a> for the complete argument and
 return-value documentation.</p>
 

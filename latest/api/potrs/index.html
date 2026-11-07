@@ -18,7 +18,7 @@
         <link rel="prev" href="../">
       
       
-        <link rel="next" href="../lu_solve/">
+        <link rel="next" href="../potrf/">
       
       
       <link rel="icon" href="../../_static/square.png">
@@ -610,12 +610,58 @@
   
   
     <li class="md-nav__item">
+      <a href="../../examples/potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cholesky factorization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../examples/lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     LU solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    LU factorization
     
   </span>
   
@@ -885,6 +931,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#jaxmg.potrs_jit_ctx" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;potrs_jit_ctx
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#jaxmg.potrs_shardmap_ctx" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;potrs_shardmap_ctx
@@ -909,12 +964,58 @@
   
   
     <li class="md-nav__item">
+      <a href="../potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.potrf
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     jaxmg.lu_solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.getrf
     
   </span>
   
@@ -1298,6 +1399,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#jaxmg.potrs_jit_ctx" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;potrs_jit_ctx
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#jaxmg.potrs_shardmap_ctx" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;potrs_shardmap_ctx
@@ -1323,16 +1433,20 @@
 
 
 <h1 id="jaxmgpotrs">jaxmg.potrs<a class="headerlink" href="#jaxmgpotrs" title="Permanent link">¤</a></h1>
-<p><code>potrs</code> is the high-level Cholesky solve interface. It validates the arrays and
-mesh, applies tile-capacity padding when required, runs the internally compiled
-fused backend, and returns the solution in the JAX-facing layout.</p>
-<p>Use <code>potrs</code> for a direct solve. Use <code>potrs_shardmap_ctx</code> only when the solve
-must be embedded inside a larger caller-owned <code>jax.jit</code> computation. Both
-interfaces run the same native solver pipeline; <code>_shardmap_ctx</code> means that the
-caller owns the surrounding compilation context, not that it selects a
-different solver or CUDA context.</p>
-<p>Both interfaces accept <code>return_logdet=True</code>. Since the factorization produces
-<span class="arithmatex">\(A=LL^H\)</span>, the backend computes</p>
+<p><code>potrs</code> is the high-level solver for symmetric or Hermitian positive-definite
+matrices. It uses cuSOLVERMp <code>Potrf</code> followed by <code>Potrs</code>, with memory-layout
+conversion, redistribution, and solver execution in one fused native call.</p>
+<p>Use <code>potrs_jit_ctx</code> when the solve is part of a larger caller-owned
+<code>jax.jit</code> computation. Inside an existing <code>jax.shard_map</code>, use
+<code>potrs_shardmap_ctx</code> with local matrix and RHS blocks instead. Both use the
+same distributed solver.</p>
+<div class="admonition note">
+<p class="admonition-title">Context API migration</p>
+<p>The previous global-array <code>potrs_shardmap_ctx</code> is now named
+<code>potrs_jit_ctx</code>, with the same arguments and outputs.</p>
+</div>
+<p>All three interfaces accept <code>return_logdet=True</code>. Since the factorization
+produces <span class="arithmatex">\(A=LL^H\)</span>, the backend computes</p>
 <div class="arithmatex">\[
 \log\det(A) = 2\sum_i \log |L_{ii}|
 \]</div>
@@ -1654,22 +1768,17 @@ memory simultaneously.</p>
 <div class="doc doc-object doc-function">
 
 
-<h4 id="jaxmg.potrs_shardmap_ctx" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potrs_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_logdet</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+<h4 id="jaxmg.potrs_jit_ctx" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potrs_jit_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_logdet</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">_prepared</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
-<a href="#jaxmg.potrs_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
+<a href="#jaxmg.potrs_jit_ctx" class="headerlink" title="Permanent link">¤</a></h4>
 
 
     <div class="doc doc-contents first">
 
-        <p>Solve A x = B while exposing the donated matrix work buffer.</p>
+        <p>Solve A x = B on global arrays inside a caller-owned <code>jax.jit</code>.</p>
 <p>This helper is the lower-level variant of :func:<code>jaxmg.potrs</code> intended for
-contexts where the caller wants to control the outer <code>jax.jit</code> boundary.
-It performs the same validation, local padding, shard-map construction, and
-fused cuSOLVERMp FFI call as the public solver, but it does not wrap the
-pipeline in an internal <code>jax.jit</code>.  Instead, it returns the native matrix
-work buffer alongside the solution so an outer JIT can donate <code>a</code> into an
-<code>A</code>-sized output.</p>
+contexts where the caller wants to control the outer <code>jax.jit</code> boundary.</p>
 
 
 <details class="note" open>
@@ -1933,6 +2042,270 @@ caller must ensure shapes already match the kernel's requirements.</p>
   column-major local layout, redistributes to 2D block-cyclic layout,
   calls <code>cusolverMpPotrf</code>/<code>cusolverMpPotrs</code>, and redistributes the
   result back.</li>
+</ul>
+</details>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="jaxmg.potrs_shardmap_ctx" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">potrs_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_logdet</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">_nrhs</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#jaxmg.potrs_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+
+        <p>Solve A x = B on local blocks inside a caller's <code>jax.shard_map</code>.</p>
+<p>Use this interface when a distributed solve forms part of a larger
+shard-local calculation. The enclosing mesh must contain exactly the
+matrix axes. A follows <code>matrix_specs</code>; B must share its row sharding,
+but may be distributed or replicated over the process-column axis.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>a</code>
+            </td>
+            <td>
+                  <code><span title="jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Local block of a 2D, symmetric positive-definite matrix.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>b</code>
+            </td>
+            <td>
+                  <code><span title="jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Local block of the solve input, sharded like <code>a</code> or
+replicated over the column axis. A local vector is treated as a
+one-column block.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>T_A</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Square tile width used by cuSOLVERMp. Each local shard
+dimension must be a multiple of <code>T_A</code> after padding.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>matrix_specs</code>
+            </td>
+            <td>
+                  <code><span title="PartitionSpec">PartitionSpec</span> or <span title="tuple">tuple</span> / <span title="list">list</span>[<span title="PartitionSpec">PartitionSpec</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>PartitionSpec of <code>a</code> in the enclosing <code>shard_map</code>.
+If omitted, defaults to the context mesh axes in order.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>in_specs</code>
+            </td>
+            <td>
+                  <code><span title="jax.P">P</span> | <span title="typing.Tuple">Tuple</span>[<span title="jax.P">P</span>] | <span title="typing.List">List</span>[<span title="jax.P">P</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Backwards-compatible alias for <code>matrix_specs</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>return_logdet</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True return the replicated Cholesky
+log determinant between the solution and status outputs. Default
+is False.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pad</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True (default) pad each local block so its
+dimensions are compatible with <code>T_A</code>; if False the caller must
+ensure shapes already match the kernel's requirements.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>tuple</code></td>            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(a_work, x, status)</code> or <code>(a_work, x, logdet, status)</code>.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>a_work</code> is the padded local matrix work buffer required for</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>donation, <code>x</code> is the local solution block, <code>logdet</code> is a real</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>scalar that is identical on every rank, and <code>status</code> is this rank's</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+                  <code><span title="typing.Union">Union</span>[<span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>], <span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>native diagnostic vector.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="TypeError">TypeError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If dtypes or <code>PartitionSpec</code> inputs are unsupported.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If called outside <code>jax.shard_map</code>, or if shapes, tile
+sizes, or mesh layouts are incompatible.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<details class="notes" open>
+  <summary>Notes</summary>
+  <ul>
+<li>When B is replicated over process columns, its copies are solved
+  as duplicate right-hand sides using one distributed factorization.</li>
+<li>Return <code>a_work</code> from the outer jitted function when donating A;
+  it provides the corresponding matrix-sized output buffer.</li>
 </ul>
 </details>
 

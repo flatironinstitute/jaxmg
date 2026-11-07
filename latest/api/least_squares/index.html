@@ -15,7 +15,7 @@
         <link rel="canonical" href="https://flatironinstitute.github.io/jaxmg/latest/api/least_squares/">
       
       
-        <link rel="prev" href="../lu_solve/">
+        <link rel="prev" href="../getrf/">
       
       
         <link rel="next" href="../qr/">
@@ -610,12 +610,58 @@
   
   
     <li class="md-nav__item">
+      <a href="../../examples/potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cholesky factorization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../examples/lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     LU solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    LU factorization
     
   </span>
   
@@ -849,12 +895,58 @@
   
   
     <li class="md-nav__item">
+      <a href="../potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.potrf
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     jaxmg.lu_solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.getrf
     
   </span>
   
@@ -925,6 +1017,15 @@
   <a href="#jaxmg.least_squares" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;least_squares
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#jaxmg.least_squares_jit_ctx" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;least_squares_jit_ctx
     </span>
   </a>
   
@@ -1298,6 +1399,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#jaxmg.least_squares_jit_ctx" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;least_squares_jit_ctx
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#jaxmg.least_squares_shardmap_ctx" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;least_squares_shardmap_ctx
@@ -1333,7 +1443,7 @@ X = \underset{X}{\operatorname{argmin}}\;\lVert A X-B\rVert_2,
 The returned solution has shape <code>(N,)</code> or <code>(N, K)</code>, respectively.
 Each process-grid column must own at least one block-cyclic tile of <span class="arithmatex">\(B\)</span>; a
 vector input therefore requires a process grid with one column.</p>
-<p>Use <code>least_squares</code> for a direct solve. Use <code>least_squares_shardmap_ctx</code> when
+<p>Use <code>least_squares</code> for a direct solve. Use <code>least_squares_jit_ctx</code> when
 the solve is part of a larger caller-owned <code>jax.jit</code>. Since cuSOLVERMp
 overwrites both distributed inputs, the context interface returns <code>a_work</code> and
 <code>b_work</code> as shape-compatible alias targets for donated arguments.</p>
@@ -1606,10 +1716,10 @@ False to preserve them at the cost of additional memory.</p>
 <div class="doc doc-object doc-function">
 
 
-<h4 id="jaxmg.least_squares_shardmap_ctx" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">least_squares_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
+<h4 id="jaxmg.least_squares_jit_ctx" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">least_squares_jit_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">mesh</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">_prepared</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
-<a href="#jaxmg.least_squares_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
+<a href="#jaxmg.least_squares_jit_ctx" class="headerlink" title="Permanent link">¤</a></h4>
 
 
     <div class="doc doc-contents first">
@@ -1836,6 +1946,240 @@ capacity where required.</p>
   the status is non-zero.</li>
 </ul>
 </details>
+
+    </div>
+
+</div><hr />
+<p>Use <code>least_squares_shardmap_ctx</code> for local blocks inside your own <code>jax.shard_map</code>.
+The previous global-array context interface is now named <code>least_squares_jit_ctx</code>.</p>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="jaxmg.least_squares_shardmap_ctx" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <code class="highlight language-python"><span class="n">jaxmg</span><span class="o">.</span><span class="n">least_squares_shardmap_ctx</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">T_A</span><span class="p">,</span> <span class="n">matrix_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">in_specs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">_prepared</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#jaxmg.least_squares_shardmap_ctx" class="headerlink" title="Permanent link">¤</a></h4>
+
+
+    <div class="doc doc-contents first">
+
+        <p>Solve a least-squares system inside a caller's <code>jax.shard_map</code>.</p>
+<p>A follows <code>matrix_specs</code>; B shares its row sharding and may have
+distributed or replicated columns. Replicated copies become duplicate
+right-hand sides in one distributed QR solve, not separate factorizations.
+Every process column must own a logical B tile, including these copies.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>a</code>
+            </td>
+            <td>
+                  <code><span title="jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Local block of a global M x N matrix, with M &gt;= N.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>b</code>
+            </td>
+            <td>
+                  <code><span title="jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Local RHS matrix or vector, with A's dtype and row layout.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>T_A</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Square tile width used by cuSOLVERMp.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>matrix_specs</code>
+            </td>
+            <td>
+                  <code><span title="jax.P">P</span> | <span title="typing.Tuple">Tuple</span>[<span title="jax.P">P</span>] | <span title="typing.List">List</span>[<span title="jax.P">P</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A's partition specification in the enclosing shard map;
+defaults to the context mesh axes in order.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>in_specs</code>
+            </td>
+            <td>
+                  <code><span title="jax.P">P</span> | <span title="typing.Tuple">Tuple</span>[<span title="jax.P">P</span>] | <span title="typing.List">List</span>[<span title="jax.P">P</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Backwards-compatible alias for <code>matrix_specs</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pad</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Allow local tile-capacity padding; otherwise require aligned blocks.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(a_work, b_work, x, status)</code>. A work is padded and opaque; B work</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>retains the logical M-row layout. The native backend restores the</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>N-row solution across process rows, preserving B's column replication.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="jax.Array">Array</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Return both work buffers from an outer jitted function when donating inputs.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="typing.Tuple">Tuple</span>[<span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>, <span title="jax.Array">Array</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Status contains this rank's diagnostics.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="TypeError">TypeError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If dtypes or partition specifications are unsupported.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If called outside shard_map, shapes are incompatible, or a
+process column owns no logical B tile.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
 
     </div>
 

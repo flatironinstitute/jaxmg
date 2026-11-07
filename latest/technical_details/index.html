@@ -610,12 +610,58 @@
   
   
     <li class="md-nav__item">
+      <a href="../examples/potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cholesky factorization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../examples/lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     LU solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    LU factorization
     
   </span>
   
@@ -844,12 +890,58 @@
   
   
     <li class="md-nav__item">
+      <a href="../api/potrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.potrf
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../api/lu_solve/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     jaxmg.lu_solve
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/getrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    jaxmg.getrf
     
   </span>
   
@@ -1491,8 +1583,13 @@ allocate a second full local matrix.</p>
 <li><code>potrs</code> calls <code>cusolverMpPotrf</code> followed by <code>cusolverMpPotrs</code>. When requested,
   it reads the distributed factor diagonal and performs a one-scalar NCCL
   all-reduce to return <code>log(det(A))</code>.</li>
+<li><code>potrf</code> calls <code>cusolverMpPotrf</code> only, zeros the strict upper triangle of the
+  distributed factor, and restores <span class="arithmatex">\(L\)</span> in place of the donated A.</li>
 <li><code>lu_solve</code> calls <code>cusolverMpGetrf</code> followed by <code>cusolverMpGetrs</code> and manages
   the distributed pivot allocation.</li>
+<li><code>getrf</code> calls <code>cusolverMpGetrf</code> only, restores the packed LU factor in place
+  of the donated A, and gathers the distributed pivots into one replicated
+  vector with an NCCL max all-reduce.</li>
 <li><code>least_squares</code> calls <code>cusolverMpGels</code> for overdetermined rectangular systems
   and restores the solution from the overwritten solve-input buffer.</li>
 <li><code>qr</code> calls <code>cusolverMpGeqrf</code>, preserves the upper-triangular factor, and then
