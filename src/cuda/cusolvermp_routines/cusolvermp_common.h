@@ -32,6 +32,7 @@
 #include <cusolverMp.h>
 
 #include "../xla_ffi/runtime.h"
+#include "cusolvermp_cache.h"
 #include "third_party/nccl/nccl.h"
 
 namespace xla::gpu {
@@ -42,6 +43,7 @@ namespace xla::gpu {
 struct CusolverMpApi {
   decltype(&cusolverMpCreate) create = &cusolverMpCreate;
   decltype(&cusolverMpDestroy) destroy = &cusolverMpDestroy;
+  decltype(&cusolverMpSetStream) set_stream = &cusolverMpSetStream;
   decltype(&cusolverMpGetVersion) get_version = &cusolverMpGetVersion;
   decltype(&cusolverMpCreateDeviceGrid) create_grid =
       &cusolverMpCreateDeviceGrid;
@@ -230,8 +232,10 @@ class CusolverMpExecution {
   CusolverMpExecution& operator=(const CusolverMpExecution&) = delete;
 
   // Select the matrix's CUDA device, borrow the assigned communicator,
-  // validate its process grid, and create the handle/grid. Runtime failures
-  // set status[0]; invalid grid mappings return an absl::Status error.
+  // validate its process grid, and take the handle/grid from the process-wide
+  // cache (cusolvermp_cache.h), or create them when JAXMG_CUSOLVERMP_CACHE=0.
+  // Runtime failures set status[0]; invalid grid mappings return an
+  // absl::Status error.
   absl::Status Initialize(
       const char* caller, cudaStream_t cuda_stream, const void* matrix,
       int64_t process_rows, int64_t process_cols, int64_t grid_mapping,
@@ -241,7 +245,8 @@ class CusolverMpExecution {
 
   // Close explicitly before collective status agreement so cleanup failures
   // are included. The destructor also covers early returns; repeated closes
-  // are harmless. The borrowed NCCL communicator remains valid afterwards.
+  // are harmless. Cached handles/grids and the borrowed NCCL communicator
+  // remain valid afterwards.
   void Close();
 
   CusolverMpApi api;
@@ -253,6 +258,8 @@ class CusolverMpExecution {
  private:
   absl::Span<int32_t> status_;
   size_t raw_status_index_;
+  // Whether `handle` and `grid` belong to the process-wide cache.
+  bool cached_ = false;
 };
 
 // Computes the ScaLAPACK/NUMROC local length owned by one process coordinate

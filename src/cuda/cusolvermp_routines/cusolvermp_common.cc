@@ -96,10 +96,19 @@ absl::Status CusolverMpExecution::Initialize(
   }
 
   // Stage 4: own only cuSOLVERMp resources; cleanup never destroys NCCL.
+  // The handle and grid come from the process-wide cache unless
+  // JAXMG_CUSOLVERMP_CACHE=0: setting them up and tearing them down in every
+  // call costs about 1 s per call on 8 GPUs.
+  cached_ = CusolverMpCacheEnabled();
+  const CusolverMpCacheApi cache_api{api.create, api.set_stream,
+                                     api.create_grid};
   status_[7] = 1;
-  CusolverMpDebug(nccl_rank, "%s create handle begin device=%d", caller,
-                  *buffer_device);
-  cusolverStatus_t solver_status = api.create(&handle, *buffer_device, cuda_stream);
+  CusolverMpDebug(nccl_rank, "%s create handle begin device=%d cached=%d",
+                  caller, *buffer_device, static_cast<int>(cached_));
+  cusolverStatus_t solver_status =
+      cached_ ? AcquireCachedCusolverMpHandle(cache_api, *buffer_device,
+                                              cuda_stream, &handle)
+              : api.create(&handle, *buffer_device, cuda_stream);
   CusolverMpDebug(nccl_rank, "%s create handle end status=%d", caller,
                   static_cast<int>(solver_status));
   if (solver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
@@ -119,9 +128,16 @@ absl::Status CusolverMpExecution::Initialize(
   CusolverMpDebug(nccl_rank, "%s version=%d create grid begin rows=%lld cols=%lld",
                   caller, version, static_cast<long long>(process_rows),
                   static_cast<long long>(process_cols));
-  solver_status = api.create_grid(
-      handle, &grid, nccl_comm, static_cast<int32_t>(process_rows),
-      static_cast<int32_t>(process_cols), ToCusolverMpGridMapping(grid_mapping));
+  solver_status =
+      cached_ ? AcquireCachedCusolverMpGrid(
+                    cache_api, handle, nccl_comm,
+                    static_cast<int32_t>(process_rows),
+                    static_cast<int32_t>(process_cols),
+                    ToCusolverMpGridMapping(grid_mapping), &grid)
+              : api.create_grid(handle, &grid, nccl_comm,
+                                static_cast<int32_t>(process_rows),
+                                static_cast<int32_t>(process_cols),
+                                ToCusolverMpGridMapping(grid_mapping));
   CusolverMpDebug(nccl_rank, "%s create grid end status=%d", caller,
                   static_cast<int>(solver_status));
   if (solver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
@@ -134,6 +150,12 @@ absl::Status CusolverMpExecution::Initialize(
 }
 
 void CusolverMpExecution::Close() {
+  if (cached_) {
+    // The cache owns the handle and grid; they serve later calls.
+    grid = nullptr;
+    handle = nullptr;
+    return;
+  }
   if (grid != nullptr) {
     const cusolverStatus_t result = api.destroy_grid(std::exchange(grid, nullptr));
     if (result != CUSOLVER_STATUS_SUCCESS && status_[0] == kStatusOk) {

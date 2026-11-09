@@ -112,6 +112,13 @@ Each Python process owns one GPU and contributes one rank to the XLA/NCCL and
 cuSOLVERMp communicators. See [Distributed execution](../examples/execution.md)
 for the required launch model.
 
+Setting up and tearing down a cuSOLVERMp handle and device grid in every call
+costs time that grows with the number of ranks, about 1 s per call on 8 GPUs.
+Every routine therefore takes them from a process-wide cache: one handle per
+GPU, pointed at the calling stream, and one grid per communicator and
+process-grid shape, both kept until the process exits. Setting
+`JAXMG_CUSOLVERMP_CACHE=0` creates and destroys them in every call instead.
+
 ## Detailed implementation
 
 [Memory distribution](memory_distribution.md) gives the complete diagrams,
