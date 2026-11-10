@@ -232,8 +232,9 @@ Call `potrs` or `lu_solve` directly for standard solves. For use inside a larger
 ## Projects that use JAXMg
 
 - [JAXMg Benchmarks](https://github.com/therooler/jaxmg_benchmark): Benchmarks for various Multi-GPUs setups.
-- [JAXMg + Netket](https://github.com/therooler/netket_jaxmg): Implementation of the MinSR Netket driver that uses JAXMg for inverting the S-matrix. Tested on Multi-node settings.
+- [Netket](https://github.com/netket/netket) and [Tachys](https://github.com/tachys-dev/tachys): Distributed solvers are available for variational Monte Carlo simulations.
 - [JAXMg for blurred sampling](https://github.com/therooler/nqs_blurred_sampling): Implementation of t-VMC that makes use JAXMg for inverting the QGT.
+- [JAXMg for simulating quantum annealing experiments](https://github.com/therooler/dwave_vmc): Simulation of D-Wave's 2025 quantum annealing experiment with t-VMC that makes use JAXMg for inverting the QGT.
 
 ## Citations
 ```
