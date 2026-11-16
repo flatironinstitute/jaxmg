@@ -104,8 +104,15 @@ absl::Status RunCusolverMpDistributedGels(
     if (d_work != nullptr) cudaFree(d_work);
     if (h_work != nullptr) std::free(h_work);
     if (d_info != nullptr) cudaFree(d_info);
-    api.destroy_matrix_desc(desc_b);
-    api.destroy_matrix_desc(desc_a);
+    auto record_destroy_failure = [&](cusolverStatus_t destroy_status) {
+      if (destroy_status != CUSOLVER_STATUS_SUCCESS &&
+          (*status_words)[0] == kStatusOk) {
+        (*status_words)[0] = kDestroyMatrixDescFailed;
+        (*status_words)[11] = static_cast<int32_t>(destroy_status);
+      }
+    };
+    record_destroy_failure(api.destroy_matrix_desc(desc_b));
+    record_destroy_failure(api.destroy_matrix_desc(desc_a));
   };
   auto check_cuda = [&](cudaError_t result, const char* caller) -> absl::Status {
     if (result == cudaSuccess) return absl::OkStatus();
