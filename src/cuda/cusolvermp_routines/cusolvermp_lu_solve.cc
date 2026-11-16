@@ -225,7 +225,7 @@ absl::Status RunCusolverMpLuSolveSolver(
     ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   // Stage 1: validate the static FFI contract. Python/JAX has already padded
   // the user arrays and memory_redist has produced local column-major 2D
   // block-cyclic buffers, so these checks cover local capacity and dtype
@@ -391,7 +391,7 @@ absl::Status XlaCusolverMpLuSolveDispatch(
     ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
     ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   absl::StatusOr<ResolvedProcessGrid> process_grid =
       ResolveProcessGrid("cusolvermp_lu_solve", collective_params,
                          partition_slots, process_rows, process_cols);

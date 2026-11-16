@@ -217,8 +217,9 @@ std::pair<int32_t, int32_t> ProcessCoordFromRank(int nccl_rank,
                                                  int64_t process_cols,
                                                  int64_t grid_mapping);
 
-// Owns one invocation's cuSOLVERMp handle and grid, but only borrows XLA's
-// NCCL communicator. The caller's status vector must outlive this object;
+// Holds exclusive access to cached cuSOLVERMp setup for one invocation, or
+// owns the handle/grid when caching is disabled. XLA owns the borrowed NCCL
+// communicator. The caller's status vector must outlive this object;
 // its first ten fields follow the common runtime diagnostic layout.
 // The raw cuSOLVER status is at index 11, except for QR which uses index 12.
 // Matrix descriptors and solver-specific workspace remain with the caller.
@@ -232,8 +233,8 @@ class CusolverMpExecution {
   CusolverMpExecution& operator=(const CusolverMpExecution&) = delete;
 
   // Select the matrix's CUDA device, borrow the assigned communicator,
-  // validate its process grid, and take the handle/grid from the process-wide
-  // cache (cusolvermp_cache.h), or create them when JAXMG_CUSOLVERMP_CACHE=0.
+  // validate its process grid, and borrow the cached handle/grid,
+  // or create them when JAXMG_CUSOLVERMP_CACHE=0.
   // Runtime failures set status[0]; invalid grid mappings return an
   // absl::Status error.
   absl::Status Initialize(
@@ -241,12 +242,12 @@ class CusolverMpExecution {
       int64_t process_rows, int64_t process_cols, int64_t grid_mapping,
       absl::Span<const int64_t> rank_map,
       const CollectiveParams* collective_params,
-      const CollectiveCliques* collective_cliques);
+      CollectiveCliques* collective_cliques);
 
   // Close explicitly before collective status agreement so cleanup failures
   // are included. The destructor also covers early returns; repeated closes
-  // are harmless. Cached handles/grids and the borrowed NCCL communicator
-  // remain valid afterwards.
+  // are harmless. Cached execution finishes its CUDA work before unlocking;
+  // the cache retains its resources while XLA retains the NCCL communicator.
   void Close();
 
   CusolverMpApi api;
@@ -258,7 +259,8 @@ class CusolverMpExecution {
  private:
   absl::Span<int32_t> status_;
   size_t raw_status_index_;
-  // Whether `handle` and `grid` belong to the process-wide cache.
+  cudaStream_t cuda_stream_ = nullptr;
+  std::unique_lock<std::mutex> cache_lock_;
   bool cached_ = false;
 };
 

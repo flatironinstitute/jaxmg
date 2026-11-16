@@ -12,32 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Process-wide cuSOLVERMp handles and device grids, reused across FFI calls.
+// Process-lifetime cuSOLVERMp handles and grids, reused across FFI calls.
 //
-// Setting up and tearing down a cuSOLVERMp handle and device grid in every call
-// costs about 1 s per call on 8 GPUs (0.2 s on 2), whatever the matrix size.
-// The cache creates them on first use and keeps them for the life of the
-// process:
-//
-//   - one handle per CUDA device, pointed at the caller's stream on each call;
-//   - one grid per (handle, NCCL communicator, process grid, grid mapping).
-//
-// JAXMG_CUSOLVERMP_CACHE=0 turns the cache off: every call then creates and
-// destroys its own handle and grid, as before.
-//
-// The cache reaches cuSOLVERMp only through the function pointers it is given,
-// so this file depends on cusolverMp.h alone.
+// Reusing library setup avoids repeated initialization without retaining matrix
+// descriptors or explicit solver workspace. Each execution holds the cache lock
+// until its CUDA work has completed. XLA clique lifetime notifications prevent
+// reuse after a borrowed communicator has been retired. Automatic native
+// teardown is unsafe without a coordinated callback before NCCL is aborted.
+// JAXMG_CUSOLVERMP_CACHE=0 retains per-call handle and grid ownership.
 
 #ifndef JAXMG_CUSOLVERMP_CACHE_H_
 #define JAXMG_CUSOLVERMP_CACHE_H_
 
 #include <cstdint>
+#include <memory>
+#include <mutex>
 
 #include <cusolverMp.h>
 
+#include "absl/status/status.h"
+#include "xla/backends/gpu/runtime/collective_cliques.h"
+
 namespace xla::gpu {
 
-// The cuSOLVERMp entry points the cache creates objects with.
+// Library entry points used for cached resource creation and stream selection.
 struct CusolverMpCacheApi {
   cusolverStatus_t (*create)(cusolverMpHandle_t*, int, cudaStream_t);
   cusolverStatus_t (*set_stream)(cusolverMpHandle_t, cudaStream_t);
@@ -49,23 +47,32 @@ struct CusolverMpCacheApi {
 // False when JAXMG_CUSOLVERMP_CACHE is set to 0.
 bool CusolverMpCacheEnabled();
 
-// The handle of `device`, created on first use and set to `stream`.
-cusolverStatus_t AcquireCachedCusolverMpHandle(const CusolverMpCacheApi& api,
-                                               int device, cudaStream_t stream,
-                                               cusolverMpHandle_t* handle);
+// One handle per device, shared by all solver routines. Grids are indexed by
+// XLA clique and process layout, not by a potentially recycled NCCL address.
+class CusolverMpCache {
+ public:
+  CusolverMpCache(CusolverMpCacheApi api, int device);
+  ~CusolverMpCache();
 
-// The grid of `handle` over `comm` with the given process grid and mapping,
-// created on first use.
-cusolverStatus_t AcquireCachedCusolverMpGrid(const CusolverMpCacheApi& api,
-                                             cusolverMpHandle_t handle,
-                                             ncclComm_t comm, int32_t rows,
-                                             int32_t cols,
-                                             cusolverMpGridMapping_t mapping,
-                                             cusolverMpGrid_t* grid);
+  // Acquire exclusive access before setting the stream or using any resource.
+  // The caller must finish its CUDA work before releasing the returned lock.
+  absl::Status Lock(std::unique_lock<std::mutex>* lock);
 
-// Whether the cache owns `handle` / `grid`: owned objects are never destroyed.
-bool IsCachedCusolverMpHandle(cusolverMpHandle_t handle);
-bool IsCachedCusolverMpGrid(cusolverMpGrid_t grid);
+  // These methods require the execution to hold the lock obtained above.
+  cusolverStatus_t GetHandle(cudaStream_t stream, cusolverMpHandle_t* handle);
+  absl::Status TrackClique(CollectiveCliques* cliques, const GpuCliqueKey& key);
+  cusolverStatus_t GetGrid(const GpuCliqueKey& key, ncclComm_t comm,
+                          int32_t rows, int32_t cols,
+                          cusolverMpGridMapping_t mapping,
+                          cusolverMpGrid_t* grid);
+
+ private:
+  struct State;
+  std::unique_ptr<State> state_;
+};
+
+// Returns stable per-device storage retained by the process-lifetime registry.
+CusolverMpCache& GetCusolverMpCache(CusolverMpCacheApi api, int device);
 
 }  // namespace xla::gpu
 

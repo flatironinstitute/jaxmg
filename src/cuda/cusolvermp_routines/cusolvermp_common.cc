@@ -38,7 +38,7 @@ absl::Status CusolverMpExecution::Initialize(
     int64_t process_rows, int64_t process_cols, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   if (status_.size() < 10 || raw_status_index_ >= status_.size()) {
     return absl::InvalidArgumentError("cuSOLVERMp runtime status is too small");
   }
@@ -50,6 +50,7 @@ absl::Status CusolverMpExecution::Initialize(
     return absl::OkStatus();
   }
   status_[1] = *buffer_device;
+  cuda_stream_ = cuda_stream;
 
   // Stage 2: borrow XLA's existing communicator without taking ownership.
   if (collective_params == nullptr || collective_cliques == nullptr) {
@@ -95,19 +96,21 @@ absl::Status CusolverMpExecution::Initialize(
         caller, rank_map, process_rows, process_cols, grid_mapping));
   }
 
-  // Stage 4: own only cuSOLVERMp resources; cleanup never destroys NCCL.
-  // The handle and grid come from the process-wide cache unless
-  // JAXMG_CUSOLVERMP_CACHE=0: setting them up and tearing them down in every
-  // call costs about 1 s per call on 8 GPUs.
+  // Stage 4: acquire exclusive use of cached library setup, or create
+  // per-call resources when caching is disabled. NCCL remains owned by XLA.
   cached_ = CusolverMpCacheEnabled();
-  const CusolverMpCacheApi cache_api{api.create, api.set_stream,
-                                     api.create_grid};
+  CusolverMpCache* cache = nullptr;
+  if (cached_) {
+    const CusolverMpCacheApi cache_api{api.create, api.set_stream, api.create_grid};
+    cache = &GetCusolverMpCache(cache_api, *buffer_device);
+    JAXMG_RETURN_IF_ERROR(cache->Lock(&cache_lock_));
+    JAXMG_RETURN_IF_ERROR(cache->TrackClique(collective_cliques, *clique_key));
+  }
   status_[7] = 1;
   CusolverMpDebug(nccl_rank, "%s create handle begin device=%d cached=%d",
                   caller, *buffer_device, static_cast<int>(cached_));
   cusolverStatus_t solver_status =
-      cached_ ? AcquireCachedCusolverMpHandle(cache_api, *buffer_device,
-                                              cuda_stream, &handle)
+      cached_ ? cache->GetHandle(cuda_stream, &handle)
               : api.create(&handle, *buffer_device, cuda_stream);
   CusolverMpDebug(nccl_rank, "%s create handle end status=%d", caller,
                   static_cast<int>(solver_status));
@@ -129,8 +132,8 @@ absl::Status CusolverMpExecution::Initialize(
                   caller, version, static_cast<long long>(process_rows),
                   static_cast<long long>(process_cols));
   solver_status =
-      cached_ ? AcquireCachedCusolverMpGrid(
-                    cache_api, handle, nccl_comm,
+      cached_ ? cache->GetGrid(
+                    *clique_key, nccl_comm,
                     static_cast<int32_t>(process_rows),
                     static_cast<int32_t>(process_cols),
                     ToCusolverMpGridMapping(grid_mapping), &grid)
@@ -151,7 +154,15 @@ absl::Status CusolverMpExecution::Initialize(
 
 void CusolverMpExecution::Close() {
   if (cached_) {
-    // The cache owns the handle and grid; they serve later calls.
+    // Include early-return paths: another caller must not change this handle's
+    // stream while work from the current invocation is still outstanding.
+    if (cache_lock_.owns_lock()) {
+      const cudaError_t result = cudaStreamSynchronize(cuda_stream_);
+      if (result != cudaSuccess && status_[0] == kStatusOk) {
+        status_[0] = kCudaDeviceFailed;
+      }
+      cache_lock_.unlock();
+    }
     grid = nullptr;
     handle = nullptr;
     return;

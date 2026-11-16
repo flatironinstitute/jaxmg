@@ -127,7 +127,7 @@ absl::Status RunCusolverMpGetrfSolver(
     ffi::Result<ffi::BufferR1<S32>> piv_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   // Stage 1: validate the streams and fixed diagnostic-buffer contract.
   if (stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
@@ -314,7 +314,7 @@ absl::Status RunCusolverMpGetrfDispatch(
     ffi::Result<ffi::AnyBuffer> lu, ffi::Result<ffi::BufferR1<S32>> piv,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
       "cusolvermp_getrf", collective_params, partition_slots, process_rows,
       process_cols);
@@ -436,7 +436,7 @@ absl::Status XlaCusolverMpGetrfDispatch(
     ffi::Result<ffi::AnyBuffer> lu, ffi::Result<ffi::BufferR1<S32>> piv,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   return RunCusolverMpGetrfDispatch(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
       n, tile_size, partition_slots, a, lu, piv, status, collective_params,

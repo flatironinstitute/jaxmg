@@ -222,7 +222,7 @@ absl::Status RunCusolverMpGelsSolver(
     ffi::Result<ffi::AnyBuffer> x_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   // Stage 1: validate the local FFI buffers and diagnostic output.
   if (stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
@@ -402,7 +402,7 @@ absl::Status XlaCusolverMpGelsDispatch(
     ffi::Result<ffi::AnyBuffer> x_out,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   se::Stream* comm_stream = nullptr;
   absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
       "cusolvermp_gels", collective_params, partition_slots, process_rows,

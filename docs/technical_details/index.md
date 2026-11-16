@@ -112,12 +112,19 @@ Each Python process owns one GPU and contributes one rank to the XLA/NCCL and
 cuSOLVERMp communicators. See [Distributed execution](../examples/execution.md)
 for the required launch model.
 
-Setting up and tearing down a cuSOLVERMp handle and device grid in every call
-costs time that grows with the number of ranks, about 1 s per call on 8 GPUs.
-Every routine therefore takes them from a process-wide cache: one handle per
-GPU, pointed at the calling stream, and one grid per communicator and
-process-grid shape, both kept until the process exits. Setting
-`JAXMG_CUSOLVERMP_CACHE=0` creates and destroys them in every call instead.
+Every routine reuses a cached cuSOLVERMp handle and device grid to avoid
+repeated library initialization. The cache holds one handle per GPU and one
+grid per XLA communicator group, process-grid shape, and mapping. Each call
+holds exclusive access to its device's handle until its CUDA work completes;
+matrix descriptors and explicit solver workspaces remain local to the call.
+
+Cached setup is retained until process exit, matching XLA's normal communicator
+lifetime. Collective destruction cannot safely run from a static destructor
+after NCCL or CUDA teardown. XLA lifetime notifications prevent reuse if a
+cached communicator group is retired; this requires restarting the distributed
+processes. For workflows that replace communicators, set
+`JAXMG_CUSOLVERMP_CACHE=0` before starting every process to retain per-call
+handle and grid creation and destruction.
 
 ## Detailed implementation
 
