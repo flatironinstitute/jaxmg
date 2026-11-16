@@ -51,8 +51,11 @@ def main():
             jnp.diag(jnp.arange(n, dtype=jnp.float32) + 1),
             NamedSharding(mesh, P("pr", "pc")),
         )
-        # Only the last rank reports an error, after releasing its real handle.
-        os.environ["JAXMG_TEST_FAIL_DESTROY"] = str(int(proc_id == num_procs - 1))
+        cached = os.environ.get("JAXMG_CUSOLVERMP_CACHE", "1") != "0"
+        failure_env = ("JAXMG_TEST_FAIL_DESCRIPTOR_DESTROY" if cached
+                       else "JAXMG_TEST_FAIL_DESTROY")
+        # Descriptors remain per-call even when handles and grids are cached.
+        os.environ[failure_env] = str(int(proc_id == num_procs - 1))
         if routine in ("potrs", "lu_solve", "least_squares"):
             b = jax.device_put(
                 jnp.ones(n, dtype=jnp.float32), NamedSharding(mesh, P("pr"))
@@ -66,7 +69,7 @@ def main():
                 a, tile_size, mesh=mesh, return_status=True
             )
         status.block_until_ready()
-        os.environ["JAXMG_TEST_FAIL_DESTROY"] = "0"
+        os.environ[failure_env] = "0"
 
         native_name = routine.upper()
         status_size = getattr(_cusolvermp_status, f"_CUSOLVERMP_{native_name}_STATUS_SIZE")
@@ -74,20 +77,23 @@ def main():
         if routine == "getrf":
             pivots = results.pop()
             assert np.all(global_array_to_numpy(pivots) == -1)
-        # kDestroyHandleFailed is 16; the raw error remains rank-local.
+        # Descriptor/handle cleanup codes are 14/16; raw errors stay rank-local.
         raw_status_index = 12 if routine == "qr" else 11
         np.testing.assert_array_equal(
             words[:, raw_status_index], [0] * (num_procs - 1) + [7]
         )
         if routine == "qr":
             np.testing.assert_array_equal(words[:, 11], 1)  # R descriptor created
-        assert_rank_failure_with_nan(words.ravel(), status_size, (16,), *results)
+        assert_rank_failure_with_nan(
+            words.ravel(), status_size, (14 if cached else 16,), *results
+        )
         multihost_utils.sync_global_devices(f"{routine}_failure_consensus_complete")
         record["status"] = "ok"
     except Exception:
         record.update(status="fail", traceback=traceback.format_exc())
     finally:
         os.environ["JAXMG_TEST_FAIL_DESTROY"] = "0"
+        os.environ["JAXMG_TEST_FAIL_DESCRIPTOR_DESTROY"] = "0"
         emit("GPU_TEST_RESULT", record)
 
 
