@@ -47,8 +47,8 @@ struct CusolverMpCacheApi {
 // False when JAXMG_CUSOLVERMP_CACHE is set to 0.
 bool CusolverMpCacheEnabled();
 
-// One handle per device, shared by all solver routines. Grids are indexed by
-// XLA clique and process layout, not by a potentially recycled NCCL address.
+// One handle per device, shared by all solver routines. Grids match both the
+// XLA clique and NCCL handle; retirement notifications prevent stale reuse.
 class CusolverMpCache {
  public:
   CusolverMpCache(CusolverMpCacheApi api, int device);
@@ -60,7 +60,8 @@ class CusolverMpCache {
 
   // These methods require the execution to hold the lock obtained above.
   cusolverStatus_t GetHandle(cudaStream_t stream, cusolverMpHandle_t* handle);
-  absl::Status TrackClique(CollectiveCliques* cliques, const GpuCliqueKey& key);
+  absl::Status TrackClique(CollectiveCliques* cliques, const GpuCliqueKey& key,
+                          ncclComm_t comm);
   cusolverStatus_t GetGrid(const GpuCliqueKey& key, ncclComm_t comm,
                           int32_t rows, int32_t cols,
                           cusolverMpGridMapping_t mapping,

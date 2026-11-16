@@ -104,7 +104,8 @@ absl::Status CusolverMpExecution::Initialize(
     const CusolverMpCacheApi cache_api{api.create, api.set_stream, api.create_grid};
     cache = &GetCusolverMpCache(cache_api, *buffer_device);
     JAXMG_RETURN_IF_ERROR(cache->Lock(&cache_lock_));
-    JAXMG_RETURN_IF_ERROR(cache->TrackClique(collective_cliques, *clique_key));
+    JAXMG_RETURN_IF_ERROR(
+        cache->TrackClique(collective_cliques, *clique_key, nccl_comm));
   }
   status_[7] = 1;
   CusolverMpDebug(nccl_rank, "%s create handle begin device=%d cached=%d",

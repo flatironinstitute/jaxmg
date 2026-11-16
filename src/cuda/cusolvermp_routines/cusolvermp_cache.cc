@@ -54,8 +54,8 @@ struct CusolverMpCache::State {
   int device;
   std::shared_ptr<CacheLifetime> lifetime = std::make_shared<CacheLifetime>();
   cusolverMpHandle_t handle = nullptr;
-  std::map<GpuCliqueKey, tsl::TiedRef<CliqueLifetime>> cliques;
-  std::map<std::tuple<GpuCliqueKey, int32_t, int32_t, int32_t>, cusolverMpGrid_t>
+  std::map<std::pair<GpuCliqueKey, uintptr_t>, tsl::TiedRef<CliqueLifetime>> cliques;
+  std::map<std::tuple<GpuCliqueKey, uintptr_t, int32_t, int32_t, int32_t>, cusolverMpGrid_t>
       grids;
 };
 
@@ -116,14 +116,16 @@ cusolverStatus_t CusolverMpCache::GetHandle(cudaStream_t stream,
 }
 
 absl::Status CusolverMpCache::TrackClique(CollectiveCliques* cliques,
-                                        const GpuCliqueKey& key) {
-  if (state_->cliques.find(key) != state_->cliques.end()) return absl::OkStatus();
+                                        const GpuCliqueKey& key, ncclComm_t comm) {
+  // Separate live XLA clients can assign the same clique key to different comms.
+  const auto identity = std::make_pair(key, reinterpret_cast<uintptr_t>(comm));
+  if (state_->cliques.find(identity) != state_->cliques.end()) return absl::OkStatus();
   auto lifetime = std::make_unique<CliqueLifetime>(state_->lifetime);
   auto* notification = lifetime.get();
   auto tied = cliques->Tie(key, std::move(lifetime));
   if (!tied.ok()) return tied.status();
   notification->armed = true;
-  state_->cliques.emplace(key, std::move(*tied));
+  state_->cliques.emplace(identity, std::move(*tied));
   return absl::OkStatus();
 }
 
@@ -131,7 +133,8 @@ cusolverStatus_t CusolverMpCache::GetGrid(
     const GpuCliqueKey& key, ncclComm_t comm, int32_t rows, int32_t cols,
     cusolverMpGridMapping_t mapping, cusolverMpGrid_t* grid) {
   const auto grid_key =
-      std::make_tuple(key, rows, cols, static_cast<int32_t>(mapping));
+      std::make_tuple(key, reinterpret_cast<uintptr_t>(comm), rows, cols,
+                      static_cast<int32_t>(mapping));
   auto entry = state_->grids.find(grid_key);
   if (entry != state_->grids.end()) {
     *grid = entry->second;
