@@ -6,8 +6,8 @@ name: build-wheels (reusable)
 # which serves every Python version as the backend does not use the C API.
 # Parameterized by arch so the same logic serves x86_64 and aarch64.
 #
-# Build-only: no GPU is available on GitHub runners, so wheels are packaged and
-# import-checked but not GPU-tested (that happens on Jenkins, for x86).
+# No GPU is available on GitHub runners. Native ownership tests use fake device
+# calls; numerical GPU tests run on Jenkins after wheels are packaged.
 
 on:
   workflow_call:
@@ -68,6 +68,7 @@ jobs:
           CUDA_ARCHS: ${{ matrix.cuda_archs }}
           CUSOLVERMP: ${{ matrix.cusolvermp }}
           JAXCI_HERMETIC_PYTHON_VERSION: '3.12'
+          JAXMG_RUN_NATIVE_TESTS: '1'
         run: |
           set -euxo pipefail
           WS="$(pwd)"
@@ -81,6 +82,8 @@ jobs:
           # 2. Stage this jaxmg checkout inside the jax tree.
           mkdir -p jax-src/jaxmg
           cp -r src bazel build_native_backend.sh pyproject.toml setup.py jax-src/jaxmg/
+          mkdir -p jax-src/jaxmg/tests
+          cp -r tests/native jax-src/jaxmg/tests/
 
           # 3. Generate .jax_configure.bazelrc ONLY (skip the full plugin build).
           cd jax-src

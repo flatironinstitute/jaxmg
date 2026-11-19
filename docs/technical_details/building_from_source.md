@@ -133,6 +133,10 @@ CAPABILITIES=sm_80,sm_90,sm_120,compute_90
 The script discovers cuSOLVERMp, stages the Bazel package, compiles the shared
 library, and installs it under `/jax/jaxmg/src/jaxmg/cuXX/`.
 
+CI also runs the native cache-lifetime tests without a GPU. To run these during
+a local build, copy `tests/native` into `/jax/jaxmg/tests/native` and set
+`JAXMG_RUN_NATIVE_TESTS=1` when invoking `build_native_backend.sh`.
+
 Copy the result back to the original checkout:
 
 ```bash

@@ -157,6 +157,10 @@ for src in cusolvermp_cache.cc cusolvermp_cache.h cusolvermp_common.cc cusolverm
   cp -f "${JAXMG_ROOT}/src/cuda/cusolvermp_routines/${src}" \
     "${BACKEND_PKG}/cusolvermp_routines/${src}"
 done
+if [[ "${JAXMG_RUN_NATIVE_TESTS:-0}" == "1" ]]; then
+  mkdir -p "${BACKEND_PKG}/tests"
+  cp "${JAXMG_ROOT}/tests/native/cache_lifetime_test.cc" "${BACKEND_PKG}/tests/"
+fi
 ln -sfn "${CUSOLVERMP_INCLUDE_DIR}" "${BACKEND_PKG}/cusolvermp_include"
 ln -sfn "${CUSOLVERMP_LIBRARY_DIR}" "${BACKEND_PKG}/cusolvermp_lib"
 
@@ -180,6 +184,15 @@ fi
   --repo_env="HERMETIC_CUDA_COMPUTE_CAPABILITIES=${CUDA_COMPUTE_CAPABILITIES}" \
   --jobs="${BAZEL_JOBS}" \
   //jaxmg_backend:libjaxmg_xla_comm_backend.so
+
+if [[ "${JAXMG_RUN_NATIVE_TESTS:-0}" == "1" ]]; then
+  "${BAZEL}" test \
+    "${BAZEL_CONFIG_ARGS[@]}" \
+    --verbose_failures=true --test_output=errors \
+    --repo_env="HERMETIC_CUDA_COMPUTE_CAPABILITIES=${CUDA_COMPUTE_CAPABILITIES}" \
+    --jobs="${BAZEL_JOBS}" \
+    //jaxmg_backend:cache_lifetime_test
+fi
 
 INSTALL_DIR="${JAXMG_ROOT}/src/jaxmg/cu${CUDA_MAJOR}"
 mkdir -p "${INSTALL_DIR}"
