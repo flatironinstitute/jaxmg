@@ -56,21 +56,21 @@ absl::Status CompleteHermitianInverse(
         const int64_t offset = (i / pr) * tile + (j / pc) * tile * ld;
         JAXMG_RETURN_IF_CUDA_ERROR(PackHermitianTile(
             stream, dtype, data + offset * bytes, ld, rows, cols, i == j,
-            scratch.base));
+            scratch.pointer));
       }
       if (src != dst) {
         if (rank == src) {
           JAXMG_RETURN_IF_NCCL_ERROR(ncclSend(
-              scratch.base, rows * cols * bytes, ncclUint8, dst, comm, stream));
+              scratch.pointer, rows * cols * bytes, ncclUint8, dst, comm, stream));
         } else if (rank == dst) {
           JAXMG_RETURN_IF_NCCL_ERROR(ncclRecv(
-              scratch.base, rows * cols * bytes, ncclUint8, src, comm, stream));
+              scratch.pointer, rows * cols * bytes, ncclUint8, src, comm, stream));
         }
       }
       if (rank == dst) {
         const int64_t offset = (j / pr) * tile + (i / pc) * tile * ld;
         JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpy2DAsync(
-            data + offset * bytes, ld * bytes, scratch.base, cols * bytes,
+            data + offset * bytes, ld * bytes, scratch.pointer, cols * bytes,
             cols * bytes, rows, cudaMemcpyDeviceToDevice, stream));
       }
     }
