@@ -218,7 +218,7 @@ absl::Status RunCusolverMpGetrfSolver(
   // Share the pivot capacity policy with LU solve. Local failures only set
   // the status so every rank reaches the shared status agreement below.
   const int64_t ipiv_len =
-      LuPivotAllocationLength(numroc_rows, numroc_cols, tile_size);
+      LuPivotAllocationLength(numroc_cols, process_row);
   const size_t ipiv_bytes = static_cast<size_t>(ipiv_len) * sizeof(int64_t);
   status_words[23] = static_cast<int32_t>(ipiv_len);
   status_words[24] = SizeToKiBForStatus(ipiv_bytes);
@@ -281,14 +281,13 @@ absl::Status RunCusolverMpGetrfSolver(
   JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
       cuda_stream, nccl_comm, status_out, &status_words[0]));
   if (status_words[0] == kStatusOk) {
-    // The pivots are tied to the columns of A and replicated across process
-    // rows, so every rank scatters its LOCc(N) entries. Entries are -1 where
-    // no rank wrote, and an elementwise max replicates the gathered vector.
+    // Only process row zero owns pivots. All other ranks contribute -1;
+    // an elementwise max replicates the gathered vector across the grid.
     // A rank whose gather failed still joins the all-reduce so no peer hangs;
     // the final status agreement reports its failure.
     cudaError_t cuda_status =
         cudaMemsetAsync(piv, 0xFF, piv_bytes, cuda_stream);
-    if (cuda_status == cudaSuccess) {
+    if (cuda_status == cudaSuccess && process_row == 0) {
       cuda_status = GatherDistributedPivots(
           cuda_stream, d_ipiv.get(), piv, numroc_cols, n, tile_size,
           process_cols, process_col, kGetrfPivotIndexBase);

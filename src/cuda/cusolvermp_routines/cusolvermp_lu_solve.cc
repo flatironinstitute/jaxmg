@@ -125,7 +125,7 @@ absl::Status RunCusolverMpDistributedLuSolve(
   // Retain the native pivots through GETRS, using the factor-only allocation
   // policy for both row- and column-distributed grids.
   const int64_t ipiv_len =
-      LuPivotAllocationLength(local_rows, local_cols_a, tile_size);
+      LuPivotAllocationLength(local_cols_a, process_row);
   const size_t ipiv_bytes =
       static_cast<size_t>(ipiv_len) * sizeof(int64_t);
   (*status_words)[33] = static_cast<int32_t>(ipiv_len);

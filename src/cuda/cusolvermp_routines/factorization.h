@@ -50,12 +50,10 @@ absl::Status RunLuFactorization(
     void* a, cudaDataType_t dtype, int64_t* ipiv, size_t ipiv_bytes,
     FactorizationStatusFields status);
 
-// NVIDIA's sample uses LOCc(N), whereas the documented capacity is LOCr(N)+T.
-// Reserve both bounds in factor-only and solve paths; pivot ownership remains
-// column-based when the result is gathered.
-inline int64_t LuPivotAllocationLength(int64_t local_rows, int64_t local_cols,
-                                       int64_t tile_size) {
-  return std::max(local_cols, local_rows + tile_size);
+// Pivots are distributed over process row zero. Other rows must still pass a
+// non-null pointer so every rank selects pivoted factorization and solves.
+inline int64_t LuPivotAllocationLength(int64_t local_cols, int32_t process_row) {
+  return process_row == 0 ? std::max<int64_t>(local_cols, 1) : 1;
 }
 
 }  // namespace xla::gpu
