@@ -231,7 +231,8 @@ class CusolverMpExecution {
 
   // Select the matrix's CUDA device, borrow the assigned communicator,
   // validate its process grid, and create the handle/grid. Runtime failures
-  // set status[0]; invalid grid mappings return an absl::Status error.
+  // set status[0]; invalid grid mappings return an absl::Status error. Grid
+  // creation failures terminate the process before any further communication.
   absl::Status Initialize(
       const char* caller, cudaStream_t cuda_stream, const void* matrix,
       int64_t process_rows, int64_t process_cols, int64_t grid_mapping,
@@ -241,7 +242,8 @@ class CusolverMpExecution {
 
   // Close explicitly before collective status agreement so cleanup failures
   // are included. The destructor also covers early returns; repeated closes
-  // are harmless. The borrowed NCCL communicator remains valid afterwards.
+  // are harmless. Grid destruction failure terminates the process, since the
+  // borrowed NCCL communicator is no longer safe for status agreement.
   void Close();
 
   CusolverMpApi api;

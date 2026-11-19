@@ -32,6 +32,21 @@
 #include "result_fill.h"
 
 namespace xla::gpu {
+namespace {
+
+// A grid failure can invalidate NCCL. Even the nominally recoverable create
+// errors require unanimous ranks, which cannot be checked on a broken comm.
+[[noreturn]] void AbortGridFailure(const char* operation, int rank,
+                                  cusolverStatus_t status) {
+  std::fprintf(stderr,
+               "JAXMg fatal: %s failed on rank %d (cuSOLVER status %d). "
+               "The communicator may be unusable; restart the distributed job.\n",
+               operation, rank, static_cast<int>(status));
+  std::fflush(stderr);
+  std::abort();
+}
+
+}  // namespace
 
 absl::Status CusolverMpExecution::Initialize(
     const char* caller, cudaStream_t cuda_stream, const void* matrix,
@@ -125,9 +140,7 @@ absl::Status CusolverMpExecution::Initialize(
   CusolverMpDebug(nccl_rank, "%s create grid end status=%d", caller,
                   static_cast<int>(solver_status));
   if (solver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
-    status_[0] = kCreateGridFailed;
-    status_[raw_status_index_] = static_cast<int32_t>(solver_status);
-    return absl::OkStatus();
+    AbortGridFailure("cusolverMpCreateDeviceGrid", nccl_rank, solver_status);
   }
   status_[9] = 1;
   return absl::OkStatus();
@@ -136,9 +149,8 @@ absl::Status CusolverMpExecution::Initialize(
 void CusolverMpExecution::Close() {
   if (grid != nullptr) {
     const cusolverStatus_t result = api.destroy_grid(std::exchange(grid, nullptr));
-    if (result != CUSOLVER_STATUS_SUCCESS && status_[0] == kStatusOk) {
-      status_[0] = kDestroyGridFailed;
-      status_[raw_status_index_] = static_cast<int32_t>(result);
+    if (result != CUSOLVER_STATUS_SUCCESS) {
+      AbortGridFailure("cusolverMpDestroyGrid", nccl_rank, result);
     }
   }
   if (handle != nullptr) {
