@@ -57,6 +57,7 @@ absl::Status RunCusolverMpGetrf(
     cudaStream_t cuda_stream, int64_t n, int64_t tile_size,
     int32_t process_row, int32_t process_col,
     ffi::Result<ffi::AnyBuffer> lu_out, int64_t* d_ipiv, size_t ipiv_bytes,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
     std::array<int32_t, kGetrfStatusSize>* status_words) {
   CusolverMpDebug((*status_words)[2],
                   "getrf enter n=%lld tile=%lld process_coord=(%d,%d) "
@@ -80,7 +81,7 @@ absl::Status RunCusolverMpGetrf(
   // The caller retains the native pivots for gathering after factorization.
   const absl::Status result = RunLuFactorization(
       api, handle, desc_a, cuda_stream, n, lu_out->untyped_data(),
-      SolverTraits<DataType>::cuda_data_type, d_ipiv, ipiv_bytes,
+      SolverTraits<DataType>::cuda_data_type, d_ipiv, ipiv_bytes, comm, status_out,
       {(*status_words)[0], (*status_words)[11], (*status_words)[19],
        (*status_words)[20], (*status_words)[21], (*status_words)[22]});
   const cusolverStatus_t destroy_status = api.destroy_matrix_desc(desc_a);
@@ -244,25 +245,29 @@ absl::Status RunCusolverMpGetrfSolver(
         status_words[26] = 1;
         getrf_status = RunCusolverMpGetrf<float>(
             api, handle, grid, cuda_stream, n, tile_size, process_row,
-            process_col, lu_out, d_ipiv.get(), ipiv_bytes, &status_words);
+            process_col, lu_out, d_ipiv.get(), ipiv_bytes,
+            nccl_comm, status_out, &status_words);
         break;
       case F64:
         status_words[26] = 2;
         getrf_status = RunCusolverMpGetrf<double>(
             api, handle, grid, cuda_stream, n, tile_size, process_row,
-            process_col, lu_out, d_ipiv.get(), ipiv_bytes, &status_words);
+            process_col, lu_out, d_ipiv.get(), ipiv_bytes,
+            nccl_comm, status_out, &status_words);
         break;
       case C64:
         status_words[26] = 3;
         getrf_status = RunCusolverMpGetrf<cuFloatComplex>(
             api, handle, grid, cuda_stream, n, tile_size, process_row,
-            process_col, lu_out, d_ipiv.get(), ipiv_bytes, &status_words);
+            process_col, lu_out, d_ipiv.get(), ipiv_bytes,
+            nccl_comm, status_out, &status_words);
         break;
       case C128:
         status_words[26] = 4;
         getrf_status = RunCusolverMpGetrf<cuDoubleComplex>(
             api, handle, grid, cuda_stream, n, tile_size, process_row,
-            process_col, lu_out, d_ipiv.get(), ipiv_bytes, &status_words);
+            process_col, lu_out, d_ipiv.get(), ipiv_bytes,
+            nccl_comm, status_out, &status_words);
         break;
       default:
         status_words[0] = kUnsupportedDtype;

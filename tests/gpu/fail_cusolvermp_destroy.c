@@ -11,6 +11,8 @@ static int created_handles;
 static int created_grids;
 static int destroyed_handles;
 static int destroyed_grids;
+static int info_allocations;
+static int injected_alloc_failure;
 
 int jaxmg_test_copy_failure_injected(void) { return injected_copy_failure; }
 int jaxmg_test_destroyed_descriptors(void) { return destroyed_descriptors; }
@@ -18,6 +20,7 @@ int jaxmg_test_created_handles(void) { return created_handles; }
 int jaxmg_test_created_grids(void) { return created_grids; }
 int jaxmg_test_destroyed_handles(void) { return destroyed_handles; }
 int jaxmg_test_destroyed_grids(void) { return destroyed_grids; }
+int jaxmg_test_alloc_failure_injected(void) { return injected_alloc_failure; }
 
 static int from_jaxmg(void* address) {
   Dl_info caller;
@@ -53,6 +56,22 @@ int cusolverMpDestroyGrid(void* grid) {
   if (status == 0 && from_jaxmg(__builtin_return_address(0))) ++destroyed_grids;
   const char* fail = getenv("JAXMG_TEST_FAIL_GRID_DESTROY");
   return status == 0 && fail != NULL ? atoi(fail) : status;
+}
+
+int cudaMalloc(void** ptr, size_t bytes) {
+  typedef int (*MallocFn)(void**, size_t);
+  MallocFn allocate = (MallocFn)dlsym(RTLD_NEXT, "cudaMalloc");
+  if (allocate == NULL) abort();
+  const char* fail_at = getenv("JAXMG_TEST_FAIL_INFO_ALLOC");
+  // The info allocation belongs to the workspace, after device/host storage.
+  if (fail_at != NULL && bytes == sizeof(int) &&
+      from_jaxmg(__builtin_return_address(0)) &&
+      ++info_allocations == atoi(fail_at)) {
+    *ptr = NULL;
+    injected_alloc_failure = 1;
+    return 2;  // cudaErrorMemoryAllocation, without exhausting the actual GPU.
+  }
+  return allocate(ptr, bytes);
 }
 
 int cusolverMpDestroyMatrixDesc(void* descriptor) {

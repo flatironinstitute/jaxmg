@@ -75,7 +75,8 @@ struct FactorizationWorkspace {
 absl::Status RunCholeskyFactorization(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
-    void* a, cudaDataType_t dtype, FactorizationStatusFields status) {
+    void* a, cudaDataType_t dtype, ncclComm_t comm,
+    ffi::Result<ffi::BufferR1<S32>> status_out, FactorizationStatusFields status) {
   // Stage 1: query and allocate POTRF's temporary storage.
   FactorizationWorkspace work;
   cusolverStatus_t solver_status = api.potrf_buffer_size(
@@ -84,11 +85,13 @@ absl::Status RunCholeskyFactorization(
   if (solver_status != CUSOLVER_STATUS_SUCCESS) {
     status.code = kPotrfWorkspaceFailed;
     status.raw_status = static_cast<int32_t>(solver_status);
-    return absl::OkStatus();
+  } else {
+    JAXMG_RETURN_IF_ERROR(work.Allocate(cuda_stream, status));
   }
-  JAXMG_RETURN_IF_ERROR(work.Allocate(cuda_stream, status));
+  // A local allocation or query failure must stop every rank before POTRF.
+  JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
+      cuda_stream, comm, status_out, &status.code));
   if (status.code != kStatusOk) return absl::OkStatus();
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
   // Stage 2: factor A in place and preserve numerical failure diagnostics.
   solver_status = api.potrf(
@@ -111,6 +114,7 @@ absl::Status RunLuFactorization(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
     void* a, cudaDataType_t dtype, int64_t* ipiv, size_t ipiv_bytes,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
     FactorizationStatusFields status) {
   // Stage 1: query and allocate GETRF's temporary storage. The pivots outlive
   // this workspace because the caller uses them in GETRS or returns them.
@@ -121,9 +125,12 @@ absl::Status RunLuFactorization(
   if (solver_status != CUSOLVER_STATUS_SUCCESS) {
     status.code = kGetrfWorkspaceFailed;
     status.raw_status = static_cast<int32_t>(solver_status);
-    return absl::OkStatus();
+  } else {
+    JAXMG_RETURN_IF_ERROR(work.Allocate(cuda_stream, status));
   }
-  JAXMG_RETURN_IF_ERROR(work.Allocate(cuda_stream, status));
+  // A local allocation or query failure must stop every rank before GETRF.
+  JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
+      cuda_stream, comm, status_out, &status.code));
   if (status.code != kStatusOk) return absl::OkStatus();
   // Unwritten entries remain identifiable when factor-only pivots are gathered.
   JAXMG_RETURN_IF_CUDA_ERROR(cudaMemsetAsync(ipiv, 0xFF, ipiv_bytes, cuda_stream));
@@ -149,6 +156,7 @@ absl::Status RunFactorInverse(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
     void* a, cudaDataType_t dtype, bool cholesky, const int64_t* ipiv,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
     FactorizationStatusFields status) {
   // Factorization workspace has already been released before inversion.
   FactorizationWorkspace work;
@@ -160,11 +168,13 @@ absl::Status RunFactorInverse(
   if (solver_status != CUSOLVER_STATUS_SUCCESS) {
     status.code = kInverseWorkspaceFailed;
     status.raw_status = static_cast<int32_t>(solver_status);
-    return absl::OkStatus();
+  } else {
+    JAXMG_RETURN_IF_ERROR(work.Allocate(cuda_stream, status));
   }
-  JAXMG_RETURN_IF_ERROR(work.Allocate(cuda_stream, status));
+  // Factorization may have succeeded even when one rank cannot fit the inverse.
+  JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
+      cuda_stream, comm, status_out, &status.code));
   if (status.code != kStatusOk) return absl::OkStatus();
-  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
 
   solver_status = cholesky
       ? api.potri(handle, CUBLAS_FILL_MODE_LOWER, n, a, 1, 1, desc_a, dtype,

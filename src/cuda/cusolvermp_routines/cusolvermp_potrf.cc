@@ -40,6 +40,7 @@ absl::Status RunCusolverMpPotrf(
     cudaStream_t cuda_stream, int64_t n, int64_t tile_size,
     int32_t process_row, int32_t process_col,
     ffi::Result<ffi::AnyBuffer> a_out,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
     std::array<int32_t, kPotrfStatusSize>* status_words) {
   const int32_t process_rows = (*status_words)[4];
   const int32_t process_cols = (*status_words)[5];
@@ -78,7 +79,7 @@ absl::Status RunCusolverMpPotrf(
   // Stage 1: use the same native factorization as the Cholesky solve.
   absl::Status result = RunCholeskyFactorization(
       api, handle, desc_a, cuda_stream, n, a_out->untyped_data(),
-      SolverTraits<DataType>::cuda_data_type,
+      SolverTraits<DataType>::cuda_data_type, comm, status_out,
       {(*status_words)[0], (*status_words)[11], (*status_words)[19],
        (*status_words)[20], (*status_words)[21], (*status_words)[22]});
 
@@ -195,25 +196,25 @@ absl::Status RunCusolverMpPotrfSolver(
       status_words[24] = 1;
       potrf_status = RunCusolverMpPotrf<float>(
           api, handle, grid, cuda_stream, n, tile_size, process_row,
-          process_col, a_out, &status_words);
+          process_col, a_out, nccl_comm, status_out, &status_words);
       break;
     case F64:
       status_words[24] = 2;
       potrf_status = RunCusolverMpPotrf<double>(
           api, handle, grid, cuda_stream, n, tile_size, process_row,
-          process_col, a_out, &status_words);
+          process_col, a_out, nccl_comm, status_out, &status_words);
       break;
     case C64:
       status_words[24] = 3;
       potrf_status = RunCusolverMpPotrf<cuFloatComplex>(
           api, handle, grid, cuda_stream, n, tile_size, process_row,
-          process_col, a_out, &status_words);
+          process_col, a_out, nccl_comm, status_out, &status_words);
       break;
     case C128:
       status_words[24] = 4;
       potrf_status = RunCusolverMpPotrf<cuDoubleComplex>(
           api, handle, grid, cuda_stream, n, tile_size, process_row,
-          process_col, a_out, &status_words);
+          process_col, a_out, nccl_comm, status_out, &status_words);
       break;
     default:
       status_words[0] = kUnsupportedDtype;

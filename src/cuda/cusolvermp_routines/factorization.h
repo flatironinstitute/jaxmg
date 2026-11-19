@@ -36,10 +36,12 @@ struct FactorizationStatusFields {
 // Owns only the factorization workspace and info buffer; the caller retains
 // the handle, descriptor, and matrix for POTRS or factor extraction. Solver
 // failures populate the status fields; CUDA execution errors return a status.
+// All ranks agree on workspace readiness before entering the factorization.
 absl::Status RunCholeskyFactorization(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
-    void* a, cudaDataType_t dtype, FactorizationStatusFields status);
+    void* a, cudaDataType_t dtype, ncclComm_t comm,
+    ffi::Result<ffi::BufferR1<S32>> status_out, FactorizationStatusFields status);
 
 // Overwrites A with packed LU and writes the native 1-based pivot indices.
 // The caller owns the pivot buffer through GETRS or pivot gathering; temporary
@@ -48,6 +50,7 @@ absl::Status RunLuFactorization(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
     void* a, cudaDataType_t dtype, int64_t* ipiv, size_t ipiv_bytes,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
     FactorizationStatusFields status);
 
 // Inverts a Cholesky or LU factor in place. POTRI writes the lower triangle;
@@ -56,6 +59,7 @@ absl::Status RunFactorInverse(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
     void* a, cudaDataType_t dtype, bool cholesky, const int64_t* ipiv,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
     FactorizationStatusFields status);
 
 // Pivots are distributed over process row zero. Other rows must still pass a

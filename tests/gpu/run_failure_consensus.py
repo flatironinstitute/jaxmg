@@ -1,4 +1,6 @@
+import ctypes
 import os
+import signal
 import sys
 import traceback
 
@@ -34,7 +36,7 @@ from jaxmg import _cusolvermp_status
 
 
 def main():
-    """Force a post-solver failure on one rank after an otherwise valid solve."""
+    """Check that a rank-local allocation or cleanup failure reaches all ranks."""
     record = {
         "proc": proc_id,
         "name": routine,
@@ -54,8 +56,18 @@ def main():
         cached = os.environ.get("JAXMG_CUSOLVERMP_CACHE", "1") != "0"
         failure_env = ("JAXMG_TEST_FAIL_DESCRIPTOR_DESTROY" if cached
                        else "JAXMG_TEST_FAIL_DESTROY")
-        # Descriptors remain per-call even when handles and grids are cached.
-        os.environ[failure_env] = str(int(proc_id == num_procs - 1))
+        stage = os.environ.get("JAXMG_TEST_WORKSPACE_STAGE")
+        if stage:
+            # Bound a regression hang even if the local launcher's pipe blocks.
+            signal.alarm(120)
+            if proc_id == num_procs - 1:
+                allocation = (
+                    2 if stage == "inverse" or routine in ("potrs", "lu_solve") else 1
+                )
+                os.environ["JAXMG_TEST_FAIL_INFO_ALLOC"] = str(allocation)
+        else:
+            # Descriptors remain per-call even when handles and grids are cached.
+            os.environ[failure_env] = str(int(proc_id == num_procs - 1))
         if routine in ("potrs", "lu_solve", "least_squares"):
             b = jax.device_put(
                 jnp.ones(n, dtype=jnp.float32), NamedSharding(mesh, P("pr"))
@@ -77,16 +89,31 @@ def main():
         if routine == "getrf":
             pivots = results.pop()
             assert np.all(global_array_to_numpy(pivots) == -1)
-        # Descriptor/handle cleanup codes are 14/16; raw errors stay rank-local.
-        raw_status_index = 12 if routine == "qr" else 11
-        np.testing.assert_array_equal(
-            words[:, raw_status_index], [0] * (num_procs - 1) + [7]
-        )
-        if routine == "qr":
-            np.testing.assert_array_equal(words[:, 11], 1)  # R descriptor created
-        assert_rank_failure_with_nan(
-            words.ravel(), status_size, (14 if cached else 16,), *results
-        )
+        if stage:
+            injected = ctypes.CDLL(None).jaxmg_test_alloc_failure_injected()
+            assert injected == int(proc_id == num_procs - 1)
+            fields = getattr(_cusolvermp_status, f"_CUSOLVERMP_{native_name}_STATUS_FIELDS")
+            if stage == "inverse":
+                call = "inverse_called"
+            elif native_name == "INVERSE":
+                call = "factor_called"
+            elif routine in ("getrf", "lu_solve"):
+                call = "getrf_called"
+            else:
+                call = "potrf_called"
+            np.testing.assert_array_equal(words[:, fields.index(call)], 0)
+            assert_rank_failure_with_nan(words.ravel(), status_size, (24,), *results)
+        else:
+            # Descriptor/handle cleanup codes are 14/16; raw errors stay rank-local.
+            raw_status_index = 12 if routine == "qr" else 11
+            np.testing.assert_array_equal(
+                words[:, raw_status_index], [0] * (num_procs - 1) + [7]
+            )
+            if routine == "qr":
+                np.testing.assert_array_equal(words[:, 11], 1)  # R descriptor created
+            assert_rank_failure_with_nan(
+                words.ravel(), status_size, (14 if cached else 16,), *results
+            )
         multihost_utils.sync_global_devices(f"{routine}_failure_consensus_complete")
         record["status"] = "ok"
     except Exception:
@@ -94,6 +121,8 @@ def main():
     finally:
         os.environ["JAXMG_TEST_FAIL_DESTROY"] = "0"
         os.environ["JAXMG_TEST_FAIL_DESCRIPTOR_DESTROY"] = "0"
+        os.environ.pop("JAXMG_TEST_FAIL_INFO_ALLOC", None)
+        signal.alarm(0)
         emit("GPU_TEST_RESULT", record)
 
 
