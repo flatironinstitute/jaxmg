@@ -34,7 +34,7 @@ def failed_cleanup_library(tmp_path_factory):
 @pytest.mark.parametrize(
     "routine",
     ("potrs", "lu_solve", "potrf", "getrf", "syevd", "gesvd", "polar", "qr",
-     "least_squares"),
+     "least_squares", "potri", "getri"),
 )
 @pytest.mark.multi_gpu
 def test_rank_local_failure_returns_nan(routine, failed_cleanup_library, monkeypatch):
