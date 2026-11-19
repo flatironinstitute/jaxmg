@@ -25,8 +25,6 @@ def failed_cleanup_library(tmp_path_factory):
         ["cc", "-shared", "-fPIC", str(HERE / "fail_cusolvermp_destroy.c"),
          "-o", str(library), "-ldl"],
         check=True,
-        capture_output=True,
-        text=True,
     )
     return library
 
