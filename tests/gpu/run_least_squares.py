@@ -62,10 +62,10 @@ def run_case() -> None:
     elif case_name == "column_grid":
         process_rows, process_cols = 1, 2
         m, n, tile_size, nrhs = 192, 96, 64, 65
-    elif case_name in ("empty_rhs_columns", "empty_rhs_columns_sharded", "empty_rhs_vector"):
+    elif case_name in ("rhs_tile_boundary", "rhs_tile_boundary_sharded"):
         process_rows, process_cols = 1, 2
         m, n, tile_size = 192, 96, 64
-        nrhs = 2 if case_name == "empty_rhs_columns_sharded" else 3
+        nrhs = 66 if case_name == "rhs_tile_boundary_sharded" else 65
     elif case_name == "square_aligned":
         process_rows, process_cols = 1, 1
         m, n, tile_size, nrhs = 128, 128, 64, 64
@@ -86,7 +86,7 @@ def run_case() -> None:
         "matrix_2d_sharded": "matrix_2d_sharded",
         "vector_replicated": "vector_replicated",
         "uneven_solution_replicated": "matrix_replicated",
-        "empty_rhs_columns_sharded": "matrix_2d_sharded",
+        "rhs_tile_boundary_sharded": "matrix_2d_sharded",
     }.get(case_name, "matrix_row_sharded")
     case = SolverCase(
         process_rows=process_rows,
@@ -96,8 +96,8 @@ def run_case() -> None:
         tile_size=tile_size,
         nrhs=nrhs,
         rhs_mode=rhs_mode,
-        # The uneven solution requires its replicated RHS layout to survive JIT tracing.
-        axis_types="explicit" if case_name == "uneven_solution_replicated" or case_name.startswith("empty_rhs") else "auto",
+        # Preserve the requested RHS layout through JIT tracing.
+        axis_types="explicit" if case_name == "uneven_solution_replicated" or case_name.startswith("rhs_tile_boundary") else "auto",
     )
     mesh = make_process_mesh(case)
     matrix_specs = P("pr", "pc")
@@ -117,7 +117,7 @@ def run_case() -> None:
     b_host = b_host.astype(np.dtype(dtype))
     expected = np.linalg.lstsq(a_host, b_host, rcond=None)[0]
 
-    if case_name in ("vector", "vector_replicated", "empty_rhs_vector"):
+    if case_name in ("vector", "vector_replicated"):
         b_host = b_host[:, 0]
         expected = expected[:, 0]
     rhs_specs = {
@@ -126,8 +126,7 @@ def run_case() -> None:
         "vector": P("pr"),
         "vector_replicated": P(None),
         "uneven_solution_replicated": P(None, None),
-        "empty_rhs_columns_sharded": matrix_specs,
-        "empty_rhs_vector": P("pr"),
+        "rhs_tile_boundary_sharded": matrix_specs,
     }.get(case_name, P("pr", None))
     a = jax.device_put(jnp.asarray(a_host), NamedSharding(mesh, matrix_specs))
     b = jax.device_put(jnp.asarray(b_host), NamedSharding(mesh, rhs_specs))
@@ -173,10 +172,10 @@ def run_case() -> None:
     assert np.all(
         words[::_CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE] == 0
     ), words
-    if case_name.startswith("empty_rhs"):
+    if case_name.startswith("rhs_tile_boundary"):
         rank_status = words.reshape(num_procs, _CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE)
-        assert np.any(rank_status[:, 23] == 0)  # No logical B columns on one rank.
-        assert np.all(rank_status[:, 21] > 0)   # Both ranks still own A columns.
+        assert np.all(rank_status[:, 21] > 0)  # Both ranks own A and B columns.
+        assert np.all(rank_status[:, 23] > 0)
     tolerance = (
         2e-3
         if np.dtype(dtype) in (np.dtype(np.float32), np.dtype(np.complex64))

@@ -53,8 +53,9 @@ def least_squares(
     The current implementation supports overdetermined or square systems with
     ``M >= N``. For ``A`` of shape ``(M, N)`` and ``B`` of shape ``(M, K)``,
     the returned solution has shape ``(N, K)``. A rank-1 ``B`` is accepted and
-    produces a rank-1 solution. Every process-grid column must own at least one
-    block-cyclic tile of ``B``.
+    produces a rank-1 solution. On grids with more than one process column,
+    ``B`` must span at least as many column tiles as ``A``. Use a one-column
+    process grid for a vector or a small number of right-hand sides.
 
     Args:
         a (Array): Rank-2 input matrix sharded over a one- or two-axis device
@@ -334,7 +335,8 @@ def _prepare_least_squares_call(
        ``M >= N``, and a positive tile size.
     3. Resolve the mesh, process grid, rank map, and tile-aligned layout of A;
        local blocks use the enclosing mesh to reconstruct the global shape.
-    4. Infer the B sharding and verify that it can represent the N-row solution.
+    4. Infer the B sharding, verify that it can represent the N-row solution,
+       and check cuSOLVERMp's RHS column-tile requirement.
     5. Derive tile-aligned B and solution buffers, including routing padding
        needed to restore the requested RHS sharding.
     """
@@ -393,6 +395,15 @@ def _prepare_least_squares_call(
     nrhs = int(b.shape[1])
     if local:
         nrhs *= layout.grid.process_cols
+    a_column_tiles = (n + int(tile_size) - 1) // int(tile_size)
+    b_column_tiles = (nrhs + int(tile_size) - 1) // int(tile_size)
+    if layout.grid.process_cols > 1 and b_column_tiles < a_column_tiles:
+        raise ValueError(
+            f"{caller}: cuSOLVERMp GELS requires B to span at least as many "
+            "column tiles as A when the process grid has multiple columns "
+            f"(A: {a_column_tiles}, B: {b_column_tiles}). "
+            "Use a process grid with one column for fewer right-hand sides."
+        )
     b_distribution_cols = rhs_distribution_columns(
         nrhs, process_cols=layout.grid.process_cols, pad=pad
     )

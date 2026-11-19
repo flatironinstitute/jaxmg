@@ -27,6 +27,7 @@ def test_public_context_hierarchy_and_cache(monkeypatch, routine, shape):
     compiled = getattr(module, f"_{routine}_compiled")
     compiled.cache_clear()
     calls = []
+    nrhs = 7 if routine == "least_squares" else 3
 
     def trace(name, fn):
         @wraps(fn)
@@ -43,8 +44,8 @@ def test_public_context_hierarchy_and_cache(monkeypatch, routine, shape):
         def run(*inputs, **attrs):
             calls.append("ffi")
             if "nrhs" in attrs:
-                assert attrs["nrhs"] == 3
-                assert attrs["b_distribution_cols"] == (4 if shape[1] == 2 else 3)
+                assert attrs["nrhs"] == nrhs
+                assert attrs["b_distribution_cols"] == nrhs + (shape[1] == 2)
             aliases = {out: arg for arg, out in options["input_output_aliases"].items()}
             return tuple(inputs[aliases[i]] if i in aliases else jnp.zeros(t.shape, t.dtype)
                          for i, t in enumerate(result_types))
@@ -55,7 +56,7 @@ def test_public_context_hierarchy_and_cache(monkeypatch, routine, shape):
     mesh = Mesh(np.asarray(jax.devices()[:count]).reshape(shape), ("pr", "pc"))
     inputs = (jnp.eye(8),)
     if routine in ("potrs", "lu_solve", "least_squares"):
-        inputs += (jnp.ones((8, 3)),)
+        inputs += (jnp.ones((8, nrhs)),)
     inputs = tuple(jax.device_put(x, NamedSharding(mesh, P())) for x in inputs)
     call = partial(getattr(module, routine), T_A=2, mesh=mesh,
                    matrix_specs=P("pr", "pc"), donate=False)
@@ -244,7 +245,8 @@ def test_least_squares_solution_rows(monkeypatch, shape, n, rhs_specs, axis_type
     monkeypatch.setattr(module, "ensure_init_jaxmg_backend", lambda: None)
     monkeypatch.setattr(jax.ffi, "ffi_call", fake_ffi)
     a = jax.device_put(jnp.eye(12, n), NamedSharding(mesh, P("pr", "pc")))
-    b = jax.device_put(jnp.arange(60.).reshape(12, 5), NamedSharding(mesh, rhs_specs))
+    nrhs = 7
+    b = jax.device_put(jnp.arange(12. * nrhs).reshape(12, nrhs), NamedSharding(mesh, rhs_specs))
     solve = partial(module.least_squares_jit_ctx, T_A=2)
     # Auto-axis shardings are available on concrete arrays, not tracer types.
     if axis_type == AxisType.Explicit:
@@ -252,12 +254,12 @@ def test_least_squares_solution_rows(monkeypatch, shape, n, rhs_specs, axis_type
     with jax.set_mesh(mesh):
         _, b_work, x, _ = solve(a, b)
     np.testing.assert_array_equal(b_work, b)
-    np.testing.assert_array_equal(x, 10 * np.arange(n)[:, None] + np.arange(5) + 1)
+    np.testing.assert_array_equal(x, 10 * np.arange(n)[:, None] + np.arange(nrhs) + 1)
     assert x.sharding.is_equivalent_to(b.sharding, 2)
     assert b_work.sharding.is_equivalent_to(b.sharding, 2)
     assert captured["n"] == n
-    assert captured["nrhs"] == 5
-    assert captured["b_distribution_cols"] == ((5 + shape[1] - 1) // shape[1]) * shape[1]
+    assert captured["nrhs"] == nrhs
+    assert captured["b_distribution_cols"] == ((nrhs + shape[1] - 1) // shape[1]) * shape[1]
     assert captured["x_distribution_rows"] >= n
     assert captured["x_distribution_rows"] % shape[0] == 0
 
@@ -279,5 +281,5 @@ def test_least_squares_local_ffi_with_replicated_rhs_columns(monkeypatch, shape)
         out_specs=(specs, rhs_specs, rhs_specs, P(("pr", "pc"))),
     )
     result = jax.eval_shape(solve, jax.ShapeDtypeStruct((12, 8), jnp.float32),
-                            jax.ShapeDtypeStruct((12, 2), jnp.float32))
-    assert result[2].shape == (8, 2)
+                            jax.ShapeDtypeStruct((12, 4), jnp.float32))
+    assert result[2].shape == (8, 4)

@@ -304,9 +304,9 @@ restores row-major local memory. Python then removes visible capacity padding.
 
 For `potrs`, `lu_solve`, and `least_squares`, a vector solve input is represented
 internally as a one-column matrix. The public wrappers restore the original
-vector rank before returning the result. Since `cusolverMpGels` requires every
-process-grid column to own solve-input data, a vector passed to `least_squares`
-uses a process grid with one column.
+vector rank before returning the result. On grids with multiple process
+columns, `cusolverMpGels` requires B to span at least as many column tiles as A.
+A vector passed to `least_squares` therefore uses a process grid with one column.
 
 ## Solver-specific native work
 
