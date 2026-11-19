@@ -12,10 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Cached cuSOLVERMp setup with borrowed XLA communicator lifetime tracking.
+// Cached cuSOLVERMp setup owned by XLA communicator cliques.
+//
+// Each device serializes handle use across its live groups. A group's tied
+// owner destroys its grids in a common order before XLA releases NCCL, and
+// the last group releases the handle. Failed communicators skip collective
+// cleanup; their retained resources are reclaimed only when the process exits.
 
 #include "cusolvermp_cache.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <map>
 #include <tuple>
@@ -26,37 +32,87 @@
 namespace xla::gpu {
 namespace {
 
-struct CacheLifetime {
+struct CacheContext {
+  CacheContext(CusolverMpCacheApi api, int device) : api(api), device(device) {}
+  CusolverMpCacheApi api;
+  int device;
   std::mutex mutex;
-  bool communicator_retired = false;
+  cusolverMpHandle_t handle = nullptr;
+  size_t live_cliques = 0;
+  bool poisoned = false;
+  bool abandoned = false;
 };
 
-// XLA destroys tied objects before their clique's communicators. Taking the
-// execution lock prevents destruction during a solve. This does not intercept
-// NCCL aborts, which are managed by XLA's distributed failure handling.
-struct CliqueLifetime {
-  explicit CliqueLifetime(std::shared_ptr<CacheLifetime> lifetime)
-      : lifetime(std::move(lifetime)) {}
-  ~CliqueLifetime() {
+[[noreturn]] void AbortCacheCleanup(const char* operation, int status) {
+  std::fprintf(stderr,
+               "JAXMg fatal: %s failed during cached resource cleanup "
+               "(status %d); restart the distributed job.\n", operation, status);
+  std::fflush(stderr);
+  std::abort();
+}
+
+// One owner per communicator, rather than per grid, gives all ranks the same
+// grid-destruction order. XLA destroys tied owners before their communicators.
+struct CliqueResources {
+  CliqueResources(std::shared_ptr<CacheContext> context, GpuCommunicator* comm)
+      : context(std::move(context)), comm(comm) {}
+
+  ~CliqueResources() {
     if (!armed) return;
-    std::lock_guard<std::mutex> lock(lifetime->mutex);
-    lifetime->communicator_retired = true;
+    std::lock_guard<std::mutex> lock(context->mutex);
+    int previous_device = -1;
+    if (comm->HealthCheck().ok()) {
+      cudaError_t cuda_status = cudaGetDevice(&previous_device);
+      if (cuda_status != cudaSuccess) {
+        AbortCacheCleanup("cudaGetDevice", static_cast<int>(cuda_status));
+      }
+      cuda_status = cudaSetDevice(context->device);
+      if (cuda_status != cudaSuccess) {
+        AbortCacheCleanup("cudaSetDevice", static_cast<int>(cuda_status));
+      }
+      for (const auto& entry : grids) {
+        const cusolverStatus_t status = context->api.destroy_grid(entry.second);
+        if (status != CUSOLVER_STATUS_SUCCESS) {
+          AbortCacheCleanup("cusolverMpDestroyGrid", static_cast<int>(status));
+        }
+      }
+    } else {
+      // A collective destructor cannot safely run on an aborted communicator.
+      context->poisoned = true;
+      context->abandoned = true;
+      std::fprintf(stderr,
+                   "JAXMg: skipping cached grid cleanup on an unhealthy XLA "
+                   "communicator; restart the distributed job.\n");
+    }
+    if (--context->live_cliques == 0 && context->handle != nullptr &&
+        !context->abandoned) {
+      const cusolverStatus_t status =
+          context->api.destroy(std::exchange(context->handle, nullptr));
+      if (status != CUSOLVER_STATUS_SUCCESS) {
+        AbortCacheCleanup("cusolverMpDestroy", static_cast<int>(status));
+      }
+    }
+    if (previous_device >= 0 && previous_device != context->device) {
+      const cudaError_t status = cudaSetDevice(previous_device);
+      if (status != cudaSuccess) {
+        AbortCacheCleanup("cudaSetDevice", static_cast<int>(status));
+      }
+    }
   }
-  std::shared_ptr<CacheLifetime> lifetime;
+
+  std::shared_ptr<CacheContext> context;
+  GpuCommunicator* comm;
+  std::map<std::tuple<int32_t, int32_t, int32_t>, cusolverMpGrid_t> grids;
   bool armed = false;
 };
 
 }  // namespace
 
 struct CusolverMpCache::State {
-  State(CusolverMpCacheApi api, int device) : api(api), device(device) {}
-  CusolverMpCacheApi api;
-  int device;
-  std::shared_ptr<CacheLifetime> lifetime = std::make_shared<CacheLifetime>();
-  cusolverMpHandle_t handle = nullptr;
-  std::map<std::pair<GpuCliqueKey, uintptr_t>, tsl::TiedRef<CliqueLifetime>> cliques;
-  std::map<std::tuple<GpuCliqueKey, uintptr_t, int32_t, int32_t, int32_t>, cusolverMpGrid_t>
-      grids;
+  State(CusolverMpCacheApi api, int device)
+      : context(std::make_shared<CacheContext>(api, device)) {}
+  std::shared_ptr<CacheContext> context;
+  std::map<std::pair<GpuCliqueKey, uintptr_t>, tsl::TiedRef<CliqueResources>> cliques;
 };
 
 CusolverMpCache::CusolverMpCache(CusolverMpCacheApi api, int device)
@@ -69,9 +125,8 @@ CusolverMpCache& GetCusolverMpCache(CusolverMpCacheApi api, int device) {
     std::mutex mutex;
     std::map<int, std::unique_ptr<CusolverMpCache>> devices;
   };
-  // Like XLA's communicator cache, retain setup until process exit. Collective
-  // destruction in a static destructor could run after NCCL/CUDA shutdown.
-  // shortcut: release native setup when XLA offers coordinated pre-abort teardown.
+  // Retain only the registry at shutdown. Native cleanup follows XLA's clique
+  // lifetime, not the unordered destruction of extension-module statics.
   static absl::NoDestructor<Registry> registry;
   std::lock_guard<std::mutex> lock(registry->mutex);
   auto& cache = registry->devices[device];
@@ -90,41 +145,54 @@ bool CusolverMpCacheEnabled() {
 }
 
 absl::Status CusolverMpCache::Lock(std::unique_lock<std::mutex>* lock) {
-  *lock = std::unique_lock<std::mutex>(state_->lifetime->mutex);
-  if (state_->lifetime->communicator_retired) {
+  *lock = std::unique_lock<std::mutex>(state_->context->mutex);
+  if (state_->context->poisoned) {
     return absl::FailedPreconditionError(
-        "JAXMg's cached cuSOLVERMp context used an XLA communicator that has "
-        "been retired. Restart the distributed processes; set "
-        "JAXMG_CUSOLVERMP_CACHE=0 before startup if communicator replacement "
-        "is required.");
+        "JAXMg's cached cuSOLVERMp context is unusable after a handle or "
+        "communicator failure. Restart the distributed processes.");
   }
   return absl::OkStatus();
 }
 
 cusolverStatus_t CusolverMpCache::GetHandle(cudaStream_t stream,
                                            cusolverMpHandle_t* handle) {
+  auto& context = *state_->context;
+  *handle = nullptr;
+  if (context.poisoned) return CUSOLVER_STATUS_INTERNAL_ERROR;
   cusolverStatus_t status;
-  if (state_->handle == nullptr) {
+  if (context.handle == nullptr) {
     cusolverMpHandle_t created = nullptr;
-    status = state_->api.create(&created, state_->device, stream);
-    if (status == CUSOLVER_STATUS_SUCCESS) state_->handle = created;
+    status = context.api.create(&created, context.device, stream);
+    if (status == CUSOLVER_STATUS_SUCCESS) context.handle = created;
   } else {
-    status = state_->api.set_stream(state_->handle, stream);
+    status = context.api.set_stream(context.handle, stream);
   }
-  if (status == CUSOLVER_STATUS_SUCCESS) *handle = state_->handle;
+  if (status == CUSOLVER_STATUS_INTERNAL_ERROR) context.poisoned = true;
+  if (status == CUSOLVER_STATUS_SUCCESS) *handle = context.handle;
   return status;
 }
 
 absl::Status CusolverMpCache::TrackClique(CollectiveCliques* cliques,
-                                        const GpuCliqueKey& key, ncclComm_t comm) {
+                                        const GpuCliqueKey& key,
+                                        GpuCommunicator* comm) {
+  // Expiry distinguishes replacement cliques even if NCCL reuses an address.
+  for (auto it = state_->cliques.begin(); it != state_->cliques.end();) {
+    if (it->second.Expired()) {
+      it = state_->cliques.erase(it);
+    } else {
+      ++it;
+    }
+  }
   // Separate live XLA clients can assign the same clique key to different comms.
-  const auto identity = std::make_pair(key, reinterpret_cast<uintptr_t>(comm));
+  const auto identity =
+      std::make_pair(key, reinterpret_cast<uintptr_t>(comm->platform_comm().handle));
   if (state_->cliques.find(identity) != state_->cliques.end()) return absl::OkStatus();
-  auto lifetime = std::make_unique<CliqueLifetime>(state_->lifetime);
-  auto* notification = lifetime.get();
-  auto tied = cliques->Tie(key, std::move(lifetime));
+  auto resources = std::make_unique<CliqueResources>(state_->context, comm);
+  auto* owner = resources.get();
+  auto tied = cliques->Tie(key, std::move(resources));
   if (!tied.ok()) return tied.status();
-  notification->armed = true;
+  owner->armed = true;
+  ++state_->context->live_cliques;
   state_->cliques.emplace(identity, std::move(*tied));
   return absl::OkStatus();
 }
@@ -132,18 +200,23 @@ absl::Status CusolverMpCache::TrackClique(CollectiveCliques* cliques,
 cusolverStatus_t CusolverMpCache::GetGrid(
     const GpuCliqueKey& key, ncclComm_t comm, int32_t rows, int32_t cols,
     cusolverMpGridMapping_t mapping, cusolverMpGrid_t* grid) {
-  const auto grid_key =
-      std::make_tuple(key, reinterpret_cast<uintptr_t>(comm), rows, cols,
-                      static_cast<int32_t>(mapping));
-  auto entry = state_->grids.find(grid_key);
-  if (entry != state_->grids.end()) {
+  *grid = nullptr;
+  if (state_->context->poisoned) return CUSOLVER_STATUS_INTERNAL_ERROR;
+  const auto clique = state_->cliques.find(
+      std::make_pair(key, reinterpret_cast<uintptr_t>(comm)));
+  if (clique == state_->cliques.end()) return CUSOLVER_STATUS_NOT_INITIALIZED;
+  auto resources = clique->second.Lock();
+  if (resources == nullptr) return CUSOLVER_STATUS_NOT_INITIALIZED;
+  const auto grid_key = std::make_tuple(rows, cols, static_cast<int32_t>(mapping));
+  auto entry = resources->grids.find(grid_key);
+  if (entry != resources->grids.end()) {
     *grid = entry->second;
     return CUSOLVER_STATUS_SUCCESS;
   }
-  const cusolverStatus_t status = state_->api.create_grid(
-      state_->handle, grid, comm, rows, cols, mapping);
+  const cusolverStatus_t status = state_->context->api.create_grid(
+      state_->context->handle, grid, comm, rows, cols, mapping);
   if (status == CUSOLVER_STATUS_SUCCESS && *grid != nullptr) {
-    state_->grids.emplace(grid_key, *grid);
+    resources->grids.emplace(grid_key, *grid);
   }
   return status;
 }

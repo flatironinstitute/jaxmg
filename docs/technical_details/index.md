@@ -124,13 +124,18 @@ grid per XLA communicator group, process-grid shape, and mapping. Each call
 holds exclusive access to its device's handle until its CUDA work completes;
 matrix descriptors and explicit solver workspaces remain local to the call.
 
-Cached setup is retained until process exit, matching XLA's normal communicator
-lifetime. Collective destruction cannot safely run from a static destructor
-after NCCL or CUDA teardown. XLA lifetime notifications prevent reuse if a
-cached communicator group is retired; this requires restarting the distributed
-processes. For workflows that replace communicators, set
-`JAXMG_CUSOLVERMP_CACHE=0` before starting every process to retain per-call
-handle and grid creation and destruction.
+XLA's communicator group owns its cached grids through `CollectiveCliques::Tie`.
+When a healthy group is destroyed, its grids are released before its NCCL
+communicator; the last group on a device also releases the shared handle.
+Groups retained by XLA for the process lifetime retain their cached setup too.
+Cleanup does not rely on Python shutdown hooks or extension-module destructors.
+
+An unhealthy communicator cannot safely participate in collective grid
+destruction. Its native resources are retained until process exit, and further
+use of the device cache is rejected. An internal error from
+`cusolverMpSetStream` also prevents handle reuse; both cases require restarting
+the distributed job. Set `JAXMG_CUSOLVERMP_CACHE=0` before starting every process
+to disable reuse for timing comparisons or debugging.
 
 ## Detailed implementation
 

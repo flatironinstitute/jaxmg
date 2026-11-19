@@ -116,11 +116,12 @@ absl::Status CusolverMpExecution::Initialize(
   cached_ = CusolverMpCacheEnabled();
   CusolverMpCache* cache = nullptr;
   if (cached_) {
-    const CusolverMpCacheApi cache_api{api.create, api.set_stream, api.create_grid};
+    const CusolverMpCacheApi cache_api{
+        api.create, api.set_stream, api.create_grid, api.destroy_grid, api.destroy};
     cache = &GetCusolverMpCache(cache_api, *buffer_device);
     JAXMG_RETURN_IF_ERROR(cache->Lock(&cache_lock_));
     JAXMG_RETURN_IF_ERROR(
-        cache->TrackClique(collective_cliques, *clique_key, nccl_comm));
+        cache->TrackClique(collective_cliques, *clique_key, *gpu_comm));
   }
   status_[7] = 1;
   CusolverMpDebug(nccl_rank, "%s create handle begin device=%d cached=%d",
