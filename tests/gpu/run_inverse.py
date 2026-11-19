@@ -120,6 +120,7 @@ try:
     run_case()
     emit("GPU_TEST_RESULT", {
         "proc": proc_id, "name": case_name, "dtype": dtype_name, "status": "ok",
+        "interface": interface,
     })
 except Exception:
     emit("GPU_TEST_RESULT", {
