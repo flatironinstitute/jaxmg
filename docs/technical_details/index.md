@@ -95,6 +95,12 @@ The redistribution stages are shared by all public routines:
 - `getrf` calls `cusolverMpGetrf` only, restores the packed LU factor in place
   of the donated A, and gathers the distributed pivots into one replicated
   vector with an NCCL max all-reduce.
+- `potri` calls `cusolverMpPotrf` followed by `cusolverMpPotri`, then fills
+  the Hermitian upper triangle through tile-sized transfers using the shared
+  redistribution scratch. `getri` calls `cusolverMpGetrf` followed by
+  `cusolverMpGetri`, retaining native pivots until inversion completes.
+  Both overwrite the factor with the inverse and release factorization
+  workspace before allocating inversion workspace.
 - `least_squares` calls `cusolverMpGels` for overdetermined rectangular systems
   and restores the solution from the overwritten solve-input buffer.
 - `qr` calls `cusolverMpGeqrf`, preserves the upper-triangular factor, and then

@@ -79,6 +79,17 @@ Returns the packed factors and the pivot indices, in the format of
 
 ---
 
+## `potri` and `getri`
+
+Compute the full inverse $A^{-1}$ from the original matrix $A$.
+`potri` uses Cholesky factorization for symmetric or Hermitian
+positive-definite matrices; `getri` uses pivoted LU for general nonsingular
+matrices. Both reuse A's working allocation.
+
+[`potri` API and usage](potri.md) | [`getri` API and usage](getri.md)
+
+---
+
 ## `least_squares`
 
 Multi-GPU least-squares solver for overdetermined systems.
