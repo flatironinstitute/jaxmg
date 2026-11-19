@@ -57,6 +57,7 @@ absl::Status RunCusolverMpDistributedPotrs(
     int32_t process_row, int32_t process_col,
     ffi::Result<ffi::AnyBuffer> a_out,
     ffi::Result<ffi::AnyBuffer> b_out,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
     std::array<int32_t, kPotrsStatusSize>* status_words) {
   const int32_t process_rows = (*status_words)[4];
   const int32_t process_cols = (*status_words)[5];
@@ -165,7 +166,7 @@ absl::Status RunCusolverMpDistributedPotrs(
   // The descriptor remains available for the subsequent solve.
   const absl::Status factor_status = RunCholeskyFactorization(
       api, handle, desc_a, cuda_stream, n, a_out->untyped_data(),
-      SolverTraits<DataType>::cuda_data_type,
+      SolverTraits<DataType>::cuda_data_type, comm, status_out,
       {(*status_words)[0], (*status_words)[11], (*status_words)[22],
        (*status_words)[23], (*status_words)[26], (*status_words)[27]});
   if (!factor_status.ok() || (*status_words)[0] != kStatusOk) {
@@ -328,7 +329,8 @@ absl::Status RunCusolverMpPotrsSolver(
       potrs_status = RunCusolverMpDistributedPotrs<float>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
-          process_row, process_col, a_out, b_out, &status_words);
+          process_row, process_col, a_out, b_out, nccl_comm, status_out,
+          &status_words);
       break;
     case F64:
       status_words[34] = 2;
@@ -336,7 +338,8 @@ absl::Status RunCusolverMpPotrsSolver(
       potrs_status = RunCusolverMpDistributedPotrs<double>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
-          process_row, process_col, a_out, b_out, &status_words);
+          process_row, process_col, a_out, b_out, nccl_comm, status_out,
+          &status_words);
       break;
     case C64:
       status_words[34] = 3;
@@ -344,7 +347,8 @@ absl::Status RunCusolverMpPotrsSolver(
       potrs_status = RunCusolverMpDistributedPotrs<cuFloatComplex>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
-          process_row, process_col, a_out, b_out, &status_words);
+          process_row, process_col, a_out, b_out, nccl_comm, status_out,
+          &status_words);
       break;
     case C128:
       status_words[34] = 4;
@@ -352,7 +356,8 @@ absl::Status RunCusolverMpPotrsSolver(
       potrs_status = RunCusolverMpDistributedPotrs<cuDoubleComplex>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
-          process_row, process_col, a_out, b_out, &status_words);
+          process_row, process_col, a_out, b_out, nccl_comm, status_out,
+          &status_words);
       break;
     default:
       status_words[0] = kUnsupportedDtype;

@@ -56,6 +56,7 @@ absl::Status RunCusolverMpDistributedLuSolve(
     int32_t process_row, int32_t process_col,
     ffi::Result<ffi::AnyBuffer> a_out,
     ffi::Result<ffi::AnyBuffer> b_out,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
     std::array<int32_t, kLuSolveStatusSize>* status_words) {
   const int32_t process_rows = (*status_words)[4];
   const int32_t process_cols = (*status_words)[5];
@@ -180,7 +181,7 @@ absl::Status RunCusolverMpDistributedLuSolve(
   // The descriptor and native pivots remain available for the subsequent solve.
   const absl::Status factor_status = RunLuFactorization(
       api, handle, desc_a, cuda_stream, n, a_out->untyped_data(),
-      SolverTraits<DataType>::cuda_data_type, d_ipiv, ipiv_bytes,
+      SolverTraits<DataType>::cuda_data_type, d_ipiv, ipiv_bytes, comm, status_out,
       {(*status_words)[0], (*status_words)[11], (*status_words)[22],
        (*status_words)[23], (*status_words)[26], (*status_words)[27]});
   if (!factor_status.ok() || (*status_words)[0] != kStatusOk) {
@@ -339,28 +340,32 @@ absl::Status RunCusolverMpLuSolveSolver(
       lu_solve_status = RunCusolverMpDistributedLuSolve<float>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
-          process_row, process_col, a_out, b_out, &status_words);
+          process_row, process_col, a_out, b_out, nccl_comm, status_out,
+          &status_words);
       break;
     case F64:
       status_words[34] = 2;
       lu_solve_status = RunCusolverMpDistributedLuSolve<double>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
-          process_row, process_col, a_out, b_out, &status_words);
+          process_row, process_col, a_out, b_out, nccl_comm, status_out,
+          &status_words);
       break;
     case C64:
       status_words[34] = 3;
       lu_solve_status = RunCusolverMpDistributedLuSolve<cuFloatComplex>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
-          process_row, process_col, a_out, b_out, &status_words);
+          process_row, process_col, a_out, b_out, nccl_comm, status_out,
+          &status_words);
       break;
     case C128:
       status_words[34] = 4;
       lu_solve_status = RunCusolverMpDistributedLuSolve<cuDoubleComplex>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
           a_out->dimensions()[0], a_out->dimensions()[1], b_out->dimensions()[1],
-          process_row, process_col, a_out, b_out, &status_words);
+          process_row, process_col, a_out, b_out, nccl_comm, status_out,
+          &status_words);
       break;
     default:
       status_words[0] = kUnsupportedDtype;

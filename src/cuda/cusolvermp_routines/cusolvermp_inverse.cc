@@ -191,11 +191,12 @@ absl::Status RunInverse(
     if (cholesky) {
       JAXMG_RETURN_IF_ERROR(RunCholeskyFactorization(
           api, execution.handle, desc, cuda_stream, n, inverse->untyped_data(),
-          dtype, fields));
+          dtype, execution.nccl_comm, status_out, fields));
     } else {
       JAXMG_RETURN_IF_ERROR(RunLuFactorization(
           api, execution.handle, desc, cuda_stream, n, inverse->untyped_data(),
-          dtype, pivots.get(), pivot_bytes, fields));
+          dtype, pivots.get(), pivot_bytes, execution.nccl_comm, status_out,
+          fields));
     }
   }
   JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(
@@ -205,7 +206,7 @@ absl::Status RunInverse(
   if (status[0] == kStatusOk) {
     JAXMG_RETURN_IF_ERROR(RunFactorInverse(
         api, execution.handle, desc, cuda_stream, n, inverse->untyped_data(),
-        dtype, cholesky, pivots.get(),
+        dtype, cholesky, pivots.get(), execution.nccl_comm, status_out,
         {status[0], status[11], status[23], status[24], status[25], status[26]}));
   }
   JAXMG_RETURN_IF_ERROR(SynchronizeSolverStatus(

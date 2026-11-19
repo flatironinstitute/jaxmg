@@ -7,9 +7,30 @@
 static int info_copies;
 static int injected_copy_failure;
 static int destroyed_descriptors;
+static int info_allocations;
+static int injected_alloc_failure;
 
 int jaxmg_test_copy_failure_injected(void) { return injected_copy_failure; }
 int jaxmg_test_destroyed_descriptors(void) { return destroyed_descriptors; }
+int jaxmg_test_alloc_failure_injected(void) { return injected_alloc_failure; }
+
+int cudaMalloc(void** ptr, size_t bytes) {
+  typedef int (*MallocFn)(void**, size_t);
+  MallocFn allocate = (MallocFn)dlsym(RTLD_NEXT, "cudaMalloc");
+  if (allocate == NULL) abort();
+  const char* fail_at = getenv("JAXMG_TEST_FAIL_INFO_ALLOC");
+  Dl_info caller;
+  // The info allocation belongs to the workspace, after device/host storage.
+  if (fail_at != NULL && bytes == sizeof(int) &&
+      dladdr(__builtin_return_address(0), &caller) != 0 &&
+      caller.dli_fname != NULL && strstr(caller.dli_fname, "libjaxmg") != NULL &&
+      ++info_allocations == atoi(fail_at)) {
+    *ptr = NULL;
+    injected_alloc_failure = 1;
+    return 2;  // cudaErrorMemoryAllocation, without exhausting the actual GPU.
+  }
+  return allocate(ptr, bytes);
+}
 
 int cusolverMpDestroyMatrixDesc(void* descriptor) {
   typedef int (*DestroyFn)(void*);

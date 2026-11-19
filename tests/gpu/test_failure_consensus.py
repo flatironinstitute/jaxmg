@@ -57,6 +57,25 @@ def test_cuda_error_releases_descriptors(routine, failed_cleanup_library, monkey
     run_gpu_test(HERE / "run_cuda_error_cleanup.py", 1, routine, "float32")
 
 
+@pytest.mark.parametrize("routine,stage", [
+    ("potrf", "factor"), ("getrf", "factor"),
+    ("potrs", "factor"), ("lu_solve", "factor"),
+    ("potri", "factor"), ("getri", "factor"),
+    ("potri", "inverse"), ("getri", "inverse"),
+])
+@pytest.mark.multi_gpu
+def test_workspace_failure_skips_compute(
+    routine, stage, failed_cleanup_library, monkeypatch,
+):
+    """One rank's allocation failure skips the numerical call on every rank."""
+    preload = str(failed_cleanup_library)
+    if os.environ.get("LD_PRELOAD"):
+        preload += ":" + os.environ["LD_PRELOAD"]
+    monkeypatch.setenv("LD_PRELOAD", preload)
+    monkeypatch.setenv("JAXMG_TEST_WORKSPACE_STAGE", stage)
+    run_gpu_test(HERE / "run_failure_consensus.py", 2, routine, "float32")
+
+
 @pytest.mark.single_gpu
 @pytest.mark.parametrize("operation,status", [("CREATE", 7), ("CREATE", 3), ("DESTROY", 7)])
 def test_grid_failure_stops_process(operation, status, failed_cleanup_library):
