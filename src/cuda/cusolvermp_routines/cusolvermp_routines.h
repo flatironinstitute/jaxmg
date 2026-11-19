@@ -63,6 +63,17 @@ absl::Status XlaCusolverMpPotrfDispatch(
     const CollectiveParams* collective_params,
     CollectiveCliques* collective_cliques);
 
+// Invert the original A through POTRF/POTRI or GETRF/GETRI in one dispatch.
+// The complete inverse aliases A; native pivots remain internal.
+absl::Status XlaCusolverMpInverseDispatch(
+    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    int64_t process_cols, int64_t n, int64_t tile_size, bool cholesky,
+    absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> inverse,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    CollectiveCliques* collective_cliques);
+
 // Runtime LU-solve hook. Performs native layout conversion, redistribution,
 // cuSOLVERMp GETRF/GETRS, reverse redistribution, and output layout restore in
 // one FFI dispatch.

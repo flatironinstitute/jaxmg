@@ -92,3 +92,22 @@ int cusolverMpDestroy(void* handle) {
   // CUSOLVER_STATUS_INTERNAL_ERROR is 7; successful cleanup returns 0.
   return status == 0 && fail != NULL && fail[0] == '1' ? 7 : status;
 }
+
+int cusolverMpCreateDeviceGrid(void* handle, void** grid, void* comm,
+                               int rows, int cols, int mapping) {
+  typedef int (*CreateFn)(void*, void**, void*, int, int, int);
+  CreateFn create = (CreateFn)dlsym(RTLD_NEXT, "cusolverMpCreateDeviceGrid");
+  if (create == NULL) abort();
+  int status = create(handle, grid, comm, rows, cols, mapping);
+  const char* fail = getenv("JAXMG_TEST_FAIL_GRID_CREATE");
+  return status == 0 && fail != NULL ? atoi(fail) : status;
+}
+
+int cusolverMpDestroyGrid(void* grid) {
+  typedef int (*DestroyFn)(void*);
+  DestroyFn destroy = (DestroyFn)dlsym(RTLD_NEXT, "cusolverMpDestroyGrid");
+  if (destroy == NULL) abort();
+  int status = destroy(grid);
+  const char* fail = getenv("JAXMG_TEST_FAIL_GRID_DESTROY");
+  return status == 0 && fail != NULL ? atoi(fail) : status;
+}

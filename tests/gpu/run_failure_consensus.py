@@ -71,7 +71,7 @@ def main():
         status.block_until_ready()
         os.environ[failure_env] = "0"
 
-        native_name = routine.upper()
+        native_name = "INVERSE" if routine in ("potri", "getri") else routine.upper()
         status_size = getattr(_cusolvermp_status, f"_CUSOLVERMP_{native_name}_STATUS_SIZE")
         words = native_status_words(status).reshape(num_procs, status_size)
         if routine == "getrf":

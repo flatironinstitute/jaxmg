@@ -10,6 +10,8 @@ JAXMg solver:
 - `run_potrf_example.py`
 - `run_lu_solve_example.py`
 - `run_getrf_example.py`
+- `run_potri_example.py`
+- `run_getri_example.py`
 - `run_least_squares_example.py`
 - `run_qr_example.py`
 - `run_syevd_example.py`
@@ -23,6 +25,8 @@ caller-owned `jax.jit`:
 - `run_potrf_context_example.py`
 - `run_lu_solve_context_example.py`
 - `run_getrf_context_example.py`
+- `run_potri_context_example.py`
+- `run_getri_context_example.py`
 - `run_least_squares_context_example.py`
 - `run_qr_context_example.py`
 - `run_syevd_context_example.py`

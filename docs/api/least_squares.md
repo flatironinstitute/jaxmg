@@ -10,8 +10,8 @@ $$
 
 The solve input $B$ may be a vector or a matrix containing multiple columns.
 The returned solution has shape `(N,)` or `(N, K)`, respectively.
-Each process-grid column must own at least one block-cyclic tile of $B$; a
-vector input therefore requires a process grid with one column.
+The RHS may have replicated or distributed columns, including layouts in
+which some process columns own no RHS tiles.
 
 Use `least_squares` for a direct solve. Use `least_squares_jit_ctx` when
 the solve is part of a larger caller-owned `jax.jit`. Since cuSOLVERMp

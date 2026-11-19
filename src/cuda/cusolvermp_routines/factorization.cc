@@ -145,4 +145,42 @@ absl::Status RunLuFactorization(
   return absl::OkStatus();
 }
 
+absl::Status RunFactorInverse(
+    const CusolverMpApi& api, cusolverMpHandle_t handle,
+    cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
+    void* a, cudaDataType_t dtype, bool cholesky, const int64_t* ipiv,
+    FactorizationStatusFields status) {
+  // Factorization workspace has already been released before inversion.
+  FactorizationWorkspace work;
+  cusolverStatus_t solver_status = cholesky
+      ? api.potri_buffer_size(handle, CUBLAS_FILL_MODE_LOWER, n, a, 1, 1,
+                              desc_a, dtype, &work.device_bytes, &work.host_bytes)
+      : api.getri_buffer_size(handle, n, a, 1, 1, desc_a, ipiv, dtype,
+                              &work.device_bytes, &work.host_bytes);
+  if (solver_status != CUSOLVER_STATUS_SUCCESS) {
+    status.code = kInverseWorkspaceFailed;
+    status.raw_status = static_cast<int32_t>(solver_status);
+    return absl::OkStatus();
+  }
+  JAXMG_RETURN_IF_ERROR(work.Allocate(cuda_stream, status));
+  if (status.code != kStatusOk) return absl::OkStatus();
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+
+  solver_status = cholesky
+      ? api.potri(handle, CUBLAS_FILL_MODE_LOWER, n, a, 1, 1, desc_a, dtype,
+                  work.device, work.device_bytes, work.host, work.host_bytes,
+                  work.info)
+      : api.getri(handle, n, a, 1, 1, desc_a, ipiv, dtype, work.device,
+                  work.device_bytes, work.host, work.host_bytes, work.info);
+  if (solver_status != CUSOLVER_STATUS_SUCCESS) {
+    status.code = kInverseFailed;
+    status.raw_status = static_cast<int32_t>(solver_status);
+    return absl::OkStatus();
+  }
+  status.called = 1;
+  JAXMG_RETURN_IF_ERROR(work.ReadInfo(cuda_stream, status.info));
+  if (status.info != 0) status.code = kInverseInfoNonzero;
+  return absl::OkStatus();
+}
+
 }  // namespace xla::gpu

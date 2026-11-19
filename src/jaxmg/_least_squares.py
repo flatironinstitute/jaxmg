@@ -33,9 +33,6 @@ from ._cusolvermp_layout import (
     rhs_distribution_columns,
 )
 from ._cusolvermp_status import _CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE
-from ._layout_types import (
-    validate_nonempty_block_cyclic_ownership,
-)
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -218,7 +215,6 @@ def least_squares_shardmap_ctx(
     A follows ``matrix_specs``; B shares its row sharding and may have
     distributed or replicated columns. Replicated copies become duplicate
     right-hand sides in one distributed QR solve, not separate factorizations.
-    Every process column must own a logical B tile, including these copies.
 
     Args:
         a: Local block of a global M x N matrix, with M >= N.
@@ -238,8 +234,7 @@ def least_squares_shardmap_ctx(
 
     Raises:
         TypeError: If dtypes or partition specifications are unsupported.
-        ValueError: If called outside shard_map, shapes are incompatible, or a
-            process column owns no logical B tile.
+        ValueError: If called outside shard_map or shapes are incompatible.
     """
     # The global wrapper supplies logical NRHS and output-only routing rows.
     if _prepared is None:
@@ -398,13 +393,6 @@ def _prepare_least_squares_call(
     nrhs = int(b.shape[1])
     if local:
         nrhs *= layout.grid.process_cols
-    validate_nonempty_block_cyclic_ownership(
-        logical_rows=m,
-        logical_cols=nrhs,
-        grid=layout.grid,
-        tile_shape=layout.tile_shape,
-        caller=f"{caller}(B)",
-    )
     b_distribution_cols = rhs_distribution_columns(
         nrhs, process_cols=layout.grid.process_cols, pad=pad
     )

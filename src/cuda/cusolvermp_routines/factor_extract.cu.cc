@@ -81,6 +81,38 @@ __global__ void GatherDistributedPivotsKernel(
   if (global < n) piv[global] = static_cast<int32_t>(value - index_base);
 }
 
+template <typename T>
+__device__ T Conjugate(T value) { return value; }
+template <>
+__device__ cuFloatComplex Conjugate(cuFloatComplex value) { return cuConjf(value); }
+template <>
+__device__ cuDoubleComplex Conjugate(cuDoubleComplex value) { return cuConj(value); }
+
+template <typename T>
+__global__ void PackHermitianTileKernel(
+    const T* a, int64_t ld, int64_t rows, int64_t cols, bool diagonal,
+    T* packed) {
+  const int64_t index =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (index >= rows * cols) return;
+  const int64_t row = index % cols;
+  const int64_t col = index / cols;
+  packed[index] = diagonal && row >= col
+      ? a[row + col * ld] : Conjugate(a[col + row * ld]);
+}
+
+template <typename T>
+cudaError_t LaunchPackHermitianTile(
+    cudaStream_t stream, const void* a, int64_t ld, int64_t rows,
+    int64_t cols, bool diagonal, void* packed) {
+  const int blocks = (rows * cols + kFactorExtractBlockSize - 1) /
+                     kFactorExtractBlockSize;
+  PackHermitianTileKernel<T><<<blocks, kFactorExtractBlockSize, 0, stream>>>(
+      static_cast<const T*>(a), ld, rows, cols, diagonal,
+      static_cast<T*>(packed));
+  return cudaGetLastError();
+}
+
 }  // namespace
 
 cudaError_t ZeroDistributedStrictUpper(
@@ -134,6 +166,25 @@ cudaError_t GatherDistributedPivots(cudaStream_t cuda_stream,
       local_ipiv, piv, local_len, n, tile_size, process_count, process,
       index_base);
   return cudaGetLastError();
+}
+
+cudaError_t PackHermitianTile(
+    cudaStream_t stream, cudaDataType_t dtype, const void* a, int64_t ld,
+    int64_t rows, int64_t cols, bool diagonal, void* packed) {
+  if (a == nullptr || packed == nullptr || rows <= 0 || cols <= 0 ||
+      ld < rows || (diagonal && rows != cols)) return cudaErrorInvalidValue;
+  switch (dtype) {
+    case CUDA_R_32F:
+      return LaunchPackHermitianTile<float>(stream, a, ld, rows, cols, diagonal, packed);
+    case CUDA_R_64F:
+      return LaunchPackHermitianTile<double>(stream, a, ld, rows, cols, diagonal, packed);
+    case CUDA_C_32F:
+      return LaunchPackHermitianTile<cuFloatComplex>(stream, a, ld, rows, cols, diagonal, packed);
+    case CUDA_C_64F:
+      return LaunchPackHermitianTile<cuDoubleComplex>(stream, a, ld, rows, cols, diagonal, packed);
+    default:
+      return cudaErrorInvalidValue;
+  }
 }
 
 }  // namespace xla::gpu

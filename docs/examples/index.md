@@ -34,6 +34,8 @@ reduce memory use.
   `lu_solve`.
 - [LU factorization](getrf.md) computes the pivoted LU factors and pivot
   indices of a square matrix with `getrf`.
+- [Matrix inversion](inverse.md) computes the full inverse using Cholesky
+  (`potri`) or pivoted LU (`getri`) factorization.
 - [Least-squares solve](least_squares.md) solves an overdetermined rectangular
   system with `least_squares`.
 - [Reduced QR decomposition](qr.md) computes an orthonormal basis and
