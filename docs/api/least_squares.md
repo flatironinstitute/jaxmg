@@ -10,8 +10,10 @@ $$
 
 The solve input $B$ may be a vector or a matrix containing multiple columns.
 The returned solution has shape `(N,)` or `(N, K)`, respectively.
-The RHS may have replicated or distributed columns, including layouts in
-which some process columns own no RHS tiles.
+The RHS may have replicated or distributed columns. On grids with multiple
+process columns, cuSOLVERMp requires $B$ to span at least as many column tiles
+as $A$. Use a one-column process grid for a vector or a small number of RHS
+columns; routing padding does not change this requirement.
 
 Use `least_squares` for a direct solve. Use `least_squares_jit_ctx` when
 the solve is part of a larger caller-owned `jax.jit`. Since cuSOLVERMp

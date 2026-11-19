@@ -192,7 +192,10 @@ def run_case() -> None:
     assert np.all(ranks[:, 22:24] >= 0), ranks  # GETRF workspace diagnostics
     assert np.all(ranks[:, 26] == 1), ranks  # getrf_called
     assert np.all(ranks[:, 27] == 0), ranks  # getrf_info
-    expected_ipiv_len = np.maximum(ranks[:, 19], ranks[:, 18] + case.tile_size)
+    # cuSOLVERMp 0.10 stores pivots on process row zero; other rows need one entry.
+    process_row = np.where(ranks[:, 39] == 1,
+                           ranks[:, 2] // ranks[:, 5], ranks[:, 2] % ranks[:, 4])
+    expected_ipiv_len = np.where(process_row == 0, np.maximum(ranks[:, 19], 1), 1)
     np.testing.assert_array_equal(ranks[:, 33], expected_ipiv_len)
     assert_close_scaled(out, expected)
     assert out.sharding.is_equivalent_to(expected_output_sharding, out.ndim)

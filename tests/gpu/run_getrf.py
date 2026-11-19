@@ -172,7 +172,10 @@ def run_case() -> None:
     assert np.all(words[25::size] == 1), words  # pivots_gathered
     ranks = words.reshape(-1, size)
     assert np.all(ranks[:, 19:21] >= 0), ranks  # GETRF workspace diagnostics
-    expected_ipiv_len = np.maximum(ranks[:, 18], ranks[:, 17] + case.tile_size)
+    # cuSOLVERMp 0.10 stores pivots on process row zero; other rows need one entry.
+    process_row = np.where(ranks[:, 27] == 1,
+                           ranks[:, 2] // ranks[:, 5], ranks[:, 2] % ranks[:, 4])
+    expected_ipiv_len = np.where(process_row == 0, np.maximum(ranks[:, 18], 1), 1)
     np.testing.assert_array_equal(ranks[:, 23], expected_ipiv_len)
 
     if replicated_input:
