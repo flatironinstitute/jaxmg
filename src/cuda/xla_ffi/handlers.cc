@@ -126,6 +126,24 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
 
+// Inversion shares one target; the static mode selects Cholesky or pivoted LU.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpInverseFFI, XlaCusolverMpInverseDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("n")
+        .Attr<int64_t>("tile_size")
+        .Attr<bool>("cholesky")
+        .Attr<absl::Span<const int64_t>>("partition_slots")
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
 // Registers the runtime LU-solve target that receives a general square matrix,
 // factorizes it with GETRF, and solves the right-hand side with GETRS.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(

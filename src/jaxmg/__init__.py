@@ -13,6 +13,8 @@ Main Entry Points:
     - :func:`jaxmg.potrf`: Compute the Cholesky factor of positive-definite ``A``.
     - :func:`jaxmg.lu_solve`: Solve ``A x = B`` for general nonsingular ``A``.
     - :func:`jaxmg.getrf`: Compute the pivoted LU factorization of square ``A``.
+    - :func:`jaxmg.potri`: Invert positive-definite ``A`` through Cholesky.
+    - :func:`jaxmg.getri`: Invert general nonsingular ``A`` through pivoted LU.
     - :func:`jaxmg.least_squares`: Solve ``min_X ||A X - B||_2``.
     - :func:`jaxmg.syevd`: Compute eigenvalues and optional eigenvectors.
     - :func:`jaxmg.gesvd`: Compute singular values and optional singular vectors.
@@ -24,6 +26,10 @@ from importlib.metadata import version
 
 from ._gesvd import gesvd, gesvd_jit_ctx, gesvd_shardmap_ctx
 from ._getrf import getrf, getrf_jit_ctx, getrf_shardmap_ctx
+from ._inverse import (
+    potri, potri_jit_ctx, potri_shardmap_ctx,
+    getri, getri_jit_ctx, getri_shardmap_ctx,
+)
 from ._least_squares import least_squares, least_squares_jit_ctx, least_squares_shardmap_ctx
 from ._lu_solve import lu_solve, lu_solve_jit_ctx, lu_solve_shardmap_ctx
 from ._potrf import potrf, potrf_jit_ctx, potrf_shardmap_ctx
@@ -43,6 +49,12 @@ __all__ = [
     "getrf",
     "getrf_jit_ctx",
     "getrf_shardmap_ctx",
+    "potri",
+    "potri_jit_ctx",
+    "potri_shardmap_ctx",
+    "getri",
+    "getri_jit_ctx",
+    "getri_shardmap_ctx",
     "lu_solve",
     "lu_solve_jit_ctx",
     "lu_solve_shardmap_ctx",

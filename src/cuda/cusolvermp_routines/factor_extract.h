@@ -43,6 +43,13 @@ cudaError_t GatherDistributedPivots(cudaStream_t cuda_stream,
                                     int64_t tile_size, int64_t process_count,
                                     int32_t process, int64_t index_base);
 
+// Packs a lower-triangle tile into its conjugate-transposed, column-major
+// counterpart. For a diagonal tile, fills both triangles from the lower one.
+// The packed output must not alias A and holds rows * cols elements.
+cudaError_t PackHermitianTile(
+    cudaStream_t stream, cudaDataType_t dtype, const void* a, int64_t ld,
+    int64_t rows, int64_t cols, bool diagonal, void* packed);
+
 }  // namespace xla::gpu
 
 #endif  // JAXMG_FACTOR_EXTRACT_H_

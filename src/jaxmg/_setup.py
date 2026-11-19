@@ -33,6 +33,13 @@ _PREPARE_SYMBOL = "XlaCusolverMpPrepareFFI"
 
 _PRODUCTION_FFI_TARGETS = (
     (
+        "cusolvermp_inverse",
+        {
+            "prepare": _PREPARE_SYMBOL,
+            "execute": "XlaCusolverMpInverseFFI",
+        },
+    ),
+    (
         "cusolvermp_potrs",
         {
             "prepare": _PREPARE_SYMBOL,

@@ -307,121 +307,26 @@ absl::Status RunCusolverMpGetrfSolver(
 }
 
 absl::Status RunCusolverMpGetrfDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> lu, ffi::Result<ffi::BufferR1<S32>> piv,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
-  absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
-      "cusolvermp_getrf", collective_params, partition_slots, process_rows,
-      process_cols);
-  if (!process_grid.ok()) return process_grid.status();
-  const int64_t grid_mapping = process_grid->grid_mapping;
-  const absl::Span<const int64_t> rank_map = process_grid->rank_map;
-  if (a.dimensions().size() != 2 || lu->dimensions().size() != 2) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_getrf expects rank-2 buffers");
-  }
-  if (a.element_type() != lu->element_type()) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_getrf requires matching matrix dtypes");
-  }
-  if (a.dimensions()[0] != lu->dimensions()[0] ||
-      a.dimensions()[1] != lu->dimensions()[1]) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_getrf input and LU shapes must match");
-  }
   if (piv->dimensions().size() != 1 || piv->dimensions()[0] != n) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_getrf expects pivot shape (n,)");
+    return absl::InvalidArgumentError("cusolvermp_getrf expects pivot shape (n,)");
   }
-
-  const size_t element_bytes =
-      a.size_bytes() / static_cast<size_t>(a.element_count());
-  const std::array<Padded2DRedistScratchRequest, 1> scratch_requests = {{
-      {process_rows, process_cols, tile_size, tile_size, n, n,
-       a.dimensions()[0], a.dimensions()[1], rank_map},
-  }};
-  absl::StatusOr<Padded2DRedistScratch> scratch_status =
-      AllocatePadded2DRedistScratch(cuda_stream, element_bytes,
-                                    absl::MakeConstSpan(scratch_requests),
-                                    "cusolvermp_getrf_redistribution");
-  if (!scratch_status.ok()) return scratch_status.status();
-  Padded2DRedistScratch scratch = *scratch_status;
-  bool scratch_freed = false;
-  auto return_after_cleanup = [&](absl::Status result) -> absl::Status {
-    if (!scratch_freed) {
-      absl::Status free_status = FreePadded2DRedistScratch(
-          cuda_stream, scratch, "cusolvermp_getrf_redistribution");
-      scratch_freed = free_status.ok();
-      if (result.ok() && !free_status.ok()) return free_status;
-    }
-    return result;
-  };
-  auto synchronize = [&](const char* caller) -> absl::Status {
-    const cudaError_t cuda_status = cudaStreamSynchronize(cuda_stream);
-    if (cuda_status == cudaSuccess) return absl::OkStatus();
-    return return_after_cleanup(absl::InternalError(absl::StrFormat(
-        "%s failed: cuda status %d (%s)", caller, static_cast<int>(cuda_status),
-        cudaGetErrorString(cuda_status))));
-  };
-
-  // Donation normally aliases A to LU; preserve A explicitly when disabled.
-  if (absl::Status copy_status = CopyMatrixIfNeeded(cuda_stream, a, lu);
-      !copy_status.ok()) {
-    return return_after_cleanup(copy_status);
-  }
-  ffi::AnyBuffer lu_work = *lu;
-  if (absl::Status convert_status = ConvertRowMajorToColumnMajorInPlace(
-          cuda_stream, "cusolvermp_getrf/a_layout_convert", lu_work,
-          scratch.base, scratch.elements);
-      !convert_status.ok()) {
-    return return_after_cleanup(convert_status);
-  }
-  if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_getrf/a_forward", stream, comm_stream, cuda_stream,
-          process_rows, process_cols, tile_size, tile_size, n, n,
-          /*reverse=*/0, rank_map, lu_work, lu->device_memory(), scratch.base,
-          scratch.elements, collective_params, collective_cliques);
-      !redist_status.ok()) {
-    return return_after_cleanup(redist_status);
-  }
-  if (absl::Status sync_status =
-          synchronize("cusolvermp_getrf forward synchronize");
-      !sync_status.ok()) {
-    return sync_status;
-  }
-
-  if (absl::Status solver_status = RunCusolverMpGetrfSolver(
-          stream, cuda_stream, process_rows, process_cols, n, tile_size,
-          grid_mapping, rank_map, lu, piv, status, collective_params,
-          collective_cliques);
-      !solver_status.ok()) {
-    return return_after_cleanup(solver_status);
-  }
-  if (absl::Status sync_status =
-          synchronize("cusolvermp_getrf solver synchronize");
-      !sync_status.ok()) {
-    return sync_status;
-  }
-
-  if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_getrf/lu_reverse", stream, comm_stream, cuda_stream,
-          process_rows, process_cols, tile_size, tile_size, n, n,
-          /*reverse=*/1, rank_map, *lu, lu->device_memory(), scratch.base,
-          scratch.elements, collective_params, collective_cliques);
-      !redist_status.ok()) {
-    return return_after_cleanup(redist_status);
-  }
-  if (absl::Status convert_status = ConvertColumnMajorToRowMajorInPlace(
-          cuda_stream, "cusolvermp_getrf/lu_layout_restore", *lu,
-          scratch.base, scratch.elements);
-      !convert_status.ok()) {
-    return return_after_cleanup(convert_status);
-  }
-  return return_after_cleanup(absl::OkStatus());
+  return DispatchSquareMatrix(
+      "cusolvermp_getrf", stream, cuda_stream, process_rows, process_cols,
+      n, tile_size, partition_slots, a, lu, collective_params,
+      collective_cliques,
+      [&](const ResolvedProcessGrid& grid, const Padded2DRedistScratch&) {
+        return RunCusolverMpGetrfSolver(
+            stream, cuda_stream, process_rows, process_cols, n, tile_size,
+            grid.grid_mapping, grid.rank_map, lu, piv, status,
+            collective_params, collective_cliques);
+      });
 }
 
 }  // namespace
@@ -437,7 +342,7 @@ absl::Status XlaCusolverMpGetrfDispatch(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques) {
   return RunCusolverMpGetrfDispatch(
-      stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
+      stream, cuda_stream, process_rows, process_cols,
       n, tile_size, partition_slots, a, lu, piv, status, collective_params,
       collective_cliques);
 }

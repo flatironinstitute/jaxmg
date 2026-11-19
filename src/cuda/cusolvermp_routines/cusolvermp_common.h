@@ -32,7 +32,9 @@
 #include <cusolverMp.h>
 
 #include "../xla_ffi/runtime.h"
+#include "../memory_redist/memory_redist.h"
 #include "third_party/nccl/nccl.h"
+#include "absl/functional/function_ref.h"
 
 namespace xla::gpu {
 
@@ -59,6 +61,12 @@ struct CusolverMpApi {
   decltype(&cusolverMpGetrf_bufferSize) getrf_buffer_size =
       &cusolverMpGetrf_bufferSize;
   decltype(&cusolverMpGetrf) getrf = &cusolverMpGetrf;
+  decltype(&cusolverMpPotri_bufferSize) potri_buffer_size =
+      &cusolverMpPotri_bufferSize;
+  decltype(&cusolverMpPotri) potri = &cusolverMpPotri;
+  decltype(&cusolverMpGetri_bufferSize) getri_buffer_size =
+      &cusolverMpGetri_bufferSize;
+  decltype(&cusolverMpGetri) getri = &cusolverMpGetri;
   decltype(&cusolverMpGetrs_bufferSize) getrs_buffer_size =
       &cusolverMpGetrs_bufferSize;
   decltype(&cusolverMpGetrs) getrs = &cusolverMpGetrs;
@@ -160,12 +168,16 @@ enum CusolverMpStatusCode : int32_t {
   kOrgqrInfoNonzero = 61,
   kFactorExtractFailed = 62,
   kPivotGatherFailed = 63,
+  kInverseWorkspaceFailed = 64,
+  kInverseFailed = 65,
+  kInverseInfoNonzero = 66,
 };
 
 inline constexpr int kPotrsStatusSize = 40;
 inline constexpr int kPotrfStatusSize = 26;
 inline constexpr int kLuSolveStatusSize = 41;
 inline constexpr int kGetrfStatusSize = 28;
+inline constexpr int kInverseStatusSize = 32;
 inline constexpr int kSyevdStatusSize = 36;
 inline constexpr int kGesvdStatusSize = 42;
 inline constexpr int kPolarStatusSize = 32;
@@ -207,6 +219,18 @@ absl::StatusOr<ResolvedProcessGrid> ResolveProcessGrid(
     const char* caller, const CollectiveParams* collective_params,
     absl::Span<const int64_t> partition_slots, int64_t process_rows,
     int64_t process_cols);
+
+// Shared factor/inverse pipeline: prepare one square matrix, execute the
+// numerical step, then restore its JAX layout using the same bounded scratch.
+absl::Status DispatchSquareMatrix(
+    const char* caller, se::Stream* stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
+    absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> result,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques,
+    absl::FunctionRef<absl::Status(const ResolvedProcessGrid&,
+                                 const Padded2DRedistScratch&)> compute);
 
 // Converts an NCCL communicator rank into the process-row/process-column
 // coordinate used by cuSOLVERMp descriptors.

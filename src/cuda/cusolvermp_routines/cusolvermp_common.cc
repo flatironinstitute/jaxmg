@@ -448,4 +448,119 @@ absl::StatusOr<int> DeviceForCudaPointer(const void* ptr) {
   return attrs.device;
 }
 
+absl::Status DispatchSquareMatrix(
+    const char* caller, se::Stream* stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
+    absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> result,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques,
+    absl::FunctionRef<absl::Status(const ResolvedProcessGrid&,
+                                 const Padded2DRedistScratch&)> compute) {
+  absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
+      caller, collective_params, partition_slots, process_rows,
+      process_cols);
+  if (!process_grid.ok()) return process_grid.status();
+  const absl::Span<const int64_t> rank_map = process_grid->rank_map;
+  if (a.dimensions().size() != 2 || result->dimensions().size() != 2) {
+    return absl::InvalidArgumentError(
+        "square-matrix dispatch expects rank-2 buffers");
+  }
+  if (a.element_type() != result->element_type()) {
+    return absl::InvalidArgumentError(
+        "square-matrix dispatch requires matching matrix dtypes");
+  }
+  if (a.dimensions()[0] != result->dimensions()[0] ||
+      a.dimensions()[1] != result->dimensions()[1]) {
+    return absl::InvalidArgumentError(
+        "square-matrix dispatch input and result shapes must match");
+  }
+
+  if (n <= 0 || tile_size <= 0 || a.element_count() == 0) {
+    return absl::InvalidArgumentError(
+        "square-matrix dispatch requires nonempty buffers and positive dimensions");
+  }
+  const size_t element_bytes =
+      a.size_bytes() / static_cast<size_t>(a.element_count());
+  const std::array<Padded2DRedistScratchRequest, 1> scratch_requests = {{
+      {process_rows, process_cols, tile_size, tile_size, n, n,
+       a.dimensions()[0], a.dimensions()[1], rank_map},
+  }};
+  absl::StatusOr<Padded2DRedistScratch> scratch_status =
+      AllocatePadded2DRedistScratch(cuda_stream, element_bytes,
+                                    absl::MakeConstSpan(scratch_requests),
+                                    caller);
+  if (!scratch_status.ok()) return scratch_status.status();
+  Padded2DRedistScratch scratch = *scratch_status;
+  bool scratch_freed = false;
+  auto return_after_cleanup = [&](absl::Status result) -> absl::Status {
+    if (!scratch_freed) {
+      absl::Status free_status = FreePadded2DRedistScratch(
+          cuda_stream, scratch, caller);
+      scratch_freed = free_status.ok();
+      if (result.ok() && !free_status.ok()) return free_status;
+    }
+    return result;
+  };
+  auto synchronize = [&](const char* caller) -> absl::Status {
+    const cudaError_t cuda_status = cudaStreamSynchronize(cuda_stream);
+    if (cuda_status == cudaSuccess) return absl::OkStatus();
+    return return_after_cleanup(absl::InternalError(absl::StrFormat(
+        "%s failed: cuda status %d (%s)", caller, static_cast<int>(cuda_status),
+        cudaGetErrorString(cuda_status))));
+  };
+
+  // Stage 1: prepare the result's local storage and block-cyclic ownership.
+  if (absl::Status copy_status = CopyMatrixIfNeeded(cuda_stream, a, result);
+      !copy_status.ok()) {
+    return return_after_cleanup(copy_status);
+  }
+  ffi::AnyBuffer matrix_work = *result;
+  if (absl::Status convert_status = ConvertRowMajorToColumnMajorInPlace(
+          cuda_stream, caller, matrix_work,
+          scratch.base, scratch.elements);
+      !convert_status.ok()) {
+    return return_after_cleanup(convert_status);
+  }
+  if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
+          caller, stream, /*comm_stream=*/nullptr, cuda_stream,
+          process_rows, process_cols, tile_size, tile_size, n, n,
+          /*reverse=*/0, rank_map, matrix_work, result->device_memory(),
+          scratch.base, scratch.elements, collective_params,
+          collective_cliques);
+      !redist_status.ok()) {
+    return return_after_cleanup(redist_status);
+  }
+  if (absl::Status sync_status = synchronize(caller); !sync_status.ok()) {
+    return sync_status;
+  }
+
+  // Stage 2: execute the routine with the same scratch available for extraction.
+  if (absl::Status solver_status = compute(*process_grid, scratch);
+      !solver_status.ok()) {
+    return return_after_cleanup(solver_status);
+  }
+  if (absl::Status sync_status = synchronize(caller); !sync_status.ok()) {
+    return sync_status;
+  }
+
+  // Stage 3: restore the matrix result without another matrix-sized allocation.
+  if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
+          caller, stream, /*comm_stream=*/nullptr, cuda_stream,
+          process_rows, process_cols, tile_size, tile_size, n, n,
+          /*reverse=*/1, rank_map, *result, result->device_memory(),
+          scratch.base, scratch.elements, collective_params,
+          collective_cliques);
+      !redist_status.ok()) {
+    return return_after_cleanup(redist_status);
+  }
+  if (absl::Status convert_status = ConvertColumnMajorToRowMajorInPlace(
+          cuda_stream, caller, *result,
+          scratch.base, scratch.elements);
+      !convert_status.ok()) {
+    return return_after_cleanup(convert_status);
+  }
+  return return_after_cleanup(absl::OkStatus());
+}
+
 }  // namespace xla::gpu
