@@ -26,6 +26,7 @@
 #include <cstdlib>
 #include <limits>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "absl/strings/str_join.h"
@@ -34,14 +35,14 @@
 namespace xla::gpu {
 namespace {
 
-// A grid failure can invalidate NCCL. Even the nominally recoverable create
-// errors require unanimous ranks, which cannot be checked on a broken comm.
-[[noreturn]] void AbortGridFailure(const char* operation, int rank,
-                                  cusolverStatus_t status) {
+// A failed rank must not skip setup while peers enter collective computation.
+// Grid failures can also invalidate NCCL, ruling out a status all-reduce.
+[[noreturn]] void AbortSetupFailure(const char* operation, int rank,
+                                   const std::string& detail) {
   std::fprintf(stderr,
-               "JAXMg fatal: %s failed on rank %d (cuSOLVER status %d). "
-               "The communicator may be unusable; restart the distributed job.\n",
-               operation, rank, static_cast<int>(status));
+               "JAXMg fatal: %s failed on rank %d (%s). "
+               "Distributed execution cannot continue; restart the distributed job.\n",
+               operation, rank, detail.c_str());
   std::fflush(stderr);
   std::abort();
 }
@@ -119,9 +120,15 @@ absl::Status CusolverMpExecution::Initialize(
     const CusolverMpCacheApi cache_api{
         api.create, api.set_stream, api.create_grid, api.destroy_grid, api.destroy};
     cache = &GetCusolverMpCache(cache_api, *buffer_device);
-    JAXMG_RETURN_IF_ERROR(cache->Lock(&cache_lock_));
-    JAXMG_RETURN_IF_ERROR(
-        cache->TrackClique(collective_cliques, *clique_key, *gpu_comm));
+    absl::Status cache_status = cache->Lock(&cache_lock_);
+    if (cache_status.ok()) {
+      cache_status =
+          cache->TrackClique(collective_cliques, *clique_key, *gpu_comm);
+    }
+    if (!cache_status.ok()) {
+      AbortSetupFailure("cached cuSOLVERMp setup", nccl_rank,
+                        cache_status.ToString());
+    }
   }
   status_[7] = 1;
   CusolverMpDebug(nccl_rank, "%s create handle begin device=%d cached=%d",
@@ -132,17 +139,15 @@ absl::Status CusolverMpExecution::Initialize(
   CusolverMpDebug(nccl_rank, "%s create handle end status=%d", caller,
                   static_cast<int>(solver_status));
   if (solver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
-    status_[0] = kCreateHandleFailed;
-    status_[raw_status_index_] = static_cast<int32_t>(solver_status);
-    return absl::OkStatus();
+    AbortSetupFailure("cuSOLVERMp handle setup", nccl_rank,
+                      absl::StrFormat("cuSOLVER status %d", solver_status));
   }
   status_[8] = 1;
   int version = -1;
   solver_status = api.get_version(handle, &version);
   if (solver_status != CUSOLVER_STATUS_SUCCESS) {
-    status_[0] = kGetVersionFailed;
-    status_[raw_status_index_] = static_cast<int32_t>(solver_status);
-    return absl::OkStatus();
+    AbortSetupFailure("cusolverMpGetVersion", nccl_rank,
+                      absl::StrFormat("cuSOLVER status %d", solver_status));
   }
   status_[6] = version;
   CusolverMpDebug(nccl_rank, "%s version=%d create grid begin rows=%lld cols=%lld",
@@ -161,7 +166,8 @@ absl::Status CusolverMpExecution::Initialize(
   CusolverMpDebug(nccl_rank, "%s create grid end status=%d", caller,
                   static_cast<int>(solver_status));
   if (solver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
-    AbortGridFailure("cusolverMpCreateDeviceGrid", nccl_rank, solver_status);
+    AbortSetupFailure("cusolverMpCreateDeviceGrid", nccl_rank,
+                      absl::StrFormat("cuSOLVER status %d", solver_status));
   }
   status_[9] = 1;
   return absl::OkStatus();
@@ -185,7 +191,8 @@ void CusolverMpExecution::Close() {
   if (grid != nullptr) {
     const cusolverStatus_t result = api.destroy_grid(std::exchange(grid, nullptr));
     if (result != CUSOLVER_STATUS_SUCCESS) {
-      AbortGridFailure("cusolverMpDestroyGrid", nccl_rank, result);
+      AbortSetupFailure("cusolverMpDestroyGrid", nccl_rank,
+                        absl::StrFormat("cuSOLVER status %d", result));
     }
   }
   if (handle != nullptr) {

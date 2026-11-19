@@ -37,6 +37,15 @@ int cusolverMpCreate(void** handle, int device, void* stream) {
   return status;
 }
 
+int cusolverMpSetStream(void* handle, void* stream) {
+  typedef int (*SetStreamFn)(void*, void*);
+  SetStreamFn set_stream = (SetStreamFn)dlsym(RTLD_NEXT, "cusolverMpSetStream");
+  if (set_stream == NULL) abort();
+  const char* fail = getenv("JAXMG_TEST_FAIL_SET_STREAM");
+  if (fail != NULL && from_jaxmg(__builtin_return_address(0))) return atoi(fail);
+  return set_stream(handle, stream);
+}
+
 int cusolverMpCreateDeviceGrid(void* handle, void** grid, void* comm,
                              int rows, int cols, int mapping) {
   typedef int (*CreateFn)(void*, void**, void*, int, int, int);

@@ -134,7 +134,10 @@ An unhealthy communicator cannot safely participate in collective grid
 destruction. Its native resources are retained until process exit, and further
 use of the device cache is rejected. An internal error from
 `cusolverMpSetStream` also prevents handle reuse; both cases require restarting
-the distributed job. Set `JAXMG_CUSOLVERMP_CACHE=0` before starting every process
+the distributed job. Handle or grid setup failures terminate the affected process
+before other ranks can be left waiting in a different collective operation.
+JAX's failure detection and the launcher are responsible for stopping its peers.
+Set `JAXMG_CUSOLVERMP_CACHE=0` before starting every process
 to disable reuse for timing comparisons or debugging.
 
 ## Detailed implementation
