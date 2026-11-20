@@ -35,7 +35,6 @@
 #include <cstdlib>
 #include <vector>
 
-#include "absl/strings/str_join.h"
 #include "cusolvermp_common.h"
 #include "cusolvermp_routines.h"
 
@@ -275,7 +274,6 @@ absl::Status RunCusolverMpGesvd(
   (*status_words)[31] = SizeToKiBForStatus(workspace_device);
   (*status_words)[32] = SizeToKiBForStatus(workspace_host);
 
-  CusolverMpDebugMemory(debug_rank, "gesvd workspace", workspace_device);
   if (workspace_device > 0) {
     cuda_status = cudaMalloc(&d_work, workspace_device);
     if (cuda_status != cudaSuccess) {
@@ -292,7 +290,6 @@ absl::Status RunCusolverMpGesvd(
       return absl::OkStatus();
     }
   }
-  CusolverMpDebugMemory(debug_rank, "gesvd info", sizeof(int));
   cuda_status = cudaMalloc(reinterpret_cast<void**>(&d_info), sizeof(int));
   if (cuda_status != cudaSuccess) {
     (*status_words)[0] = kDeviceAllocFailed;
@@ -468,10 +465,6 @@ absl::Status RunCusolverMpGesvdSolver(
   // Publishes this rank's status. A failed solve leaves stale or partial
   // data in the results, so they are replaced with NaN first.
   auto publish_status = [&]() -> absl::Status {
-    if (status_words[0] != kStatusOk && CusolverMpDebugEnabled()) {
-      CusolverMpDebug(status_words[2], "gesvd failure status=[%s]",
-                      absl::StrJoin(status_words, ",").c_str());
-    }
     std::vector<ffi::AnyBuffer> results = {*singular_values};
     if (compute_u && u != nullptr) results.push_back(*u);
     if (compute_vh && vh != nullptr) results.push_back(*vh);

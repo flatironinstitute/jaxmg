@@ -23,7 +23,6 @@
 #include <memory>
 #include <type_traits>
 
-#include "absl/strings/str_join.h"
 #include "cusolvermp_common.h"
 #include "cusolvermp_routines.h"
 #include "factor_extract.h"
@@ -123,11 +122,6 @@ absl::Status RunInverse(
       0,   // Full inverse completed.
   };
   auto publish = [&]() -> absl::Status {
-    if (status[0] != kStatusOk && CusolverMpDebugEnabled()) {
-      CusolverMpDebug(status[2], "%s failure status=[%s]",
-                      cholesky ? "potri" : "getri",
-                      absl::StrJoin(status, ",").c_str());
-    }
     JAXMG_RETURN_IF_ERROR(InvalidateResultsOnFailure(
         cuda_stream, status[0], {*inverse}));
     return CopyStatusToDevice(stream, status, status_out);
@@ -182,7 +176,6 @@ absl::Status RunInverse(
     pivot_bytes = LuPivotAllocationLength(status[18], row) * sizeof(int64_t);
     status[27] = SizeToKiBForStatus(pivot_bytes);
     int64_t* ptr = nullptr;
-    CusolverMpDebugMemory(execution.nccl_rank, "getri pivots", pivot_bytes);
     if (cudaMalloc(reinterpret_cast<void**>(&ptr), pivot_bytes) != cudaSuccess) {
       status[0] = kDeviceAllocFailed;
     }

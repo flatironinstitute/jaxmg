@@ -401,12 +401,6 @@ def run_gpu_test(
         dtype_name=dtype_name,
         interface=interface,
     )
-    # Retain memory snapshots from passing cases for comparison with failures.
-    if env.get("JAXMG_CUSOLVERMP_DEBUG", "0") not in ("", "0"):
-        for rank, log in enumerate(logs):
-            for line in log.splitlines():
-                if "requested_bytes=" in line:
-                    print(f"[launcher log {rank}] {line}")
     print(
         f"[launcher] task {name} dtype={dtype_name} "
         f"interface={interface} completed successfully"
