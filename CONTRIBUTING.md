@@ -233,4 +233,5 @@ runs `.github/workflows/jax-compat.yml`, which:
   as a new MINOR release.
 
 To test a version by hand, run the `JAX compatibility` workflow with
-`jax_version` set.
+`jax_version` set. Set it to `all` to re-test every JAX the `pyproject.toml`
+range admits, for example after changing the native backend.
