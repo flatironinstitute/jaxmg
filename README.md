@@ -69,23 +69,6 @@ result to its original JAX layout. The matrix data remains GPU-resident
 throughout, with in-place transformations and bounded scratch storage minimizing
 memory overhead.
 
-The operations are implemented using:
-
-- `potrs`: [`cusolverMpPotrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf)
-  and [`cusolverMpPotrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrs)
-- `potrf`: [`cusolverMpPotrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf)
-- `lu_solve`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
-  and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)
-- `getrf`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
-- `potri`: `cusolverMpPotrf` and [`cusolverMpPotri`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotri)
-- `getri`: `cusolverMpGetrf` and [`cusolverMpGetri`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetri)
-- `least_squares`: [`cusolverMpGels`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgels)
-- `qr`: [`cusolverMpGeqrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgeqrf)
-  and [`cusolverMpOrgqr`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermporgqr)
-- `syevd`: [`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)
-- `gesvd`: [`cusolverMpGesvd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgesvd)
-- `polar`: [`cusolverMpPolar`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppolar)
-
 For more details, see the [API reference](https://flatironinstitute.github.io/jaxmg/latest/api/) and the
 [accompanying paper](https://arxiv.org/abs/2601.14466).
 
@@ -238,6 +221,7 @@ Call `potrs` or `lu_solve` directly for standard solves. For use inside a larger
 ## Projects that use JAXMg
 
 - [JAXMg Benchmarks](https://github.com/therooler/jaxmg_benchmark): Benchmarks for various Multi-GPUs setups.
+- [BayesEoR-JAX](https://github.com/JacobTutt/BayesEoR-JAX): Bayesian 21-cm power-spectrum inference from interferometric visibilities.
 - [Netket](https://github.com/netket/netket) and [Tachys](https://github.com/tachys-dev/tachys): Distributed solvers are available for variational Monte Carlo simulations.
 - [JAXMg for blurred sampling](https://github.com/therooler/nqs_blurred_sampling): Implementation of t-VMC that makes use JAXMg for inverting the QGT.
 - [JAXMg for simulating quantum annealing experiments](https://github.com/therooler/dwave_vmc): Simulation of D-Wave's 2025 quantum annealing experiment with t-VMC that makes use JAXMg for inverting the QGT.

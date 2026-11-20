@@ -83,62 +83,52 @@ The memory redistribution is performed in three stages.
 
 ## Solver workflows
 
-The redistribution stages are shared by all public routines:
+The routines share the forward redistribution stages and then execute the
+following cuSOLVERMp calls:
 
-- `potrs` calls `cusolverMpPotrf` followed by `cusolverMpPotrs`. When requested,
-  it reads the distributed factor diagonal and performs a one-scalar NCCL
-  all-reduce to return `log(det(A))`.
-- `potrf` calls `cusolverMpPotrf` only, zeros the strict upper triangle of the
-  distributed factor, and restores $L$ in place of the donated A.
-- `lu_solve` calls `cusolverMpGetrf` followed by `cusolverMpGetrs` and manages
-  the distributed pivot allocation.
-- `getrf` calls `cusolverMpGetrf` only, restores the packed LU factor in place
-  of the donated A, and gathers the distributed pivots into one replicated
-  vector with an NCCL max all-reduce.
-- `potri` calls `cusolverMpPotrf` followed by `cusolverMpPotri`, then fills
-  the Hermitian upper triangle through tile-sized transfers using the shared
-  redistribution scratch. `getri` calls `cusolverMpGetrf` followed by
-  `cusolverMpGetri`, retaining native pivots until inversion completes.
-  Both overwrite the factor with the inverse and release factorization
-  workspace before allocating inversion workspace.
-- `least_squares` calls `cusolverMpGels` for overdetermined rectangular systems
-  and restores the solution from the overwritten solve-input buffer.
-- `qr` calls `cusolverMpGeqrf`, preserves the upper-triangular factor, and then
-  calls `cusolverMpOrgqr` to form the reduced orthonormal factor.
-- `syevd` calls `cusolverMpSyevd` and materializes distributed eigenvalues plus
-  eigenvectors when requested.
-- `gesvd` calls `cusolverMpGesvd` for rectangular matrices and restores only
-  the requested U and Vh outputs. Its shared scratch allocation is sized to the
-  largest redistribution requirement among A and those requested outputs.
-- `polar` calls `cusolverMpPolar` for tall or square matrices. The donated A
-  allocation is overwritten by the polar factor, and the optional H output is
-  allocated and restored only when requested.
+- `potrs` calls `cusolverMpPotrf` followed by `cusolverMpPotrs`, optionally
+  extracting `log(det(A))` from the same factorization.
+- `potrf` calls `cusolverMpPotrf` to return the lower Cholesky factor.
+- `lu_solve` calls `cusolverMpGetrf` followed by `cusolverMpGetrs`.
+- `getrf` calls `cusolverMpGetrf` to return the packed LU factor and pivots.
+- `potri` calls `cusolverMpPotrf` followed by `cusolverMpPotri`.
+- `getri` calls `cusolverMpGetrf` followed by `cusolverMpGetri`.
+- `least_squares` calls `cusolverMpGels` for tall or square systems.
+- `qr` calls `cusolverMpGeqrf` followed by `cusolverMpOrgqr` to form reduced Q.
+- `syevd` calls `cusolverMpSyevd` for eigenvalues and optional eigenvectors.
+- `gesvd` calls `cusolverMpGesvd`, with U and Vh selected independently.
+- `polar` calls `cusolverMpPolar` for the polar factor and optional H.
+
+Buffer reuse and output restoration are described in
+[Solver-specific native work](memory_distribution.md#solver-specific-native-work).
+
+## Solver setup
 
 Each Python process owns one GPU and contributes one rank to the XLA/NCCL and
 cuSOLVERMp communicators. See [Distributed execution](../examples/execution.md)
 for the required launch model.
 
-Every routine reuses a cached cuSOLVERMp handle and device grid to avoid
-repeated library initialization. The cache holds one handle per GPU and one
-grid per XLA communicator group, process-grid shape, and mapping. Each call
-holds exclusive access to its device's handle until its CUDA work completes;
-matrix descriptors and explicit solver workspaces remain local to the call.
+To avoid repeated initialization, routines share one cached cuSOLVERMp handle
+per GPU and grids keyed by XLA communicator group, process-grid shape, and
+mapping. Calls sharing a handle are serialized until their CUDA work completes;
+matrix descriptors and explicit solver workspaces remain local to each call.
 
-XLA's communicator group owns its cached grids through `CollectiveCliques::Tie`.
-When a healthy group is destroyed, its grids are released before its NCCL
-communicator; the last group on a device also releases the shared handle.
-Groups retained by XLA for the process lifetime retain their cached setup too.
-Cleanup does not rely on Python shutdown hooks or extension-module destructors.
-
-An unhealthy communicator cannot safely participate in collective grid
-destruction. Its native resources are retained until process exit, and further
-use of the device cache is rejected. An internal error from
-`cusolverMpSetStream` also prevents handle reuse; both cases require restarting
-the distributed job. Handle or grid setup failures terminate the affected process
-before other ranks can be left waiting in a different collective operation.
-JAX's failure detection and the launcher are responsible for stopping its peers.
+Cached grids follow the lifetime of their XLA communicator group. Healthy
+groups release their grids before the NCCL communicator, and the last group
+on a device releases the handle.
 Set `JAXMG_CUSOLVERMP_CACHE=0` before starting every process
 to disable reuse for timing comparisons or debugging.
+
+## Failure handling
+
+Numerical failures return NaN results and a nonzero solver status. Fatal handle
+or grid setup failures, and grid-destruction failures, instead terminate the
+affected process to avoid further unsafe collective operations. Peer shutdown
+depends on JAX's failure detection and the launcher.
+
+An unhealthy communicator cannot safely participate in grid destruction, so
+its cached native resources are retained until process exit and further cache
+use is rejected. Restart the distributed job after a fatal failure.
 
 ## Detailed implementation
 

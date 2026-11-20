@@ -54,15 +54,13 @@ build procedure.
 ## Runtime requirements
 
 CUDA 13 installations require CUDA 13.0 Update 2 or newer and cuBLAS 13.1 or
-newer. Use NCCL 2.32.6 or newer; for a local installation with older NCCL,
-set `NCCL_NVLS_ENABLE=0` to avoid the NVLS correctness issue documented by
-[NVIDIA](https://docs.nvidia.com/cuda/cusolvermp/release_notes/index.html).
-The `cuda12` and `cuda13` extras enforce these runtime dependency bounds.
+newer. Use NCCL 2.32.6 or newer with either CUDA version. The `cuda12`
+and `cuda13` extras install dependencies satisfying these requirements
+automatically.
 
-Numerical failures return NaN results and a nonzero solver status. A failure
-to create or destroy a cuSOLVERMp grid instead terminates the process: the
-communicator may no longer be usable, so further collective operations are
-unsafe. Restart the distributed job after such a failure.
+For local installations using older NCCL, set `NCCL_NVLS_ENABLE=0` to avoid
+the NVLS correctness issue documented by
+[NVIDIA](https://docs.nvidia.com/cuda/cusolvermp/release_notes/index.html).
 
 cuSOLVERMp requires a one-to-one mapping between processes and GPUs. Multi-GPU
 and multi-node JAXMg jobs must therefore be launched with one Python process per
