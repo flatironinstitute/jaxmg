@@ -52,6 +52,20 @@ Returns the lower-triangular factor $L$.
 
 ---
 
+## `potri`
+
+Multi-GPU Cholesky inversion of a symmetric or Hermitian positive-definite matrix.
+
+$$
+A = L L^{\dagger}, \qquad A^{-1} = L^{-\dagger}L^{-1}.
+$$
+
+Accepts the original matrix $A$ and returns its full inverse.
+
+[`potri` API and usage](potri.md)
+
+---
+
 ## `lu_solve`
 
 Multi-GPU pivoted LU solver for general nonsingular matrices.
@@ -76,20 +90,6 @@ Returns the packed factors and the pivot indices, in the format of
 `jax.scipy.linalg.lu_factor`.
 
 [`getrf` API and usage](getrf.md)
-
----
-
-## `potri`
-
-Multi-GPU Cholesky inversion of a symmetric or Hermitian positive-definite matrix.
-
-$$
-A = L L^{\dagger}, \qquad A^{-1} = L^{-\dagger}L^{-1}.
-$$
-
-Accepts the original matrix $A$ and returns its full inverse.
-
-[`potri` API and usage](potri.md)
 
 ---
 

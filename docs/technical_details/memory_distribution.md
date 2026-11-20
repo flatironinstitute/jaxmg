@@ -319,15 +319,15 @@ stages but differ in their buffer requirements and output restoration:
 - `potrf` zeros the strict upper triangle, which cuSOLVERMp leaves unchanged,
   in the block-cyclic layout before restoring the lower factor in place of
   the donated A.
+- `potri` overwrites the Cholesky factor with the inverse, releasing
+  factorization workspace before allocating inversion workspace. It
+  completes the Hermitian upper triangle through tile-sized transfers using
+  the shared redistribution scratch, without a second matrix-sized buffer.
 - `lu_solve` allocates a pivot vector according to the local cuSOLVERMp column
   ownership.
 - `getrf` restores the packed LU factor in place of the donated A. Each rank
   scatters the pivots of the columns it owns into a global vector, and an NCCL
   max all-reduce replicates that vector on every rank.
-- `potri` overwrites the Cholesky factor with the inverse, releasing
-  factorization workspace before allocating inversion workspace. It
-  completes the Hermitian upper triangle through tile-sized transfers using
-  the shared redistribution scratch, without a second matrix-sized buffer.
 - `getri` overwrites the packed LU factor with the inverse, releasing
   factorization workspace before allocating inversion workspace. It retains
   the native pivots until inversion completes.

@@ -89,9 +89,9 @@ following cuSOLVERMp calls:
 - `potrs` calls `cusolverMpPotrf` followed by `cusolverMpPotrs`, optionally
   extracting `log(det(A))` from the same factorization.
 - `potrf` calls `cusolverMpPotrf` to return the lower Cholesky factor.
+- `potri` calls `cusolverMpPotrf` followed by `cusolverMpPotri`.
 - `lu_solve` calls `cusolverMpGetrf` followed by `cusolverMpGetrs`.
 - `getrf` calls `cusolverMpGetrf` to return the packed LU factor and pivots.
-- `potri` calls `cusolverMpPotrf` followed by `cusolverMpPotri`.
 - `getri` calls `cusolverMpGetrf` followed by `cusolverMpGetri`.
 - `least_squares` calls `cusolverMpGels` for tall or square systems.
 - `qr` calls `cusolverMpGeqrf` followed by `cusolverMpOrgqr` to form reduced Q.

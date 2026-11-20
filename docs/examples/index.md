@@ -30,12 +30,12 @@ reduce memory use.
   linear system with `potrs`.
 - [Cholesky factorization](potrf.md) computes the lower Cholesky factor of a
   symmetric or Hermitian positive-definite matrix with `potrf`.
+- [Cholesky inversion](potri.md) computes the full inverse of a symmetric or
+  Hermitian positive-definite matrix with `potri`.
 - [LU solve](lu_solve.md) solves a general nonsingular linear system with
   `lu_solve`.
 - [LU factorization](getrf.md) computes the pivoted LU factors and pivot
   indices of a square matrix with `getrf`.
-- [Cholesky inversion](potri.md) computes the full inverse of a symmetric or
-  Hermitian positive-definite matrix with `potri`.
 - [LU inversion](getri.md) computes the full inverse of a general nonsingular
   matrix with `getri`.
 - [Least-squares solve](least_squares.md) solves an overdetermined rectangular

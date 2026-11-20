@@ -28,14 +28,14 @@ JAXMg currently provides a jittable API for the following routines:
 - [`potrf`](https://flatironinstitute.github.io/jaxmg/latest/api/potrf/): Computes the Cholesky factor $L$ of an
   $N \times N$ symmetric or Hermitian positive-definite matrix $A=LL^{\dagger}$,
   without a solve.
+- [`potri`](https://flatironinstitute.github.io/jaxmg/latest/api/potri/): Computes the full inverse $A^{-1}$ of a
+  symmetric or Hermitian positive-definite matrix through Cholesky factorization.
 - [`lu_solve`](https://flatironinstitute.github.io/jaxmg/latest/api/lu_solve/): Solves the system of linear equations
   $Ax=B$, where $A$ is an $N \times N$ general nonsingular matrix, using a
   pivoted LU decomposition.
 - [`getrf`](https://flatironinstitute.github.io/jaxmg/latest/api/getrf/): Computes the pivoted LU factorization
   $PA=LU$ of an $N \times N$ matrix, returning the packed factors and pivot
   indices without a solve.
-- [`potri`](https://flatironinstitute.github.io/jaxmg/latest/api/potri/): Computes the full inverse $A^{-1}$ of a
-  symmetric or Hermitian positive-definite matrix through Cholesky factorization.
 - [`getri`](https://flatironinstitute.github.io/jaxmg/latest/api/getri/): Computes the full inverse $A^{-1}$ of a
   general nonsingular matrix through pivoted LU factorization.
 - [`least_squares`](https://flatironinstitute.github.io/jaxmg/latest/api/least_squares/): Solves the overdetermined system
