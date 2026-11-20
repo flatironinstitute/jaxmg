@@ -30,6 +30,7 @@
 #include <cstdlib>
 #include <vector>
 
+#include "absl/strings/str_join.h"
 #include "cusolvermp_common.h"
 #include "cusolvermp_routines.h"
 
@@ -158,6 +159,7 @@ absl::Status RunCusolverMpPolar(
   (*status_words)[24] = SizeToKiBForStatus(workspace_device);
   (*status_words)[25] = SizeToKiBForStatus(workspace_host);
 
+  CusolverMpDebugMemory(debug_rank, "polar workspace", workspace_device);
   cudaError_t cuda_status = cudaSuccess;
   if (workspace_device > 0) {
     cuda_status = cudaMalloc(&d_work, workspace_device);
@@ -175,6 +177,7 @@ absl::Status RunCusolverMpPolar(
       return absl::OkStatus();
     }
   }
+  CusolverMpDebugMemory(debug_rank, "polar info", sizeof(int));
   cuda_status = cudaMalloc(reinterpret_cast<void**>(&d_info), sizeof(int));
   if (cuda_status != cudaSuccess) {
     (*status_words)[0] = kDeviceAllocFailed;
@@ -300,6 +303,10 @@ absl::Status RunCusolverMpPolarSolver(
   // Publishes this rank's status. A failed solve leaves stale or partial
   // data in the results, so they are replaced with NaN first.
   auto publish_status = [&]() -> absl::Status {
+    if (status_words[0] != kStatusOk && CusolverMpDebugEnabled()) {
+      CusolverMpDebug(status_words[2], "polar failure status=[%s]",
+                      absl::StrJoin(status_words, ",").c_str());
+    }
     std::vector<ffi::AnyBuffer> results = {*up};
     if (compute_h && h != nullptr) results.push_back(*h);
     JAXMG_RETURN_IF_ERROR(

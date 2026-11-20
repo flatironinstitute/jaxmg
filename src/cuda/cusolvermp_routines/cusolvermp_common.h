@@ -330,6 +330,10 @@ bool CusolverMpDebugEnabled();
 // failures when JAXMG_CUSOLVERMP_DEBUG is set.
 void CusolverMpDebug(int rank, const char* format, ...);
 
+// Logs allocation context without clearing CUDA's pending error state.
+void CusolverMpDebugMemory(int rank, const char* stage,
+                           size_t requested_bytes = 0);
+
 // Resolves the CUDA device that owns a donated JAX buffer pointer so each FFI
 // rank binds cuSOLVERMp to the correct local GPU.
 absl::StatusOr<int> DeviceForCudaPointer(const void* ptr);

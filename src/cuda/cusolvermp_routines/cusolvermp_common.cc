@@ -428,6 +428,8 @@ absl::Status InvalidateResultsOnFailure(
   if (status_code == kStatusOk) {
     return absl::OkStatus();
   }
+  CusolverMpDebug(-1, "invalidating results: original_status=%d", status_code);
+  CusolverMpDebugMemory(-1, "before result invalidation");
   // Real outputs of complex solves (eigenvalues, singular values, logdet) are
   // F32/F64 buffers and receive the matching real NaN.
   for (const ffi::AnyBuffer& result : results) {
@@ -459,6 +461,23 @@ absl::Status InvalidateResultsOnFailure(
 bool CusolverMpDebugEnabled() {
   const char* value = std::getenv("JAXMG_CUSOLVERMP_DEBUG");
   return value != nullptr && value[0] != '\0' && value[0] != '0';
+}
+
+void CusolverMpDebugMemory(int rank, const char* stage, size_t requested_bytes) {
+  if (!CusolverMpDebugEnabled()) return;
+  // Peek first: diagnostic queries must not hide the error under investigation.
+  const cudaError_t pending = cudaPeekAtLastError();
+  int device = -1;
+  const cudaError_t device_status = cudaGetDevice(&device);
+  size_t free_bytes = 0, total_bytes = 0;
+  const cudaError_t memory_status = cudaMemGetInfo(&free_bytes, &total_bytes);
+  CusolverMpDebug(rank,
+      "%s requested_bytes=%zu device=%d device_query_status=%d "
+      "free_bytes=%zu total_bytes=%zu memory_query_status=%d "
+      "pending_cuda_error=%d",
+      stage, requested_bytes, device, static_cast<int>(device_status),
+      free_bytes, total_bytes, static_cast<int>(memory_status),
+      static_cast<int>(pending));
 }
 
 // Prints a rank-scoped debug line for cuSOLVERMp failures that are otherwise

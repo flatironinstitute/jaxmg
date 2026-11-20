@@ -143,6 +143,9 @@ print(devices)
 PY
 
               python -m pytest -svv -m 'not gpu' tests
+              nvidia-smi --query-gpu=index,uuid,name,driver_version,memory.total,memory.used,memory.free --format=csv || true
+              nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv || true
+              JAXMG_CUSOLVERMP_DEBUG=1 \
               JAXMG_GPU_TEST_LAUNCHER=subprocess \
                 python -m pytest -svv -m 'gpu and not slow' tests/gpu
             '''
