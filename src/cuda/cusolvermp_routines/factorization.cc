@@ -41,6 +41,7 @@ struct FactorizationWorkspace {
   absl::Status Allocate(cudaStream_t stream, FactorizationStatusFields status) {
     status.device_workspace_kib = SizeToKiBForStatus(device_bytes);
     status.host_workspace_kib = SizeToKiBForStatus(host_bytes);
+    CusolverMpDebugMemory(-1, "factorization workspace", device_bytes);
     if (device_bytes > 0 && cudaMalloc(&device, device_bytes) != cudaSuccess) {
       status.code = kDeviceAllocFailed;
       return absl::OkStatus();
@@ -52,6 +53,7 @@ struct FactorizationWorkspace {
         return absl::OkStatus();
       }
     }
+    CusolverMpDebugMemory(-1, "factorization info", sizeof(int));
     if (cudaMalloc(reinterpret_cast<void**>(&info), sizeof(int)) != cudaSuccess) {
       status.code = kDeviceAllocFailed;
       return absl::OkStatus();

@@ -77,6 +77,45 @@ def test_workspace_failure_skips_compute(
 
 
 @pytest.mark.single_gpu
+def test_workspace_failure_reports_diagnostics(failed_cleanup_library):
+    """Debug logging preserves the original allocation status and NaN result."""
+    try:
+        if not jax.devices("gpu"):
+            pytest.skip("Requires a GPU")
+    except RuntimeError:
+        pytest.skip("Requires a GPU")
+    env = os.environ.copy()
+    env["LD_PRELOAD"] = str(failed_cleanup_library) + (
+        ":" + env["LD_PRELOAD"] if env.get("LD_PRELOAD") else ""
+    )
+    env["CUDA_VISIBLE_DEVICES"] = env.get("CUDA_VISIBLE_DEVICES", "0").split(",")[0]
+    env["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+    env["JAXMG_CUSOLVERMP_DEBUG"] = "1"
+    result = subprocess.run(
+        [sys.executable, "-c", """
+import ctypes
+import os
+import jax
+import jax.numpy as jnp
+import numpy as np
+import jaxmg
+with jax.set_mesh(jax.make_mesh((1, 1), ('pr', 'pc'))):
+    os.environ['JAXMG_TEST_FAIL_INFO_ALLOC'] = '1'
+    inverse, status = jaxmg.getri(jnp.eye(128), 64, return_status=True)
+    assert np.asarray(status)[0] == 24, status
+    assert np.isnan(np.asarray(inverse)).all()
+assert ctypes.CDLL(None).jaxmg_test_alloc_failure_injected() == 1
+"""],
+        env=env, capture_output=True, text=True, timeout=90,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "getri failure status=[24," in result.stderr
+    assert "factorization workspace requested_bytes=" in result.stderr
+    assert "original_status=24" in result.stderr
+    assert "memory_query_status=0" in result.stderr
+
+
+@pytest.mark.single_gpu
 @pytest.mark.parametrize("operation,status", [("CREATE", 7), ("CREATE", 3), ("DESTROY", 7)])
 def test_grid_failure_stops_process(operation, status, failed_cleanup_library):
     """Grid failures abort before result restoration can reuse the communicator."""
