@@ -40,6 +40,7 @@ absl::Status RunCusolverMpPotrf(
     cudaStream_t cuda_stream, int64_t n, int64_t tile_size,
     int32_t process_row, int32_t process_col,
     ffi::Result<ffi::AnyBuffer> a_out,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
     std::array<int32_t, kPotrfStatusSize>* status_words) {
   const int32_t process_rows = (*status_words)[4];
   const int32_t process_cols = (*status_words)[5];
@@ -78,7 +79,7 @@ absl::Status RunCusolverMpPotrf(
   // Stage 1: use the same native factorization as the Cholesky solve.
   absl::Status result = RunCholeskyFactorization(
       api, handle, desc_a, cuda_stream, n, a_out->untyped_data(),
-      SolverTraits<DataType>::cuda_data_type,
+      SolverTraits<DataType>::cuda_data_type, comm, status_out,
       {(*status_words)[0], (*status_words)[11], (*status_words)[19],
        (*status_words)[20], (*status_words)[21], (*status_words)[22]});
 
@@ -116,7 +117,7 @@ absl::Status RunCusolverMpPotrfSolver(
     absl::Span<const int64_t> rank_map, ffi::Result<ffi::AnyBuffer> a_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   // Stage 1: validate the streams and fixed diagnostic-buffer contract.
   if (stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
@@ -195,25 +196,25 @@ absl::Status RunCusolverMpPotrfSolver(
       status_words[24] = 1;
       potrf_status = RunCusolverMpPotrf<float>(
           api, handle, grid, cuda_stream, n, tile_size, process_row,
-          process_col, a_out, &status_words);
+          process_col, a_out, nccl_comm, status_out, &status_words);
       break;
     case F64:
       status_words[24] = 2;
       potrf_status = RunCusolverMpPotrf<double>(
           api, handle, grid, cuda_stream, n, tile_size, process_row,
-          process_col, a_out, &status_words);
+          process_col, a_out, nccl_comm, status_out, &status_words);
       break;
     case C64:
       status_words[24] = 3;
       potrf_status = RunCusolverMpPotrf<cuFloatComplex>(
           api, handle, grid, cuda_stream, n, tile_size, process_row,
-          process_col, a_out, &status_words);
+          process_col, a_out, nccl_comm, status_out, &status_words);
       break;
     case C128:
       status_words[24] = 4;
       potrf_status = RunCusolverMpPotrf<cuDoubleComplex>(
           api, handle, grid, cuda_stream, n, tile_size, process_row,
-          process_col, a_out, &status_words);
+          process_col, a_out, nccl_comm, status_out, &status_words);
       break;
     default:
       status_words[0] = kUnsupportedDtype;
@@ -232,120 +233,23 @@ absl::Status RunCusolverMpPotrfSolver(
 }
 
 absl::Status RunCusolverMpPotrfDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    se::Stream* stream, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> factor,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
-  absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
-      "cusolvermp_potrf", collective_params, partition_slots, process_rows,
-      process_cols);
-  if (!process_grid.ok()) return process_grid.status();
-  const int64_t grid_mapping = process_grid->grid_mapping;
-  const absl::Span<const int64_t> rank_map = process_grid->rank_map;
-  if (a.dimensions().size() != 2 || factor->dimensions().size() != 2) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_potrf expects rank-2 buffers");
-  }
-  if (a.element_type() != factor->element_type()) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_potrf requires matching matrix dtypes");
-  }
-  if (a.dimensions()[0] != factor->dimensions()[0] ||
-      a.dimensions()[1] != factor->dimensions()[1]) {
-    return absl::InvalidArgumentError(
-        "cusolvermp_potrf input and factor shapes must match");
-  }
-
-  const size_t element_bytes =
-      a.size_bytes() / static_cast<size_t>(a.element_count());
-  const std::array<Padded2DRedistScratchRequest, 1> scratch_requests = {{
-      {process_rows, process_cols, tile_size, tile_size, n, n,
-       a.dimensions()[0], a.dimensions()[1], rank_map},
-  }};
-  absl::StatusOr<Padded2DRedistScratch> scratch_status =
-      AllocatePadded2DRedistScratch(cuda_stream, element_bytes,
-                                    absl::MakeConstSpan(scratch_requests),
-                                    "cusolvermp_potrf_redistribution");
-  if (!scratch_status.ok()) return scratch_status.status();
-  Padded2DRedistScratch scratch = *scratch_status;
-  bool scratch_freed = false;
-  auto return_after_cleanup = [&](absl::Status result) -> absl::Status {
-    if (!scratch_freed) {
-      absl::Status free_status = FreePadded2DRedistScratch(
-          cuda_stream, scratch, "cusolvermp_potrf_redistribution");
-      scratch_freed = free_status.ok();
-      if (result.ok() && !free_status.ok()) return free_status;
-    }
-    return result;
-  };
-  auto synchronize = [&](const char* caller) -> absl::Status {
-    const cudaError_t cuda_status = cudaStreamSynchronize(cuda_stream);
-    if (cuda_status == cudaSuccess) return absl::OkStatus();
-    return return_after_cleanup(absl::InternalError(absl::StrFormat(
-        "%s failed: cuda status %d (%s)", caller, static_cast<int>(cuda_status),
-        cudaGetErrorString(cuda_status))));
-  };
-
-  // Donation normally aliases A to the factor; preserve A explicitly when
-  // disabled.
-  if (absl::Status copy_status = CopyMatrixIfNeeded(cuda_stream, a, factor);
-      !copy_status.ok()) {
-    return return_after_cleanup(copy_status);
-  }
-  ffi::AnyBuffer factor_work = *factor;
-  if (absl::Status convert_status = ConvertRowMajorToColumnMajorInPlace(
-          cuda_stream, "cusolvermp_potrf/a_layout_convert", factor_work,
-          scratch.base, scratch.elements);
-      !convert_status.ok()) {
-    return return_after_cleanup(convert_status);
-  }
-  if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_potrf/a_forward", stream, comm_stream, cuda_stream,
-          process_rows, process_cols, tile_size, tile_size, n, n,
-          /*reverse=*/0, rank_map, factor_work, factor->device_memory(),
-          scratch.base, scratch.elements, collective_params,
-          collective_cliques);
-      !redist_status.ok()) {
-    return return_after_cleanup(redist_status);
-  }
-  if (absl::Status sync_status =
-          synchronize("cusolvermp_potrf forward synchronize");
-      !sync_status.ok()) {
-    return sync_status;
-  }
-
-  if (absl::Status solver_status = RunCusolverMpPotrfSolver(
-          stream, cuda_stream, process_rows, process_cols, n, tile_size,
-          grid_mapping, rank_map, factor, status, collective_params,
-          collective_cliques);
-      !solver_status.ok()) {
-    return return_after_cleanup(solver_status);
-  }
-  if (absl::Status sync_status =
-          synchronize("cusolvermp_potrf solver synchronize");
-      !sync_status.ok()) {
-    return sync_status;
-  }
-
-  if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_potrf/factor_reverse", stream, comm_stream, cuda_stream,
-          process_rows, process_cols, tile_size, tile_size, n, n,
-          /*reverse=*/1, rank_map, *factor, factor->device_memory(),
-          scratch.base, scratch.elements, collective_params,
-          collective_cliques);
-      !redist_status.ok()) {
-    return return_after_cleanup(redist_status);
-  }
-  if (absl::Status convert_status = ConvertColumnMajorToRowMajorInPlace(
-          cuda_stream, "cusolvermp_potrf/factor_layout_restore", *factor,
-          scratch.base, scratch.elements);
-      !convert_status.ok()) {
-    return return_after_cleanup(convert_status);
-  }
-  return return_after_cleanup(absl::OkStatus());
+    CollectiveCliques* collective_cliques) {
+  return DispatchSquareMatrix(
+      "cusolvermp_potrf", stream, cuda_stream, process_rows, process_cols,
+      n, tile_size, partition_slots, a, factor, collective_params,
+      collective_cliques,
+      [&](const ResolvedProcessGrid& grid, const Padded2DRedistScratch&) {
+        return RunCusolverMpPotrfSolver(
+            stream, cuda_stream, process_rows, process_cols, n, tile_size,
+            grid.grid_mapping, grid.rank_map, factor, status,
+            collective_params, collective_cliques);
+      });
 }
 
 }  // namespace
@@ -359,9 +263,9 @@ absl::Status XlaCusolverMpPotrfDispatch(
     ffi::Result<ffi::AnyBuffer> factor,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   return RunCusolverMpPotrfDispatch(
-      stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
+      stream, cuda_stream, process_rows, process_cols,
       n, tile_size, partition_slots, a, factor, status, collective_params,
       collective_cliques);
 }

@@ -382,7 +382,7 @@ absl::Status RunCusolverMpGesvdSolver(
     bool compute_u, bool compute_vh, bool full_matrices,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   const int64_t k = std::min(m, n);
   // Stage 1: validate the local FFI buffers for the selected output mode. U
   // and V^H are independent optional outputs, while every mode returns the
@@ -557,7 +557,7 @@ absl::Status RunCusolverMpGesvdDispatch(
     ffi::Result<ffi::AnyBuffer> work, ffi::AnyBuffer* u, ffi::AnyBuffer* vh,
     bool compute_u, bool compute_vh, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   absl::StatusOr<ResolvedProcessGrid> process_grid =
       ResolveProcessGrid("cusolvermp_gesvd", collective_params, partition_slots,
                          process_rows, process_cols);
@@ -752,7 +752,7 @@ absl::Status XlaCusolverMpGesvdUvDispatch(
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> u,
     ffi::Result<ffi::AnyBuffer> vh, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   ffi::AnyBuffer u_buffer = *u;
   ffi::AnyBuffer vh_buffer = *vh;
   return RunCusolverMpGesvdDispatch(
@@ -771,7 +771,7 @@ absl::Status XlaCusolverMpGesvdUDispatch(
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> u,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   ffi::AnyBuffer u_buffer = *u;
   return RunCusolverMpGesvdDispatch(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
@@ -789,7 +789,7 @@ absl::Status XlaCusolverMpGesvdVhDispatch(
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> vh,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   ffi::AnyBuffer vh_buffer = *vh;
   return RunCusolverMpGesvdDispatch(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
@@ -806,7 +806,7 @@ absl::Status XlaCusolverMpGesvdValuesDispatch(
     ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> singular_values,
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   return RunCusolverMpGesvdDispatch(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
       m, n, tile_size, full_matrices, partition_slots, a, singular_values, work,

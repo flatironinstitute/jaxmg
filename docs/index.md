@@ -18,12 +18,16 @@ JAXMg currently provides a jittable API for the following routines:
 - [`potrf`](api/potrf.md): Computes the Cholesky factor $L$ of an
   $N \times N$ symmetric or Hermitian positive-definite matrix $A=LL^{\dagger}$,
   without a solve.
+- [`potri`](api/potri.md): Computes the full inverse $A^{-1}$ of a
+  symmetric or Hermitian positive-definite matrix through Cholesky factorization.
 - [`lu_solve`](api/lu_solve.md): Solves the system of linear equations $Ax=B$,
   where $A$ is an $N \times N$ general nonsingular matrix, using a pivoted LU
   decomposition.
 - [`getrf`](api/getrf.md): Computes the pivoted LU factorization $PA=LU$ of
   an $N \times N$ matrix, returning the packed factors and pivot indices
   without a solve.
+- [`getri`](api/getri.md): Computes the full inverse $A^{-1}$ of a
+  general nonsingular matrix through pivoted LU factorization.
 - [`least_squares`](api/least_squares.md): Solves the overdetermined system
   $\min_X\lVert AX-B\rVert_2$ for an $M \times N$ matrix with $M\geq N$ using
   a distributed QR factorization.
@@ -58,9 +62,11 @@ The operations are implemented using:
 - `potrs`: [`cusolverMpPotrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf)
   and [`cusolverMpPotrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrs)
 - `potrf`: [`cusolverMpPotrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf)
+- `potri`: `cusolverMpPotrf` and [`cusolverMpPotri`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotri)
 - `lu_solve`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
   and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)
 - `getrf`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
+- `getri`: `cusolverMpGetrf` and [`cusolverMpGetri`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetri)
 - `least_squares`: [`cusolverMpGels`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgels)
 - `qr`: [`cusolverMpGeqrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgeqrf)
   and [`cusolverMpOrgqr`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermporgqr)
@@ -73,7 +79,7 @@ For more details, see the [API reference](api/index.md) and the accompanying
 
 > **Deprecation notice:** JAXMg 0.x, based on NVIDIA's deprecated cuSOLVERMg
 > backend, has been superseded by JAXMg 1.0. Version 1.0 requires one Python
-> process per GPU and removes `potri`; the previous API remains available with
+> process per GPU; the previous API remains available with
 > `pip install "jaxmg<1"`. See the
 > [0.0.9 release](https://github.com/flatironinstitute/jaxmg/releases/tag/v0.0.9)
 > and [0.0.9 documentation](https://flatironinstitute.github.io/jaxmg/0.0.9/).

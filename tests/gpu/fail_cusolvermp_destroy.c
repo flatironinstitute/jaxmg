@@ -7,19 +7,92 @@
 static int info_copies;
 static int injected_copy_failure;
 static int destroyed_descriptors;
+static int created_handles;
+static int created_grids;
+static int destroyed_handles;
+static int destroyed_grids;
+static int info_allocations;
+static int injected_alloc_failure;
 
 int jaxmg_test_copy_failure_injected(void) { return injected_copy_failure; }
 int jaxmg_test_destroyed_descriptors(void) { return destroyed_descriptors; }
+int jaxmg_test_created_handles(void) { return created_handles; }
+int jaxmg_test_created_grids(void) { return created_grids; }
+int jaxmg_test_destroyed_handles(void) { return destroyed_handles; }
+int jaxmg_test_destroyed_grids(void) { return destroyed_grids; }
+int jaxmg_test_alloc_failure_injected(void) { return injected_alloc_failure; }
+
+static int from_jaxmg(void* address) {
+  Dl_info caller;
+  return dladdr(address, &caller) != 0 && caller.dli_fname != NULL &&
+         strstr(caller.dli_fname, "libjaxmg") != NULL;
+}
+
+int cusolverMpCreate(void** handle, int device, void* stream) {
+  typedef int (*CreateFn)(void**, int, void*);
+  CreateFn create = (CreateFn)dlsym(RTLD_NEXT, "cusolverMpCreate");
+  if (create == NULL) abort();
+  int status = create(handle, device, stream);
+  if (status == 0 && from_jaxmg(__builtin_return_address(0))) ++created_handles;
+  return status;
+}
+
+int cusolverMpSetStream(void* handle, void* stream) {
+  typedef int (*SetStreamFn)(void*, void*);
+  SetStreamFn set_stream = (SetStreamFn)dlsym(RTLD_NEXT, "cusolverMpSetStream");
+  if (set_stream == NULL) abort();
+  const char* fail = getenv("JAXMG_TEST_FAIL_SET_STREAM");
+  if (fail != NULL && from_jaxmg(__builtin_return_address(0))) return atoi(fail);
+  return set_stream(handle, stream);
+}
+
+int cusolverMpCreateDeviceGrid(void* handle, void** grid, void* comm,
+                             int rows, int cols, int mapping) {
+  typedef int (*CreateFn)(void*, void**, void*, int, int, int);
+  CreateFn create = (CreateFn)dlsym(RTLD_NEXT, "cusolverMpCreateDeviceGrid");
+  if (create == NULL) abort();
+  int status = create(handle, grid, comm, rows, cols, mapping);
+  if (status == 0 && from_jaxmg(__builtin_return_address(0))) ++created_grids;
+  const char* fail = getenv("JAXMG_TEST_FAIL_GRID_CREATE");
+  return status == 0 && fail != NULL ? atoi(fail) : status;
+}
+
+int cusolverMpDestroyGrid(void* grid) {
+  typedef int (*DestroyFn)(void*);
+  DestroyFn destroy = (DestroyFn)dlsym(RTLD_NEXT, "cusolverMpDestroyGrid");
+  if (destroy == NULL) abort();
+  int status = destroy(grid);
+  if (status == 0 && from_jaxmg(__builtin_return_address(0))) ++destroyed_grids;
+  const char* fail = getenv("JAXMG_TEST_FAIL_GRID_DESTROY");
+  return status == 0 && fail != NULL ? atoi(fail) : status;
+}
+
+int cudaMalloc(void** ptr, size_t bytes) {
+  typedef int (*MallocFn)(void**, size_t);
+  MallocFn allocate = (MallocFn)dlsym(RTLD_NEXT, "cudaMalloc");
+  if (allocate == NULL) abort();
+  const char* fail_at = getenv("JAXMG_TEST_FAIL_INFO_ALLOC");
+  // The info allocation belongs to the workspace, after device/host storage.
+  if (fail_at != NULL && bytes == sizeof(int) &&
+      from_jaxmg(__builtin_return_address(0)) &&
+      ++info_allocations == atoi(fail_at)) {
+    *ptr = NULL;
+    injected_alloc_failure = 1;
+    return 2;  // cudaErrorMemoryAllocation, without exhausting the actual GPU.
+  }
+  return allocate(ptr, bytes);
+}
 
 int cusolverMpDestroyMatrixDesc(void* descriptor) {
   typedef int (*DestroyFn)(void*);
   DestroyFn destroy = (DestroyFn)dlsym(RTLD_NEXT, "cusolverMpDestroyMatrixDesc");
   if (destroy == NULL) abort();
   int status = destroy(descriptor);
-  Dl_info caller;
-  if (status == 0 && dladdr(__builtin_return_address(0), &caller) != 0 &&
-      caller.dli_fname != NULL && strstr(caller.dli_fname, "libjaxmg") != NULL)
+  if (status == 0 && from_jaxmg(__builtin_return_address(0))) {
     ++destroyed_descriptors;
+    const char* fail = getenv("JAXMG_TEST_FAIL_DESCRIPTOR_DESTROY");
+    if (fail != NULL && fail[0] == '1') return 7;
+  }
   return status;
 }
 
@@ -29,11 +102,9 @@ int cudaMemcpyAsync(void* dst, const void* src, size_t bytes, int kind,
   CopyFn copy = (CopyFn)dlsym(RTLD_NEXT, "cudaMemcpyAsync");
   if (copy == NULL) abort();
   const char* fail_after = getenv("JAXMG_TEST_FAIL_INFO_COPY");
-  Dl_info caller;
   // Target only JAXMg's scalar info readback, not JAX or vendor-library copies.
   if (fail_after != NULL && kind == 2 && bytes == sizeof(int) &&
-      dladdr(__builtin_return_address(0), &caller) != 0 &&
-      caller.dli_fname != NULL && strstr(caller.dli_fname, "libjaxmg") != NULL &&
+      from_jaxmg(__builtin_return_address(0)) &&
       ++info_copies == atoi(fail_after)) {
     injected_copy_failure = 1;
     return 1;  // cudaErrorInvalidValue, without poisoning the CUDA context.
@@ -46,6 +117,7 @@ int cusolverMpDestroy(void* handle) {
   DestroyFn destroy = (DestroyFn)dlsym(RTLD_NEXT, "cusolverMpDestroy");
   if (destroy == NULL) abort();
   int status = destroy(handle);
+  if (status == 0 && from_jaxmg(__builtin_return_address(0))) ++destroyed_handles;
   const char* fail = getenv("JAXMG_TEST_FAIL_DESTROY");
   // CUSOLVER_STATUS_INTERNAL_ERROR is 7; successful cleanup returns 0.
   return status == 0 && fail != NULL && fail[0] == '1' ? 7 : status;

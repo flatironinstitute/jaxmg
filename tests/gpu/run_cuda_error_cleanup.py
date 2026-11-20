@@ -45,8 +45,9 @@ def main():
         jax.block_until_ready((a, b))
         hooks = ctypes.CDLL(None)
         before = hooks.jaxmg_test_destroyed_descriptors()
-        # Solves read factorization info first, then solve info. SYEVD reads once.
-        os.environ["JAXMG_TEST_FAIL_INFO_COPY"] = "1" if routine == "syevd" else "2"
+        # Solves read workspace status, factorization info, then solve info.
+        # Inject at the final solve readback; SYEVD still reads info first.
+        os.environ["JAXMG_TEST_FAIL_INFO_COPY"] = "1" if routine == "syevd" else "3"
         try:
             args = (a,) if routine == "syevd" else (a, b)
             result = getattr(jaxmg, routine)(*args, 64, mesh=mesh)

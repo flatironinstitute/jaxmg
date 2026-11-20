@@ -153,10 +153,14 @@ for src in block_cyclic_2d.cc edge_padding_2d.cc layout_convert.cu.cc layout_con
   cp -f "${JAXMG_ROOT}/src/cuda/memory_redist/${src}" \
     "${BACKEND_PKG}/memory_redist/${src}"
 done
-for src in cusolvermp_common.cc cusolvermp_common.h cusolvermp_gels.cc cusolvermp_gesvd.cc cusolvermp_getrf.cc cusolvermp_lu_solve.cc cusolvermp_polar.cc cusolvermp_potrf.cc cusolvermp_potrs.cc cusolvermp_qr.cc cusolvermp_routines.h cusolvermp_syevd.cc factor_extract.cu.cc factor_extract.h factorization.cc factorization.h potrs_logdet.cu.cc potrs_logdet.h qr_extract.cu.cc qr_extract.h result_fill.cu.cc result_fill.h; do
+for src in cusolvermp_cache.cc cusolvermp_cache.h cusolvermp_common.cc cusolvermp_common.h cusolvermp_gels.cc cusolvermp_gesvd.cc cusolvermp_getrf.cc cusolvermp_inverse.cc cusolvermp_lu_solve.cc cusolvermp_polar.cc cusolvermp_potrf.cc cusolvermp_potrs.cc cusolvermp_qr.cc cusolvermp_routines.h cusolvermp_syevd.cc factor_extract.cu.cc factor_extract.h factorization.cc factorization.h potrs_logdet.cu.cc potrs_logdet.h qr_extract.cu.cc qr_extract.h result_fill.cu.cc result_fill.h; do
   cp -f "${JAXMG_ROOT}/src/cuda/cusolvermp_routines/${src}" \
     "${BACKEND_PKG}/cusolvermp_routines/${src}"
 done
+if [[ "${JAXMG_RUN_NATIVE_TESTS:-0}" == "1" ]]; then
+  mkdir -p "${BACKEND_PKG}/tests"
+  cp "${JAXMG_ROOT}/tests/native/cache_lifetime_test.cc" "${BACKEND_PKG}/tests/"
+fi
 ln -sfn "${CUSOLVERMP_INCLUDE_DIR}" "${BACKEND_PKG}/cusolvermp_include"
 ln -sfn "${CUSOLVERMP_LIBRARY_DIR}" "${BACKEND_PKG}/cusolvermp_lib"
 
@@ -170,12 +174,25 @@ BAZEL_CONFIG_ARGS=()
 for config in ${BAZEL_CONFIGS}; do
   BAZEL_CONFIG_ARGS+=(--config="${config}")
 done
+# cuSOLVERMp 0.10 requires Update 2; JAX 0.11.1 defaults to CUDA 13.0.0.
+if [[ "${CUDA_MAJOR}" == "13" ]]; then
+  BAZEL_CONFIG_ARGS+=(--repo_env=HERMETIC_CUDA_VERSION=13.0.2)
+fi
 "${BAZEL}" build \
   "${BAZEL_CONFIG_ARGS[@]}" \
   --verbose_failures=true \
   --repo_env="HERMETIC_CUDA_COMPUTE_CAPABILITIES=${CUDA_COMPUTE_CAPABILITIES}" \
   --jobs="${BAZEL_JOBS}" \
   //jaxmg_backend:libjaxmg_xla_comm_backend.so
+
+if [[ "${JAXMG_RUN_NATIVE_TESTS:-0}" == "1" ]]; then
+  "${BAZEL}" test \
+    "${BAZEL_CONFIG_ARGS[@]}" \
+    --verbose_failures=true --test_output=errors \
+    --repo_env="HERMETIC_CUDA_COMPUTE_CAPABILITIES=${CUDA_COMPUTE_CAPABILITIES}" \
+    --jobs="${BAZEL_JOBS}" \
+    //jaxmg_backend:cache_lifetime_test
+fi
 
 INSTALL_DIR="${JAXMG_ROOT}/src/jaxmg/cu${CUDA_MAJOR}"
 mkdir -p "${INSTALL_DIR}"

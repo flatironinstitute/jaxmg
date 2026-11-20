@@ -28,12 +28,16 @@ JAXMg currently provides a jittable API for the following routines:
 - [`potrf`](https://flatironinstitute.github.io/jaxmg/latest/api/potrf/): Computes the Cholesky factor $L$ of an
   $N \times N$ symmetric or Hermitian positive-definite matrix $A=LL^{\dagger}$,
   without a solve.
+- [`potri`](https://flatironinstitute.github.io/jaxmg/latest/api/potri/): Computes the full inverse $A^{-1}$ of a
+  symmetric or Hermitian positive-definite matrix through Cholesky factorization.
 - [`lu_solve`](https://flatironinstitute.github.io/jaxmg/latest/api/lu_solve/): Solves the system of linear equations
   $Ax=B$, where $A$ is an $N \times N$ general nonsingular matrix, using a
   pivoted LU decomposition.
 - [`getrf`](https://flatironinstitute.github.io/jaxmg/latest/api/getrf/): Computes the pivoted LU factorization
   $PA=LU$ of an $N \times N$ matrix, returning the packed factors and pivot
   indices without a solve.
+- [`getri`](https://flatironinstitute.github.io/jaxmg/latest/api/getri/): Computes the full inverse $A^{-1}$ of a
+  general nonsingular matrix through pivoted LU factorization.
 - [`least_squares`](https://flatironinstitute.github.io/jaxmg/latest/api/least_squares/): Solves the overdetermined system
   $\min_X\lVert AX-B\rVert_2$, where $A$ is an $M \times N$ matrix with
   $M\geq N$, using a distributed QR factorization.
@@ -65,27 +69,12 @@ result to its original JAX layout. The matrix data remains GPU-resident
 throughout, with in-place transformations and bounded scratch storage minimizing
 memory overhead.
 
-The operations are implemented using:
-
-- `potrs`: [`cusolverMpPotrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf)
-  and [`cusolverMpPotrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrs)
-- `potrf`: [`cusolverMpPotrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrf)
-- `lu_solve`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
-  and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)
-- `getrf`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
-- `least_squares`: [`cusolverMpGels`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgels)
-- `qr`: [`cusolverMpGeqrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgeqrf)
-  and [`cusolverMpOrgqr`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermporgqr)
-- `syevd`: [`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)
-- `gesvd`: [`cusolverMpGesvd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgesvd)
-- `polar`: [`cusolverMpPolar`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppolar)
-
 For more details, see the [API reference](https://flatironinstitute.github.io/jaxmg/latest/api/) and the
 [accompanying paper](https://arxiv.org/abs/2601.14466).
 
 > **Deprecation notice:** JAXMg 0.x, based on NVIDIA's deprecated cuSOLVERMg
 > backend, has been superseded by JAXMg 1.0. Version 1.0 requires one Python
-> process per GPU and removes `potri`; the previous API remains available with
+> process per GPU; the previous API remains available with
 > `pip install "jaxmg<1"`. See the
 > [0.0.9 release](https://github.com/flatironinstitute/jaxmg/releases/tag/v0.0.9)
 > and [0.0.9 documentation](https://flatironinstitute.github.io/jaxmg/0.0.9/).
@@ -233,6 +222,7 @@ Call `potrs` or `lu_solve` directly for standard solves. For use inside a larger
 
 - [JAXMg Benchmarks](https://github.com/therooler/jaxmg_benchmark): Benchmarks for various Multi-GPUs setups.
 - [Netket](https://github.com/netket/netket) and [Tachys](https://github.com/tachys-dev/tachys): Distributed solvers are available for variational Monte Carlo simulations.
+- [BayesEoR-JAX](https://github.com/JacobTutt/BayesEoR-JAX): Bayesian 21-cm power-spectrum inference from interferometric visibilities.
 - [JAXMg for blurred sampling](https://github.com/therooler/nqs_blurred_sampling): Implementation of t-VMC that makes use JAXMg for inverting the QGT.
 - [JAXMg for simulating quantum annealing experiments](https://github.com/therooler/dwave_vmc): Simulation of D-Wave's 2025 quantum annealing experiment with t-VMC that makes use JAXMg for inverting the QGT.
 

@@ -250,7 +250,7 @@ absl::Status RunCusolverMpSyevdSolver(
     bool compute_eigenvectors,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   // Stage 1: validate the local FFI buffers. Both modes use the redistributed
   // work_out as cuSOLVERMp's overwritten d_A. Vector mode also
   // receives vectors_out as the separate d_Q eigenvector output.
@@ -435,7 +435,7 @@ absl::Status RunCusolverMpSyevdDispatch(
     ffi::AnyBuffer* vectors, bool compute_eigenvectors,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   absl::StatusOr<ResolvedProcessGrid> process_grid =
       ResolveProcessGrid("cusolvermp_syevd", collective_params, partition_slots,
                          process_rows, process_cols);
@@ -626,7 +626,7 @@ absl::Status XlaCusolverMpSyevdDispatch(
     ffi::Result<ffi::AnyBuffer> eigenvalues, ffi::Result<ffi::AnyBuffer> work,
     ffi::Result<ffi::AnyBuffer> vectors, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   ffi::AnyBuffer vector_buffer = *vectors;
   return RunCusolverMpSyevdDispatch(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
@@ -644,7 +644,7 @@ absl::Status XlaCusolverMpSyevdValuesDispatch(
     ffi::Result<ffi::AnyBuffer> eigenvalues, ffi::Result<ffi::AnyBuffer> work,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   return RunCusolverMpSyevdDispatch(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
       n, tile_size, partition_slots, a, eigenvalues, work,

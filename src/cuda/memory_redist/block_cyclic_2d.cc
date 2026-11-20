@@ -33,11 +33,11 @@
 //      XLA-owned communicator.
 
 #include <algorithm>
-#include <functional>
 #include <map>
 #include <tuple>
 #include <vector>
 
+#include "absl/functional/function_ref.h"
 #include "memory_redist.h"
 
 namespace xla::gpu {
@@ -337,11 +337,11 @@ absl::StatusOr<std::map<int64_t, std::vector<int64_t>>> BuildNative2DCycles(
   return cycles;
 }
 
-using SlotDecoder = std::function<Native2DSlot(int64_t)>;
+using SlotDecoder = absl::FunctionRef<Native2DSlot(int64_t)>;
 
 // Emits save/move/restore records for one closed cycle using one saved slab.
 absl::StatusOr<int64_t> AppendCycleSteps(int64_t phase,
-                                         const SlotDecoder& decode_slot,
+                                         SlotDecoder decode_slot,
                                          const std::vector<int64_t>& slots,
                                          int64_t sequence_offset,
                                          std::vector<Native2DStep>* steps) {
@@ -386,12 +386,12 @@ absl::StatusOr<int64_t> AppendCycleSteps(int64_t phase,
   return sequence;
 }
 
-using SlotGroup = std::function<int64_t(int64_t)>;
+using SlotGroup = absl::FunctionRef<int64_t(int64_t)>;
 
 // Appends cycles serially inside each process-row/process-column group while
 // allowing different independent groups to share the same sequence numbers.
 absl::Status AppendAxisGroupSerialCycles(
-    int64_t phase, const SlotDecoder& decode_slot, const SlotGroup& slot_group,
+    int64_t phase, SlotDecoder decode_slot, SlotGroup slot_group,
     const std::map<int64_t, std::vector<int64_t>>& cycles,
     std::vector<Native2DStep>* steps) {
   // Cycles inside one process row/column group can touch the same ranks and
@@ -475,14 +475,14 @@ absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
     if (!cycles.ok()) {
       return cycles.status();
     }
-    SlotDecoder decode_slot = [&](int64_t slot) {
+    auto decode_slot = [&](int64_t slot) {
       return ColumnPhaseSlotToRankLocal(
           slot, process_cols, col_blocks_per_rank, local_rows, tile_cols,
           rank_map);
     };
     const int64_t slots_per_process_row =
         process_cols * col_blocks_per_rank;
-    SlotGroup axis_group = [&](int64_t slot) {
+    auto axis_group = [&](int64_t slot) {
       return slot / slots_per_process_row;
     };
     return AppendAxisGroupSerialCycles(phase, decode_slot, axis_group,
@@ -511,14 +511,14 @@ absl::StatusOr<std::vector<Native2DStep>> BuildSlabNative2DSteps(
     if (!cycles.ok()) {
       return cycles.status();
     }
-    SlotDecoder decode_slot = [&](int64_t slot) {
+    auto decode_slot = [&](int64_t slot) {
       return RowPhaseSlotToRankLocal(slot, process_rows, process_cols,
                                      row_blocks_per_rank, tile_rows,
                                      local_cols, rank_map);
     };
     const int64_t slots_per_process_col =
         process_rows * row_blocks_per_rank;
-    SlotGroup axis_group = [&](int64_t slot) {
+    auto axis_group = [&](int64_t slot) {
       return slot / slots_per_process_col;
     };
     return AppendAxisGroupSerialCycles(phase, decode_slot, axis_group,

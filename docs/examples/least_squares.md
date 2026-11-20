@@ -65,8 +65,8 @@ if jax.process_index() == 0:
 ```
 
 A matrix solve input of shape `(M, K)` returns a solution of shape `(N, K)`.
-Each process-grid column must own at least one block-cyclic tile of the solve
-input, so a vector solve input requires a process grid with one column.
+A vector solve input can be used with either a one- or two-dimensional
+process grid; its solution retains the input vector's sharding.
 
 !!! Warning
 
