@@ -79,14 +79,31 @@ Returns the packed factors and the pivot indices, in the format of
 
 ---
 
-## `potri` and `getri`
+## `potri`
 
-Compute the full inverse $A^{-1}$ from the original matrix $A$.
-`potri` uses Cholesky factorization for symmetric or Hermitian
-positive-definite matrices; `getri` uses pivoted LU for general nonsingular
-matrices. Both reuse A's working allocation.
+Multi-GPU Cholesky inversion of a symmetric or Hermitian positive-definite matrix.
 
-[`potri` API and usage](potri.md) | [`getri` API and usage](getri.md)
+$$
+A = L L^{\dagger}, \qquad A^{-1} = L^{-\dagger}L^{-1}.
+$$
+
+Accepts the original matrix $A$ and returns its full inverse.
+
+[`potri` API and usage](potri.md)
+
+---
+
+## `getri`
+
+Multi-GPU pivoted LU inversion of a general nonsingular matrix.
+
+$$
+P A = L U, \qquad A^{-1} = U^{-1}L^{-1}P.
+$$
+
+Accepts the original matrix $A$ and returns its full inverse.
+
+[`getri` API and usage](getri.md)
 
 ---
 

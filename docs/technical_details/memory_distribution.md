@@ -324,11 +324,13 @@ stages but differ in their buffer requirements and output restoration:
 - `getrf` restores the packed LU factor in place of the donated A. Each rank
   scatters the pivots of the columns it owns into a global vector, and an NCCL
   max all-reduce replicates that vector on every rank.
-- `potri` and `getri` overwrite the factor with the inverse, releasing
-  factorization workspace before allocating inversion workspace. `potri`
+- `potri` overwrites the Cholesky factor with the inverse, releasing
+  factorization workspace before allocating inversion workspace. It
   completes the Hermitian upper triangle through tile-sized transfers using
   the shared redistribution scratch, without a second matrix-sized buffer.
-  `getri` retains the native pivots until inversion completes.
+- `getri` overwrites the packed LU factor with the inverse, releasing
+  factorization workspace before allocating inversion workspace. It retains
+  the native pivots until inversion completes.
 - `least_squares` overwrites the $M$-row solve input in place. The native
   backend copies its first $N$ rows into a separate solution buffer while still
   in block-cyclic storage, then restores the work buffer and solution using
