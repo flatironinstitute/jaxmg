@@ -3,6 +3,9 @@ name: JAX compatibility
 # Does the native backend built from JAX_GIT_TAG (build-wheels.yml) also work
 # with a newer JAX? If so, the jax range in pyproject.toml can be widened
 # without a rebuild.
+#
+# Run by hand with jax_version=all to re-test every JAX that pyproject.toml
+# already admits, e.g. after a change to the native backend.
 
 on:
   pull_request:
@@ -11,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       jax_version:
-        description: 'JAX version to test'
+        description: 'JAX version to test, or "all" for every version pyproject.toml admits (empty: versions a widening would add)'
         required: false
         type: string
 
@@ -51,7 +54,10 @@ jobs:
           JAX_VERSION: ${{ inputs.jax_version }}
         run: |
           set -euo pipefail
-          if [ -n "${JAX_VERSION:-}" ]; then
+          if [ "${JAX_VERSION:-}" = all ]; then
+            python -m pip install --quiet packaging
+            versions=$(python .github/jax-compat/jax_range.py admitted)
+          elif [ -n "${JAX_VERSION:-}" ]; then
             versions=$(python -c 'import json, sys; print(json.dumps([sys.argv[1]]))' "$JAX_VERSION")
           else
             python -m pip install --quiet packaging
