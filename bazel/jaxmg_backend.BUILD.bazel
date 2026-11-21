@@ -168,10 +168,14 @@ cc_binary(
     # cuSOLVERMp is not part of the hermetic CUDA set, so it is linked explicitly
     # from our symlinked lib dir. The other CUDA libs link via stubs under
     # --config=cuda_libraries_from_stubs (see :cusolver / :cudart deps).
+    # The version script exports only the XlaCusolverMp* handlers, keeping the
+    # statically linked C++ runtime private (see jaxmg_backend.lds).
+    additional_linker_inputs = ["jaxmg_backend.lds"],
     linkopts = [
         "-Ljaxmg_backend/cusolvermp_lib",
         "-l:libcusolverMp.so.0",
         "-Wl,-rpath,$ORIGIN/../../nvidia/cu@JAXMG_CUDA_MAJOR@/lib",
+        "-Wl,--version-script=$(location jaxmg_backend.lds)",
     ],
     deps = [
         ":cusolvermp_cache",

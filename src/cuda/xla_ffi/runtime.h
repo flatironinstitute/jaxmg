@@ -157,6 +157,15 @@ std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
 absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
     const CollectiveParams& params);
 
+// Returns XLA's communicator for `global_device_id` in an acquired clique.
+// Same lookup as CollectiveCliques::GetComm, but without its
+// dynamic_cast<GpuCommunicator*>: the communicator and its RTTI belong to XLA's
+// plugin, while this library links its own private C++ runtime, so that cast
+// can never succeed across the library boundary.
+absl::StatusOr<GpuCommunicator*> GetGpuCommunicator(
+    const CollectiveCliques& cliques, const GpuCliqueKey& clique_key,
+    GlobalDeviceId global_device_id);
+
 // Prepare hook shared by every cuSOLVERMp FFI target. It requests the
 // all-assigned P2P communicator that backs cuSOLVERMp calls and native
 // redistribution. All routines borrow that same communicator, so one prepare

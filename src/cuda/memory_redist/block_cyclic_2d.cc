@@ -695,8 +695,8 @@ absl::Status ExecutePadded2DNativePlanRawImpl(
   }
   const int64_t rank_value = static_cast<int64_t>(rank->value());
 
-  absl::StatusOr<GpuCommunicator*> comm = collective_cliques->GetComm(
-      *clique_key, collective_params->global_device_id);
+  absl::StatusOr<GpuCommunicator*> comm = GetGpuCommunicator(
+      *collective_cliques, *clique_key, collective_params->global_device_id);
   if (!comm.ok()) {
     return comm.status();
   }

@@ -79,8 +79,8 @@ absl::Status CusolverMpExecution::Initialize(
     status_[0] = kCliqueKeyFailed;
     return absl::OkStatus();
   }
-  absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
-      *clique_key, collective_params->global_device_id);
+  absl::StatusOr<GpuCommunicator*> gpu_comm = GetGpuCommunicator(
+      *collective_cliques, *clique_key, collective_params->global_device_id);
   if (!gpu_comm.ok() || *gpu_comm == nullptr) {
     status_[0] = kCommunicatorMissing;
     return absl::OkStatus();

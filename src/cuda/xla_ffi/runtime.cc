@@ -77,6 +77,24 @@ std::vector<AssignedDeviceEntry> AssignedDevices(
   return devices;
 }
 
+// CollectiveCliques exposes its acquired-clique map only through GetComm, which
+// dynamic_casts (see GetGpuCommunicator). Access checking does not apply to the
+// template arguments of an explicit instantiation, so instantiating
+// CliquesMapAccess with the private member pointer lets CliquesMap() return it.
+// If XLA renames or retypes the member, this fails to compile.
+struct CliquesMapTag {
+  using type = AcquiredCliquesMap CollectiveCliques::*;
+  friend type CliquesMap(CliquesMapTag);
+};
+
+template <typename Tag, typename Tag::type Member>
+struct CliquesMapAccess {
+  friend typename Tag::type CliquesMap(Tag) { return Member; }
+};
+
+template struct CliquesMapAccess<CliquesMapTag,
+                                 &CollectiveCliques::cliques_map_>;
+
 }  // namespace
 
 // Converts CUDA runtime failures into FFI-friendly absl::Status values.
@@ -153,6 +171,36 @@ absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
       params, replica_groups,
       CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID,
       CommunicationId(1));
+}
+
+// Mirrors CollectiveCliques::GetComm without its RTTI check. XLA's GPU cliques
+// hold only GpuCommunicator subclasses (NcclCommunicator), and GpuCommunicator
+// derives from Communicator by single, non-virtual inheritance, so static_cast
+// is exact.
+absl::StatusOr<GpuCommunicator*> GetGpuCommunicator(
+    const CollectiveCliques& cliques, const GpuCliqueKey& clique_key,
+    GlobalDeviceId global_device_id) {
+  std::optional<RankId> rank = clique_key.rank(global_device_id);
+  if (!rank.has_value()) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("Rank not found for device %d in clique %s",
+                        global_device_id.value(), clique_key.ToString()));
+  }
+
+  const AcquiredCliquesMap& cliques_map = cliques.*CliquesMap(CliquesMapTag{});
+  auto clique = cliques_map.find(clique_key);
+  if (clique == cliques_map.end()) {
+    return absl::NotFoundError(absl::StrFormat(
+        "No clique found for clique key: %s", clique_key.ToString()));
+  }
+
+  std::optional<Communicator*> comm = (*clique->second)->comm(*rank);
+  if (!comm.has_value() || *comm == nullptr) {
+    return absl::InternalError(absl::StrFormat(
+        "Communicator for rank %d not found in clique %s", rank->value(),
+        clique_key.ToString()));
+  }
+  return static_cast<GpuCommunicator*>(*comm);
 }
 
 // Asks XLA to create the P2P communicator clique before the runtime dispatch

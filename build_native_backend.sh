@@ -166,6 +166,7 @@ ln -sfn "${CUSOLVERMP_LIBRARY_DIR}" "${BACKEND_PKG}/cusolvermp_lib"
 
 sed "s/@JAXMG_CUDA_MAJOR@/${CUDA_MAJOR}/g" \
   "${BACKEND_BUILD_TEMPLATE}" > "${BACKEND_PKG}/BUILD.bazel"
+cp -f "${JAXMG_ROOT}/bazel/jaxmg_backend.lds" "${BACKEND_PKG}/jaxmg_backend.lds"
 
 cd "${JAX_SRC}"
 export HERMETIC_CUDA_COMPUTE_CAPABILITIES="${CUDA_COMPUTE_CAPABILITIES}"
@@ -174,10 +175,6 @@ BAZEL_CONFIG_ARGS=()
 for config in ${BAZEL_CONFIGS}; do
   BAZEL_CONFIG_ARGS+=(--config="${config}")
 done
-# cuSOLVERMp 0.10 requires Update 2; JAX 0.11.1 defaults to CUDA 13.0.0.
-if [[ "${CUDA_MAJOR}" == "13" ]]; then
-  BAZEL_CONFIG_ARGS+=(--repo_env=HERMETIC_CUDA_VERSION=13.0.2)
-fi
 "${BAZEL}" build \
   "${BAZEL_CONFIG_ARGS[@]}" \
   --verbose_failures=true \
