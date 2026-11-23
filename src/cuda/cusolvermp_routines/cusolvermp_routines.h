@@ -36,7 +36,7 @@ absl::Status XlaCusolverMpPotrsDispatch(
     ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
     ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
 
 // Runtime POTRS-with-logdet hook. It performs the same fused solve and also
 // returns the replicated real Cholesky log determinant in the matrix's real
@@ -49,7 +49,7 @@ absl::Status XlaCusolverMpPotrsLogdetDispatch(
     ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::AnyBuffer> logdet,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
 
 // Runtime factor-only POTRF hook. It redistributes A, computes the lower
 // Cholesky factor, zeros its strict upper triangle, and restores L to the JAX
@@ -61,7 +61,18 @@ absl::Status XlaCusolverMpPotrfDispatch(
     ffi::Result<ffi::AnyBuffer> factor,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
+
+// Invert the original A through POTRF/POTRI or GETRF/GETRI in one dispatch.
+// The complete inverse aliases A; native pivots remain internal.
+absl::Status XlaCusolverMpInverseDispatch(
+    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    int64_t process_cols, int64_t n, int64_t tile_size, bool cholesky,
+    absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> inverse,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    CollectiveCliques* collective_cliques);
 
 // Runtime LU-solve hook. Performs native layout conversion, redistribution,
 // cuSOLVERMp GETRF/GETRS, reverse redistribution, and output layout restore in
@@ -73,7 +84,7 @@ absl::Status XlaCusolverMpLuSolveDispatch(
     ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
     ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
 
 // Runtime factor-only GETRF hook. It redistributes A, computes the pivoted LU
 // factorization, replicates the 0-based pivots on every rank, and restores the
@@ -85,7 +96,7 @@ absl::Status XlaCusolverMpGetrfDispatch(
     ffi::Result<ffi::AnyBuffer> lu, ffi::Result<ffi::BufferR1<S32>> piv,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
 
 // Runtime least-squares hook. It redistributes rectangular A and B, runs
 // cuSOLVERMp GELS, and restores both B work and the N-row solution for JAX.
@@ -100,7 +111,7 @@ absl::Status XlaCusolverMpGelsDispatch(
     ffi::Result<ffi::AnyBuffer> x_out,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
 
 // Runtime reduced-QR hook. It redistributes A, computes GEQRF, preserves R,
 // generates Q with ORGQR, and restores both factors to JAX layouts.
@@ -111,7 +122,7 @@ absl::Status XlaCusolverMpQrDispatch(
     ffi::Result<ffi::AnyBuffer> q, ffi::Result<ffi::AnyBuffer> r,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
 
 // Runtime SYEVD hook. Performs native layout conversion, redistribution,
 // vector-producing cuSOLVERMp SYEVD, reverse eigenvector redistribution, and
@@ -123,7 +134,7 @@ absl::Status XlaCusolverMpSyevdDispatch(
     ffi::Result<ffi::AnyBuffer> eigenvalues, ffi::Result<ffi::AnyBuffer> work,
     ffi::Result<ffi::AnyBuffer> vectors, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
 
 // Runtime eigenvalues-only SYEVD hook. It shares the forward redistribution
 // and cuSOLVERMp setup with vector-producing SYEVD, but omits the eigenvector
@@ -135,7 +146,7 @@ absl::Status XlaCusolverMpSyevdValuesDispatch(
     ffi::Result<ffi::AnyBuffer> eigenvalues, ffi::Result<ffi::AnyBuffer> work,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
 
 // Runtime GESVD hook for singular values and both singular-vector matrices.
 // The four public dispatches select distinct FFI result lists so unrequested
@@ -148,7 +159,7 @@ absl::Status XlaCusolverMpGesvdUvDispatch(
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> u,
     ffi::Result<ffi::AnyBuffer> vh, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
 
 // Runtime GESVD hook for singular values and left singular vectors.
 absl::Status XlaCusolverMpGesvdUDispatch(
@@ -159,7 +170,7 @@ absl::Status XlaCusolverMpGesvdUDispatch(
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> u,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
 
 // Runtime GESVD hook for singular values and right singular vectors.
 absl::Status XlaCusolverMpGesvdVhDispatch(
@@ -170,7 +181,7 @@ absl::Status XlaCusolverMpGesvdVhDispatch(
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> vh,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
 
 // Runtime values-only GESVD hook. It omits both singular-vector outputs and
 // ends after the distributed factorization has produced the singular values.
@@ -181,7 +192,7 @@ absl::Status XlaCusolverMpGesvdValuesDispatch(
     ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> singular_values,
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
 
 // Runtime polar-decomposition hook returning both Up and H.
 absl::Status XlaCusolverMpPolarUhDispatch(
@@ -192,7 +203,7 @@ absl::Status XlaCusolverMpPolarUhDispatch(
     ffi::Result<ffi::AnyBuffer> up, ffi::Result<ffi::AnyBuffer> h,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
 
 // Runtime polar-decomposition hook returning only Up.
 absl::Status XlaCusolverMpPolarUDispatch(
@@ -203,7 +214,7 @@ absl::Status XlaCusolverMpPolarUDispatch(
     ffi::Result<ffi::AnyBuffer> up,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    CollectiveCliques* collective_cliques);
 
 }  // namespace xla::gpu
 

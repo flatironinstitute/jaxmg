@@ -101,7 +101,7 @@ Choose the values for the backend:
 
 ```bash
 CUDA_MAJOR=12
-CUSOLVERMP_PACKAGE=nvidia-cusolvermp-cu12==0.9.1.9318.post1
+CUSOLVERMP_PACKAGE=nvidia-cusolvermp-cu12==0.10.0.27368
 CAPABILITIES=sm_70,sm_80,sm_90,sm_120,compute_90
 ```
 
@@ -126,12 +126,16 @@ For CUDA 13, use:
 
 ```bash
 CUDA_MAJOR=13
-CUSOLVERMP_PACKAGE=nvidia-cusolvermp-cu13==0.9.1.9318.post1
+CUSOLVERMP_PACKAGE=nvidia-cusolvermp-cu13==0.10.0.27368
 CAPABILITIES=sm_80,sm_90,sm_120,compute_90
 ```
 
 The script discovers cuSOLVERMp, stages the Bazel package, compiles the shared
 library, and installs it under `/jax/jaxmg/src/jaxmg/cuXX/`.
+
+CI also runs the native cache-lifetime tests without a GPU. To run these during
+a local build, copy `tests/native` into `/jax/jaxmg/tests/native` and set
+`JAXMG_RUN_NATIVE_TESTS=1` when invoking `build_native_backend.sh`.
 
 Copy the result back to the original checkout:
 

@@ -5,8 +5,56 @@
 
 load("@local_config_cuda//cuda:build_defs.bzl", "cuda_library")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
 package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "cusolvermp_cache",
+    srcs = ["cusolvermp_routines/cusolvermp_cache.cc"],
+    hdrs = ["cusolvermp_routines/cusolvermp_cache.h"] + glob(["cusolvermp_include/**/*"]),
+    includes = ["."],
+    copts = [
+        "-Iexternal/cuda_cudart/include",
+        "-Iexternal/cuda_cusolver/include",
+        "-Iexternal/cuda_cublas/include",
+        "-Ijaxmg_backend/cusolvermp_include",
+    ],
+    deps = [
+        "@local_config_cuda//cuda:cuda_headers",
+        "@xla//xla/backends/gpu/collectives:gpu_clique_key",
+        "@xla//xla/backends/gpu/collectives:gpu_communicator",
+        "@xla//xla/backends/gpu/runtime:collective_cliques",
+        "@xla//xla/tsl/util:tied_ref",
+        "@xla//xla/tsl/cuda:nccl",
+        "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/status",
+    ],
+)
+
+cc_test(
+    name = "cache_lifetime_test",
+    size = "small",
+    srcs = ["tests/cache_lifetime_test.cc"],
+    linkstatic = True,
+    # Keep assert-based checks active in the optimized wheel-build configuration.
+    copts = [
+        "-UNDEBUG",
+        "-Iexternal/cuda_cudart/include",
+        "-Iexternal/cuda_cusolver/include",
+        "-Iexternal/cuda_cublas/include",
+        "-Ijaxmg_backend/cusolvermp_include",
+    ],
+    deps = [
+        ":cusolvermp_cache",
+        "@xla//xla/backends/gpu/collectives:cancellation_token",
+        "@xla//xla/backends/gpu/collectives:gpu_clique",
+        "@xla//xla/backends/gpu/collectives:gpu_cliques",
+        "@xla//xla/backends/gpu/collectives:loopback_communicator",
+        "@com_google_absl//absl/container:btree",
+    ],
+)
 
 cuda_library(
     name = "layout_convert_cuda",
@@ -74,6 +122,7 @@ cc_binary(
         "cusolvermp_routines/cusolvermp_gels.cc",
         "cusolvermp_routines/cusolvermp_gesvd.cc",
         "cusolvermp_routines/cusolvermp_getrf.cc",
+        "cusolvermp_routines/cusolvermp_inverse.cc",
         "cusolvermp_routines/cusolvermp_lu_solve.cc",
         "cusolvermp_routines/cusolvermp_potrf.cc",
         "cusolvermp_routines/cusolvermp_potrs.cc",
@@ -125,6 +174,7 @@ cc_binary(
         "-Wl,-rpath,$ORIGIN/../../nvidia/cu@JAXMG_CUDA_MAJOR@/lib",
     ],
     deps = [
+        ":cusolvermp_cache",
         ":factor_extract_cuda",
         ":layout_convert_cuda",
         ":potrs_logdet_cuda",
@@ -149,8 +199,11 @@ cc_binary(
         "@xla//xla/ffi:ffi_api",
         "@xla//xla:future",
         "@xla//xla/stream_executor:stream",
+        "@xla//xla/tsl/util:tied_ref",
         "@xla//xla/tsl/cuda:nccl",
+        "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/cleanup",
+        "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",

@@ -134,9 +134,9 @@ def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCa
         if has_rhs:
             rhs_mode = "matrix_row_sharded"
     elif case_name == "replicated_input":
-        if routine not in ("syevd", "potrf", "getrf"):
+        if routine not in ("syevd", "potrf", "getrf", "potri", "getri"):
             raise ValueError(
-                "replicated_input is only used by the SYEVD, POTRF, and GETRF tests"
+                "replicated_input requires a matrix decomposition or inverse"
             )
         rows, cols, tile, padded, nrhs = 1, num_processes, 64, False, 1
         grid_order = "row_major"

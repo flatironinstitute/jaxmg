@@ -104,8 +104,15 @@ absl::Status RunCusolverMpDistributedGels(
     if (d_work != nullptr) cudaFree(d_work);
     if (h_work != nullptr) std::free(h_work);
     if (d_info != nullptr) cudaFree(d_info);
-    api.destroy_matrix_desc(desc_b);
-    api.destroy_matrix_desc(desc_a);
+    auto record_destroy_failure = [&](cusolverStatus_t destroy_status) {
+      if (destroy_status != CUSOLVER_STATUS_SUCCESS &&
+          (*status_words)[0] == kStatusOk) {
+        (*status_words)[0] = kDestroyMatrixDescFailed;
+        (*status_words)[11] = static_cast<int32_t>(destroy_status);
+      }
+    };
+    record_destroy_failure(api.destroy_matrix_desc(desc_b));
+    record_destroy_failure(api.destroy_matrix_desc(desc_a));
   };
   auto check_cuda = [&](cudaError_t result, const char* caller) -> absl::Status {
     if (result == cudaSuccess) return absl::OkStatus();
@@ -222,7 +229,7 @@ absl::Status RunCusolverMpGelsSolver(
     ffi::Result<ffi::AnyBuffer> x_out,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   // Stage 1: validate the local FFI buffers and diagnostic output.
   if (stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
@@ -402,7 +409,7 @@ absl::Status XlaCusolverMpGelsDispatch(
     ffi::Result<ffi::AnyBuffer> x_out,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   se::Stream* comm_stream = nullptr;
   absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
       "cusolvermp_gels", collective_params, partition_slots, process_rows,

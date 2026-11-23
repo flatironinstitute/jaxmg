@@ -10,6 +10,20 @@ pytestmark = pytest.mark.gpu
 GPU_TEST = Path(__file__).resolve().parent / "run_least_squares.py"
 
 
+@pytest.mark.multi_gpu
+@pytest.mark.parametrize("dtype_name", ("float32", "float64", "complex64", "complex128"))
+def test_least_squares_rhs_tile_boundary(dtype_name):
+    """Compare GELS with NumPy at the minimum supported RHS tile count."""
+    run_gpu_test(GPU_TEST, 2, "rhs_tile_boundary", dtype_name)
+
+
+@pytest.mark.multi_gpu
+@pytest.mark.parametrize("interface", ("public", "context", "shardmap"))
+def test_least_squares_rhs_tile_boundary_layouts(interface):
+    """Retain sharded RHS results at the tile boundary through each API layer."""
+    run_gpu_test(GPU_TEST, 2, "rhs_tile_boundary_sharded", "float64", interface=interface)
+
+
 @pytest.mark.parametrize("dtype_name", ("float32", "float64", "complex64", "complex128"))
 @pytest.mark.multi_gpu
 def test_least_squares_padded_two_gpu(dtype_name):

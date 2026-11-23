@@ -26,19 +26,35 @@
 #include <cstdlib>
 #include <limits>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "absl/strings/str_join.h"
 #include "result_fill.h"
 
 namespace xla::gpu {
+namespace {
+
+// A failed rank must not skip setup while peers enter collective computation.
+// Grid failures can also invalidate NCCL, ruling out a status all-reduce.
+[[noreturn]] void AbortSetupFailure(const char* operation, int rank,
+                                   const std::string& detail) {
+  std::fprintf(stderr,
+               "JAXMg fatal: %s failed on rank %d (%s). "
+               "Distributed execution cannot continue; restart the distributed job.\n",
+               operation, rank, detail.c_str());
+  std::fflush(stderr);
+  std::abort();
+}
+
+}  // namespace
 
 absl::Status CusolverMpExecution::Initialize(
     const char* caller, cudaStream_t cuda_stream, const void* matrix,
     int64_t process_rows, int64_t process_cols, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   if (status_.size() < 10 || raw_status_index_ >= status_.size()) {
     return absl::InvalidArgumentError("cuSOLVERMp runtime status is too small");
   }
@@ -50,6 +66,7 @@ absl::Status CusolverMpExecution::Initialize(
     return absl::OkStatus();
   }
   status_[1] = *buffer_device;
+  cuda_stream_ = cuda_stream;
 
   // Stage 2: borrow XLA's existing communicator without taking ownership.
   if (collective_params == nullptr || collective_cliques == nullptr) {
@@ -95,50 +112,87 @@ absl::Status CusolverMpExecution::Initialize(
         caller, rank_map, process_rows, process_cols, grid_mapping));
   }
 
-  // Stage 4: own only cuSOLVERMp resources; cleanup never destroys NCCL.
+  // Stage 4: acquire exclusive use of cached library setup, or create
+  // per-call resources when caching is disabled. NCCL remains owned by XLA.
+  cached_ = CusolverMpCacheEnabled();
+  CusolverMpCache* cache = nullptr;
+  if (cached_) {
+    const CusolverMpCacheApi cache_api{
+        api.create, api.set_stream, api.create_grid, api.destroy_grid, api.destroy};
+    cache = &GetCusolverMpCache(cache_api, *buffer_device);
+    absl::Status cache_status = cache->Lock(&cache_lock_);
+    if (cache_status.ok()) {
+      cache_status =
+          cache->TrackClique(collective_cliques, *clique_key, *gpu_comm);
+    }
+    if (!cache_status.ok()) {
+      AbortSetupFailure("cached cuSOLVERMp setup", nccl_rank,
+                        cache_status.ToString());
+    }
+  }
   status_[7] = 1;
-  CusolverMpDebug(nccl_rank, "%s create handle begin device=%d", caller,
-                  *buffer_device);
-  cusolverStatus_t solver_status = api.create(&handle, *buffer_device, cuda_stream);
+  CusolverMpDebug(nccl_rank, "%s create handle begin device=%d cached=%d",
+                  caller, *buffer_device, static_cast<int>(cached_));
+  cusolverStatus_t solver_status =
+      cached_ ? cache->GetHandle(cuda_stream, &handle)
+              : api.create(&handle, *buffer_device, cuda_stream);
   CusolverMpDebug(nccl_rank, "%s create handle end status=%d", caller,
                   static_cast<int>(solver_status));
   if (solver_status != CUSOLVER_STATUS_SUCCESS || handle == nullptr) {
-    status_[0] = kCreateHandleFailed;
-    status_[raw_status_index_] = static_cast<int32_t>(solver_status);
-    return absl::OkStatus();
+    AbortSetupFailure("cuSOLVERMp handle setup", nccl_rank,
+                      absl::StrFormat("cuSOLVER status %d", solver_status));
   }
   status_[8] = 1;
   int version = -1;
   solver_status = api.get_version(handle, &version);
   if (solver_status != CUSOLVER_STATUS_SUCCESS) {
-    status_[0] = kGetVersionFailed;
-    status_[raw_status_index_] = static_cast<int32_t>(solver_status);
-    return absl::OkStatus();
+    AbortSetupFailure("cusolverMpGetVersion", nccl_rank,
+                      absl::StrFormat("cuSOLVER status %d", solver_status));
   }
   status_[6] = version;
   CusolverMpDebug(nccl_rank, "%s version=%d create grid begin rows=%lld cols=%lld",
                   caller, version, static_cast<long long>(process_rows),
                   static_cast<long long>(process_cols));
-  solver_status = api.create_grid(
-      handle, &grid, nccl_comm, static_cast<int32_t>(process_rows),
-      static_cast<int32_t>(process_cols), ToCusolverMpGridMapping(grid_mapping));
+  solver_status =
+      cached_ ? cache->GetGrid(
+                    *clique_key, nccl_comm,
+                    static_cast<int32_t>(process_rows),
+                    static_cast<int32_t>(process_cols),
+                    ToCusolverMpGridMapping(grid_mapping), &grid)
+              : api.create_grid(handle, &grid, nccl_comm,
+                                static_cast<int32_t>(process_rows),
+                                static_cast<int32_t>(process_cols),
+                                ToCusolverMpGridMapping(grid_mapping));
   CusolverMpDebug(nccl_rank, "%s create grid end status=%d", caller,
                   static_cast<int>(solver_status));
   if (solver_status != CUSOLVER_STATUS_SUCCESS || grid == nullptr) {
-    status_[0] = kCreateGridFailed;
-    status_[raw_status_index_] = static_cast<int32_t>(solver_status);
-    return absl::OkStatus();
+    AbortSetupFailure("cusolverMpCreateDeviceGrid", nccl_rank,
+                      absl::StrFormat("cuSOLVER status %d", solver_status));
   }
   status_[9] = 1;
   return absl::OkStatus();
 }
 
 void CusolverMpExecution::Close() {
+  if (cached_) {
+    // Include early-return paths: another caller must not change this handle's
+    // stream while work from the current invocation is still outstanding.
+    if (cache_lock_.owns_lock()) {
+      const cudaError_t result = cudaStreamSynchronize(cuda_stream_);
+      if (result != cudaSuccess && status_[0] == kStatusOk) {
+        status_[0] = kCudaDeviceFailed;
+      }
+      cache_lock_.unlock();
+    }
+    grid = nullptr;
+    handle = nullptr;
+    return;
+  }
   if (grid != nullptr) {
     const cusolverStatus_t result = api.destroy_grid(std::exchange(grid, nullptr));
-    if (result != CUSOLVER_STATUS_SUCCESS && status_[0] == kStatusOk) {
-      status_[0] = kDestroyGridFailed;
-      status_[raw_status_index_] = static_cast<int32_t>(result);
+    if (result != CUSOLVER_STATUS_SUCCESS) {
+      AbortSetupFailure("cusolverMpDestroyGrid", nccl_rank,
+                        absl::StrFormat("cuSOLVER status %d", result));
     }
   }
   if (handle != nullptr) {
@@ -434,6 +488,121 @@ absl::StatusOr<int> DeviceForCudaPointer(const void* ptr) {
         cudaGetErrorString(status)));
   }
   return attrs.device;
+}
+
+absl::Status DispatchSquareMatrix(
+    const char* caller, se::Stream* stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
+    absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> result,
+    const CollectiveParams* collective_params,
+    CollectiveCliques* collective_cliques,
+    absl::FunctionRef<absl::Status(const ResolvedProcessGrid&,
+                                 const Padded2DRedistScratch&)> compute) {
+  absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
+      caller, collective_params, partition_slots, process_rows,
+      process_cols);
+  if (!process_grid.ok()) return process_grid.status();
+  const absl::Span<const int64_t> rank_map = process_grid->rank_map;
+  if (a.dimensions().size() != 2 || result->dimensions().size() != 2) {
+    return absl::InvalidArgumentError(
+        "square-matrix dispatch expects rank-2 buffers");
+  }
+  if (a.element_type() != result->element_type()) {
+    return absl::InvalidArgumentError(
+        "square-matrix dispatch requires matching matrix dtypes");
+  }
+  if (a.dimensions()[0] != result->dimensions()[0] ||
+      a.dimensions()[1] != result->dimensions()[1]) {
+    return absl::InvalidArgumentError(
+        "square-matrix dispatch input and result shapes must match");
+  }
+
+  if (n <= 0 || tile_size <= 0 || a.element_count() == 0) {
+    return absl::InvalidArgumentError(
+        "square-matrix dispatch requires nonempty buffers and positive dimensions");
+  }
+  const size_t element_bytes =
+      a.size_bytes() / static_cast<size_t>(a.element_count());
+  const std::array<Padded2DRedistScratchRequest, 1> scratch_requests = {{
+      {process_rows, process_cols, tile_size, tile_size, n, n,
+       a.dimensions()[0], a.dimensions()[1], rank_map},
+  }};
+  absl::StatusOr<Padded2DRedistScratch> scratch_status =
+      AllocatePadded2DRedistScratch(cuda_stream, element_bytes,
+                                    absl::MakeConstSpan(scratch_requests),
+                                    caller);
+  if (!scratch_status.ok()) return scratch_status.status();
+  Padded2DRedistScratch scratch = *scratch_status;
+  bool scratch_freed = false;
+  auto return_after_cleanup = [&](absl::Status result) -> absl::Status {
+    if (!scratch_freed) {
+      absl::Status free_status = FreePadded2DRedistScratch(
+          cuda_stream, scratch, caller);
+      scratch_freed = free_status.ok();
+      if (result.ok() && !free_status.ok()) return free_status;
+    }
+    return result;
+  };
+  auto synchronize = [&](const char* caller) -> absl::Status {
+    const cudaError_t cuda_status = cudaStreamSynchronize(cuda_stream);
+    if (cuda_status == cudaSuccess) return absl::OkStatus();
+    return return_after_cleanup(absl::InternalError(absl::StrFormat(
+        "%s failed: cuda status %d (%s)", caller, static_cast<int>(cuda_status),
+        cudaGetErrorString(cuda_status))));
+  };
+
+  // Stage 1: prepare the result's local storage and block-cyclic ownership.
+  if (absl::Status copy_status = CopyMatrixIfNeeded(cuda_stream, a, result);
+      !copy_status.ok()) {
+    return return_after_cleanup(copy_status);
+  }
+  ffi::AnyBuffer matrix_work = *result;
+  if (absl::Status convert_status = ConvertRowMajorToColumnMajorInPlace(
+          cuda_stream, caller, matrix_work,
+          scratch.base, scratch.elements);
+      !convert_status.ok()) {
+    return return_after_cleanup(convert_status);
+  }
+  if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
+          caller, stream, /*comm_stream=*/nullptr, cuda_stream,
+          process_rows, process_cols, tile_size, tile_size, n, n,
+          /*reverse=*/0, rank_map, matrix_work, result->device_memory(),
+          scratch.base, scratch.elements, collective_params,
+          collective_cliques);
+      !redist_status.ok()) {
+    return return_after_cleanup(redist_status);
+  }
+  if (absl::Status sync_status = synchronize(caller); !sync_status.ok()) {
+    return sync_status;
+  }
+
+  // Stage 2: execute the routine with the same scratch available for extraction.
+  if (absl::Status solver_status = compute(*process_grid, scratch);
+      !solver_status.ok()) {
+    return return_after_cleanup(solver_status);
+  }
+  if (absl::Status sync_status = synchronize(caller); !sync_status.ok()) {
+    return sync_status;
+  }
+
+  // Stage 3: restore the matrix result without another matrix-sized allocation.
+  if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
+          caller, stream, /*comm_stream=*/nullptr, cuda_stream,
+          process_rows, process_cols, tile_size, tile_size, n, n,
+          /*reverse=*/1, rank_map, *result, result->device_memory(),
+          scratch.base, scratch.elements, collective_params,
+          collective_cliques);
+      !redist_status.ok()) {
+    return return_after_cleanup(redist_status);
+  }
+  if (absl::Status convert_status = ConvertColumnMajorToRowMajorInPlace(
+          cuda_stream, caller, *result,
+          scratch.base, scratch.elements);
+      !convert_status.ok()) {
+    return return_after_cleanup(convert_status);
+  }
+  return return_after_cleanup(absl::OkStatus());
 }
 
 }  // namespace xla::gpu

@@ -32,7 +32,10 @@
 #include <cusolverMp.h>
 
 #include "../xla_ffi/runtime.h"
+#include "cusolvermp_cache.h"
+#include "../memory_redist/memory_redist.h"
 #include "third_party/nccl/nccl.h"
+#include "absl/functional/function_ref.h"
 
 namespace xla::gpu {
 
@@ -42,6 +45,7 @@ namespace xla::gpu {
 struct CusolverMpApi {
   decltype(&cusolverMpCreate) create = &cusolverMpCreate;
   decltype(&cusolverMpDestroy) destroy = &cusolverMpDestroy;
+  decltype(&cusolverMpSetStream) set_stream = &cusolverMpSetStream;
   decltype(&cusolverMpGetVersion) get_version = &cusolverMpGetVersion;
   decltype(&cusolverMpCreateDeviceGrid) create_grid =
       &cusolverMpCreateDeviceGrid;
@@ -59,6 +63,12 @@ struct CusolverMpApi {
   decltype(&cusolverMpGetrf_bufferSize) getrf_buffer_size =
       &cusolverMpGetrf_bufferSize;
   decltype(&cusolverMpGetrf) getrf = &cusolverMpGetrf;
+  decltype(&cusolverMpPotri_bufferSize) potri_buffer_size =
+      &cusolverMpPotri_bufferSize;
+  decltype(&cusolverMpPotri) potri = &cusolverMpPotri;
+  decltype(&cusolverMpGetri_bufferSize) getri_buffer_size =
+      &cusolverMpGetri_bufferSize;
+  decltype(&cusolverMpGetri) getri = &cusolverMpGetri;
   decltype(&cusolverMpGetrs_bufferSize) getrs_buffer_size =
       &cusolverMpGetrs_bufferSize;
   decltype(&cusolverMpGetrs) getrs = &cusolverMpGetrs;
@@ -160,12 +170,16 @@ enum CusolverMpStatusCode : int32_t {
   kOrgqrInfoNonzero = 61,
   kFactorExtractFailed = 62,
   kPivotGatherFailed = 63,
+  kInverseWorkspaceFailed = 64,
+  kInverseFailed = 65,
+  kInverseInfoNonzero = 66,
 };
 
 inline constexpr int kPotrsStatusSize = 40;
 inline constexpr int kPotrfStatusSize = 26;
 inline constexpr int kLuSolveStatusSize = 41;
 inline constexpr int kGetrfStatusSize = 28;
+inline constexpr int kInverseStatusSize = 32;
 inline constexpr int kSyevdStatusSize = 36;
 inline constexpr int kGesvdStatusSize = 42;
 inline constexpr int kPolarStatusSize = 32;
@@ -208,6 +222,18 @@ absl::StatusOr<ResolvedProcessGrid> ResolveProcessGrid(
     absl::Span<const int64_t> partition_slots, int64_t process_rows,
     int64_t process_cols);
 
+// Shared factor/inverse pipeline: prepare one square matrix, execute the
+// numerical step, then restore its JAX layout using the same bounded scratch.
+absl::Status DispatchSquareMatrix(
+    const char* caller, se::Stream* stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
+    absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> result,
+    const CollectiveParams* collective_params,
+    CollectiveCliques* collective_cliques,
+    absl::FunctionRef<absl::Status(const ResolvedProcessGrid&,
+                                 const Padded2DRedistScratch&)> compute);
+
 // Converts an NCCL communicator rank into the process-row/process-column
 // coordinate used by cuSOLVERMp descriptors.
 std::pair<int32_t, int32_t> ProcessCoordFromRank(int nccl_rank,
@@ -215,8 +241,9 @@ std::pair<int32_t, int32_t> ProcessCoordFromRank(int nccl_rank,
                                                  int64_t process_cols,
                                                  int64_t grid_mapping);
 
-// Owns one invocation's cuSOLVERMp handle and grid, but only borrows XLA's
-// NCCL communicator. The caller's status vector must outlive this object;
+// Holds exclusive access to cached cuSOLVERMp setup for one invocation, or
+// owns the handle/grid when caching is disabled. XLA owns the borrowed NCCL
+// communicator. The caller's status vector must outlive this object;
 // its first ten fields follow the common runtime diagnostic layout.
 // The raw cuSOLVER status is at index 11, except for QR which uses index 12.
 // Matrix descriptors and solver-specific workspace remain with the caller.
@@ -230,18 +257,24 @@ class CusolverMpExecution {
   CusolverMpExecution& operator=(const CusolverMpExecution&) = delete;
 
   // Select the matrix's CUDA device, borrow the assigned communicator,
-  // validate its process grid, and create the handle/grid. Runtime failures
-  // set status[0]; invalid grid mappings return an absl::Status error.
+  // validate its process grid, and borrow the cached handle/grid,
+  // or create them when JAXMG_CUSOLVERMP_CACHE=0.
+  // Runtime failures set status[0]; invalid grid mappings return an
+  // absl::Status error. Grid creation failures terminate the process before
+  // any further communication.
   absl::Status Initialize(
       const char* caller, cudaStream_t cuda_stream, const void* matrix,
       int64_t process_rows, int64_t process_cols, int64_t grid_mapping,
       absl::Span<const int64_t> rank_map,
       const CollectiveParams* collective_params,
-      const CollectiveCliques* collective_cliques);
+      CollectiveCliques* collective_cliques);
 
   // Close explicitly before collective status agreement so cleanup failures
   // are included. The destructor also covers early returns; repeated closes
-  // are harmless. The borrowed NCCL communicator remains valid afterwards.
+  // are harmless. Cached execution finishes its CUDA work before unlocking;
+  // the cache retains its resources while XLA retains the NCCL communicator.
+  // Grid destruction failure terminates the process, since the
+  // borrowed NCCL communicator is no longer safe for status agreement.
   void Close();
 
   CusolverMpApi api;
@@ -253,6 +286,9 @@ class CusolverMpExecution {
  private:
   absl::Span<int32_t> status_;
   size_t raw_status_index_;
+  cudaStream_t cuda_stream_ = nullptr;
+  std::unique_lock<std::mutex> cache_lock_;
+  bool cached_ = false;
 };
 
 // Computes the ScaLAPACK/NUMROC local length owned by one process coordinate

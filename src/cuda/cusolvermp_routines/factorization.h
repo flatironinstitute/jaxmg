@@ -36,10 +36,12 @@ struct FactorizationStatusFields {
 // Owns only the factorization workspace and info buffer; the caller retains
 // the handle, descriptor, and matrix for POTRS or factor extraction. Solver
 // failures populate the status fields; CUDA execution errors return a status.
+// All ranks agree on workspace readiness before entering the factorization.
 absl::Status RunCholeskyFactorization(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
-    void* a, cudaDataType_t dtype, FactorizationStatusFields status);
+    void* a, cudaDataType_t dtype, ncclComm_t comm,
+    ffi::Result<ffi::BufferR1<S32>> status_out, FactorizationStatusFields status);
 
 // Overwrites A with packed LU and writes the native 1-based pivot indices.
 // The caller owns the pivot buffer through GETRS or pivot gathering; temporary
@@ -48,14 +50,22 @@ absl::Status RunLuFactorization(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
     void* a, cudaDataType_t dtype, int64_t* ipiv, size_t ipiv_bytes,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
     FactorizationStatusFields status);
 
-// NVIDIA's sample uses LOCc(N), whereas the documented capacity is LOCr(N)+T.
-// Reserve both bounds in factor-only and solve paths; pivot ownership remains
-// column-based when the result is gathered.
-inline int64_t LuPivotAllocationLength(int64_t local_rows, int64_t local_cols,
-                                       int64_t tile_size) {
-  return std::max(local_cols, local_rows + tile_size);
+// Inverts a Cholesky or LU factor in place. POTRI writes the lower triangle;
+// GETRI writes the full inverse and consumes the caller-owned native pivots.
+absl::Status RunFactorInverse(
+    const CusolverMpApi& api, cusolverMpHandle_t handle,
+    cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
+    void* a, cudaDataType_t dtype, bool cholesky, const int64_t* ipiv,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
+    FactorizationStatusFields status);
+
+// Pivots are distributed over process row zero. Other rows must still pass a
+// non-null pointer so every rank selects pivoted factorization and solves.
+inline int64_t LuPivotAllocationLength(int64_t local_cols, int32_t process_row) {
+  return process_row == 0 ? std::max<int64_t>(local_cols, 1) : 1;
 }
 
 }  // namespace xla::gpu

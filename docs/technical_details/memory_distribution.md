@@ -304,44 +304,48 @@ restores row-major local memory. Python then removes visible capacity padding.
 
 For `potrs`, `lu_solve`, and `least_squares`, a vector solve input is represented
 internally as a one-column matrix. The public wrappers restore the original
-vector rank before returning the result. Since `cusolverMpGels` requires every
-process-grid column to own solve-input data, a vector passed to `least_squares`
-uses a process grid with one column.
+vector rank before returning the result. On grids with multiple process
+columns, `cusolverMpGels` requires B to span at least as many column tiles as A.
+A vector passed to `least_squares` therefore uses a process grid with one column.
 
 ## Solver-specific native work
 
-The redistribution stages are shared by every solver workflow. Their main
-differences are the cuSOLVERMp call sequence and solver workspace:
+The [solver workflows](index.md#solver-workflows) share the redistribution
+stages but differ in their buffer requirements and output restoration:
 
-- `potrs` calls `cusolverMpPotrf` followed by `cusolverMpPotrs`. If
-  `return_logdet=True`, each process reads the Cholesky diagonal entries it owns
+- `potrs` optionally extracts the log determinant from the Cholesky factor.
+  With `return_logdet=True`, each process reads the diagonal entries it owns,
   and the rank-local sums are combined by an in-place NCCL all-reduce.
-- `potrf` calls `cusolverMpPotrf` without a solve. cuSOLVERMp leaves the input
-  in the strict upper triangle, so a kernel zeros it in the block-cyclic layout
-  before the factor is reverse-redistributed in place of the donated A.
-- `lu_solve` calls `cusolverMpGetrf` followed by `cusolverMpGetrs` and allocates
-  a pivot vector according to the local cuSOLVERMp column ownership.
-- `getrf` calls `cusolverMpGetrf` without a solve and reverse-redistributes the
-  packed LU factor in place of the donated A. Each rank scatters the pivots of
-  the columns it owns into a global vector, and an NCCL max all-reduce
-  replicates that vector on every rank.
-- `least_squares` calls `cusolverMpGels`. The solve input has $M$ rows on entry
-  and is overwritten in place. The native backend copies its first $N$ rows
-  into a separate solution buffer while still in block-cyclic storage, then
-  restores the work buffer and solution using the same redistribution scratch.
-- `qr` calls `cusolverMpGeqrf`, copies the distributed upper triangle into the
-  $R$ output, and calls `cusolverMpOrgqr` to overwrite the donated input with
-  reduced $Q$. Both factors are then reverse-redistributed.
-- `syevd` calls `cusolverMpSyevd`. Its eigenvector-producing mode materializes a
-  full distributed eigenvector matrix and reverses the redistribution for that
-  output. Its eigenvalues-only mode omits both operations.
-- `gesvd` calls `cusolverMpGesvd` for rectangular matrices. U and Vh are
-  selected independently in reduced or full form, and only requested vector
-  matrices are allocated and reverse-redistributed. The shared scratch buffer
-  is sized to the largest requirement among A and those outputs.
-- `polar` calls `cusolverMpPolar` for tall or square matrices. A is overwritten
-  by the polar factor, while the optional H matrix is allocated and
-  reverse-redistributed only when requested.
+- `potrf` zeros the strict upper triangle, which cuSOLVERMp leaves unchanged,
+  in the block-cyclic layout before restoring the lower factor in place of
+  the donated A.
+- `potri` overwrites the Cholesky factor with the inverse, releasing
+  factorization workspace before allocating inversion workspace. It
+  completes the Hermitian upper triangle through tile-sized transfers using
+  the shared redistribution scratch, without a second matrix-sized buffer.
+- `lu_solve` allocates a pivot vector according to the local cuSOLVERMp column
+  ownership.
+- `getrf` restores the packed LU factor in place of the donated A. Each rank
+  scatters the pivots of the columns it owns into a global vector, and an NCCL
+  max all-reduce replicates that vector on every rank.
+- `getri` overwrites the packed LU factor with the inverse, releasing
+  factorization workspace before allocating inversion workspace. It retains
+  the native pivots until inversion completes.
+- `least_squares` overwrites the $M$-row solve input in place. The native
+  backend copies its first $N$ rows into a separate solution buffer while still
+  in block-cyclic storage, then restores the work buffer and solution using
+  the same redistribution scratch.
+- `qr` preserves the distributed upper triangle in the $R$ output before
+  overwriting the donated input with reduced $Q$. Both factors are then
+  reverse-redistributed.
+- `syevd` allocates a full distributed eigenvector matrix and reverses its
+  redistribution when eigenvectors are requested. Its eigenvalues-only mode
+  omits both operations.
+- `gesvd` allocates and reverse-redistributes only the requested U and Vh
+  outputs, in reduced or full form. The shared scratch buffer is sized to the
+  largest requirement among A and those outputs.
+- `polar` overwrites A with the polar factor. The optional H matrix is
+  allocated and reverse-redistributed only when requested.
 
 ## Python and native responsibilities
 

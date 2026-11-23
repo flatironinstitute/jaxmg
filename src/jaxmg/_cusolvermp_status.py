@@ -383,6 +383,43 @@ _CUSOLVERMP_GETRF_STATUS_FIELDS = (
 )
 
 
+# Mirrors kInverseStatusSize/status in cusolvermp_inverse.cc. Both inverse
+# paths share the schema; "cholesky" identifies POTRI rather than GETRI.
+_CUSOLVERMP_INVERSE_STATUS_FIELDS = (
+    "status_code",
+    "cuda_device",
+    "nccl_rank",
+    "nccl_rank_count",
+    "process_rows",
+    "process_cols",
+    "cusolvermp_version",
+    "cusolvermp_runtime_available",
+    "handle_created",
+    "grid_created",
+    "a_descriptor_created",
+    "raw_cusolver_status",
+    "a_size_bytes",
+    "n",
+    "tile_size",
+    "a_local_rows",
+    "a_local_cols",
+    "a_numroc_rows",
+    "a_numroc_cols",
+    "factor_device_workspace_kib",
+    "factor_host_workspace_kib",
+    "factor_called",
+    "factor_info",
+    "inverse_device_workspace_kib",
+    "inverse_host_workspace_kib",
+    "inverse_called",
+    "inverse_info",
+    "ipiv_bytes_kib",
+    "dtype_code",
+    "grid_mapping",
+    "cholesky",
+    "inverse_completed",
+)
+_CUSOLVERMP_INVERSE_STATUS_SIZE = len(_CUSOLVERMP_INVERSE_STATUS_FIELDS)
 _CUSOLVERMP_POTRS_STATUS_SIZE = len(_CUSOLVERMP_POTRS_STATUS_FIELDS)
 _CUSOLVERMP_LU_SOLVE_STATUS_SIZE = len(_CUSOLVERMP_LU_SOLVE_STATUS_FIELDS)
 _CUSOLVERMP_SYEVD_STATUS_SIZE = len(_CUSOLVERMP_SYEVD_STATUS_FIELDS)

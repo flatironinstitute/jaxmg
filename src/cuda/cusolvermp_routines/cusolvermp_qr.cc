@@ -279,7 +279,7 @@ absl::Status RunCusolverMpQrSolver(
     ffi::Result<ffi::AnyBuffer> q, ffi::Result<ffi::AnyBuffer> r,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   // Stage 1: validate the local FFI buffers and diagnostic output.
   if (stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError("cusolvermp_qr requires XLA and CUDA streams");
@@ -416,7 +416,7 @@ absl::Status RunCusolverMpQrDispatch(
     ffi::Result<ffi::AnyBuffer> r,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
       "cusolvermp_qr", collective_params, partition_slots, process_rows,
       process_cols);
@@ -554,7 +554,7 @@ absl::Status XlaCusolverMpQrDispatch(
     ffi::Result<ffi::AnyBuffer> q, ffi::Result<ffi::AnyBuffer> r,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   return RunCusolverMpQrDispatch(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
       m, n, tile_size, partition_slots, a, q, r, status,

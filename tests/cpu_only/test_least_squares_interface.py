@@ -129,7 +129,16 @@ def test_least_squares_rejects_incompatible_solution_sharding(monkeypatch):
         )
 
 
-def test_least_squares_rejects_empty_rhs_process_column(monkeypatch):
+@pytest.mark.parametrize("n,nrhs,supported", [
+    (96, 1, False),
+    (96, 3, False),
+    (96, 64, False),
+    (96, 65, True),
+    (192, 128, False),
+    (192, 129, True),
+])
+def test_least_squares_rhs_column_tiles(monkeypatch, n, nrhs, supported):
+    """Check logical tile counts, including when every rank owns a B tile."""
     class FakeMesh:
         shape = {"pc": 2}
 
@@ -148,17 +157,17 @@ def test_least_squares_rejects_empty_rhs_process_column(monkeypatch):
         "infer_rhs_specs",
         lambda *args, **kwargs: P(None, None),
     )
-    with pytest.raises(ValueError, match=r"least_squares\(B\).*own at least one"):
-        least_squares_module._prepare_least_squares_call(
-            jnp.ones((192, 96)),
-            jnp.ones((192, 3)),
-            64,
-            None,
-            None,
-            in_specs=None,
-            pad=True,
-            caller="least_squares",
-        )
+    prepare = partial(
+        least_squares_module._prepare_least_squares_call,
+        jnp.ones((192, n)), jnp.ones((192, nrhs)), 64, None, None,
+        in_specs=None, pad=True, caller="least_squares",
+    )
+    if supported:
+        prepared = prepare()
+        assert prepared[4].logical_cols == nrhs + nrhs % 2
+    else:
+        with pytest.raises(ValueError, match="at least as many column tiles as A"):
+            prepare()
 
 
 @pytest.mark.parametrize(

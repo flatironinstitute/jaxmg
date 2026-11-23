@@ -241,7 +241,7 @@ absl::Status RunCusolverMpPolarSolver(
     ffi::Result<ffi::AnyBuffer> up, ffi::AnyBuffer* h, bool compute_h,
     ffi::Result<ffi::BufferR1<S32>> status_out,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   // Stage 1: validate the local FFI buffers and diagnostic output.
   if (stream == nullptr || cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
@@ -382,7 +382,7 @@ absl::Status RunCusolverMpPolarDispatch(
     ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> up, ffi::AnyBuffer* h,
     bool compute_h, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
       "cusolvermp_polar", collective_params, partition_slots, process_rows,
       process_cols);
@@ -532,7 +532,7 @@ absl::Status XlaCusolverMpPolarUhDispatch(
     ffi::Result<ffi::AnyBuffer> up, ffi::Result<ffi::AnyBuffer> h,
     ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   ffi::AnyBuffer h_buffer = *h;
   return RunCusolverMpPolarDispatch(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
@@ -546,7 +546,7 @@ absl::Status XlaCusolverMpPolarUDispatch(
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> up, ffi::Result<ffi::BufferR1<S32>> status,
     const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    CollectiveCliques* collective_cliques) {
   return RunCusolverMpPolarDispatch(
       stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
       m, n, tile_size, partition_slots, a, up, /*h=*/nullptr,
