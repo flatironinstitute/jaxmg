@@ -47,6 +47,8 @@ buildPod(tag: '12', context: '.jenkins', dockerfile: 'Dockerfile12', devShm: tru
       "CUDNN_ROOT=/usr",
       "CUDA_VISIBLE_DEVICES=0,1",
       "JAXMG_GPU_TEST_LAUNCHER=subprocess",
+      // Limit NCCL buffer usage on 5 GB MIG partitions, including same-GPU pairs.
+      "NCCL_MAX_CTAS=2",
       // Disable NCCL's cuMem allocator (fails at ncclGroupEnd in the pod) and
       // keep JAX on the conservative platform allocator.
       "NCCL_CUMEM_ENABLE=0",
