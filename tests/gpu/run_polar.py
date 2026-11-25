@@ -8,7 +8,6 @@ import jax
 if not jax.config.jax_enable_x64:
     jax.config.update("jax_enable_x64", True)
 
-import jax.numpy as jnp
 import numpy as np
 from jax.experimental import multihost_utils
 from jax.sharding import NamedSharding, PartitionSpec as P

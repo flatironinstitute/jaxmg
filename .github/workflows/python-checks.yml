@@ -1,0 +1,48 @@
+name: Python checks
+
+on:
+  push:
+    paths:
+      - 'src/jaxmg/**'
+      - 'tests/**'
+      - 'examples/**'
+      - 'pyproject.toml'
+      - '.github/workflows/python-checks.yml'
+  pull_request:
+    paths:
+      - 'src/jaxmg/**'
+      - 'tests/**'
+      - 'examples/**'
+      - 'pyproject.toml'
+      - '.github/workflows/python-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint and type check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install check dependencies
+        run: python -m pip install -e '.[checks]'
+
+      - name: Lint Python
+        run: python -m ruff check src/jaxmg tests examples
+
+      - name: Check Python types
+        run: python -m mypy

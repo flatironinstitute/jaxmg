@@ -54,7 +54,7 @@ Create a virtual environment and install the development dependencies:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,checks]"
 ```
 
 For documentation-only work on a system without CUDA, install `.[docs]` and
@@ -87,6 +87,14 @@ Run the checks relevant to the change:
 | Documentation | `python -m mkdocs build --strict` |
 | Native solver or redistribution code | Rebuild the backend and run the GPU tests |
 | Packaging or dependencies | Build and install a wheel through the matching CUDA extra |
+
+Python linting and type checking run on CPU without the native backend:
+
+```bash
+python -m pip install -e ".[checks]"
+python -m ruff check src/jaxmg tests examples
+python -m mypy
+```
 
 The GPU suite distinguishes between `single_gpu` and `multi_gpu` tests. The
 multi-GPU tests launch one Python process per GPU. On a workstation with two
@@ -150,6 +158,9 @@ Generated build outputs should not be committed.
 
 ## Continuous integration
 
+For Python changes, GitHub Actions runs linting and type checking on pushes
+and pull requests, independently of the wheel builds.
+
 The release build and GPU tests run on separate systems:
 
 1. **GitHub Actions builds** CUDA 12 and CUDA 13 backends for `x86_64` and
@@ -169,6 +180,7 @@ The implementation is in:
 
 - `.github/workflows/build-wheels.yml`;
 - `.github/workflows/ci.yml`;
+- `.github/workflows/python-checks.yml`;
 - `.github/workflows/jenkins-test.yml`;
 - `.github/workflows/jax-compat.yml`;
 - `.jenkins/Jenkinsfile`.

@@ -1,12 +1,9 @@
 import socket
-import os
 import hashlib
-import warnings
 import jax
 import jax.numpy as jnp
 from jax.sharding import NamedSharding
 from jax import Array
-from jax.experimental import multihost_utils as mh
 
 
 def random_psd(n, dtype, seed):

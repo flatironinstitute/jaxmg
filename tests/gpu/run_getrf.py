@@ -9,7 +9,6 @@ if not jax.config.jax_enable_x64:
     jax.config.update("jax_enable_x64", True)
 
 import numpy as np
-import scipy.linalg
 from jax.experimental import multihost_utils
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
