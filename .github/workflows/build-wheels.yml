@@ -47,11 +47,11 @@ jobs:
             compile_image: nvidia/cuda:13.0.2-devel-rockylinux8
             cusolvermp: nvidia-cusolvermp-cu13==0.10.0.27368
     steps:
+      - name: Install build tools
+        run: dnf install -y git file
+
       - name: Checkout jaxmg
         uses: actions/checkout@v4
-
-      - name: Install build tools
-        run: dnf install -y git gcc gcc-c++ make file
 
       - uses: astral-sh/setup-uv@v6
         with:
