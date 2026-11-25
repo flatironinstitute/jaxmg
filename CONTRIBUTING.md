@@ -6,6 +6,11 @@ improving the documentation, or
 [opening a pull request](https://github.com/flatironinstitute/jaxmg/pulls)
 with a code change. Contributions of any size are welcome.
 
+For usage questions and support, use
+[GitHub Discussions](https://github.com/flatironinstitute/jaxmg/discussions/categories/q-a).
+Report reproducible bugs and feature requests through
+[GitHub Issues](https://github.com/flatironinstitute/jaxmg/issues).
+
 A typical contribution follows five steps:
 
 1. pull a clean copy of the repository and create a branch;
@@ -97,6 +102,33 @@ The two smoke groups can also be selected independently with
 `-m "single_gpu and not slow"` or `-m "multi_gpu and not slow"`. Tests
 requiring more GPUs than are visible are skipped. On Slurm systems, the test
 helper can use `srun` across the current allocation.
+
+### Full test suite
+
+To include the longer validation sweeps, enable the comprehensive tests and
+omit the `not slow` filter:
+
+```bash
+JAXMG_RUN_COMPREHENSIVE_GPU_TESTS=1 \
+JAXMG_GPU_TEST_LAUNCHER=subprocess \
+python -m pytest -q tests
+```
+
+The largest cases require eight GPUs. Cases requiring unavailable GPUs are
+skipped, so a successful run on fewer devices does not cover every process
+grid. Within a Slurm allocation, use `JAXMG_GPU_TEST_LAUNCHER=srun` instead.
+The existing Jenkins smoke suite excludes the slow sweeps.
+
+The test launcher accepts the following environment variables:
+
+| Variable | Meaning |
+|---|---|
+| `JAXMG_RUN_COMPREHENSIVE_GPU_TESTS` | Set to `1` to enable the comprehensive sweeps; unset by default. |
+| `JAXMG_GPU_TEST_LAUNCHER` | `subprocess` for local GPUs or `srun` for a Slurm allocation. Defaults to `srun` when `SLURM_JOB_ID` is set, otherwise `subprocess`. |
+| `JAXMG_GPU_TEST_TIMEOUT` | Timeout in seconds for each launched test case; defaults to `300`. |
+| `JAXMG_GPU_TEST_GPUS_PER_NODE` | Override the GPU count inferred from Slurm or the local devices. |
+| `JAXMG_GPU_TEST_SRUN_MAX_NODES` | Override the number of available Slurm nodes. `JAXMG_GPU_TEST_SRUN_NODES` is also accepted when this is unset. |
+| `JAXMG_GPU_TEST_SRUN_GPU_ARGS` | Additional GPU-binding arguments for `srun`, for example `--gpus-per-task=1`. |
 
 ## Open a pull request
 

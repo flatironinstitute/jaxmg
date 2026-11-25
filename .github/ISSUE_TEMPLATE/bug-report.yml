@@ -21,6 +21,8 @@ body:
 
       [issue search]: https://github.com/flatironinstitute/jaxmg/search?q=is%3Aissue&type=issues
 
+      [Discussions]: https://github.com/flatironinstitute/jaxmg/discussions/categories/q-a
+
       [Raw report]: https://github.com/flatironinstitute/jaxmg/issues/new?template=none
 - type: textarea
   attributes:
