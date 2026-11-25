@@ -12,10 +12,6 @@ hardware-independent performance guarantees. Complete benchmark scripts and
 results are available in the
 [JAXMg benchmark repository](https://github.com/therooler/jaxmg_benchmark).
 
-The reported results use one warm timing per case and do not estimate timing
-variability. The benchmark runner supports repeated warm calls for subsequent
-measurements.
-
 ## Benchmark configuration
 
 We consider four representative combinations of routine and data type:

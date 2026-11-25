@@ -15,10 +15,6 @@ arrays and applies `jax.shard_map` to `*_shardmap_ctx`. The latter operates on
 local blocks inside a caller-owned shard map. Use the context interfaces when
 compilation or sharding is already managed by the surrounding calculation.
 
-The routines support `jax.jit` and `jax.shard_map`. Differentiating through a
-JAXMg call with `jax.grad`, `jax.jvp`, or `jax.vjp`, and batching calls with
-`jax.vmap`, are not currently supported.
-
 !!! Warning
     Each solver requires a tile width `T_A`. Very small tiles can substantially
     reduce solver performance. If a local shard dimension is not divisible by
@@ -147,12 +143,3 @@ returning the polar factor $U_p$ and optionally the Hermitian
 positive-semidefinite factor $H$.
 
 [`polar` API and usage](polar.md)
-
----
-
-## Device capabilities
-
-`device_supports_vmm` checks whether a CUDA device supports virtual memory
-management before JAX initializes its GPU allocator.
-
-::: jaxmg.device_supports_vmm
