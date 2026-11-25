@@ -236,6 +236,13 @@ Call `potrs` or `lu_solve` directly for standard solves. For use inside a larger
 - [JAXMg for blurred sampling](https://github.com/therooler/nqs_blurred_sampling): Implementation of t-VMC that makes use JAXMg for inverting the QGT.
 - [JAXMg for simulating quantum annealing experiments](https://github.com/therooler/dwave_vmc): Simulation of D-Wave's 2025 quantum annealing experiment with t-VMC that makes use JAXMg for inverting the QGT.
 
+## Support and contributions
+
+Use [GitHub Discussions](https://github.com/flatironinstitute/jaxmg/discussions/categories/q-a)
+for questions and support, and [GitHub Issues](https://github.com/flatironinstitute/jaxmg/issues)
+for bugs and feature requests. See the [contribution guide](CONTRIBUTING.md)
+for development and testing instructions.
+
 ## Citations
 ```
 @misc{2601.14466,

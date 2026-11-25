@@ -353,13 +353,13 @@ def gesvd_shardmap_ctx(
     # Stage 3: restore vector shapes; keep opaque A work padded.
     axes = tuple(axis for axis, size in zip(matrix_specs, (process_rows, process_cols))
                  if axis is not None and size > 1)
-    restored_vectors = ()
+    restored_vectors: tuple[Array, ...] = ()
     requested_padding = tuple(p for p in (u_padding, vh_padding) if p is not None)
     for vector, padding in zip(vectors, requested_padding):
         vector = unpad_local_2d(vector, local_rows=padding.local_logical_rows,
                                local_cols=padding.local_logical_cols)
         restored_vectors += (mark_varying(vector, axes),)
-    result = (mark_varying(a_work, axes),)
+    result: tuple[Array, ...] = (mark_varying(a_work, axes),)
     if compute_u:
         result += (restored_vectors[0],)
     result += (singular_values,)

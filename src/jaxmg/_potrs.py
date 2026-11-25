@@ -18,7 +18,7 @@ The three entry points are layered:
 from __future__ import annotations
 
 from functools import lru_cache, partial
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, cast
 
 import jax
 import jax.numpy as jnp
@@ -252,7 +252,10 @@ def potrs_jit_ctx(
         x = restore_rhs_from_native_work(
             x, rhs_specs=rhs_specs, mesh=layout.mesh, matrix_specs=specs,
         )[:, :nrhs]
-    return (a_work, x[:, 0] if vector_rhs else x, *rest)
+    return cast(
+        Union[Tuple[Array, Array, Array], Tuple[Array, Array, Array, Array]],
+        (a_work, x[:, 0] if vector_rhs else x, *rest),
+    )
 
 
 def potrs_shardmap_ctx(
@@ -536,6 +539,8 @@ def _potrs_native_call(
         jax.ShapeDtypeStruct(b.shape, b.dtype),
     )
     status_type = jax.ShapeDtypeStruct((_CUSOLVERMP_POTRS_STATUS_SIZE,), jnp.int32)
+    out_type: tuple[jax.ShapeDtypeStruct, ...]
+    output_layouts: tuple[tuple[int, ...], ...]
     if return_logdet:
         out_type = common_out_type + (
             jax.ShapeDtypeStruct((1,), _real_dtype_for_logdet(a.dtype)),

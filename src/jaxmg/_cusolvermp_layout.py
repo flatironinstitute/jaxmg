@@ -315,7 +315,7 @@ def infer_rhs_specs(rhs: Array, *, matrix_specs: P) -> P:
     sharding = _known_input_sharding(rhs)
     if sharding is not None:
         return sharding.spec
-    row_axis, _ = matrix_specs._partitions
+    row_axis, _ = matrix_specs
     return P(row_axis, None)
 
 

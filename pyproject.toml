@@ -46,7 +46,19 @@ markers = [
     "slow: longer validation sweeps",
 ]
 
+[tool.ruff.lint]
+select = ["E9", "F"]
+
+[tool.mypy]
+files = ["src/jaxmg"]
+
 [project.optional-dependencies]
+
+checks = [
+    "jax>=0.11.1,<0.12.0.2",
+    "mypy==2.4.1",
+    "ruff==0.17.6",
+]
 
 docs = [
     "jax>=0.6.2",

@@ -40,6 +40,11 @@ JAXMg currently provides a jittable API for the following routines:
   matrix $A$ ($A=U_pH$), returning the polar factor $U_p$ and optional Hermitian
   positive-semidefinite factor $H$.
 
+For questions and support, use
+[GitHub Discussions](https://github.com/flatironinstitute/jaxmg/discussions/categories/q-a).
+Report bugs and feature requests through
+[GitHub Issues](https://github.com/flatironinstitute/jaxmg/issues).
+
 ## How JAXMg works
 
 JAXMg connects JAX to NVIDIA's distributed
