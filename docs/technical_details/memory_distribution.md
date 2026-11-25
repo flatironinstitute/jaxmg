@@ -284,9 +284,10 @@ same native schedule is reused on every execution.
 
 ## Communication and orchestration
 
-JAXMg builds the native backend against the matching XLA source through Bazel.
-This gives the FFI handler access to XLA's underlying NCCL communicator handle
-(`ncclComm_t`). The same communicator is borrowed for the inter-rank
+JAXMg requests an ordered communicator through XLA's public Collectives FFI
+extension and borrows its underlying NCCL handle (`ncclComm_t`) at execution.
+Communicator ranks follow the logical JAX partition order, independently of
+physical device IDs. The same communicator is borrowed for the inter-rank
 redistribution and passed to cuSOLVERMp for solver execution. Movements that
 remain on one rank use local CUDA operations on the XLA-provided stream.
 

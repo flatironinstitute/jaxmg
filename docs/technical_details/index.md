@@ -109,13 +109,16 @@ cuSOLVERMp communicators. See [Distributed execution](../examples/execution.md)
 for the required launch model.
 
 To avoid repeated initialization, routines share one cached cuSOLVERMp handle
-per GPU and grids keyed by XLA communicator group, process-grid shape, and
+per GPU and grids keyed by NCCL communicator handle, process-grid shape, and
 mapping. Calls sharing a handle are serialized until their CUDA work completes;
 matrix descriptors and explicit solver workspaces remain local to each call.
 
-Cached grids follow the lifetime of their XLA communicator group. Healthy
-groups release their grids before the NCCL communicator, and the last group
-on a device releases the handle.
+The public Collectives FFI has no communicator-retirement callback. Cached
+handles and grids are therefore retained until process exit, without running
+collective destructors during shutdown. Changing matrix sizes does not add
+cache entries, but using new communicators or process grids does. Restart
+distributed clients in fresh worker processes: the cache cannot detect a new
+communicator reusing an old handle address.
 Set `JAXMG_CUSOLVERMP_CACHE=0` before starting every process
 to disable reuse for timing comparisons or debugging.
 
@@ -126,9 +129,8 @@ or grid setup failures, and grid-destruction failures, instead terminate the
 affected process to avoid further unsafe collective operations. Peer shutdown
 depends on JAX's failure detection and the launcher.
 
-An unhealthy communicator cannot safely participate in grid destruction, so
-its cached native resources are retained until process exit and further cache
-use is rejected. Restart the distributed job after a fatal failure.
+A setup failure makes the cached context unusable. Restart the distributed
+job after a fatal failure.
 
 ## Detailed implementation
 
