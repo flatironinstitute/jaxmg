@@ -30,8 +30,7 @@
 // converted back to row-major JAX storage.
 //
 // File workflow:
-//   1. Borrow the raw NCCL communicator from XLA's GpuCommunicator and validate
-//      that the NCCL rank/count match the XLA collective rank/count.
+//   1. Validate the borrowed NCCL rank/count against the redistribution plan.
 //   2. Pack rectangular column-major local matrix regions into bounded scratch
 //      using cudaMemcpy2DAsync.
 //   3. Move packed payloads with grouped NCCL send/recv calls on an XLA-ordered
@@ -51,18 +50,17 @@
 
 #include "layout_convert.h"
 #include "memory_redist.h"
-#include "third_party/nccl/nccl.h"
+#include <nccl.h>
 
-namespace xla::gpu {
+namespace jaxmg {
 
 // Runs one grouped NCCL send/receive round for a conflict-free batch. Each rank
 // participates in at most one send and one receive in the batch.
 absl::Status RunRawNcclSendRecv(
-    const char* caller, se::Stream* stream, se::Stream* comm_stream,
-    cudaStream_t cuda_stream, GpuCommunicator* comm, int64_t rank_value,
-    int64_t num_ranks, se::DeviceAddressBase send_buffer,
-    se::DeviceAddressBase recv_buffer, uint64_t byte_count,
-    std::optional<RankId> source_rank, absl::Span<const RankId> target_ranks) {
+    const char* caller, cudaStream_t cuda_stream, ncclComm_t comm, int64_t rank_value,
+    int64_t num_ranks, void* send_buffer,
+    void* recv_buffer, uint64_t byte_count,
+    std::optional<int64_t> source_rank, absl::Span<const int64_t> target_ranks) {
   if (!source_rank.has_value() && target_ranks.empty()) {
     return absl::OkStatus();
   }
@@ -76,48 +74,22 @@ absl::Status RunRawNcclSendRecv(
         caller, static_cast<unsigned long long>(byte_count)));
   }
 
-  absl::StatusOr<ncclComm_t> nccl_comm = BorrowNcclComm(caller, comm);
-  if (!nccl_comm.ok()) {
-    return nccl_comm.status();
-  }
   JAXMG_RETURN_IF_ERROR(ValidateBorrowedNcclComm(
-      caller, *nccl_comm, rank_value, num_ranks));
-
-  absl::StatusOr<NcclStreamChoice> nccl_stream =
-      ChooseNcclStream(caller, comm_stream, cuda_stream);
-  if (!nccl_stream.ok()) {
-    return nccl_stream.status();
-  }
-
-  if (nccl_stream->uses_comm_stream) {
-    // Preserve stream order without a host-wide device synchronization:
-    // producer work on the main stream completes before NCCL starts.
-    absl::Status status = comm_stream->WaitFor(stream);
-    if (!status.ok()) {
-      return status;
-    }
-  }
+      caller, comm, rank_value, num_ranks));
 
   JAXMG_RETURN_IF_NCCL_ERROR(ncclGroupStart());
   if (source_rank.has_value()) {
     JAXMG_RETURN_IF_NCCL_ERROR(ncclRecv(
-        recv_buffer.opaque(), static_cast<size_t>(byte_count), ncclUint8,
-        source_rank->value(), *nccl_comm, nccl_stream->stream));
+        recv_buffer, static_cast<size_t>(byte_count), ncclUint8,
+        *source_rank, comm, cuda_stream));
   }
   if (!target_ranks.empty()) {
     JAXMG_RETURN_IF_NCCL_ERROR(ncclSend(
-        send_buffer.opaque(), static_cast<size_t>(byte_count), ncclUint8,
-        target_ranks.front().value(), *nccl_comm, nccl_stream->stream));
+        send_buffer, static_cast<size_t>(byte_count), ncclUint8,
+        target_ranks.front(), comm, cuda_stream));
   }
   JAXMG_RETURN_IF_NCCL_ERROR(ncclGroupEnd());
 
-  if (nccl_stream->uses_comm_stream) {
-    // Make later main-stream CUDA work wait for the NCCL send/recv completion.
-    absl::Status status = stream->WaitFor(comm_stream);
-    if (!status.ok()) {
-      return status;
-    }
-  }
   return absl::OkStatus();
 }
 
@@ -184,13 +156,13 @@ absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream, ffi::AnyBuffer matrix,
   }
   // Aliased buffers need no copy. A distinct output receives the input once
   // before the in-place redistribution begins.
-  se::DeviceAddressBase matrix_base = matrix.device_memory();
-  se::DeviceAddressBase matrix_out_base = matrix_out->device_memory();
-  if (matrix_base.opaque() == matrix_out_base.opaque()) {
+  void* matrix_base = matrix.untyped_data();
+  void* matrix_out_base = matrix_out->untyped_data();
+  if (matrix_base == matrix_out_base) {
     return absl::OkStatus();
   }
   JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
-      matrix_out_base.opaque(), matrix_base.opaque(), matrix.size_bytes(),
+      matrix_out_base, matrix_base, matrix.size_bytes(),
       cudaMemcpyDeviceToDevice, cuda_stream));
   return absl::OkStatus();
 }
@@ -199,7 +171,7 @@ absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream, ffi::AnyBuffer matrix,
 // storage using the in-place CUDA decomposition launcher.
 absl::Status ConvertRowMajorToColumnMajorInPlace(
     cudaStream_t cuda_stream, const char* caller, ffi::AnyBuffer matrix,
-    se::DeviceAddressBase scratch_base, int64_t scratch_elements) {
+    void* scratch_base, int64_t scratch_elements) {
   if (cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         absl::StrFormat("%s requires a CUDA stream", caller));
@@ -238,7 +210,7 @@ absl::Status ConvertRowMajorToColumnMajorInPlace(
   // complex64 are both 8-byte payloads, and complex128 is a 16-byte payload.
   // All dtype semantics remain with JAX/cuSOLVERMp.
   JAXMG_RETURN_IF_CUDA_ERROR(::JaxmgLaunchRowMajorToColumnMajorDecomposition(
-      cuda_stream, matrix.untyped_data(), scratch_base.opaque(), rows, cols,
+      cuda_stream, matrix.untyped_data(), scratch_base, rows, cols,
       scratch_elements, static_cast<int64_t>(element_bytes)));
   return absl::OkStatus();
 }
@@ -247,7 +219,7 @@ absl::Status ConvertRowMajorToColumnMajorInPlace(
 // storage after reverse redistribution.
 absl::Status ConvertColumnMajorToRowMajorInPlace(
     cudaStream_t cuda_stream, const char* caller, ffi::AnyBuffer matrix,
-    se::DeviceAddressBase scratch_base, int64_t scratch_elements) {
+    void* scratch_base, int64_t scratch_elements) {
   if (cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
         absl::StrFormat("%s requires a CUDA stream", caller));
@@ -285,7 +257,7 @@ absl::Status ConvertColumnMajorToRowMajorInPlace(
   // grid is therefore the inverse permutation and restores JAX's row-major
   // physical order without changing the logical matrix.
   JAXMG_RETURN_IF_CUDA_ERROR(::JaxmgLaunchRowMajorToColumnMajorDecomposition(
-      cuda_stream, matrix.untyped_data(), scratch_base.opaque(), cols, rows,
+      cuda_stream, matrix.untyped_data(), scratch_base, cols, rows,
       scratch_elements, static_cast<int64_t>(element_bytes)));
   return absl::OkStatus();
 }
@@ -295,16 +267,16 @@ absl::Status ConvertColumnMajorToRowMajorInPlace(
 absl::Status PackRect(cudaStream_t cuda_stream, int64_t local_rows,
                       int64_t row_start, int64_t col_start,
                       int64_t row_count, int64_t col_count,
-                      size_t element_bytes, se::DeviceAddressBase matrix_base,
-                      se::DeviceAddressBase packed_base) {
+                      size_t element_bytes, void* matrix_base,
+                      void* packed_base) {
   // Pack a logical column-major rectangle into contiguous scratch so NCCL sees
   // one linear payload even when the source rectangle is strided in the local
   // matrix.
   RectCopySpec spec = BuildRectCopySpec(
       local_rows, row_start, col_start, row_count, col_count, element_bytes);
   const void* source =
-      matrix_base.GetByteSlice(spec.matrix_offset, spec.copy_bytes).opaque();
-  void* packed = packed_base.opaque();
+      static_cast<char*>(matrix_base) + spec.matrix_offset;
+  void* packed = packed_base;
   JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpy2DAsync(
       packed, spec.packed_pitch, source, spec.matrix_pitch, spec.copy_bytes,
       spec.copy_height, cudaMemcpyDeviceToDevice, cuda_stream));
@@ -317,15 +289,15 @@ absl::Status UnpackRect(cudaStream_t cuda_stream, int64_t local_rows,
                         int64_t row_start, int64_t col_start,
                         int64_t row_count, int64_t col_count,
                         size_t element_bytes,
-                        se::DeviceAddressBase packed_base,
-                        se::DeviceAddressBase matrix_base) {
+                        void* packed_base,
+                        void* matrix_base) {
   // Inverse of PackRect: write a contiguous scratch payload into a strided
   // column-major destination rectangle.
   RectCopySpec spec = BuildRectCopySpec(
       local_rows, row_start, col_start, row_count, col_count, element_bytes);
-  const void* packed = packed_base.opaque();
+  const void* packed = packed_base;
   void* target =
-      matrix_base.GetByteSlice(spec.matrix_offset, spec.copy_bytes).opaque();
+      static_cast<char*>(matrix_base) + spec.matrix_offset;
   JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpy2DAsync(
       target, spec.matrix_pitch, packed, spec.packed_pitch, spec.copy_bytes,
       spec.copy_height, cudaMemcpyDeviceToDevice, cuda_stream));
@@ -335,24 +307,24 @@ absl::Status UnpackRect(cudaStream_t cuda_stream, int64_t local_rows,
 // Executes the closed-cycle 2D block-cyclic schedule using saved/send/receive
 // scratch slots and raw NCCL for remote moves.
 absl::Status ExecuteNative2DStepBatches(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    cudaStream_t cuda_stream,
     const std::vector<Native2DStepBatch>& batches, int64_t local_rows,
     int64_t local_cols, int64_t rank_value, int64_t num_ranks,
     size_t element_bytes, int64_t slot_elements, ffi::AnyBuffer matrix,
-    se::DeviceAddressBase matrix_out_base,
-    se::DeviceAddressBase scratch_out_base, GpuCommunicator* comm) {
+    void* matrix_out_base,
+    void* scratch_out_base, ncclComm_t comm) {
   // The cyclic scheduler reserves three equal-size slots:
   //   saved_slot: protects one live slab while rotating a closed cycle;
   //   send_slot:  packed outgoing payload for this rank;
   //   recv_slot:  incoming payload for this rank.
   const uint64_t slot_bytes =
       static_cast<uint64_t>(slot_elements) * element_bytes;
-  se::DeviceAddressBase saved_slot =
-      scratch_out_base.GetByteSlice(0, slot_bytes);
-  se::DeviceAddressBase send_slot =
-      scratch_out_base.GetByteSlice(slot_bytes, slot_bytes);
-  se::DeviceAddressBase recv_slot =
-      scratch_out_base.GetByteSlice(2 * slot_bytes, slot_bytes);
+  void* saved_slot =
+      scratch_out_base;
+  void* send_slot =
+      static_cast<char*>(scratch_out_base) + slot_bytes;
+  void* recv_slot =
+      static_cast<char*>(scratch_out_base) + 2 * slot_bytes;
 
   // Execute the schedule in conflict-free batches. Sources are read from the
   // mutable output buffer because later waves/phases consume the layout written
@@ -398,13 +370,13 @@ absl::Status ExecuteNative2DStepBatches(
     // A batch is conflict-free, so each rank participates in at most one send
     // and one receive.  Raw NCCL send/recv covers remote traffic; the special
     // same-rank case above handles local copies without entering NCCL.
-    std::optional<RankId> source_rank;
+    std::optional<int64_t> source_rank;
     if (recv_step != nullptr) {
-      source_rank = RankId(recv_step->source_rank);
+      source_rank = recv_step->source_rank;
     }
-    std::vector<RankId> target_ranks;
+    std::vector<int64_t> target_ranks;
     if (send_step != nullptr && send_step->target_rank >= 0) {
-      target_ranks.push_back(RankId(send_step->target_rank));
+      target_ranks.push_back(send_step->target_rank);
     }
 
     const Native2DStep* shape_step =
@@ -416,7 +388,7 @@ absl::Status ExecuteNative2DStepBatches(
                    ? send_step->source.row_count * send_step->source.col_count
                    : recv_step->target.row_count *
                          recv_step->target.col_count);
-    se::DeviceAddressBase collective_send_slot =
+    void* collective_send_slot =
         batch.kind == Native2DStepKind::kRestoreScratch ? saved_slot
                                                         : send_slot;
 
@@ -425,7 +397,7 @@ absl::Status ExecuteNative2DStepBatches(
       // Local movement still goes through packed scratch. This keeps overlap
       // behavior identical for local and remote steps and avoids a separate
       // in-place rectangle-copy path.
-      se::DeviceAddressBase local_source =
+      void* local_source =
           batch.kind == Native2DStepKind::kRestoreScratch ? saved_slot
                                                           : send_slot;
       JAXMG_RETURN_IF_ERROR(UnpackRect(
@@ -439,7 +411,7 @@ absl::Status ExecuteNative2DStepBatches(
     const uint64_t collective_bytes =
         static_cast<uint64_t>(collective_elements) * element_bytes;
     JAXMG_RETURN_IF_ERROR(RunRawNcclSendRecv(
-        "jaxmg_native_2d_redistribution", stream, comm_stream, cuda_stream, comm,
+        "jaxmg_native_2d_redistribution", cuda_stream, comm,
         rank_value, num_ranks, collective_send_slot, recv_slot,
         collective_bytes, source_rank, absl::MakeConstSpan(target_ranks)));
 
@@ -458,12 +430,12 @@ absl::Status ExecuteNative2DStepBatches(
 // Executes the open-chain edge-padding schedule using the full scratch
 // allocation as one temporary payload per move.
 absl::Status ExecuteEdgePaddingBatches(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    cudaStream_t cuda_stream,
     const std::vector<Native2DStepBatch>& batches, int64_t local_rows,
     int64_t local_cols, int64_t rank_value, int64_t num_ranks,
     size_t element_bytes, int64_t scratch_elements, ffi::AnyBuffer /*matrix*/,
-    se::DeviceAddressBase matrix_out_base,
-    se::DeviceAddressBase scratch_base, GpuCommunicator* comm) {
+    void* matrix_out_base,
+    void* scratch_base, ncclComm_t comm) {
   // Edge-padding compaction is an open-chain shift, not a closed cycle.  The
   // edge-padding planner emits one dependency wave at a time across independent
   // process rows/columns; within such a wave, a rank must be either a source, a
@@ -528,19 +500,19 @@ absl::Status ExecuteEdgePaddingBatches(
           "remote target; padding batches must be split before execution");
     }
 
-    std::optional<RankId> source_rank;
+    std::optional<int64_t> source_rank;
     if (recv_step != nullptr) {
-      source_rank = RankId(recv_step->source_rank);
+      source_rank = recv_step->source_rank;
     }
-    std::vector<RankId> target_ranks;
+    std::vector<int64_t> target_ranks;
     if (send_step != nullptr && send_step->target_rank >= 0) {
-      target_ranks.push_back(RankId(send_step->target_rank));
+      target_ranks.push_back(send_step->target_rank);
     }
 
     const uint64_t collective_bytes =
         static_cast<uint64_t>(payload_elements) * element_bytes;
     JAXMG_RETURN_IF_ERROR(RunRawNcclSendRecv(
-        "jaxmg_edge_padding_alignment", stream, comm_stream, cuda_stream, comm,
+        "jaxmg_edge_padding_alignment", cuda_stream, comm,
         rank_value, num_ranks, scratch_base, scratch_base, collective_bytes,
         source_rank, absl::MakeConstSpan(target_ranks)));
 
@@ -556,4 +528,4 @@ absl::Status ExecuteEdgePaddingBatches(
   return absl::OkStatus();
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

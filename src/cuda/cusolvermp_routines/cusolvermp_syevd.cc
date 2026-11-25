@@ -39,7 +39,7 @@
 #include "cusolvermp_common.h"
 #include "cusolvermp_routines.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 // Executes cuSOLVERMp SYEVD on redistributed matrix storage.
@@ -241,22 +241,21 @@ absl::Status RunCusolverMpSyevd(
 // Creates the borrowed-XLA-communicator cuSOLVERMp handle/grid and dispatches
 // the dtype-specific SYEVD helper for the selected output mode.
 absl::Status RunCusolverMpSyevdSolver(
-    se::Stream* stream, cudaStream_t cuda_stream,
+    cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n,
     int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map,
     ffi::Result<ffi::AnyBuffer> eigenvalues_out,
     ffi::Result<ffi::AnyBuffer> work_out, ffi::AnyBuffer* vectors_out,
     bool compute_eigenvectors,
-    ffi::Result<ffi::BufferR1<S32>> status_out,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
+    CollectiveContext collectives) {
   // Stage 1: validate the local FFI buffers. Both modes use the redistributed
   // work_out as cuSOLVERMp's overwritten d_A. Vector mode also
   // receives vectors_out as the separate d_Q eigenvector output.
-  if (stream == nullptr || cuda_stream == nullptr) {
+  if (cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
-        "cusolvermp_syevd requires XLA and CUDA streams");
+        "cusolvermp_syevd requires a CUDA stream");
   }
   if (work_out->dimensions().size() != 2 ||
       eigenvalues_out->dimensions().size() != 1 ||
@@ -271,9 +270,9 @@ absl::Status RunCusolverMpSyevdSolver(
     return absl::InvalidArgumentError(
         "cusolvermp_syevd requires matching matrix/work/vector dtypes");
   }
-  const PrimitiveType expected_eigen_type =
-      (work_out->element_type() == F32 || work_out->element_type() == C64)
-          ? F32 : F64;
+  const ffi::DataType expected_eigen_type =
+      (work_out->element_type() == ffi::F32 || work_out->element_type() == ffi::C64)
+          ? ffi::F32 : ffi::F64;
   if (eigenvalues_out->element_type() != expected_eigen_type) {
     return absl::InvalidArgumentError(
         "cusolvermp_syevd received an eigenvalue output with the wrong dtype");
@@ -340,7 +339,7 @@ absl::Status RunCusolverMpSyevdSolver(
     if (vectors_out != nullptr) results.push_back(*vectors_out);
     JAXMG_RETURN_IF_ERROR(
         InvalidateResultsOnFailure(cuda_stream, status_words[0], results));
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(cuda_stream, status_words, status_out);
   };
 
   // Stage 2: bind the matrix's device and create the handle/grid using XLA's
@@ -353,7 +352,7 @@ absl::Status RunCusolverMpSyevdSolver(
   JAXMG_RETURN_IF_ERROR(execution.Initialize(
       "cusolvermp_syevd", cuda_stream, work_out->untyped_data(),
       process_rows, process_cols, grid_mapping, rank_map,
-      collective_params, collective_cliques));
+      collectives));
   if (status_words[0] != kStatusOk) {
     execution.Close();
     return publish_status();
@@ -374,28 +373,28 @@ absl::Status RunCusolverMpSyevdSolver(
   // keeps d_A and d_Q separate; values-only mode does not allocate d_Q.
   absl::Status syevd_status;
   switch (work_out->element_type()) {
-    case F32:
+    case ffi::F32:
       status_words[25] = 1;
       syevd_status = RunCusolverMpSyevd<float>(
           api, handle, grid, cuda_stream, n, tile_size, work_out->dimensions()[0],
           work_out->dimensions()[1], process_row, process_col, eigenvalues_out,
           work_out, vectors_out, compute_eigenvectors, &status_words);
       break;
-    case F64:
+    case ffi::F64:
       status_words[25] = 2;
       syevd_status = RunCusolverMpSyevd<double>(
           api, handle, grid, cuda_stream, n, tile_size, work_out->dimensions()[0],
           work_out->dimensions()[1], process_row, process_col, eigenvalues_out,
           work_out, vectors_out, compute_eigenvectors, &status_words);
       break;
-    case C64:
+    case ffi::C64:
       status_words[25] = 3;
       syevd_status = RunCusolverMpSyevd<cuFloatComplex>(
           api, handle, grid, cuda_stream, n, tile_size, work_out->dimensions()[0],
           work_out->dimensions()[1], process_row, process_col, eigenvalues_out,
           work_out, vectors_out, compute_eigenvectors, &status_words);
       break;
-    case C128:
+    case ffi::C128:
       status_words[25] = 4;
       syevd_status = RunCusolverMpSyevd<cuDoubleComplex>(
           api, handle, grid, cuda_stream, n, tile_size, work_out->dimensions()[0],
@@ -428,16 +427,15 @@ namespace {
 // output and restores it to the original JAX layout. Values-only mode omits
 // that output and ends after the solver has produced the replicated spectrum.
 absl::Status RunCusolverMpSyevdDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues, ffi::Result<ffi::AnyBuffer> work,
     ffi::AnyBuffer* vectors, bool compute_eigenvectors,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
   absl::StatusOr<ResolvedProcessGrid> process_grid =
-      ResolveProcessGrid("cusolvermp_syevd", collective_params, partition_slots,
+      ResolveProcessGrid("cusolvermp_syevd", partition_slots,
                          process_rows, process_cols);
   if (!process_grid.ok()) {
     return process_grid.status();
@@ -494,7 +492,7 @@ absl::Status RunCusolverMpSyevdDispatch(
   }
   Padded2DRedistScratch redistribution_scratch =
       *redistribution_scratch_status;
-  se::DeviceAddressBase scratch_base = redistribution_scratch.base;
+  void* scratch_base = redistribution_scratch.pointer;
   const int64_t scratch_elements = redistribution_scratch.elements;
 
   bool scratch_freed = false;
@@ -547,11 +545,10 @@ absl::Status RunCusolverMpSyevdDispatch(
 
   // Stage 4: redistribute A into cuSOLVERMp's 2D block-cyclic layout.
   if (absl::Status status = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_syevd/a_forward", stream, comm_stream, cuda_stream,
+          "cusolvermp_syevd/a_forward", cuda_stream,
           process_rows, process_cols, tile_size, tile_size, n, n,
-          /*reverse=*/0, rank_map, a_forward_input, work->device_memory(),
-          scratch_base, scratch_elements, collective_params,
-          collective_cliques);
+          /*reverse=*/0, rank_map, a_forward_input, work->untyped_data(),
+          scratch_base, scratch_elements, collectives);
       !status.ok()) {
     return return_after_cleanup(status);
   }
@@ -568,10 +565,9 @@ absl::Status RunCusolverMpSyevdDispatch(
   // Stage 5: run SYEVD in the statically selected mode. The shared helper
   // creates a Q descriptor only when eigenvectors are requested.
   if (absl::Status solver_call_status = RunCusolverMpSyevdSolver(
-          stream, cuda_stream, process_rows, process_cols, n,
+          cuda_stream, process_rows, process_cols, n,
           tile_size, grid_mapping, rank_map, eigenvalues, work,
-          vectors, compute_eigenvectors, status, collective_params,
-          collective_cliques);
+          vectors, compute_eigenvectors, status, collectives);
       !solver_call_status.ok()) {
     return return_after_cleanup(solver_call_status);
   }
@@ -594,11 +590,9 @@ absl::Status RunCusolverMpSyevdDispatch(
   // placement.  Eigenvalues are already a replicated rank-1 output from
   // cuSOLVERMp and do not need matrix redistribution.
   if (absl::Status status = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_syevd/vectors_reverse", stream, comm_stream,
-          cuda_stream, process_rows, process_cols, tile_size, tile_size, n, n,
-          /*reverse=*/1, rank_map, vectors_cyclic, vectors->device_memory(),
-          scratch_base, scratch_elements, collective_params,
-          collective_cliques);
+          "cusolvermp_syevd/vectors_reverse", cuda_stream, process_rows, process_cols, tile_size, tile_size, n, n,
+          /*reverse=*/1, rank_map, vectors_cyclic, vectors->untyped_data(),
+          scratch_base, scratch_elements, collectives);
       !status.ok()) {
     return return_after_cleanup(status);
   }
@@ -620,36 +614,33 @@ absl::Status RunCusolverMpSyevdDispatch(
 // The overwritten matrix work buffer remains distinct from the eigenvector
 // output required by the cuSOLVERMp API.
 absl::Status XlaCusolverMpSyevdDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues, ffi::Result<ffi::AnyBuffer> work,
-    ffi::Result<ffi::AnyBuffer> vectors, ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::AnyBuffer> vectors, ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
   ffi::AnyBuffer vector_buffer = *vectors;
   return RunCusolverMpSyevdDispatch(
-      stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
+      cuda_stream, process_rows, process_cols,
       n, tile_size, partition_slots, a, eigenvalues, work, &vector_buffer,
-      /*compute_eigenvectors=*/true, status, collective_params,
-      collective_cliques);
+      /*compute_eigenvectors=*/true, status, collectives);
 }
 
 // Executes eigenvalues-only SYEVD without allocating or restoring a
 // matrix-sized eigenvector output.
 absl::Status XlaCusolverMpSyevdValuesDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues, ffi::Result<ffi::AnyBuffer> work,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
   return RunCusolverMpSyevdDispatch(
-      stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
+      cuda_stream, process_rows, process_cols,
       n, tile_size, partition_slots, a, eigenvalues, work,
       /*vectors=*/nullptr, /*compute_eigenvectors=*/false, status,
-      collective_params, collective_cliques);
+      collectives);
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

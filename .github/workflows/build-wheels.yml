@@ -1,13 +1,7 @@
 name: build-wheels (reusable)
 
-# Reusable workflow: build the CUDA 12 and CUDA 13
-# libjaxmg_xla_comm_backend.so libraries against @xla in the JAX CI container
-# (natively, no QEMU), then package both into a py3-none manylinux wheel,
-# which serves every Python version as the backend does not use the C API.
-# Parameterized by arch so the same logic serves x86_64 and aarch64.
-#
-# No GPU is available on GitHub runners. Native ownership tests use fake device
-# calls; numerical GPU tests run on Jenkins after wheels are packaged.
+# Build only JAXMg against installed public FFI headers. The same py3-none wheel
+# serves all Python versions; numerical GPU validation runs on Jenkins.
 
 on:
   workflow_call:
@@ -18,10 +12,6 @@ on:
         type: string
       runner:
         description: 'ubuntu-24.04 | ubuntu-24.04-arm'
-        required: true
-        type: string
-      compile_image:
-        description: 'JAX CI container (ml-build[/-arm64]) used for the Bazel build'
         required: true
         type: string
       package_image:
@@ -39,88 +29,61 @@ on:
         default: ''
 
 env:
-  JAX_GIT_REPOSITORY: https://github.com/jax-ml/jax.git
-  JAX_GIT_TAG: jax-v0.11.1
+  JAX_FFI_VERSION: '0.11.2'
 
 jobs:
   compile:
     runs-on: ${{ inputs.runner }}
     container:
-      image: ${{ inputs.compile_image }}
+      image: ${{ matrix.compile_image }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - cuda_major: '12'
-            cuda_archs: sm_70,sm_80,sm_90,sm_120,compute_90
+            compile_image: nvidia/cuda:12.9.1-devel-rockylinux8
             cusolvermp: nvidia-cusolvermp-cu12==0.10.0.27368
           - cuda_major: '13'
-            cuda_archs: sm_80,sm_90,sm_120,compute_90
+            compile_image: nvidia/cuda:13.0.2-devel-rockylinux8
             cusolvermp: nvidia-cusolvermp-cu13==0.10.0.27368
     steps:
+      - name: Install build tools
+        run: dnf install -y git file
+
       - name: Checkout jaxmg
         uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
 
       - name: Build CUDA ${{ matrix.cuda_major }} native backend (.so)
         shell: bash
         env:
           CUDA_MAJOR: ${{ matrix.cuda_major }}
-          CUDA_ARCHS: ${{ matrix.cuda_archs }}
           CUSOLVERMP: ${{ matrix.cusolvermp }}
-          JAXCI_HERMETIC_PYTHON_VERSION: '3.12'
-          JAXMG_RUN_NATIVE_TESTS: '1'
+          JAXMG_RUN_NATIVE_TESTS: 'ON'
         run: |
           set -euxo pipefail
-          WS="$(pwd)"
-          # Bazel's output base and git's --global config need a writable HOME.
-          export HOME="$WS"
-
-          # 1. Clone JAX (provides the @xla Bazel external repo).
-          rm -rf jax-src
-          git clone --depth 1 --branch "$JAX_GIT_TAG" "$JAX_GIT_REPOSITORY" jax-src
-
-          # 2. Stage this jaxmg checkout inside the jax tree.
-          mkdir -p jax-src/jaxmg
-          cp -r src bazel build_native_backend.sh pyproject.toml setup.py jax-src/jaxmg/
-          mkdir -p jax-src/jaxmg/tests
-          cp -r tests/native jax-src/jaxmg/tests/
-
-          # 3. Generate .jax_configure.bazelrc ONLY (skip the full plugin build).
-          cd jax-src
-          export JAXCI_CUDA_VERSION="$CUDA_MAJOR"
-          source ci/envs/default.env
-          source ci/utilities/setup_build_environment.sh
-          arch="$(uname -m)"
-          python build/build.py build \
-            --wheels=jax-cuda-plugin \
-            --configure_only \
-            --bazel_options=--config="ci_linux_${arch}_cuda${JAXCI_CUDA_VERSION}" \
-            --python_version="${JAXCI_HERMETIC_PYTHON_VERSION}" \
-            --cuda_major_version="${JAXCI_CUDA_VERSION}" \
-            --output_path="${JAXCI_OUTPUT_DIR}"
-
-          # 4. Build the backend against @xla (CUDA is hermetic -> pass CUDA_MAJOR).
-          python -m pip install "$CUSOLVERMP"
-          JAX_SRC="$PWD" JAXMG_ROOT="$PWD/jaxmg" CUDA_MAJOR="$CUDA_MAJOR" \
-            JAXMG_XLA_CUDA_COMPUTE_CAPABILITIES="$CUDA_ARCHS" \
-            JAXMG_XLA_BAZEL_JOBS="$(nproc)" \
-            ./jaxmg/build_native_backend.sh
-
-          # 5. Copy the built library back into the workspace and check its arch.
-          cd "$WS"
-          mkdir -p "src/jaxmg/cu${CUDA_MAJOR}"
-          cp "jax-src/jaxmg/src/jaxmg/cu${CUDA_MAJOR}/libjaxmg_xla_comm_backend.so" \
-            "src/jaxmg/cu${CUDA_MAJOR}/"
+          uv venv --python 3.12
+          source .venv/bin/activate
+          uv pip install "jax==${JAX_FFI_VERSION}" cmake ninja \
+            "$CUSOLVERMP" "nvidia-nccl-cu${CUDA_MAJOR}==2.32.6"
+          PYTHON=python JAXMG_BUILD_JOBS="$(nproc)" ./build_native_backend.sh
           so="src/jaxmg/cu${CUDA_MAJOR}/libjaxmg_xla_comm_backend.so"
           file "$so"
           case "${{ inputs.arch }}" in
-            x86_64)  needle='x86-64' ;;
+            x86_64) needle='x86-64' ;;
             aarch64) needle='aarch64' ;;
-            *) echo "unknown arch ${{ inputs.arch }}" >&2; exit 1 ;;
+            *) exit 1 ;;
           esac
-          file "$so" | grep -qi "$needle" \
-            || { echo "ERROR: $so is not ${{ inputs.arch }}" >&2; exit 1; }
-          ls -la "src/jaxmg/cu${CUDA_MAJOR}"
+          file "$so" | grep -qi "$needle"
+          # Only the C handlers are exported; XLA/Abseil C++ symbols stay private.
+          nm -D --defined-only "$so"
+          if nm -D --defined-only "$so" | awk '{print $3}' | grep -v '^XlaCusolverMp.*FFI$'; then
+            echo "Unexpected exported backend symbols" >&2
+            exit 1
+          fi
 
       - name: Upload CUDA ${{ matrix.cuda_major }} native backend (.so)
         uses: actions/upload-artifact@v4
@@ -193,7 +156,7 @@ jobs:
             --exclude 'libcuda.so*' \
             --exclude 'libcudart.so*' \
             --exclude 'libcusolver.so*' \
-            --exclude 'libcusolverMg.so*' \
+            --exclude 'libnccl.so*' \
             --exclude 'libcusolverMp.so*' \
             --exclude 'libcublasmp.so*' \
             --exclude 'libcupti.so*' \

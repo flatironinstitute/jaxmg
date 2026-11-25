@@ -39,7 +39,7 @@
 #include "factor_extract.h"
 #include "factorization.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 // cuSOLVERMp follows ScaLAPACK: pivot entries are 1-based global row indices.
@@ -57,7 +57,7 @@ absl::Status RunCusolverMpGetrf(
     cudaStream_t cuda_stream, int64_t n, int64_t tile_size,
     int32_t process_row, int32_t process_col,
     ffi::Result<ffi::AnyBuffer> lu_out, int64_t* d_ipiv, size_t ipiv_bytes,
-    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
     std::array<int32_t, kGetrfStatusSize>* status_words) {
   CusolverMpDebug((*status_words)[2],
                   "getrf enter n=%lld tile=%lld process_coord=(%d,%d) "
@@ -122,17 +122,16 @@ void DebugDumpLocalPivots(cudaStream_t cuda_stream, int rank,
 }
 
 absl::Status RunCusolverMpGetrfSolver(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map, ffi::Result<ffi::AnyBuffer> lu_out,
-    ffi::Result<ffi::BufferR1<S32>> piv_out,
-    ffi::Result<ffi::BufferR1<S32>> status_out,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> piv_out,
+    ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
+    CollectiveContext collectives) {
   // Stage 1: validate the streams and fixed diagnostic-buffer contract.
-  if (stream == nullptr || cuda_stream == nullptr) {
+  if (cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
-        "cusolvermp_getrf requires XLA and CUDA streams");
+        "cusolvermp_getrf requires a CUDA stream");
   }
   if (status_out->dimensions().size() != 1 ||
       status_out->dimensions()[0] != kGetrfStatusSize) {
@@ -183,7 +182,7 @@ absl::Status RunCusolverMpGetrfSolver(
       JAXMG_RETURN_IF_CUDA_ERROR(
           cudaMemsetAsync(piv, 0xFF, piv_bytes, cuda_stream));
     }
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(cuda_stream, status_words, status_out);
   };
 
   // Stage 2: bind the matrix's device, borrow XLA's communicator, and create
@@ -196,7 +195,7 @@ absl::Status RunCusolverMpGetrfSolver(
   JAXMG_RETURN_IF_ERROR(execution.Initialize(
       "cusolvermp_getrf", cuda_stream, lu_out->untyped_data(),
       process_rows, process_cols, grid_mapping, rank_map,
-      collective_params, collective_cliques));
+      collectives));
   if (status_words[0] != kStatusOk) {
     execution.Close();
     return publish_status();
@@ -241,28 +240,28 @@ absl::Status RunCusolverMpGetrfSolver(
   absl::Status getrf_status = absl::OkStatus();
   if (status_words[0] == kStatusOk) {
     switch (lu_out->element_type()) {
-      case F32:
+      case ffi::F32:
         status_words[26] = 1;
         getrf_status = RunCusolverMpGetrf<float>(
             api, handle, grid, cuda_stream, n, tile_size, process_row,
             process_col, lu_out, d_ipiv.get(), ipiv_bytes,
             nccl_comm, status_out, &status_words);
         break;
-      case F64:
+      case ffi::F64:
         status_words[26] = 2;
         getrf_status = RunCusolverMpGetrf<double>(
             api, handle, grid, cuda_stream, n, tile_size, process_row,
             process_col, lu_out, d_ipiv.get(), ipiv_bytes,
             nccl_comm, status_out, &status_words);
         break;
-      case C64:
+      case ffi::C64:
         status_words[26] = 3;
         getrf_status = RunCusolverMpGetrf<cuFloatComplex>(
             api, handle, grid, cuda_stream, n, tile_size, process_row,
             process_col, lu_out, d_ipiv.get(), ipiv_bytes,
             nccl_comm, status_out, &status_words);
         break;
-      case C128:
+      case ffi::C128:
         status_words[26] = 4;
         getrf_status = RunCusolverMpGetrf<cuDoubleComplex>(
             api, handle, grid, cuda_stream, n, tile_size, process_row,
@@ -312,25 +311,23 @@ absl::Status RunCusolverMpGetrfSolver(
 }
 
 absl::Status RunCusolverMpGetrfDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream,
+    cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
-    ffi::Result<ffi::AnyBuffer> lu, ffi::Result<ffi::BufferR1<S32>> piv,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::AnyBuffer> lu, ffi::Result<ffi::BufferR1<ffi::S32>> piv,
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
   if (piv->dimensions().size() != 1 || piv->dimensions()[0] != n) {
     return absl::InvalidArgumentError("cusolvermp_getrf expects pivot shape (n,)");
   }
   return DispatchSquareMatrix(
-      "cusolvermp_getrf", stream, cuda_stream, process_rows, process_cols,
-      n, tile_size, partition_slots, a, lu, collective_params,
-      collective_cliques,
+      "cusolvermp_getrf", cuda_stream, process_rows, process_cols,
+      n, tile_size, partition_slots, a, lu, collectives,
       [&](const ResolvedProcessGrid& grid, const Padded2DRedistScratch&) {
         return RunCusolverMpGetrfSolver(
-            stream, cuda_stream, process_rows, process_cols, n, tile_size,
+            cuda_stream, process_rows, process_cols, n, tile_size,
             grid.grid_mapping, grid.rank_map, lu, piv, status,
-            collective_params, collective_cliques);
+            collectives);
       });
 }
 
@@ -339,17 +336,15 @@ absl::Status RunCusolverMpGetrfDispatch(
 // Executes the complete factor-only GETRF workflow in one FFI dispatch. The
 // packed LU output aliases A, and the pivots are replicated on every rank.
 absl::Status XlaCusolverMpGetrfDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
-    ffi::Result<ffi::AnyBuffer> lu, ffi::Result<ffi::BufferR1<S32>> piv,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::AnyBuffer> lu, ffi::Result<ffi::BufferR1<ffi::S32>> piv,
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
   return RunCusolverMpGetrfDispatch(
-      stream, cuda_stream, process_rows, process_cols,
-      n, tile_size, partition_slots, a, lu, piv, status, collective_params,
-      collective_cliques);
+      cuda_stream, process_rows, process_cols,
+      n, tile_size, partition_slots, a, lu, piv, status, collectives);
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

@@ -20,7 +20,7 @@
 #include <cuda_runtime_api.h>
 #include <library_types.h>
 
-namespace xla::gpu {
+namespace jaxmg {
 
 // Zeros the strict upper triangle of a distributed square matrix in place.
 // The buffer holds one rank's local block in 2D block-cyclic, column-major
@@ -50,6 +50,6 @@ cudaError_t PackHermitianTile(
     cudaStream_t stream, cudaDataType_t dtype, const void* a, int64_t ld,
     int64_t rows, int64_t cols, bool diagonal, void* packed);
 
-}  // namespace xla::gpu
+}  // namespace jaxmg
 
 #endif  // JAXMG_FACTOR_EXTRACT_H_

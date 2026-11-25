@@ -27,7 +27,7 @@
 #include <cuComplex.h>
 #include <cuda_runtime_api.h>
 
-namespace xla::gpu {
+namespace jaxmg {
 
 // Writes `value` to each of the `count` contiguous elements of `data`.
 // Instantiated for float, double, cuFloatComplex, and cuDoubleComplex.
@@ -35,6 +35,6 @@ template <typename DataType>
 cudaError_t FillDeviceArray(cudaStream_t cuda_stream, DataType* data,
                             int64_t count, DataType value);
 
-}  // namespace xla::gpu
+}  // namespace jaxmg
 
 #endif  // JAXMG_RESULT_FILL_H_

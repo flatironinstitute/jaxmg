@@ -19,7 +19,7 @@
 
 #include "factor_extract.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 constexpr int kFactorExtractBlockSize = 256;
@@ -187,4 +187,4 @@ cudaError_t PackHermitianTile(
   }
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

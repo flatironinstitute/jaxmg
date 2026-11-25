@@ -1,5 +1,4 @@
-# Newest JAX validated against the native backend built from JAX_GIT_TAG
-# (.github/workflows/build-wheels.yml). Bumped by Dependabot; the jax-compat
-# workflow tests each bump on the A100s and, if it passes, widens the jax range
-# in pyproject.toml. When JAX_GIT_TAG moves, set this to that JAX version.
+# Newest JAX validated by the compatibility workflow. Dependabot bumps this
+# pin; the workflow tests the existing wheel on the A100s before widening
+# the JAX range in pyproject.toml.
 jax==0.12.0.1

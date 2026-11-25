@@ -20,7 +20,7 @@
 #include <cuda_runtime_api.h>
 #include <library_types.h>
 
-namespace xla::gpu {
+namespace jaxmg {
 
 // Copies the upper triangle produced by GEQRF from a distributed M-by-N
 // buffer into an N-by-N buffer with the same 2D block-cyclic ownership.
@@ -31,6 +31,6 @@ cudaError_t ExtractDistributedQrR(
     int64_t qr_leading_dimension, int64_t r_leading_dimension,
     int64_t r_numroc_rows, int64_t r_numroc_cols);
 
-}  // namespace xla::gpu
+}  // namespace jaxmg
 
 #endif  // JAXMG_QR_EXTRACT_H_

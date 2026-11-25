@@ -22,7 +22,7 @@
 
 #include "result_fill.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 constexpr int kFillBlockSize = 256;
@@ -68,4 +68,4 @@ template cudaError_t FillDeviceArray<cuDoubleComplex>(cudaStream_t,
                                                       int64_t,
                                                       cuDoubleComplex);
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

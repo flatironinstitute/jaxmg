@@ -147,9 +147,12 @@ def test_potrs_without_mesh_under_jit(case_name):
 
 
 @pytest.mark.multi_gpu
-def test_potrs_rejects_unsupported_device_order():
-    """A mesh order cuSOLVERMp cannot represent fails with a clear error."""
-    run_gpu_test(GPU_TEST, 4, "row_major_no_padding", "float32", interface="invalid_order")
+@pytest.mark.parametrize("requested_procs", (2, 4))
+def test_potrs_with_permuted_devices(requested_procs):
+    """Communicator ordering follows logical partitions, not physical IDs."""
+    run_gpu_test(
+        GPU_TEST, requested_procs, "row_major_no_padding", "float32", interface="permuted"
+    )
 
 
 @pytest.mark.parametrize("requested_procs", SINGULAR_PROCESS_COUNTS)

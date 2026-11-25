@@ -40,7 +40,7 @@
 
 #include "memory_redist.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 // One chunk of a 1D edge-padding shift. The 2D planner lifts this movement
@@ -295,4 +295,4 @@ std::vector<Native2DStep> ReverseEdgePaddingSteps(
 }
 
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

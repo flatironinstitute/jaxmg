@@ -16,8 +16,9 @@ Install the package with the extra matching your CUDA setup:
 
 ## JAX compatibility
 
-JAXMg uses internal JAX/XLA interfaces, so each release supports specific JAX
-versions:
+This development branch uses the public Collectives C FFI, available from JAX
+`0.11.2`, without linking XLA. Compatibility testing covers JAX `0.11.2`,
+`0.12.0.1`, and `0.12.1`. Released versions use the following JAX ranges:
 
 | JAXMg | JAX |
 |---|---|

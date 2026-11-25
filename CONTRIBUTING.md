@@ -65,7 +65,7 @@ The main areas of the repository are:
 - `docs/` for user guides, examples, and technical documentation;
 - `.github/`, `.jenkins/`, and `pyproject.toml` for building and packaging.
 
-Changes under `src/cuda/`, `bazel/`, or `build_native_backend.sh` require a
+Changes under `src/cuda/`, `CMakeLists.txt`, or `build_native_backend.sh` require a
 native rebuild. Follow
 [Building the native backend](https://flatironinstitute.github.io/jaxmg/latest/technical_details/building_from_source/)
 before running the GPU tests.
@@ -186,14 +186,18 @@ Publishing requires the Jenkins secrets, PyPI Trusted Publishers, and
 
 ## Versioning
 
-To ensure compatibility with JAX, we compile the the native backend of JAXMg against the exact internal XLA revision that JAX is build against. This backend changes with each JAX release, so we have rebuild even when there are no source code changes to JAXMg. This forces us to follow JAX' release schedule.
+The development backend uses the public Collectives C FFI. It is built against
+the minimum supported `jaxlib` headers and does not link XLA C++ code. CI tests
+one compiled wheel against JAX `0.11.2`, `0.12.0.1`, and `0.12.1`; newer JAX
+versions still require validation before widening the supported range.
 
-JAXMg releases are `MAJOR.MINOR.PATCH`, where the minor number tracks JAX.
+JAXMg releases are `MAJOR.MINOR.PATCH`. Earlier minor releases tracked changes
+to the internal XLA build; the C FFI removes that source-level dependency.
 
 | Component | Meaning |
 |---|---|
 | `MAJOR` | Reserved for a major rewrite of JAXMg. |
-| `MINOR` | One per `JAX_GIT_TAG` bump, i.e. a rebuild against a new JAX. |
+| `MINOR` | A new backend/API baseline or functionality. |
 | `PATCH` | JAXMg fixes, or a widened JAX range, on the same build. |
 
 Compatibility by release:
@@ -206,9 +210,8 @@ Compatibility by release:
 | `1.4.0` to `1.4.2` | `0.11.1`, `0.11.2`, `0.12.0`, `0.12.0.1` |
 
 Each JAXMg release must declare the JAX versions validated against its native
-backend in `pyproject.toml`, for example `jax>=0.11.1,<0.11.3`.
-
-> The `JAX_IFRT_VERSION_NUMBER` tracks changes to the distributed runtime interface, and can be used as a guide to investigate breaking changes in the XLA backend.
+backend in `pyproject.toml`. Keep the minimum FFI header version in
+`build-wheels.yml` aligned with the lower bound.
 
 ### New JAX releases
 
@@ -219,7 +222,7 @@ runs `.github/workflows/jax-compat.yml`, which:
 
 1. lists every JAX release between the current `pyproject.toml` range and the
    new pin;
-2. takes the latest `ci.yml` wheel built from the same `JAX_GIT_TAG`, or builds
+2. takes the latest `ci.yml` wheel built from identical package sources and build inputs, or builds
    one if those artifacts have expired;
 3. runs the Jenkins A100 suite once per version, with that exact JAX installed;
 4. on success, pushes a commit to the PR that raises the upper bound of every
@@ -228,9 +231,9 @@ runs `.github/workflows/jax-compat.yml`, which:
 - **Green:** merge the PR. The widened range ships in the next PATCH release;
   add the new JAX to the compatibility tables (README.md, `docs/install.md` and
   above) as part of that release.
-- **Red:** close the PR (Dependabot then skips that release) and rebuild: bump
-  `JAX_GIT_TAG`, the `pyproject.toml` range and `latest_tested.txt` together,
-  as a new MINOR release.
+- **Red:** investigate the failing API or numerical contract before changing
+  the supported range. A rebuild alone need not resolve the failure.
 
 To test a version by hand, run the `JAX compatibility` workflow with
-`jax_version` set.
+`jax_version` set. Set it to `all` to re-test every JAX the `pyproject.toml`
+range admits, for example after changing the native backend.

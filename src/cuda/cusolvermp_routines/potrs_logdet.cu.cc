@@ -41,7 +41,7 @@
 
 #include "potrs_logdet.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 constexpr int kLogdetBlockSize = 256;
@@ -188,4 +188,4 @@ cudaError_t AccumulateLocalCholeskyLogdet(
   }
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

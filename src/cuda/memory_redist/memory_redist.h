@@ -24,7 +24,7 @@
 
 #include "../xla_ffi/runtime.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 
 // A rectangular view into one local GPU shard. All coordinates are logical
 // local row/column indices, independent of the physical byte address ordering.
@@ -80,13 +80,13 @@ absl::Status CopyMatrixIfNeeded(cudaStream_t cuda_stream,
 // storage in place using the caller-provided bounded scratch allocation.
 absl::Status ConvertRowMajorToColumnMajorInPlace(
     cudaStream_t cuda_stream, const char* caller, ffi::AnyBuffer matrix,
-    se::DeviceAddressBase scratch_base, int64_t scratch_elements);
+    void* scratch_base, int64_t scratch_elements);
 
 // Applies the inverse local layout conversion so solver outputs become
 // row-major JAX-facing shards again.
 absl::Status ConvertColumnMajorToRowMajorInPlace(
     cudaStream_t cuda_stream, const char* caller, ffi::AnyBuffer matrix,
-    se::DeviceAddressBase scratch_base, int64_t scratch_elements);
+    void* scratch_base, int64_t scratch_elements);
 
 // Low-level rectangle validation, packing, and transport operations.
 // Checks that a logical local rectangle lies inside a rank-local matrix.
@@ -99,25 +99,24 @@ absl::Status ValidateRect(const char* caller, int64_t row_start,
 absl::Status PackRect(cudaStream_t cuda_stream, int64_t local_rows,
                       int64_t row_start, int64_t col_start,
                       int64_t row_count, int64_t col_count,
-                      size_t element_bytes, se::DeviceAddressBase matrix_base,
-                      se::DeviceAddressBase packed_base);
+                      size_t element_bytes, void* matrix_base,
+                      void* packed_base);
 
 // Unpacks one contiguous scratch payload into a strided column-major rectangle.
 absl::Status UnpackRect(cudaStream_t cuda_stream, int64_t local_rows,
                         int64_t row_start, int64_t col_start,
                         int64_t row_count, int64_t col_count,
                         size_t element_bytes,
-                        se::DeviceAddressBase packed_base,
-                        se::DeviceAddressBase matrix_base);
+                        void* packed_base,
+                        void* matrix_base);
 
 // Performs one raw NCCL point-to-point send/receive round using the communicator
-// borrowed from XLA's GpuCommunicator.
+// borrowed through XLA's public Collectives FFI.
 absl::Status RunRawNcclSendRecv(
-    const char* caller, se::Stream* stream, se::Stream* comm_stream,
-    cudaStream_t cuda_stream, GpuCommunicator* comm, int64_t rank_value,
-    int64_t num_ranks, se::DeviceAddressBase send_buffer,
-    se::DeviceAddressBase recv_buffer, uint64_t byte_count,
-    std::optional<RankId> source_rank, absl::Span<const RankId> target_ranks);
+    const char* caller, cudaStream_t cuda_stream, ncclComm_t comm, int64_t rank_value,
+    int64_t num_ranks, void* send_buffer,
+    void* recv_buffer, uint64_t byte_count,
+    std::optional<int64_t> source_rank, absl::Span<const int64_t> target_ranks);
 
 // Groups same-sequence movement steps into conflict-free batches.
 std::vector<Native2DStepBatch> BatchNative2DSteps(
@@ -126,22 +125,22 @@ std::vector<Native2DStepBatch> BatchNative2DSteps(
 // Executes conflict-free batches for the cyclic 2D block redistribution phase
 // using saved/send/receive scratch slots.
 absl::Status ExecuteNative2DStepBatches(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    cudaStream_t cuda_stream,
     const std::vector<Native2DStepBatch>& batches, int64_t local_rows,
     int64_t local_cols, int64_t rank_value, int64_t num_ranks,
     size_t element_bytes, int64_t slot_elements, ffi::AnyBuffer matrix,
-    se::DeviceAddressBase matrix_out_base,
-    se::DeviceAddressBase scratch_out_base, GpuCommunicator* comm);
+    void* matrix_out_base,
+    void* scratch_out_base, ncclComm_t comm);
 
 // Executes open-chain edge-padding batches using the whole scratch allocation
 // as a single temporary payload.
 absl::Status ExecuteEdgePaddingBatches(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    cudaStream_t cuda_stream,
     const std::vector<Native2DStepBatch>& batches, int64_t local_rows,
     int64_t local_cols, int64_t rank_value, int64_t num_ranks,
     size_t element_bytes, int64_t scratch_elements, ffi::AnyBuffer matrix,
-    se::DeviceAddressBase matrix_out_base,
-    se::DeviceAddressBase scratch_base, GpuCommunicator* comm);
+    void* matrix_out_base,
+    void* scratch_base, ncclComm_t comm);
 
 // Builds the forward top-left edge-padding compaction schedule for one padded
 // JAX-sharded matrix.
@@ -188,7 +187,6 @@ struct Padded2DRedistScratchRequest {
 };
 
 struct Padded2DRedistScratch {
-  se::DeviceAddressBase base;
   void* pointer;
   int64_t elements;
   size_t bytes;
@@ -215,16 +213,14 @@ absl::Status FreePadded2DRedistScratch(cudaStream_t cuda_stream,
 // a matrix buffer using the XLA-owned communicator. The caller supplies a work
 // buffer and scratch allocation sized by AllocatePadded2DRedistScratch.
 absl::Status ExecutePadded2DNativePlanRaw(
-    const char* caller, se::Stream* stream, se::Stream* comm_stream,
-    cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,
+    const char* caller, cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,
     int64_t tile_rows, int64_t tile_cols, int64_t logical_rows,
     int64_t logical_cols, int64_t reverse,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer matrix,
-    se::DeviceAddressBase matrix_out_base,
-    se::DeviceAddressBase scratch_base, int64_t scratch_elements,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques);
+    void* matrix_out_base,
+    void* scratch_base, int64_t scratch_elements,
+    CollectiveContext collectives);
 
-}  // namespace xla::gpu
+}  // namespace jaxmg
 
 #endif  // JAXMG_MEMORY_REDIST_H_

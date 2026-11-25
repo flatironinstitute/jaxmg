@@ -16,7 +16,7 @@
 
 #include "qr_extract.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 constexpr int kQrExtractBlockSize = 256;
@@ -113,4 +113,4 @@ cudaError_t ExtractDistributedQrR(
   }
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

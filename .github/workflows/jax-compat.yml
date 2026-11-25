@@ -1,8 +1,9 @@
 name: JAX compatibility
 
-# Does the native backend built from JAX_GIT_TAG (build-wheels.yml) also work
-# with a newer JAX? If so, the jax range in pyproject.toml can be widened
-# without a rebuild.
+# Validate a newer JAX against the same native wheel before widening support.
+#
+# Run by hand with jax_version=all to re-test every JAX that pyproject.toml
+# already admits, e.g. after a change to the native backend.
 
 on:
   pull_request:
@@ -11,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       jax_version:
-        description: 'JAX version to test'
+        description: 'JAX version to test, or "all" for every version pyproject.toml admits (empty: versions a widening would add)'
         required: false
         type: string
 
@@ -39,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0     # read JAX_GIT_TAG at earlier CI runs' commits
+          fetch-depth: 0     # compare package/build inputs at earlier commits
 
       - uses: actions/setup-python@v5
         with:
@@ -51,7 +52,10 @@ jobs:
           JAX_VERSION: ${{ inputs.jax_version }}
         run: |
           set -euo pipefail
-          if [ -n "${JAX_VERSION:-}" ]; then
+          if [ "${JAX_VERSION:-}" = all ]; then
+            python -m pip install --quiet packaging
+            versions=$(python .github/jax-compat/jax_range.py admitted)
+          elif [ -n "${JAX_VERSION:-}" ]; then
             versions=$(python -c 'import json, sys; print(json.dumps([sys.argv[1]]))' "$JAX_VERSION")
           else
             python -m pip install --quiet packaging
@@ -60,26 +64,23 @@ jobs:
           echo "versions=${versions}" >> "$GITHUB_OUTPUT"
           echo "JAX versions to test: \`${versions}\`" >> "$GITHUB_STEP_SUMMARY"
 
-      # Reuse the newest successful ci.yml wheel whose commit has the same
-      # JAX_GIT_TAG (so the .so is the one this branch ships) and whose
-      # artifacts have not expired. Otherwise build-x86 below builds one.
-      - name: Find a wheel built from the current JAX_GIT_TAG
+      # Reuse only wheels with identical package source and build inputs.
+      - name: Find a wheel matching the current backend
         id: wheel
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.base_ref || github.ref_name }}
         run: |
           set -euo pipefail
-          tag_at() {
-            git show "$1:.github/workflows/build-wheels.yml" 2>/dev/null \
-              | awk -F': *' '/^ *JAX_GIT_TAG:/ {gsub(/["\x27 ]/, "", $2); print $2; exit}'
+          backend_at() {
+            git ls-tree -r "$1" -- src setup.py CMakeLists.txt build_native_backend.sh \
+              .github/workflows/build-wheels.yml | git hash-object --stdin
           }
-          want=$(tag_at HEAD)
-          [ -n "$want" ] || { echo "could not read JAX_GIT_TAG from build-wheels.yml" >&2; exit 1; }
+          want=$(backend_at HEAD)
 
           reuse=false run_id='' sha=''
           while read -r id head; do
-            [ "$(tag_at "$head")" = "$want" ] || continue
+            [ "$(backend_at "$head")" = "$want" ] || continue
             live=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/artifacts?per_page=100" \
               --jq '[.artifacts[] | select(.name | startswith("wheels-x86_64-")) | select(.expired | not)] | length')
             if [ "$live" -gt 0 ]; then
@@ -109,7 +110,6 @@ jobs:
     with:
       arch: x86_64
       runner: ubuntu-24.04
-      compile_image: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest
       package_image: quay.io/pypa/manylinux_2_28_x86_64
       manylinux_plat: manylinux_2_28_x86_64
 

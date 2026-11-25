@@ -32,7 +32,7 @@
 #include "absl/strings/str_join.h"
 #include "result_fill.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 // A failed rank must not skip setup while peers enter collective computation.
@@ -53,8 +53,7 @@ absl::Status CusolverMpExecution::Initialize(
     const char* caller, cudaStream_t cuda_stream, const void* matrix,
     int64_t process_rows, int64_t process_cols, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    CollectiveContext collectives) {
   if (status_.size() < 10 || raw_status_index_ >= status_.size()) {
     return absl::InvalidArgumentError("cuSOLVERMp runtime status is too small");
   }
@@ -69,28 +68,11 @@ absl::Status CusolverMpExecution::Initialize(
   cuda_stream_ = cuda_stream;
 
   // Stage 2: borrow XLA's existing communicator without taking ownership.
-  if (collective_params == nullptr || collective_cliques == nullptr) {
-    status_[0] = kCollectiveContextMissing;
-    return absl::OkStatus();
+  auto borrowed = BorrowNcclComm(caller, collectives, process_rows * process_cols);
+  if (!borrowed.ok()) {
+    AbortSetupFailure("borrowed NCCL communicator", -1, borrowed.status().ToString());
   }
-  absl::StatusOr<GpuCliqueKey> clique_key =
-      AllAssignedDevicesP2PCliqueKey(*collective_params);
-  if (!clique_key.ok()) {
-    status_[0] = kCliqueKeyFailed;
-    return absl::OkStatus();
-  }
-  absl::StatusOr<GpuCommunicator*> gpu_comm = collective_cliques->GetComm(
-      *clique_key, collective_params->global_device_id);
-  if (!gpu_comm.ok() || *gpu_comm == nullptr) {
-    status_[0] = kCommunicatorMissing;
-    return absl::OkStatus();
-  }
-  void* platform_handle = (*gpu_comm)->platform_comm().handle;
-  if (platform_handle == nullptr) {
-    status_[0] = kNcclHandleMissing;
-    return absl::OkStatus();
-  }
-  nccl_comm = reinterpret_cast<ncclComm_t>(platform_handle);
+  nccl_comm = *borrowed;
   int nccl_count = -1;
   if (ncclCommUserRank(nccl_comm, &nccl_rank) != ncclSuccess ||
       ncclCommCount(nccl_comm, &nccl_count) != ncclSuccess) {
@@ -118,13 +100,9 @@ absl::Status CusolverMpExecution::Initialize(
   CusolverMpCache* cache = nullptr;
   if (cached_) {
     const CusolverMpCacheApi cache_api{
-        api.create, api.set_stream, api.create_grid, api.destroy_grid, api.destroy};
+        api.create, api.set_stream, api.create_grid};
     cache = &GetCusolverMpCache(cache_api, *buffer_device);
     absl::Status cache_status = cache->Lock(&cache_lock_);
-    if (cache_status.ok()) {
-      cache_status =
-          cache->TrackClique(collective_cliques, *clique_key, *gpu_comm);
-    }
     if (!cache_status.ok()) {
       AbortSetupFailure("cached cuSOLVERMp setup", nccl_rank,
                         cache_status.ToString());
@@ -155,7 +133,7 @@ absl::Status CusolverMpExecution::Initialize(
                   static_cast<long long>(process_cols));
   solver_status =
       cached_ ? cache->GetGrid(
-                    *clique_key, nccl_comm,
+                    nccl_comm,
                     static_cast<int32_t>(process_rows),
                     static_cast<int32_t>(process_cols),
                     ToCusolverMpGridMapping(grid_mapping), &grid)
@@ -267,79 +245,37 @@ absl::Status ValidateStandardRankMapForGridMapping(
 }
 
 absl::StatusOr<ResolvedProcessGrid> ResolveProcessGrid(
-    const char* caller, const CollectiveParams* collective_params,
-    absl::Span<const int64_t> partition_slots, int64_t process_rows,
-    int64_t process_cols) {
-  if (collective_params == nullptr ||
-      collective_params->device_assn == nullptr) {
-    return absl::FailedPreconditionError(absl::StrFormat(
-        "%s requires XLA's device assignment to place the process grid",
-        caller));
-  }
-  const DeviceAssignment& assignment = *collective_params->device_assn;
-  // JAXMg runs under jax.jit's SPMD partitioner: one replica, and one
-  // computation (partition) per device.
-  if (assignment.replica_count() != 1) {
-    return absl::InvalidArgumentError(absl::StrFormat(
-        "%s expects a single replica, got %d", caller,
-        assignment.replica_count()));
-  }
-  const int64_t num_logical_devices = assignment.computation_count();
-  const int64_t num_ranks = process_rows * process_cols;
+    const char* caller, absl::Span<const int64_t> partition_slots,
+    int64_t process_rows, int64_t process_cols) {
   if (process_rows <= 0 || process_cols <= 0 ||
-      partition_slots.size() != static_cast<size_t>(num_ranks) ||
-      num_logical_devices != num_ranks) {
+      process_rows > std::numeric_limits<int>::max() / process_cols ||
+      partition_slots.size() != static_cast<size_t>(process_rows * process_cols)) {
     return absl::InvalidArgumentError(absl::StrFormat(
-        "%s expects one process-grid slot per device, got %d slots and %d "
-        "devices for a %d x %d process grid",
-        caller, partition_slots.size(), num_logical_devices, process_rows,
-        process_cols));
+        "%s expects one process-grid slot per partition", caller));
   }
-
-  // The communicator ranks are those of the clique borrowed from XLA.
-  absl::StatusOr<GpuCliqueKey> clique_key =
-      AllAssignedDevicesP2PCliqueKey(*collective_params);
-  if (!clique_key.ok()) {
-    return clique_key.status();
-  }
-
+  // The public FFI requests partitions in increasing order, so NCCL rank is
+  // the logical partition ID. Physical device IDs no longer enter this map.
+  const int64_t num_ranks = process_rows * process_cols;
   ResolvedProcessGrid resolved;
   resolved.rank_map.assign(num_ranks, -1);
-  for (int64_t logical_id = 0; logical_id < num_logical_devices; ++logical_id) {
-    // Partition `logical_id` runs on the device XLA assigns to it, which is
-    // how XLA's `partition-id` (and hence `jax.lax.axis_index`) number the
-    // devices.
-    const GlobalDeviceId device(assignment(0, logical_id));
-    const std::optional<RankId> rank = clique_key->rank(device);
-    if (!rank.has_value()) {
-      return absl::InternalError(absl::StrFormat(
-          "%s could not find device %d in the communicator clique", caller,
-          device.value()));
-    }
-    const int64_t slot = partition_slots[logical_id];
+  for (int64_t rank = 0; rank < num_ranks; ++rank) {
+    const int64_t slot = partition_slots[rank];
     if (slot < 0 || slot >= num_ranks || resolved.rank_map[slot] != -1) {
-      return absl::InvalidArgumentError(
-          absl::StrFormat("%s partition_slots must be a permutation of [0, %d)",
-                          caller, num_ranks));
+      return absl::InvalidArgumentError(absl::StrFormat(
+          "%s partition_slots must be a permutation of [0, %d)", caller, num_ranks));
     }
-    resolved.rank_map[slot] = rank->value();
+    resolved.rank_map[slot] = rank;
   }
-
-  for (const cusolverMpGridMapping_t grid_mapping :
+  for (const auto mapping :
        {kCusolverMpGridMappingRowMajor, kCusolverMpGridMappingColMajor}) {
     if (ValidateStandardRankMapForGridMapping(
-            caller, resolved.rank_map, process_rows, process_cols, grid_mapping)
-            .ok()) {
-      resolved.grid_mapping = grid_mapping;
+            caller, resolved.rank_map, process_rows, process_cols, mapping).ok()) {
+      resolved.grid_mapping = mapping;
       return resolved;
     }
   }
   return absl::UnimplementedError(absl::StrFormat(
-      "%s requires the devices of the JAX mesh to follow the row-major or "
-      "column-major order of their ids over the process grid, the only two "
-      "layouts cuSOLVERMp supports. Got communicator ranks [%s] on the "
-      "row-major process-grid slots.",
-      caller, absl::StrJoin(resolved.rank_map, ", ")));
+      "%s requires row-major or column-major process-grid slots", caller));
 }
 
 // Converts the communicator rank reported by NCCL into a cuSOLVERMp process
@@ -404,7 +340,7 @@ absl::Status FillWithSolverNan(cudaStream_t cuda_stream,
 
 absl::Status SynchronizeSolverStatus(
     cudaStream_t cuda_stream, ncclComm_t comm,
-    ffi::Result<ffi::BufferR1<S32>> status_out, int32_t* status_code) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status_out, int32_t* status_code) {
   int32_t global_status = *status_code;
   auto* device_status = status_out->typed_data();
   JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
@@ -429,20 +365,20 @@ absl::Status InvalidateResultsOnFailure(
     return absl::OkStatus();
   }
   // Real outputs of complex solves (eigenvalues, singular values, logdet) are
-  // F32/F64 buffers and receive the matching real NaN.
+  // ffi::F32/ffi::F64 buffers and receive the matching real NaN.
   for (const ffi::AnyBuffer& result : results) {
     switch (result.element_type()) {
-      case F32:
+      case ffi::F32:
         JAXMG_RETURN_IF_ERROR(FillWithSolverNan<float>(cuda_stream, result));
         break;
-      case F64:
+      case ffi::F64:
         JAXMG_RETURN_IF_ERROR(FillWithSolverNan<double>(cuda_stream, result));
         break;
-      case C64:
+      case ffi::C64:
         JAXMG_RETURN_IF_ERROR(
             FillWithSolverNan<cuFloatComplex>(cuda_stream, result));
         break;
-      case C128:
+      case ffi::C128:
         JAXMG_RETURN_IF_ERROR(
             FillWithSolverNan<cuDoubleComplex>(cuda_stream, result));
         break;
@@ -491,16 +427,15 @@ absl::StatusOr<int> DeviceForCudaPointer(const void* ptr) {
 }
 
 absl::Status DispatchSquareMatrix(
-    const char* caller, se::Stream* stream, cudaStream_t cuda_stream,
+    const char* caller, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> result,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques,
+    CollectiveContext collectives,
     absl::FunctionRef<absl::Status(const ResolvedProcessGrid&,
                                  const Padded2DRedistScratch&)> compute) {
   absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
-      caller, collective_params, partition_slots, process_rows,
+      caller, partition_slots, process_rows,
       process_cols);
   if (!process_grid.ok()) return process_grid.status();
   const absl::Span<const int64_t> rank_map = process_grid->rank_map;
@@ -560,16 +495,15 @@ absl::Status DispatchSquareMatrix(
   ffi::AnyBuffer matrix_work = *result;
   if (absl::Status convert_status = ConvertRowMajorToColumnMajorInPlace(
           cuda_stream, caller, matrix_work,
-          scratch.base, scratch.elements);
+          scratch.pointer, scratch.elements);
       !convert_status.ok()) {
     return return_after_cleanup(convert_status);
   }
   if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
-          caller, stream, /*comm_stream=*/nullptr, cuda_stream,
+          caller, cuda_stream,
           process_rows, process_cols, tile_size, tile_size, n, n,
-          /*reverse=*/0, rank_map, matrix_work, result->device_memory(),
-          scratch.base, scratch.elements, collective_params,
-          collective_cliques);
+          /*reverse=*/0, rank_map, matrix_work, result->untyped_data(),
+          scratch.pointer, scratch.elements, collectives);
       !redist_status.ok()) {
     return return_after_cleanup(redist_status);
   }
@@ -588,21 +522,20 @@ absl::Status DispatchSquareMatrix(
 
   // Stage 3: restore the matrix result without another matrix-sized allocation.
   if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
-          caller, stream, /*comm_stream=*/nullptr, cuda_stream,
+          caller, cuda_stream,
           process_rows, process_cols, tile_size, tile_size, n, n,
-          /*reverse=*/1, rank_map, *result, result->device_memory(),
-          scratch.base, scratch.elements, collective_params,
-          collective_cliques);
+          /*reverse=*/1, rank_map, *result, result->untyped_data(),
+          scratch.pointer, scratch.elements, collectives);
       !redist_status.ok()) {
     return return_after_cleanup(redist_status);
   }
   if (absl::Status convert_status = ConvertColumnMajorToRowMajorInPlace(
           cuda_stream, caller, *result,
-          scratch.base, scratch.elements);
+          scratch.pointer, scratch.elements);
       !convert_status.ok()) {
     return return_after_cleanup(convert_status);
   }
   return return_after_cleanup(absl::OkStatus());
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg
