@@ -31,7 +31,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <condition_variable>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
