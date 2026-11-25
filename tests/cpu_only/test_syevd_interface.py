@@ -1,4 +1,5 @@
 from functools import partial
+from typing import get_type_hints
 
 import numpy as np
 import pytest
@@ -13,6 +14,11 @@ from jax.sharding import Mesh, PartitionSpec as P
 import jaxmg._syevd as syevd_module
 from jaxmg import syevd, syevd_jit_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_SYEVD_STATUS_SIZE
+
+
+def test_syevd_shardmap_ctx_annotations_resolve():
+    """The local API exposes resolvable annotations to documentation tools."""
+    assert get_type_hints(syevd_module.syevd_shardmap_ctx)["a"] is jax.Array
 
 
 def _one_rank_mesh() -> Mesh:

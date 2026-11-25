@@ -245,7 +245,7 @@ def polar_shardmap_ctx(
                       col_padding=a_padding.col_padding_per_process)
     # Stage 2: compute Up and, when requested, H in native code.
     output_types = [jax.ShapeDtypeStruct(a.shape, a.dtype)]
-    output_layouts = [_ROW_MAJOR_JAX_LAYOUT]
+    output_layouts: list[tuple[int, ...]] = [_ROW_MAJOR_JAX_LAYOUT]
     if compute_h:
         output_types.append(
             jax.ShapeDtypeStruct(
@@ -279,7 +279,7 @@ def polar_shardmap_ctx(
                        local_cols=a_padding.local_logical_cols)
     axes = tuple(axis for axis, size in zip(matrix_specs, (process_rows, process_cols))
                  if axis is not None and size > 1)
-    result = (mark_varying(up, axes),)
+    result: tuple[Array, ...] = (mark_varying(up, axes),)
     if compute_h:
         h = unpad_local_2d(outputs[1], local_rows=h_padding.local_logical_rows,
                           local_cols=h_padding.local_logical_cols)

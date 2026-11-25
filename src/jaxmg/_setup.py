@@ -26,7 +26,7 @@ from .utils import JaxMgWarning
 _lib_dir = os.path.dirname(__file__)
 _initialized = False
 _xla_comm_backend_library = "libjaxmg_xla_comm_backend.so"
-_preloaded_cuda_libraries = {}
+_preloaded_cuda_libraries: dict[tuple[str, str], ctypes.CDLL] = {}
 
 # Every target shares one XLA prepare call.
 _PREPARE_SYMBOL = "XlaCusolverMpPrepareFFI"

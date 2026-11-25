@@ -11,7 +11,7 @@ layout only when requested.
 from __future__ import annotations
 
 from functools import lru_cache, partial
-from typing import List, Tuple
+from typing import List, Tuple, cast
 
 import jax
 import jax.numpy as jnp
@@ -245,7 +245,7 @@ def syevd_jit_ctx(
         )
         if not return_eigenvectors:
             return outputs
-        work, values, vectors, status = outputs
+        work, values, vectors, status = cast(Tuple[Array, Array, Array, Array], outputs)
         return work, values, restore(vectors), status
 
 
@@ -257,7 +257,7 @@ def syevd_shardmap_ctx(
     in_specs: P | Tuple[P] | List[P] | None = None,
     return_eigenvectors: bool = True,
     pad: bool = True,
-) -> Union[Tuple[Array, Array, Array], Tuple[Array, Array, Array, Array]]:
+) -> Tuple[Array, Array, Array] | Tuple[Array, Array, Array, Array]:
     """Compute a distributed eigendecomposition inside a caller's shard map.
 
     The input and eigenvectors are local matrix blocks. Eigenvalues are
@@ -315,6 +315,8 @@ def syevd_shardmap_ctx(
     status_type = jax.ShapeDtypeStruct(
         (_CUSOLVERMP_SYEVD_STATUS_SIZE,), jnp.int32
     )
+    out_type: tuple[jax.ShapeDtypeStruct, ...]
+    output_layouts: tuple[tuple[int, ...], ...]
     if return_eigenvectors:
         out_type = (eigenvalue_type, matrix_type, matrix_type, status_type)
         output_layouts = (
