@@ -5,6 +5,8 @@ built from the current sources, and pyproject.toml caps jax just above it.
 
   untested  print, as a JSON list, the final jax releases that pyproject.toml
             excludes but the widened range would admit: the versions to test
+  admitted  print, as a JSON list, every final jax release that pyproject.toml
+            admits: the versions to re-test after a backend change
   widen     raise every jax upper bound in pyproject.toml to just above the
             version in latest_tested.txt
 """
@@ -48,17 +50,18 @@ def next_release(version):
     return ".".join(parts)
 
 
-def untested(args):
+def jax_spec(pyproject):
+    """The specifier of the base `jax` dependency in pyproject.toml."""
     from packaging.requirements import Requirement
-    from packaging.version import InvalidVersion, Version
 
-    tested = read_tested(args.tested)
-    # Test everything `widen` would let in, not just up to the pin: Dependabot
-    # can pin 0.12.0 while 0.12.0.1, which <0.12.1 also admits, is already out.
-    upper = Version(next_release(tested))
-    deps = tomllib.loads(Path(args.pyproject).read_text())["project"]["dependencies"]
+    deps = tomllib.loads(Path(pyproject).read_text())["project"]["dependencies"]
     (spec,) = [r.specifier for r in map(Requirement, deps) if r.name == "jax"]
-    lower = max(Version(s.version) for s in spec if s.operator in (">=", ">"))
+    return spec
+
+
+def final_releases():
+    """Every final, non-yanked jax release on PyPI, oldest first."""
+    from packaging.version import InvalidVersion, Version
 
     with urllib.request.urlopen("https://pypi.org/pypi/jax/json", timeout=60) as f:
         releases = json.load(f)["releases"]
@@ -73,12 +76,32 @@ def untested(args):
             continue
         if not files or all(f.get("yanked") for f in files):
             continue
-        if lower < v < upper and v not in spec:
-            versions.append(v)
+        versions.append(v)
+    return sorted(versions)
 
+
+def untested(args):
+    from packaging.version import Version
+
+    tested = read_tested(args.tested)
+    # Test everything `widen` would let in, not just up to the pin: Dependabot
+    # can pin 0.12.0 while 0.12.0.1, which <0.12.1 also admits, is already out.
+    upper = Version(next_release(tested))
+    spec = jax_spec(args.pyproject)
+    lower = max(Version(s.version) for s in spec if s.operator in (">=", ">"))
+
+    versions = [v for v in final_releases() if lower < v < upper and v not in spec]
     if not versions:
         print(f"{spec} already admits every release below {upper}; nothing to test", file=sys.stderr)
-    print(json.dumps([str(v) for v in sorted(versions)]))
+    print(json.dumps([str(v) for v in versions]))
+
+
+def admitted(args):
+    spec = jax_spec(args.pyproject)
+    versions = [v for v in final_releases() if v in spec]
+    if not versions:
+        sys.exit(f"no jax release on PyPI satisfies {spec}")
+    print(json.dumps([str(v) for v in versions]))
 
 
 def widen(args):
@@ -104,11 +127,11 @@ def widen(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["untested", "widen"])
+    parser.add_argument("command", choices=["untested", "admitted", "widen"])
     parser.add_argument("--pyproject", default=REPO / "pyproject.toml")
     parser.add_argument("--tested", default=Path(__file__).with_name("latest_tested.txt"))
     args = parser.parse_args()
-    {"untested": untested, "widen": widen}[args.command](args)
+    {"untested": untested, "admitted": admitted, "widen": widen}[args.command](args)
 
 
 if __name__ == "__main__":
