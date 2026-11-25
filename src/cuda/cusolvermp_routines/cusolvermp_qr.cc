@@ -35,7 +35,7 @@
 #include "cusolvermp_routines.h"
 #include "qr_extract.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 template <typename DataType>
@@ -273,16 +273,15 @@ absl::Status RunCusolverMpQr(
 }
 
 absl::Status RunCusolverMpQrSolver(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
     int64_t grid_mapping, absl::Span<const int64_t> rank_map,
     ffi::Result<ffi::AnyBuffer> q, ffi::Result<ffi::AnyBuffer> r,
-    ffi::Result<ffi::BufferR1<S32>> status_out,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
+    CollectiveContext collectives) {
   // Stage 1: validate the local FFI buffers and diagnostic output.
-  if (stream == nullptr || cuda_stream == nullptr) {
-    return absl::InvalidArgumentError("cusolvermp_qr requires XLA and CUDA streams");
+  if (cuda_stream == nullptr) {
+    return absl::InvalidArgumentError("cusolvermp_qr requires a CUDA stream");
   }
   if (q->dimensions().size() != 2 || r->dimensions().size() != 2 ||
       q->element_type() != r->element_type()) {
@@ -339,7 +338,7 @@ absl::Status RunCusolverMpQrSolver(
   auto publish_status = [&]() -> absl::Status {
     JAXMG_RETURN_IF_ERROR(InvalidateResultsOnFailure(
         cuda_stream, status_words[0], {*q, *r}));
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(cuda_stream, status_words, status_out);
   };
 
   // Stage 2: bind the matrix's device and create the handle/grid using XLA's
@@ -352,7 +351,7 @@ absl::Status RunCusolverMpQrSolver(
   JAXMG_RETURN_IF_ERROR(execution.Initialize(
       "cusolvermp_qr", cuda_stream, q->untyped_data(),
       process_rows, process_cols, grid_mapping, rank_map,
-      collective_params, collective_cliques));
+      collectives));
   if (status_words[0] != kStatusOk) {
     execution.Close();
     return publish_status();
@@ -368,25 +367,25 @@ absl::Status RunCusolverMpQrSolver(
   // Stage 3: dispatch the native QR computation by dtype.
   absl::Status qr_status;
   switch (q->element_type()) {
-    case F32:
+    case ffi::F32:
       status_words[33] = 1;
       qr_status = RunCusolverMpQr<float>(
           api, handle, grid, cuda_stream, m, n, tile_size, process_row,
           process_col, q, r, &status_words);
       break;
-    case F64:
+    case ffi::F64:
       status_words[33] = 2;
       qr_status = RunCusolverMpQr<double>(
           api, handle, grid, cuda_stream, m, n, tile_size, process_row,
           process_col, q, r, &status_words);
       break;
-    case C64:
+    case ffi::C64:
       status_words[33] = 3;
       qr_status = RunCusolverMpQr<cuFloatComplex>(
           api, handle, grid, cuda_stream, m, n, tile_size, process_row,
           process_col, q, r, &status_words);
       break;
-    case C128:
+    case ffi::C128:
       status_words[33] = 4;
       qr_status = RunCusolverMpQr<cuDoubleComplex>(
           api, handle, grid, cuda_stream, m, n, tile_size, process_row,
@@ -409,16 +408,15 @@ absl::Status RunCusolverMpQrSolver(
 }
 
 absl::Status RunCusolverMpQrDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
     int64_t tile_size, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> q,
     ffi::Result<ffi::AnyBuffer> r,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
   absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
-      "cusolvermp_qr", collective_params, partition_slots, process_rows,
+      "cusolvermp_qr", partition_slots, process_rows,
       process_cols);
   if (!process_grid.ok()) return process_grid.status();
   const int64_t grid_mapping = process_grid->grid_mapping;
@@ -477,16 +475,16 @@ absl::Status RunCusolverMpQrDispatch(
   }
   ffi::AnyBuffer q_work = *q;
   if (absl::Status convert_status = ConvertRowMajorToColumnMajorInPlace(
-          cuda_stream, "cusolvermp_qr/a_layout_convert", q_work, scratch.base,
+          cuda_stream, "cusolvermp_qr/a_layout_convert", q_work, scratch.pointer,
           scratch.elements);
       !convert_status.ok()) {
     return return_after_cleanup(convert_status);
   }
   if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_qr/a_forward", stream, comm_stream, cuda_stream,
+          "cusolvermp_qr/a_forward", cuda_stream,
           process_rows, process_cols, tile_size, tile_size, m, n,
-          /*reverse=*/0, rank_map, q_work, q->device_memory(), scratch.base,
-          scratch.elements, collective_params, collective_cliques);
+          /*reverse=*/0, rank_map, q_work, q->untyped_data(), scratch.pointer,
+          scratch.elements, collectives);
       !redist_status.ok()) {
     return return_after_cleanup(redist_status);
   }
@@ -497,9 +495,8 @@ absl::Status RunCusolverMpQrDispatch(
   }
 
   if (absl::Status solver_status = RunCusolverMpQrSolver(
-          stream, cuda_stream, process_rows, process_cols, m, n, tile_size,
-          grid_mapping, rank_map, q, r, status, collective_params,
-          collective_cliques);
+          cuda_stream, process_rows, process_cols, m, n, tile_size,
+          grid_mapping, rank_map, q, r, status, collectives);
       !solver_status.ok()) {
     return return_after_cleanup(solver_status);
   }
@@ -511,15 +508,15 @@ absl::Status RunCusolverMpQrDispatch(
 
   // Restore Q and R sequentially so both reuse the same redistribution scratch.
   if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_qr/q_reverse", stream, comm_stream, cuda_stream,
+          "cusolvermp_qr/q_reverse", cuda_stream,
           process_rows, process_cols, tile_size, tile_size, m, n,
-          /*reverse=*/1, rank_map, *q, q->device_memory(), scratch.base,
-          scratch.elements, collective_params, collective_cliques);
+          /*reverse=*/1, rank_map, *q, q->untyped_data(), scratch.pointer,
+          scratch.elements, collectives);
       !redist_status.ok()) {
     return return_after_cleanup(redist_status);
   }
   if (absl::Status convert_status = ConvertColumnMajorToRowMajorInPlace(
-          cuda_stream, "cusolvermp_qr/q_layout_restore", *q, scratch.base,
+          cuda_stream, "cusolvermp_qr/q_layout_restore", *q, scratch.pointer,
           scratch.elements);
       !convert_status.ok()) {
     return return_after_cleanup(convert_status);
@@ -529,15 +526,15 @@ absl::Status RunCusolverMpQrDispatch(
     return sync_status;
   }
   if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_qr/r_reverse", stream, comm_stream, cuda_stream,
+          "cusolvermp_qr/r_reverse", cuda_stream,
           process_rows, process_cols, tile_size, tile_size, n, n,
-          /*reverse=*/1, rank_map, *r, r->device_memory(), scratch.base,
-          scratch.elements, collective_params, collective_cliques);
+          /*reverse=*/1, rank_map, *r, r->untyped_data(), scratch.pointer,
+          scratch.elements, collectives);
       !redist_status.ok()) {
     return return_after_cleanup(redist_status);
   }
   if (absl::Status convert_status = ConvertColumnMajorToRowMajorInPlace(
-          cuda_stream, "cusolvermp_qr/r_layout_restore", *r, scratch.base,
+          cuda_stream, "cusolvermp_qr/r_layout_restore", *r, scratch.pointer,
           scratch.elements);
       !convert_status.ok()) {
     return return_after_cleanup(convert_status);
@@ -548,17 +545,16 @@ absl::Status RunCusolverMpQrDispatch(
 }  // namespace
 
 absl::Status XlaCusolverMpQrDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> q, ffi::Result<ffi::AnyBuffer> r,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
   return RunCusolverMpQrDispatch(
-      stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
+      cuda_stream, process_rows, process_cols,
       m, n, tile_size, partition_slots, a, q, r, status,
-      collective_params, collective_cliques);
+      collectives);
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

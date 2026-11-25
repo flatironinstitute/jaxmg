@@ -33,7 +33,7 @@
 #include "cusolvermp_common.h"
 #include "cusolvermp_routines.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 // Runs GELS after memory_redist has placed A and B in local 2D block-cyclic
@@ -221,19 +221,18 @@ absl::Status RunCusolverMpDistributedGels(
 // Creates the borrowed-communicator cuSOLVERMp context and dispatches the
 // dtype-specific GELS implementation on redistributed A and B buffers.
 absl::Status RunCusolverMpGelsSolver(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t nrhs,
     int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map, ffi::Result<ffi::AnyBuffer> a_out,
     ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::AnyBuffer> x_out,
-    ffi::Result<ffi::BufferR1<S32>> status_out,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
+    CollectiveContext collectives) {
   // Stage 1: validate the local FFI buffers and diagnostic output.
-  if (stream == nullptr || cuda_stream == nullptr) {
+  if (cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
-        "cusolvermp_gels requires XLA and CUDA streams");
+        "cusolvermp_gels requires a CUDA stream");
   }
   if (a_out->dimensions().size() != 2 || b_out->dimensions().size() != 2) {
     return absl::InvalidArgumentError(
@@ -296,7 +295,7 @@ absl::Status RunCusolverMpGelsSolver(
   auto publish_status = [&]() -> absl::Status {
     JAXMG_RETURN_IF_ERROR(InvalidateResultsOnFailure(
         cuda_stream, status_words[0], {*b_out, *x_out}));
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(cuda_stream, status_words, status_out);
   };
 
   // Stage 2: bind the matrix's device and create the handle/grid using XLA's
@@ -309,7 +308,7 @@ absl::Status RunCusolverMpGelsSolver(
   JAXMG_RETURN_IF_ERROR(execution.Initialize(
       "cusolvermp_gels", cuda_stream, a_out->untyped_data(),
       process_rows, process_cols, grid_mapping, rank_map,
-      collective_params, collective_cliques));
+      collectives));
   if (status_words[0] != kStatusOk) {
     execution.Close();
     return publish_status();
@@ -327,7 +326,7 @@ absl::Status RunCusolverMpGelsSolver(
   // Stage 3: dispatch GELS using the matrix element type.
   absl::Status gels_status;
   switch (a_out->element_type()) {
-    case F32:
+    case ffi::F32:
       status_words[31] = 1;
       gels_status = RunCusolverMpDistributedGels<float>(
           api, handle, grid, cuda_stream, m, n, nrhs, tile_size,
@@ -335,7 +334,7 @@ absl::Status RunCusolverMpGelsSolver(
           b_out->dimensions()[1], process_row, process_col, a_out, b_out,
           &status_words);
       break;
-    case F64:
+    case ffi::F64:
       status_words[31] = 2;
       gels_status = RunCusolverMpDistributedGels<double>(
           api, handle, grid, cuda_stream, m, n, nrhs, tile_size,
@@ -343,7 +342,7 @@ absl::Status RunCusolverMpGelsSolver(
           b_out->dimensions()[1], process_row, process_col, a_out, b_out,
           &status_words);
       break;
-    case C64:
+    case ffi::C64:
       status_words[31] = 3;
       gels_status = RunCusolverMpDistributedGels<cuFloatComplex>(
           api, handle, grid, cuda_stream, m, n, nrhs, tile_size,
@@ -351,7 +350,7 @@ absl::Status RunCusolverMpGelsSolver(
           b_out->dimensions()[1], process_row, process_col, a_out, b_out,
           &status_words);
       break;
-    case C128:
+    case ffi::C128:
       status_words[31] = 4;
       gels_status = RunCusolverMpDistributedGels<cuDoubleComplex>(
           api, handle, grid, cuda_stream, m, n, nrhs, tile_size,
@@ -400,19 +399,17 @@ absl::Status RunCusolverMpGelsSolver(
 }  // namespace
 
 absl::Status XlaCusolverMpGelsDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t nrhs,
     int64_t b_distribution_cols, int64_t x_distribution_rows, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::AnyBuffer b,
     ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::AnyBuffer> x_out,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
-  se::Stream* comm_stream = nullptr;
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
   absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
-      "cusolvermp_gels", collective_params, partition_slots, process_rows,
+      "cusolvermp_gels", partition_slots, process_rows,
       process_cols);
   if (!process_grid.ok()) return process_grid.status();
   const int64_t grid_mapping = process_grid->grid_mapping;
@@ -470,7 +467,7 @@ absl::Status XlaCusolverMpGelsDispatch(
           "cusolvermp_gels_redistribution");
   if (!scratch_status.ok()) return scratch_status.status();
   Padded2DRedistScratch scratch = *scratch_status;
-  const se::DeviceAddressBase scratch_base = scratch.base;
+  void* const scratch_base = scratch.pointer;
   const int64_t scratch_elements = scratch.elements;
 
   bool scratch_freed = false;
@@ -518,20 +515,19 @@ absl::Status XlaCusolverMpGelsDispatch(
 
   // Stage 4: redistribute A and B into cuSOLVERMp's block-cyclic layout.
   if (absl::Status result = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_gels/a_forward", stream, comm_stream, cuda_stream,
+          "cusolvermp_gels/a_forward", cuda_stream,
           process_rows, process_cols, tile_size, tile_size, m, n,
-          /*reverse=*/0, rank_map, a_forward, a_work->device_memory(),
-          scratch_base, scratch_elements, collective_params,
-          collective_cliques);
+          /*reverse=*/0, rank_map, a_forward, a_work->untyped_data(),
+          scratch_base, scratch_elements, collectives);
       !result.ok()) {
     return return_after_cleanup(result);
   }
   if (absl::Status result = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_gels/b_forward", stream, comm_stream, cuda_stream,
+          "cusolvermp_gels/b_forward", cuda_stream,
           process_rows, process_cols, tile_size, tile_size, m,
           b_distribution_cols, /*reverse=*/0, rank_map, b_forward,
-          b_out->device_memory(), scratch_base, scratch_elements,
-          collective_params, collective_cliques);
+          b_out->untyped_data(), scratch_base, scratch_elements,
+          collectives);
       !result.ok()) {
     return return_after_cleanup(result);
   }
@@ -544,9 +540,9 @@ absl::Status XlaCusolverMpGelsDispatch(
 
   // Stage 5: execute GELS and extract X in the native block-cyclic layout.
   if (absl::Status result = RunCusolverMpGelsSolver(
-          stream, cuda_stream, process_rows, process_cols, m, n, nrhs,
+          cuda_stream, process_rows, process_cols, m, n, nrhs,
           tile_size, grid_mapping, rank_map, a_work, b_out, x_out,
-          status, collective_params, collective_cliques);
+          status, collectives);
       !result.ok()) {
     return return_after_cleanup(result);
   }
@@ -560,11 +556,11 @@ absl::Status XlaCusolverMpGelsDispatch(
   // Stage 6: preserve B's M-row work layout and restore X independently.
   // The two reverse paths reuse the same scratch allocation and communicator.
   if (absl::Status result = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_gels/b_reverse", stream, comm_stream, cuda_stream,
+          "cusolvermp_gels/b_reverse", cuda_stream,
           process_rows, process_cols, tile_size, tile_size, m,
           b_distribution_cols, /*reverse=*/1, rank_map, *b_out,
-          b_out->device_memory(), scratch_base, scratch_elements,
-          collective_params, collective_cliques);
+          b_out->untyped_data(), scratch_base, scratch_elements,
+          collectives);
       !result.ok()) {
     return return_after_cleanup(result);
   }
@@ -575,11 +571,11 @@ absl::Status XlaCusolverMpGelsDispatch(
     return return_after_cleanup(result);
   }
   if (absl::Status result = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_gels/x_reverse", stream, comm_stream, cuda_stream,
+          "cusolvermp_gels/x_reverse", cuda_stream,
           process_rows, process_cols, tile_size, tile_size, x_distribution_rows,
           b_distribution_cols, /*reverse=*/1, rank_map, *x_out,
-          x_out->device_memory(), scratch_base, scratch_elements,
-          collective_params, collective_cliques);
+          x_out->untyped_data(), scratch_base, scratch_elements,
+          collectives);
       !result.ok()) {
     return return_after_cleanup(result);
   }
@@ -592,4 +588,4 @@ absl::Status XlaCusolverMpGelsDispatch(
   return return_after_cleanup(absl::OkStatus());
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

@@ -40,7 +40,7 @@
 #include "absl/functional/function_ref.h"
 #include "memory_redist.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 
 namespace {
 
@@ -646,60 +646,32 @@ namespace {
 // Resolves the XLA communicator and executes edge-padding plus block-cyclic
 // schedules in forward or reverse order.
 absl::Status ExecutePadded2DNativePlanRawImpl(
-    const char* caller, se::Stream* stream, se::Stream* comm_stream,
-    cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,
+    const char* caller, cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,
     int64_t tile_rows, int64_t tile_cols, int64_t logical_rows,
     int64_t logical_cols, int64_t reverse,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer matrix,
-    se::DeviceAddressBase matrix_out_base,
-    se::DeviceAddressBase scratch_base, int64_t scratch_elements,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
-  // `comm_stream` is optional: XLA only supplies a communication stream when
-  // the surrounding module allocates one, so ChooseNcclStream falls back to the
-  // main compute stream when it is null.
-  if (stream == nullptr || cuda_stream == nullptr) {
+    void* matrix_out_base,
+    void* scratch_base, int64_t scratch_elements,
+    CollectiveContext collectives) {
+  if (cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
-        absl::StrFormat("%s requires XLA and CUDA stream contexts", caller));
-  }
-  if (collective_params == nullptr || collective_cliques == nullptr) {
-    return absl::InvalidArgumentError(
-        absl::StrFormat("%s requires XLA collective contexts", caller));
+        absl::StrFormat("%s requires a CUDA stream", caller));
   }
   if (matrix.dimensions().size() != 2) {
     return absl::InvalidArgumentError(
         absl::StrFormat("%s expects a rank-2 matrix buffer", caller));
   }
 
-  // Resolve the all-assigned communicator once and use it for both edge-padding
-  // and 2D block-cyclic movement.
-  absl::StatusOr<GpuCliqueKey> clique_key =
-      AllAssignedDevicesP2PCliqueKey(*collective_params);
-  if (!clique_key.ok()) {
-    return clique_key.status();
-  }
-  const int64_t num_ranks = static_cast<int64_t>(clique_key->num_devices());
-  if (process_rows * process_cols != num_ranks) {
-    return absl::InvalidArgumentError(absl::StrFormat(
-        "%s grid %d x %d does not match clique size %d", caller,
-        process_rows, process_cols, num_ranks));
-  }
+  // Borrow the same ordered communicator for edge-padding and block cycles.
+  const int64_t num_ranks = process_rows * process_cols;
+  auto comm = BorrowNcclComm(caller, collectives, num_ranks);
+  if (!comm.ok()) return comm.status();
+  int rank_value = -1;
+  JAXMG_RETURN_IF_NCCL_ERROR(ncclCommUserRank(*comm, &rank_value));
+  JAXMG_RETURN_IF_ERROR(ValidateBorrowedNcclComm(
+      caller, *comm, rank_value, num_ranks));
   JAXMG_RETURN_IF_ERROR(ValidateStandardGridRankMap(
       caller, rank_map, process_rows, process_cols));
-
-  std::optional<RankId> rank =
-      clique_key->rank(collective_params->global_device_id);
-  if (!rank.has_value()) {
-    return absl::InvalidArgumentError(absl::StrFormat(
-        "%s could not resolve this device rank", caller));
-  }
-  const int64_t rank_value = static_cast<int64_t>(rank->value());
-
-  absl::StatusOr<GpuCommunicator*> comm = collective_cliques->GetComm(
-      *clique_key, collective_params->global_device_id);
-  if (!comm.ok()) {
-    return comm.status();
-  }
 
   const int64_t local_rows = matrix.dimensions()[0];
   const int64_t local_cols = matrix.dimensions()[1];
@@ -745,9 +717,9 @@ absl::Status ExecutePadded2DNativePlanRawImpl(
 
   const size_t element_bytes =
       matrix.size_bytes() / static_cast<size_t>(matrix.element_count());
-  if (matrix.device_memory().opaque() != matrix_out_base.opaque()) {
+  if (matrix.untyped_data() != matrix_out_base) {
     JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
-        matrix_out_base.opaque(), matrix.untyped_data(), matrix.size_bytes(),
+        matrix_out_base, matrix.untyped_data(), matrix.size_bytes(),
         cudaMemcpyDeviceToDevice, cuda_stream));
   }
   if (edge_batches.empty() && slab_batches.empty()) {
@@ -758,11 +730,11 @@ absl::Status ExecutePadded2DNativePlanRawImpl(
     // Output path: cuSOLVERMp layout -> edge-padded JAX-local layout ->
     // per-shard padded JAX layout.
     JAXMG_RETURN_IF_ERROR(ExecuteNative2DStepBatches(
-        stream, comm_stream, cuda_stream, slab_batches, local_rows, local_cols,
+        cuda_stream, slab_batches, local_rows, local_cols,
         rank_value, num_ranks, element_bytes, *cyclic_slot_elements, matrix,
         matrix_out_base, scratch_base, *comm));
     return ExecuteEdgePaddingBatches(
-        stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
+        cuda_stream, edge_batches, local_rows, local_cols,
         rank_value, num_ranks, element_bytes, scratch_elements, matrix,
         matrix_out_base, scratch_base, *comm);
   }
@@ -770,11 +742,11 @@ absl::Status ExecutePadded2DNativePlanRawImpl(
   // Input path: per-shard padded JAX layout -> edge-padded global layout ->
   // cuSOLVERMp 2D block-cyclic layout.
   JAXMG_RETURN_IF_ERROR(ExecuteEdgePaddingBatches(
-      stream, comm_stream, cuda_stream, edge_batches, local_rows, local_cols,
+      cuda_stream, edge_batches, local_rows, local_cols,
       rank_value, num_ranks, element_bytes, scratch_elements, matrix,
       matrix_out_base, scratch_base, *comm));
   return ExecuteNative2DStepBatches(
-      stream, comm_stream, cuda_stream, slab_batches, local_rows, local_cols,
+      cuda_stream, slab_batches, local_rows, local_cols,
       rank_value, num_ranks, element_bytes, *cyclic_slot_elements, matrix,
       matrix_out_base, scratch_base, *comm);
 }
@@ -783,20 +755,18 @@ absl::Status ExecutePadded2DNativePlanRawImpl(
 
 // Public memory_redist executor used by the fused solver files.
 absl::Status ExecutePadded2DNativePlanRaw(
-    const char* caller, se::Stream* stream, se::Stream* comm_stream,
-    cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,
+    const char* caller, cudaStream_t cuda_stream, int64_t process_rows, int64_t process_cols,
     int64_t tile_rows, int64_t tile_cols, int64_t logical_rows,
     int64_t logical_cols, int64_t reverse,
     absl::Span<const int64_t> rank_map, ffi::AnyBuffer matrix,
-    se::DeviceAddressBase matrix_out_base,
-    se::DeviceAddressBase scratch_base, int64_t scratch_elements,
-    const CollectiveParams* collective_params,
-    const CollectiveCliques* collective_cliques) {
+    void* matrix_out_base,
+    void* scratch_base, int64_t scratch_elements,
+    CollectiveContext collectives) {
   return ExecutePadded2DNativePlanRawImpl(
-      caller, stream, comm_stream, cuda_stream, process_rows, process_cols,
+      caller, cuda_stream, process_rows, process_cols,
       tile_rows, tile_cols, logical_rows, logical_cols, reverse, rank_map,
       matrix, matrix_out_base, scratch_base, scratch_elements,
-      collective_params, collective_cliques);
+      collectives);
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

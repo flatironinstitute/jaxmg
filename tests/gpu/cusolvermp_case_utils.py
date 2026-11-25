@@ -225,7 +225,7 @@ def solver_case(case_name: str, num_processes: int, *, routine: str) -> SolverCa
 
 
 def make_process_mesh(case: SolverCase) -> Mesh:
-    """Create a JAX mesh whose device order matches cuSOLVERMp grid mapping."""
+    """Create a JAX mesh with the case's shape and physical device order."""
     devices = np.asarray(jax.devices(), dtype=object)
     expected = case.process_rows * case.process_cols
     if devices.size != expected:
@@ -248,7 +248,7 @@ def make_process_mesh(case: SolverCase) -> Mesh:
 
     if case.axis_types == "explicit":
         # Equivalent to jax.make_mesh, but keeps the device permutation built
-        # above so column-major grid mappings stay intact.
+        # above so both physical device orders are exercised.
         return Mesh(
             process_grid,
             ("pr", "pc"),

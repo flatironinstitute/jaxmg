@@ -28,7 +28,7 @@
 #include "factor_extract.h"
 #include "factorization.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 // POTRI leaves the opposite triangle untouched. Transfer tiles in global
@@ -80,13 +80,12 @@ absl::Status CompleteHermitianInverse(
 }
 
 absl::Status RunInverse(
-    se::Stream* stream, cudaStream_t cuda_stream, bool cholesky,
+    cudaStream_t cuda_stream, bool cholesky,
     int64_t pr, int64_t pc, int64_t n, int64_t tile,
     const ResolvedProcessGrid& process_grid,
     const Padded2DRedistScratch& scratch, ffi::Result<ffi::AnyBuffer> inverse,
-    ffi::Result<ffi::BufferR1<S32>> status_out,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
+    CollectiveContext collectives) {
   std::array<int32_t, kInverseStatusSize> status = {
       kStatusOk,
       -1,  // CUDA device.
@@ -124,7 +123,7 @@ absl::Status RunInverse(
   auto publish = [&]() -> absl::Status {
     JAXMG_RETURN_IF_ERROR(InvalidateResultsOnFailure(
         cuda_stream, status[0], {*inverse}));
-    return CopyStatusToDevice(stream, status, status_out);
+    return CopyStatusToDevice(cuda_stream, status, status_out);
   };
 
   // Stage 1: borrow XLA's communicator and create the common execution state.
@@ -132,7 +131,7 @@ absl::Status RunInverse(
   JAXMG_RETURN_IF_ERROR(execution.Initialize(
       cholesky ? "cusolvermp_potri" : "cusolvermp_getri", cuda_stream,
       inverse->untyped_data(), pr, pc, process_grid.grid_mapping,
-      process_grid.rank_map, collective_params, collective_cliques));
+      process_grid.rank_map, collectives));
   if (status[0] != kStatusOk) {
     execution.Close();
     return publish();
@@ -144,10 +143,10 @@ absl::Status RunInverse(
   status[18] = LocalNumroc(n, tile, col, pc);
   cudaDataType_t dtype = CUDA_R_32F;
   switch (inverse->element_type()) {
-    case F32: dtype = CUDA_R_32F; status[28] = 1; break;
-    case F64: dtype = CUDA_R_64F; status[28] = 2; break;
-    case C64: dtype = CUDA_C_32F; status[28] = 3; break;
-    case C128: dtype = CUDA_C_64F; status[28] = 4; break;
+    case ffi::F32: dtype = CUDA_R_32F; status[28] = 1; break;
+    case ffi::F64: dtype = CUDA_R_64F; status[28] = 2; break;
+    case ffi::C64: dtype = CUDA_C_32F; status[28] = 3; break;
+    case ffi::C128: dtype = CUDA_C_64F; status[28] = 4; break;
     default: status[0] = kUnsupportedDtype; break;
   }
   if (inverse->dimensions()[0] < status[17] ||
@@ -237,27 +236,26 @@ absl::Status RunInverse(
 }  // namespace
 
 absl::Status XlaCusolverMpInverseDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t tile_size, bool cholesky,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> inverse,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
-  if (stream == nullptr || cuda_stream == nullptr ||
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
+  if (cuda_stream == nullptr ||
       status->dimensions().size() != 1 ||
       status->dimensions()[0] != kInverseStatusSize) {
     return absl::InvalidArgumentError("inverse requires streams and status shape (32,)");
   }
   return DispatchSquareMatrix(
-      cholesky ? "cusolvermp_potri" : "cusolvermp_getri", stream, cuda_stream,
+      cholesky ? "cusolvermp_potri" : "cusolvermp_getri", cuda_stream,
       process_rows, process_cols, n, tile_size, partition_slots, a, inverse,
-      collective_params, collective_cliques,
+      collectives,
       [&](const ResolvedProcessGrid& grid, const Padded2DRedistScratch& scratch) {
-        return RunInverse(stream, cuda_stream, cholesky, process_rows,
+        return RunInverse(cuda_stream, cholesky, process_rows,
                           process_cols, n, tile_size, grid, scratch, inverse,
-                          status, collective_params, collective_cliques);
+                          status, collectives);
       });
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

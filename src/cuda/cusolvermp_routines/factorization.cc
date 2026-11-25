@@ -20,7 +20,7 @@
 
 #include <cstdlib>
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 // Scope-bound temporary storage also releases partial allocations when a
@@ -76,7 +76,7 @@ absl::Status RunCholeskyFactorization(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
     void* a, cudaDataType_t dtype, ncclComm_t comm,
-    ffi::Result<ffi::BufferR1<S32>> status_out, FactorizationStatusFields status) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status_out, FactorizationStatusFields status) {
   // Stage 1: query and allocate POTRF's temporary storage.
   FactorizationWorkspace work;
   cusolverStatus_t solver_status = api.potrf_buffer_size(
@@ -114,7 +114,7 @@ absl::Status RunLuFactorization(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
     void* a, cudaDataType_t dtype, int64_t* ipiv, size_t ipiv_bytes,
-    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
     FactorizationStatusFields status) {
   // Stage 1: query and allocate GETRF's temporary storage. The pivots outlive
   // this workspace because the caller uses them in GETRS or returns them.
@@ -156,7 +156,7 @@ absl::Status RunFactorInverse(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
     void* a, cudaDataType_t dtype, bool cholesky, const int64_t* ipiv,
-    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
     FactorizationStatusFields status) {
   // Factorization workspace has already been released before inversion.
   FactorizationWorkspace work;
@@ -193,4 +193,4 @@ absl::Status RunFactorInverse(
   return absl::OkStatus();
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

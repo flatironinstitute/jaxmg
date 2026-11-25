@@ -38,7 +38,7 @@
 #include "cusolvermp_routines.h"
 #include "factorization.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 // Executes the cuSOLVERMp LU factorization and linear solve.
@@ -56,7 +56,7 @@ absl::Status RunCusolverMpDistributedLuSolve(
     int32_t process_row, int32_t process_col,
     ffi::Result<ffi::AnyBuffer> a_out,
     ffi::Result<ffi::AnyBuffer> b_out,
-    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
     std::array<int32_t, kLuSolveStatusSize>* status_words) {
   const int32_t process_rows = (*status_words)[4];
   const int32_t process_cols = (*status_words)[5];
@@ -219,21 +219,20 @@ absl::Status RunCusolverMpDistributedLuSolve(
 // Creates the borrowed-XLA-communicator cuSOLVERMp handle/grid and dispatches
 // the dtype-specific GETRF/GETRS helper on redistributed A and B buffers.
 absl::Status RunCusolverMpLuSolveSolver(
-    se::Stream* stream, cudaStream_t cuda_stream,
+    cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t nrhs,
     int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map, ffi::Result<ffi::AnyBuffer> a_out,
     ffi::Result<ffi::AnyBuffer> b_out,
-    ffi::Result<ffi::BufferR1<S32>> status_out,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
+    CollectiveContext collectives) {
   // Stage 1: validate the static FFI contract. Python/JAX has already padded
   // the user arrays and memory_redist has produced local column-major 2D
   // block-cyclic buffers, so these checks cover local capacity and dtype
   // consistency.
-  if (stream == nullptr || cuda_stream == nullptr) {
+  if (cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
-        "cusolvermp_lu_solve requires XLA and CUDA streams");
+        "cusolvermp_lu_solve requires a CUDA stream");
   }
   if (a_out->dimensions().size() != 2 || b_out->dimensions().size() != 2) {
     return absl::InvalidArgumentError(
@@ -304,7 +303,7 @@ absl::Status RunCusolverMpLuSolveSolver(
   auto publish_status = [&]() -> absl::Status {
     JAXMG_RETURN_IF_ERROR(InvalidateResultsOnFailure(
         cuda_stream, status_words[0], {*b_out}));
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(cuda_stream, status_words, status_out);
   };
 
   // Stage 2: bind the matrix's device, borrow XLA's communicator, and create
@@ -317,7 +316,7 @@ absl::Status RunCusolverMpLuSolveSolver(
   JAXMG_RETURN_IF_ERROR(execution.Initialize(
       "cusolvermp_lu_solve", cuda_stream, a_out->untyped_data(),
       process_rows, process_cols, grid_mapping, rank_map,
-      collective_params, collective_cliques));
+      collectives));
   if (status_words[0] != kStatusOk) {
     execution.Close();
     return publish_status();
@@ -332,10 +331,10 @@ absl::Status RunCusolverMpLuSolveSolver(
   const auto [process_row, process_col] = ProcessCoordFromRank(
       nccl_rank, process_rows, process_cols, grid_mapping);
 
-  // Stage 3: dispatch on the XLA primitive dtype and run GETRF/GETRS.
+  // Stage 3: dispatch on the FFI element dtype and run GETRF/GETRS.
   absl::Status lu_solve_status;
   switch (a_out->element_type()) {
-    case F32:
+    case ffi::F32:
       status_words[34] = 1;
       lu_solve_status = RunCusolverMpDistributedLuSolve<float>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
@@ -343,7 +342,7 @@ absl::Status RunCusolverMpLuSolveSolver(
           process_row, process_col, a_out, b_out, nccl_comm, status_out,
           &status_words);
       break;
-    case F64:
+    case ffi::F64:
       status_words[34] = 2;
       lu_solve_status = RunCusolverMpDistributedLuSolve<double>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
@@ -351,7 +350,7 @@ absl::Status RunCusolverMpLuSolveSolver(
           process_row, process_col, a_out, b_out, nccl_comm, status_out,
           &status_words);
       break;
-    case C64:
+    case ffi::C64:
       status_words[34] = 3;
       lu_solve_status = RunCusolverMpDistributedLuSolve<cuFloatComplex>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
@@ -359,7 +358,7 @@ absl::Status RunCusolverMpLuSolveSolver(
           process_row, process_col, a_out, b_out, nccl_comm, status_out,
           &status_words);
       break;
-    case C128:
+    case ffi::C128:
       status_words[34] = 4;
       lu_solve_status = RunCusolverMpDistributedLuSolve<cuDoubleComplex>(
           api, handle, grid, cuda_stream, n, nrhs, tile_size,
@@ -390,23 +389,20 @@ absl::Status RunCusolverMpLuSolveSolver(
 // preserves the factorized storage required for input/output aliasing; the
 // solved input is reverse-redistributed and restored for JAX.
 absl::Status XlaCusolverMpLuSolveDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows, 
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t nrhs, int64_t b_distribution_cols,
     int64_t tile_size, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
-    ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
   absl::StatusOr<ResolvedProcessGrid> process_grid =
-      ResolveProcessGrid("cusolvermp_lu_solve", collective_params,
-                         partition_slots, process_rows, process_cols);
+      ResolveProcessGrid("cusolvermp_lu_solve", partition_slots, process_rows, process_cols);
   if (!process_grid.ok()) {
     return process_grid.status();
   }
   const int64_t grid_mapping = process_grid->grid_mapping;
   const absl::Span<const int64_t> rank_map = process_grid->rank_map;
   // Raw NCCL runs on the main compute stream
-  se::Stream* comm_stream = nullptr;
 
   // Stage 1: validate the local FFI buffers.  Python has already padded A/B to
   // the user-visible storage capacity needed by the requested process grid and
@@ -483,7 +479,7 @@ absl::Status XlaCusolverMpLuSolveDispatch(
   }
   Padded2DRedistScratch redistribution_scratch =
       *redistribution_scratch_status;
-  se::DeviceAddressBase scratch_base = redistribution_scratch.base;
+  void* scratch_base = redistribution_scratch.pointer;
   const int64_t scratch_elements = redistribution_scratch.elements;
 
   bool scratch_freed = false;
@@ -552,20 +548,19 @@ absl::Status XlaCusolverMpLuSolveDispatch(
   // A is routed over the full n x n logical matrix; B is routed over the padded
   // distribution width but only the first nrhs columns are solved.
   if (absl::Status status = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_lu_solve/a_forward", stream, comm_stream, cuda_stream,
+          "cusolvermp_lu_solve/a_forward", cuda_stream,
           process_rows, process_cols, tile_size, tile_size, n, n,
-          /*reverse=*/0, rank_map, a_forward_input, a_work->device_memory(),
-          scratch_base, scratch_elements, collective_params,
-          collective_cliques);
+          /*reverse=*/0, rank_map, a_forward_input, a_work->untyped_data(),
+          scratch_base, scratch_elements, collectives);
       !status.ok()) {
     return return_after_cleanup(status);
   }
   if (absl::Status status = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_lu_solve/b_forward", stream, comm_stream, cuda_stream,
+          "cusolvermp_lu_solve/b_forward", cuda_stream,
           process_rows, process_cols, tile_size, tile_size, n,
           b_distribution_cols, /*reverse=*/0, rank_map, b_forward_input,
-          b_out->device_memory(), scratch_base, scratch_elements,
-          collective_params, collective_cliques);
+          b_out->untyped_data(), scratch_base, scratch_elements,
+          collectives);
       !status.ok()) {
     return return_after_cleanup(status);
   }
@@ -582,9 +577,9 @@ absl::Status XlaCusolverMpLuSolveDispatch(
   // Stage 5: run GETRF/GETRS on the redistributed buffers.  The shared helper
   // handles the cuSOLVERMp ABI boundary and borrowed NCCL communicator.
   if (absl::Status solver_call_status = RunCusolverMpLuSolveSolver(
-          stream, cuda_stream, process_rows, process_cols, n,
+          cuda_stream, process_rows, process_cols, n,
           nrhs, tile_size, grid_mapping, rank_map,
-          a_work, b_out, status, collective_params, collective_cliques);
+          a_work, b_out, status, collectives);
       !solver_call_status.ok()) {
     return return_after_cleanup(solver_call_status);
   }
@@ -601,11 +596,11 @@ absl::Status XlaCusolverMpLuSolveDispatch(
   // Stage 6: return only B to the JAX-facing distribution.  A is a factorized
   // LU work buffer after GETRF and is returned only for donation/aliasing.
   if (absl::Status status = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_lu_solve/b_reverse", stream, comm_stream, cuda_stream,
+          "cusolvermp_lu_solve/b_reverse", cuda_stream,
           process_rows, process_cols, tile_size, tile_size, n,
           b_distribution_cols, /*reverse=*/1, rank_map, b_solved_cyclic,
-          b_out->device_memory(), scratch_base, scratch_elements,
-          collective_params, collective_cliques);
+          b_out->untyped_data(), scratch_base, scratch_elements,
+          collectives);
       !status.ok()) {
     return return_after_cleanup(status);
   }
@@ -620,4 +615,4 @@ absl::Status XlaCusolverMpLuSolveDispatch(
   return return_after_cleanup(absl::OkStatus());
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

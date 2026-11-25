@@ -29,7 +29,7 @@
 #include <cuda_runtime_api.h>
 #include <library_types.h>
 
-namespace xla::gpu {
+namespace jaxmg {
 
 // Accumulates 2 * log(abs(L_ii)) for diagonal entries owned by this rank.
 // `factor` uses cuSOLVERMp's local column-major 2D block-cyclic layout and
@@ -40,6 +40,6 @@ cudaError_t AccumulateLocalCholeskyLogdet(
     int64_t process_cols, int32_t process_row, int32_t process_col,
     int64_t local_physical_rows, void* logdet_out);
 
-}  // namespace xla::gpu
+}  // namespace jaxmg
 
 #endif  // JAXMG_POTRS_LOGDET_H_

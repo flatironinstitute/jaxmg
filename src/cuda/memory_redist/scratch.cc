@@ -36,7 +36,7 @@
 
 #include "memory_redist.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 
 // Computes the scratch requirement for a single matrix moving through local
 // layout conversion, edge-padding compaction, and 2D block-cyclic redistribution.
@@ -111,7 +111,6 @@ absl::StatusOr<Padded2DRedistScratch> AllocatePadded2DRedistScratch(
   }
 
   return Padded2DRedistScratch{
-      /*base=*/se::DeviceAddressBase(scratch_pointer, bytes),
       /*pointer=*/scratch_pointer,
       /*elements=*/max_elements,
       /*bytes=*/bytes,
@@ -136,4 +135,4 @@ absl::Status FreePadded2DRedistScratch(cudaStream_t cuda_stream,
   return absl::OkStatus();
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

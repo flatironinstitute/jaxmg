@@ -340,7 +340,7 @@ def run_gpu_test(
         "shardmap",
         "abstract_mesh",
         "inferred",
-        "invalid_order",
+        "permuted",
         "singular",
     ):
         raise ValueError(f"unknown solver interface {interface!r}")

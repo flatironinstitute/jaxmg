@@ -31,7 +31,7 @@
 #include "factor_extract.h"
 #include "factorization.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 template <typename DataType>
@@ -40,7 +40,7 @@ absl::Status RunCusolverMpPotrf(
     cudaStream_t cuda_stream, int64_t n, int64_t tile_size,
     int32_t process_row, int32_t process_col,
     ffi::Result<ffi::AnyBuffer> a_out,
-    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
     std::array<int32_t, kPotrfStatusSize>* status_words) {
   const int32_t process_rows = (*status_words)[4];
   const int32_t process_cols = (*status_words)[5];
@@ -112,16 +112,15 @@ absl::Status RunCusolverMpPotrf(
 }
 
 absl::Status RunCusolverMpPotrfSolver(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t tile_size, int64_t grid_mapping,
     absl::Span<const int64_t> rank_map, ffi::Result<ffi::AnyBuffer> a_out,
-    ffi::Result<ffi::BufferR1<S32>> status_out,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
+    CollectiveContext collectives) {
   // Stage 1: validate the streams and fixed diagnostic-buffer contract.
-  if (stream == nullptr || cuda_stream == nullptr) {
+  if (cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
-        "cusolvermp_potrf requires XLA and CUDA streams");
+        "cusolvermp_potrf requires a CUDA stream");
   }
   if (status_out->dimensions().size() != 1 ||
       status_out->dimensions()[0] != kPotrfStatusSize) {
@@ -163,7 +162,7 @@ absl::Status RunCusolverMpPotrfSolver(
   auto publish_status = [&]() -> absl::Status {
     JAXMG_RETURN_IF_ERROR(InvalidateResultsOnFailure(
         cuda_stream, status_words[0], {*a_out}));
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(cuda_stream, status_words, status_out);
   };
 
   // Stage 2: bind the matrix's device, borrow XLA's communicator, and create
@@ -176,7 +175,7 @@ absl::Status RunCusolverMpPotrfSolver(
   JAXMG_RETURN_IF_ERROR(execution.Initialize(
       "cusolvermp_potrf", cuda_stream, a_out->untyped_data(),
       process_rows, process_cols, grid_mapping, rank_map,
-      collective_params, collective_cliques));
+      collectives));
   if (status_words[0] != kStatusOk) {
     execution.Close();
     return publish_status();
@@ -192,25 +191,25 @@ absl::Status RunCusolverMpPotrfSolver(
   // Stage 3: factor A and clear the unused triangle before restoration.
   absl::Status potrf_status;
   switch (a_out->element_type()) {
-    case F32:
+    case ffi::F32:
       status_words[24] = 1;
       potrf_status = RunCusolverMpPotrf<float>(
           api, handle, grid, cuda_stream, n, tile_size, process_row,
           process_col, a_out, nccl_comm, status_out, &status_words);
       break;
-    case F64:
+    case ffi::F64:
       status_words[24] = 2;
       potrf_status = RunCusolverMpPotrf<double>(
           api, handle, grid, cuda_stream, n, tile_size, process_row,
           process_col, a_out, nccl_comm, status_out, &status_words);
       break;
-    case C64:
+    case ffi::C64:
       status_words[24] = 3;
       potrf_status = RunCusolverMpPotrf<cuFloatComplex>(
           api, handle, grid, cuda_stream, n, tile_size, process_row,
           process_col, a_out, nccl_comm, status_out, &status_words);
       break;
-    case C128:
+    case ffi::C128:
       status_words[24] = 4;
       potrf_status = RunCusolverMpPotrf<cuDoubleComplex>(
           api, handle, grid, cuda_stream, n, tile_size, process_row,
@@ -233,22 +232,20 @@ absl::Status RunCusolverMpPotrfSolver(
 }
 
 absl::Status RunCusolverMpPotrfDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream,
+    cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> factor,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
   return DispatchSquareMatrix(
-      "cusolvermp_potrf", stream, cuda_stream, process_rows, process_cols,
-      n, tile_size, partition_slots, a, factor, collective_params,
-      collective_cliques,
+      "cusolvermp_potrf", cuda_stream, process_rows, process_cols,
+      n, tile_size, partition_slots, a, factor, collectives,
       [&](const ResolvedProcessGrid& grid, const Padded2DRedistScratch&) {
         return RunCusolverMpPotrfSolver(
-            stream, cuda_stream, process_rows, process_cols, n, tile_size,
+            cuda_stream, process_rows, process_cols, n, tile_size,
             grid.grid_mapping, grid.rank_map, factor, status,
-            collective_params, collective_cliques);
+            collectives);
       });
 }
 
@@ -257,17 +254,15 @@ absl::Status RunCusolverMpPotrfDispatch(
 // Executes the complete factor-only POTRF workflow in one FFI dispatch. The
 // factor output aliases A, so donation needs no separate work buffer.
 absl::Status XlaCusolverMpPotrfDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> factor,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
   return RunCusolverMpPotrfDispatch(
-      stream, cuda_stream, process_rows, process_cols,
-      n, tile_size, partition_slots, a, factor, status, collective_params,
-      collective_cliques);
+      cuda_stream, process_rows, process_cols,
+      n, tile_size, partition_slots, a, factor, status, collectives);
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

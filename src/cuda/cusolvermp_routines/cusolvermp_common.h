@@ -34,10 +34,10 @@
 #include "../xla_ffi/runtime.h"
 #include "cusolvermp_cache.h"
 #include "../memory_redist/memory_redist.h"
-#include "third_party/nccl/nccl.h"
+#include <nccl.h>
 #include "absl/functional/function_ref.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 
 // Typed table of the cuSOLVERMp entry points used by the native solver handlers.
 // Grouping the functions here keeps runtime invocation consistent across the
@@ -211,26 +211,22 @@ struct ResolvedProcessGrid {
   int64_t grid_mapping = 0;
 };
 
-// Places the communicator ranks on the process grid at run time, from XLA's
-// device assignment, the way XLA resolves the `partition-id` of a device.
-// `partition_slots[p]` is the row-major process-grid slot of the shard computed
-// by partition `p`, which Python derives from the abstract JAX mesh as
-// `jax.lax.axis_index` does. Partition `p` runs on the device XLA assigns to it,
-// whose communicator rank is its rank in the clique borrowed from XLA.
+// Places logical communicator ranks on the process grid. Python derives
+// partition_slots from the abstract mesh in the same order as axis_index;
+// the public FFI requests NCCL ranks in that logical partition order.
 absl::StatusOr<ResolvedProcessGrid> ResolveProcessGrid(
-    const char* caller, const CollectiveParams* collective_params,
+    const char* caller,
     absl::Span<const int64_t> partition_slots, int64_t process_rows,
     int64_t process_cols);
 
 // Shared factor/inverse pipeline: prepare one square matrix, execute the
 // numerical step, then restore its JAX layout using the same bounded scratch.
 absl::Status DispatchSquareMatrix(
-    const char* caller, se::Stream* stream, cudaStream_t cuda_stream,
+    const char* caller, cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> result,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques,
+    CollectiveContext collectives,
     absl::FunctionRef<absl::Status(const ResolvedProcessGrid&,
                                  const Padded2DRedistScratch&)> compute);
 
@@ -266,8 +262,7 @@ class CusolverMpExecution {
       const char* caller, cudaStream_t cuda_stream, const void* matrix,
       int64_t process_rows, int64_t process_cols, int64_t grid_mapping,
       absl::Span<const int64_t> rank_map,
-      const CollectiveParams* collective_params,
-      CollectiveCliques* collective_cliques);
+      CollectiveContext collectives);
 
   // Close explicitly before collective status agreement so cleanup failures
   // are included. The destructor also covers early returns; repeated closes
@@ -299,11 +294,15 @@ int64_t LocalNumroc(int64_t n, int64_t block, int32_t process,
 // Copies a solver's per-rank status vector from host memory into the
 // JAX-visible rank-1 device status output.
 template <size_t N>
-absl::Status CopyStatusToDevice(se::Stream* stream,
+absl::Status CopyStatusToDevice(cudaStream_t cuda_stream,
                                 const std::array<int32_t, N>& status,
-                                ffi::Result<ffi::BufferR1<S32>> out) {
-  se::DeviceAddress<int32_t> dst = out->device_memory();
-  return stream->MemcpyH2D(absl::MakeConstSpan(status), &dst);
+                                ffi::Result<ffi::BufferR1<ffi::S32>> out) {
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaMemcpyAsync(
+      out->typed_data(), status.data(), sizeof(status),
+      cudaMemcpyHostToDevice, cuda_stream));
+  // The stack-resident status array must remain alive until the copy finishes.
+  JAXMG_RETURN_IF_CUDA_ERROR(cudaStreamSynchronize(cuda_stream));
+  return absl::OkStatus();
 }
 
 // Encodes workspace byte sizes compactly in status vectors as KiB.
@@ -315,7 +314,7 @@ int32_t SizeToKiBForStatus(size_t bytes);
 // Every rank must enter this call in the same order with a usable communicator.
 absl::Status SynchronizeSolverStatus(
     cudaStream_t cuda_stream, ncclComm_t comm,
-    ffi::Result<ffi::BufferR1<S32>> status_out, int32_t* status_code);
+    ffi::Result<ffi::BufferR1<ffi::S32>> status_out, int32_t* status_code);
 
 // Overwrites every element of each result buffer, padding included, with the
 // SolverTraits NaN of its dtype when `status_code` is not kStatusOk.
@@ -334,6 +333,6 @@ void CusolverMpDebug(int rank, const char* format, ...);
 // rank binds cuSOLVERMp to the correct local GPU.
 absl::StatusOr<int> DeviceForCudaPointer(const void* ptr);
 
-}  // namespace xla::gpu
+}  // namespace jaxmg
 
 #endif  // JAXMG_CUSOLVERMP_COMMON_H_

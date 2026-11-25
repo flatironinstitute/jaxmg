@@ -418,9 +418,9 @@ def partition_slots_from_mesh(
 ) -> tuple[int, ...]:
     """Map every SPMD partition of ``mesh`` to its cuSOLVERMp grid slot.
 
-    The native backend resolves each partition's physical device and
-    communicator rank at run time from XLA's device assignment, so this helper
-    needs only the abstract mesh axis names and sizes.
+    The native backend requests communicator ranks in logical partition order,
+    so this mapping needs only the abstract mesh axis names and sizes, not
+    physical device IDs.
     """
     axis_names = tuple(mesh.axis_names)
     axis_sizes = tuple(int(size) for size in mesh.axis_sizes)

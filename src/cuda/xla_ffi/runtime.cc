@@ -12,257 +12,112 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Shared XLA FFI runtime helpers for the cuSOLVERMp backend.
-//
-// This file implements process-local synchronization state, CUDA/cuSOLVER status
-// conversion, scratch allocation, all-assigned clique construction, and
-// communicator utilities shared by the solver handlers.
+// Shared FFI status conversion and borrowed NCCL communicator access.
 //
 // File workflow:
-//   1. Translate CUDA/cuSOLVER return codes into absl::Status for FFI.
-//   2. Allocate XLA-owned scratch buffers for fused native handlers.
-//   3. Build all-assigned XLA collective clique keys from CollectiveParams.
+//   1. Request the ordered SPMD communicator during FFI preparation.
+//   2. Borrow its NCCL handle through the public C extension at execution.
+//   3. Run communication on the supplied CUDA stream, alongside solver work.
 
 #include "runtime.h"
 
-namespace xla::gpu {
+#include <limits>
+#include <numeric>
+
+namespace jaxmg {
 namespace {
 
-// One flattened replica/global-device pair from XLA's collective assignment.
-struct AssignedDeviceEntry {
-  int replica_id;
-  GlobalDeviceId global_device_id;
-};
-
-// Extracts the full device group for this FFI program from the richest XLA
-// collective metadata available in the current runtime context.
-std::vector<AssignedDeviceEntry> AssignedDevices(
-    const CollectiveParams& params) {
-  // Prefer XLA's explicit device assignment when present. Some FFI contexts
-  // instead provide a global_device_id_map; the fallback handles simple local
-  // tests where neither map is populated.
-  std::vector<AssignedDeviceEntry> devices;
-  if (params.device_assn != nullptr) {
-    const int replica_count = params.device_assn->replica_count();
-    const int computation_count = params.device_assn->computation_count();
-    devices.reserve(static_cast<size_t>(replica_count) *
-                    static_cast<size_t>(computation_count));
-    for (int replica = 0; replica < replica_count; ++replica) {
-      for (int computation = 0; computation < computation_count;
-           ++computation) {
-        const int flattened_id = replica * computation_count + computation;
-        devices.push_back(AssignedDeviceEntry{
-            flattened_id,
-            GlobalDeviceId((*params.device_assn)(replica, computation))});
-      }
-    }
-    return devices;
-  }
-
-  if (params.global_device_id_map != nullptr &&
-      !params.global_device_id_map->empty()) {
-    devices.reserve(params.global_device_id_map->size());
-    for (const auto& entry : *params.global_device_id_map) {
-      devices.push_back(AssignedDeviceEntry{entry.first.value(),
-                                            entry.second});
-    }
-    return devices;
-  }
-
-  const int device_count = std::max(params.local_device_count, 1);
-  devices.reserve(device_count);
-  for (int i = 0; i < device_count; ++i) {
-    devices.push_back(AssignedDeviceEntry{i, GlobalDeviceId(i)});
-  }
-  return devices;
+std::vector<std::vector<int64_t>> PartitionGroup(int64_t num_ranks) {
+  std::vector<std::vector<int64_t>> groups(1, std::vector<int64_t>(num_ranks));
+  std::iota(groups[0].begin(), groups[0].end(), 0);
+  return groups;
 }
 
 }  // namespace
 
-// Converts CUDA runtime failures into FFI-friendly absl::Status values.
+absl::Status CollectiveErrorPolicy::TakeError(const XLA_FFI_Api* api,
+                                              XLA_FFI_Error* error) {
+  const auto result = ffi::internal::ErrorPolicy::TakeError(api, error);
+  return absl::Status(static_cast<absl::StatusCode>(*result.errc()),
+                      result.message());
+}
+
 absl::Status CudaToStatus(cudaError_t err, const char* file, int line) {
-  // Preserve the CUDA call site in errors crossing the FFI boundary.
-  if (err == cudaSuccess) {
-    return absl::OkStatus();
-  }
-  return absl::InternalError(absl::StrFormat(
-      "CUDA error %d (%s) at %s:%d", static_cast<int>(err),
-      cudaGetErrorString(err), file, line));
+  if (err == cudaSuccess) return absl::OkStatus();
+  return absl::InternalError(
+      absl::StrFormat("CUDA error %d (%s) at %s:%d", static_cast<int>(err),
+                      cudaGetErrorString(err), file, line));
 }
 
-// Converts raw NCCL return codes into FFI-friendly absl::Status values.
 absl::Status NcclToStatus(ncclResult_t err, const char* file, int line) {
-  if (err == ncclSuccess) {
-    return absl::OkStatus();
-  }
-  return absl::InternalError(absl::StrFormat(
-      "NCCL error %d (%s) at %s:%d", static_cast<int>(err),
-      ncclGetErrorString(err), file, line));
+  if (err == ncclSuccess) return absl::OkStatus();
+  return absl::InternalError(
+      absl::StrFormat("NCCL error %d (%s) at %s:%d", static_cast<int>(err),
+                      ncclGetErrorString(err), file, line));
 }
 
-// Builds the XLA replica group containing every device assigned to this
-// compiled FFI program.
-ReplicaGroup AllAssignedDevicesReplicaGroup(const CollectiveParams& params) {
-  // Keep every assigned replica in one group so the borrowed NCCL communicator
-  // can represent the full cuSOLVERMp process grid when JAX is launched across
-  // nodes.
-  std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
-  std::sort(devices.begin(), devices.end(),
-            [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
-              return a.global_device_id.value() < b.global_device_id.value();
-            });
-
-  ReplicaGroup group;
-  for (const AssignedDeviceEntry& device : devices) {
-    group.add_replica_ids(device.replica_id);
-  }
-  return group;
-}
-
-// Builds the sorted global-device group used when requesting XLA communicator
-// cliques.
-std::vector<GlobalDeviceId> AllAssignedGlobalDeviceGroup(
-    const CollectiveParams& params) {
-  // Use sorted global device ids to build a stable group independent of the
-  // order XLA exposes maps internally. This must match the rank order assumed
-  // by the row-major/column-major cuSOLVERMp rank_map validation.
-  std::vector<AssignedDeviceEntry> devices = AssignedDevices(params);
-  std::sort(devices.begin(), devices.end(),
-            [](const AssignedDeviceEntry& a, const AssignedDeviceEntry& b) {
-              return a.global_device_id.value() < b.global_device_id.value();
-            });
-
-  std::vector<GlobalDeviceId> device_group;
-  device_group.reserve(devices.size());
-  for (const AssignedDeviceEntry& device : devices) {
-    device_group.push_back(device.global_device_id);
-  }
-  return device_group;
-}
-
-// Constructs the all-assigned point-to-point clique key used by raw NCCL
-// redistribution and cuSOLVERMp.
-absl::StatusOr<GpuCliqueKey> AllAssignedDevicesP2PCliqueKey(
-    const CollectiveParams& params) {
-  // Point-to-point clique over every assigned rank.  CommunicationId(1)
-  // separates this P2P clique from the ordinary collective clique for the same
-  // replica group.
-  std::vector<ReplicaGroup> replica_groups = {
-      AllAssignedDevicesReplicaGroup(params)};
-  return GetGpuCliqueKey(
-      params, replica_groups,
-      CollectiveOpGroupMode::COLLECTIVE_OP_GROUP_MODE_FLATTENED_ID,
-      CommunicationId(1));
-}
-
-// Asks XLA to create the P2P communicator clique before the runtime dispatch
-// tries to borrow it.
-absl::Status XlaCusolverMpPrepare(const CollectiveParams* collective_params,
-                                  CollectiveCliqueRequests* clique_requests) {
-  if (collective_params == nullptr || clique_requests == nullptr) {
+absl::Status XlaCusolverMpPrepare(ffi::Dictionary attributes,
+                                  CollectiveContext collectives) {
+  // Each solver adds different attributes; preparation needs only the grid.
+  auto rows = attributes.get<int64_t>("process_rows");
+  auto cols = attributes.get<int64_t>("process_cols");
+  if (!rows || !cols) {
     return absl::InvalidArgumentError(
-        "cusolvermp_prepare requires XLA collective prepare contexts");
+        "cuSOLVERMp requires process_rows and process_cols");
   }
-
-  // Request the communicator during prepare; dispatch cannot create it lazily.
-  absl::StatusOr<GpuCliqueKey> clique_key =
-      AllAssignedDevicesP2PCliqueKey(*collective_params);
-  if (!clique_key.ok()) {
-    return clique_key.status();
+  const int64_t process_rows = *rows, process_cols = *cols;
+  if (process_rows <= 0 || process_cols <= 0 ||
+      process_rows > std::numeric_limits<int>::max() / process_cols) {
+    return absl::InvalidArgumentError(
+        "cuSOLVERMp requires a positive process grid");
   }
-  return clique_requests->RequestClique(
-      *clique_key, {AllAssignedGlobalDeviceGroup(*collective_params)});
+  // Communication ID 1 keeps these P2P transfers separate from XLA collectives.
+  return collectives.RequestCommunicator(
+      ffi::GroupMode::kFlattenedId, PartitionGroup(process_rows * process_cols),
+      1);
 }
 
-// Borrows the CUDA platform communicator from XLA without taking ownership.
 absl::StatusOr<ncclComm_t> BorrowNcclComm(const char* caller,
-                                          GpuCommunicator* comm) {
-  if (comm == nullptr) {
-    return absl::InvalidArgumentError(
-        absl::StrFormat("%s requires an XLA GPU communicator", caller));
+                                          CollectiveContext collectives,
+                                          int64_t num_ranks) {
+  if (num_ranks <= 0 || num_ranks > std::numeric_limits<int>::max()) {
+    return absl::InvalidArgumentError("invalid cuSOLVERMp communicator size");
   }
-  void* handle = comm->platform_comm().handle;
-  if (handle == nullptr) {
+  auto borrowed = collectives.GetCommunicator(ffi::GroupMode::kFlattenedId,
+                                              PartitionGroup(num_ranks), 1);
+  if (!borrowed.ok()) return borrowed.status();
+  if (*borrowed == nullptr) {
     return absl::FailedPreconditionError(absl::StrFormat(
-        "%s requires an XLA communicator with a platform NCCL handle",
-        caller));
+        "%s requires an XLA communicator with a platform NCCL handle", caller));
   }
-  return reinterpret_cast<ncclComm_t>(handle);
+  return reinterpret_cast<ncclComm_t>(*borrowed);
 }
 
-// Confirms that XLA and NCCL agree on the current rank and clique size.
 absl::Status ValidateBorrowedNcclComm(const char* caller, ncclComm_t comm,
                                       int64_t expected_rank,
                                       int64_t expected_count) {
-  int comm_rank = -1;
-  int comm_count = -1;
-  JAXMG_RETURN_IF_NCCL_ERROR(ncclCommUserRank(comm, &comm_rank));
-  JAXMG_RETURN_IF_NCCL_ERROR(ncclCommCount(comm, &comm_count));
-  if (comm_rank != expected_rank || comm_count != expected_count) {
+  int rank = -1, count = -1;
+  JAXMG_RETURN_IF_NCCL_ERROR(ncclCommUserRank(comm, &rank));
+  JAXMG_RETURN_IF_NCCL_ERROR(ncclCommCount(comm, &count));
+  if (rank != expected_rank || count != expected_count) {
     return absl::FailedPreconditionError(absl::StrFormat(
-        "%s borrowed NCCL communicator mismatch: NCCL rank/count=(%d, %d), "
-        "XLA rank/count=(%d, %d)",
-        caller, comm_rank, comm_count, expected_rank, expected_count));
+        "%s borrowed NCCL rank/count=(%d, %d), expected (%d, %d)", caller, rank,
+        count, expected_rank, expected_count));
   }
   return absl::OkStatus();
 }
 
-// Chooses the stream used by raw NCCL operations issued from native FFI code.
-absl::StatusOr<NcclStreamChoice> ChooseNcclStream(
-    const char* caller, se::Stream* comm_stream, cudaStream_t cuda_stream) {
-  if (comm_stream != nullptr) {
-    void* handle = comm_stream->platform_specific_handle().stream;
-    if (handle != nullptr) {
-      return NcclStreamChoice{
-          /*stream=*/reinterpret_cast<cudaStream_t>(handle),
-          /*uses_comm_stream=*/true};
-    }
-  }
-  if (cuda_stream == nullptr) {
-    return absl::InvalidArgumentError(
-        absl::StrFormat("%s requires a CUDA stream for raw NCCL", caller));
-  }
-  return NcclStreamChoice{/*stream=*/cuda_stream,
-                          /*uses_comm_stream=*/false};
-}
-
-// Performs an in-place sum of one real scalar across every NCCL rank.
-absl::Status RunRawNcclAllReduceReal(
-    const char* caller, se::Stream* stream, se::Stream* comm_stream,
-    cudaStream_t cuda_stream, ncclComm_t comm, ncclDataType_t dtype,
-    void* value) {
-  if (stream == nullptr || comm == nullptr || value == nullptr) {
+absl::Status RunRawNcclAllReduceReal(const char* caller,
+                                     cudaStream_t cuda_stream, ncclComm_t comm,
+                                     ncclDataType_t dtype, void* value) {
+  if (comm == nullptr || value == nullptr ||
+      (dtype != ncclFloat && dtype != ncclDouble)) {
     return absl::InvalidArgumentError(absl::StrFormat(
-        "%s requires non-null XLA stream, NCCL communicator, and value",
-        caller));
+        "%s requires an NCCL communicator and a real device scalar", caller));
   }
-  if (dtype != ncclFloat && dtype != ncclDouble) {
-    return absl::InvalidArgumentError(absl::StrFormat(
-        "%s requires an ncclFloat or ncclDouble scalar", caller));
-  }
-
-  absl::StatusOr<NcclStreamChoice> nccl_stream =
-      ChooseNcclStream(caller, comm_stream, cuda_stream);
-  if (!nccl_stream.ok()) {
-    return nccl_stream.status();
-  }
-
-  if (nccl_stream->uses_comm_stream) {
-    // The local CUDA reduction produces `value` on the main stream. Make that
-    // write visible before NCCL reads it on XLA's communication stream.
-    JAXMG_RETURN_IF_ERROR(comm_stream->WaitFor(stream));
-  }
-
-  JAXMG_RETURN_IF_NCCL_ERROR(ncclAllReduce(
-      value, value, /*count=*/1, dtype, ncclSum, comm,
-      nccl_stream->stream));
-
-  if (nccl_stream->uses_comm_stream) {
-    // Downstream FFI outputs are consumed on the main stream. Preserve that
-    // ordering without introducing a host-wide stream synchronization.
-    JAXMG_RETURN_IF_ERROR(stream->WaitFor(comm_stream));
-  }
+  JAXMG_RETURN_IF_NCCL_ERROR(
+      ncclAllReduce(value, value, 1, dtype, ncclSum, comm, cuda_stream));
   return absl::OkStatus();
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg

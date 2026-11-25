@@ -24,84 +24,78 @@
 
 #include "../memory_redist/memory_redist.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 
 // Runtime POTRS hook. Performs native layout conversion, redistribution,
 // cuSOLVERMp POTRF/POTRS, reverse redistribution, and output layout restore in
 // one FFI dispatch.
 absl::Status XlaCusolverMpPotrsDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t nrhs, int64_t b_distribution_cols,
     int64_t tile_size, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
-    ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Runtime POTRS-with-logdet hook. It performs the same fused solve and also
 // returns the replicated real Cholesky log determinant in the matrix's real
 // component precision.
 absl::Status XlaCusolverMpPotrsLogdetDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t nrhs, int64_t b_distribution_cols,
     int64_t tile_size, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
     ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::AnyBuffer> logdet,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Runtime factor-only POTRF hook. It redistributes A, computes the lower
 // Cholesky factor, zeros its strict upper triangle, and restores L to the JAX
 // layout of A.
 absl::Status XlaCusolverMpPotrfDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> factor,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Invert the original A through POTRF/POTRI or GETRF/GETRI in one dispatch.
 // The complete inverse aliases A; native pivots remain internal.
 absl::Status XlaCusolverMpInverseDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t tile_size, bool cholesky,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> inverse,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Runtime LU-solve hook. Performs native layout conversion, redistribution,
 // cuSOLVERMp GETRF/GETRS, reverse redistribution, and output layout restore in
 // one FFI dispatch.
 absl::Status XlaCusolverMpLuSolveDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t nrhs, int64_t b_distribution_cols,
     int64_t tile_size, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a, ffi::AnyBuffer b, ffi::Result<ffi::AnyBuffer> a_work,
-    ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::AnyBuffer> b_out, ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Runtime factor-only GETRF hook. It redistributes A, computes the pivoted LU
 // factorization, replicates the 0-based pivots on every rank, and restores the
 // packed LU factor to the JAX layout of A.
 absl::Status XlaCusolverMpGetrfDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
-    ffi::Result<ffi::AnyBuffer> lu, ffi::Result<ffi::BufferR1<S32>> piv,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::AnyBuffer> lu, ffi::Result<ffi::BufferR1<ffi::S32>> piv,
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Runtime least-squares hook. It redistributes rectangular A and B, runs
 // cuSOLVERMp GELS, and restores both B work and the N-row solution for JAX.
 absl::Status XlaCusolverMpGelsDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream,
+    cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
     int64_t nrhs, int64_t b_distribution_cols, int64_t x_distribution_rows,
     int64_t tile_size,
@@ -109,113 +103,103 @@ absl::Status XlaCusolverMpGelsDispatch(
     ffi::AnyBuffer a, ffi::AnyBuffer b,
     ffi::Result<ffi::AnyBuffer> a_work, ffi::Result<ffi::AnyBuffer> b_out,
     ffi::Result<ffi::AnyBuffer> x_out,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Runtime reduced-QR hook. It redistributes A, computes GEQRF, preserves R,
 // generates Q with ORGQR, and restores both factors to JAX layouts.
 absl::Status XlaCusolverMpQrDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> q, ffi::Result<ffi::AnyBuffer> r,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Runtime SYEVD hook. Performs native layout conversion, redistribution,
 // vector-producing cuSOLVERMp SYEVD, reverse eigenvector redistribution, and
 // output layout restore in one FFI dispatch.
 absl::Status XlaCusolverMpSyevdDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues, ffi::Result<ffi::AnyBuffer> work,
-    ffi::Result<ffi::AnyBuffer> vectors, ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::AnyBuffer> vectors, ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Runtime eigenvalues-only SYEVD hook. It shares the forward redistribution
 // and cuSOLVERMp setup with vector-producing SYEVD, but omits the eigenvector
 // output and its reverse redistribution.
 absl::Status XlaCusolverMpSyevdValuesDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> eigenvalues, ffi::Result<ffi::AnyBuffer> work,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Runtime GESVD hook for singular values and both singular-vector matrices.
 // The four public dispatches select distinct FFI result lists so unrequested
 // matrix-sized outputs are never allocated by XLA.
 absl::Status XlaCusolverMpGesvdUvDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
     int64_t full_matrices, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> singular_values,
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> u,
-    ffi::Result<ffi::AnyBuffer> vh, ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::AnyBuffer> vh, ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Runtime GESVD hook for singular values and left singular vectors.
 absl::Status XlaCusolverMpGesvdUDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
     int64_t full_matrices, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> singular_values,
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> u,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Runtime GESVD hook for singular values and right singular vectors.
 absl::Status XlaCusolverMpGesvdVhDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
     int64_t full_matrices, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> singular_values,
     ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::AnyBuffer> vh,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Runtime values-only GESVD hook. It omits both singular-vector outputs and
 // ends after the distributed factorization has produced the singular values.
 absl::Status XlaCusolverMpGesvdValuesDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
     int64_t full_matrices, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> singular_values,
-    ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::AnyBuffer> work, ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Runtime polar-decomposition hook returning both Up and H.
 absl::Status XlaCusolverMpPolarUhDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream,
+    cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
     int64_t tile_size, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> up, ffi::Result<ffi::AnyBuffer> h,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
 // Runtime polar-decomposition hook returning only Up.
 absl::Status XlaCusolverMpPolarUDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream,
+    cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
     int64_t tile_size, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> up,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques);
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives);
 
-}  // namespace xla::gpu
+}  // namespace jaxmg
 
 #endif  // JAXMG_CUSOLVERMP_ROUTINES_H_

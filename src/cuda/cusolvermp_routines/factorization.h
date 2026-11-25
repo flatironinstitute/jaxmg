@@ -19,7 +19,7 @@
 
 #include "cusolvermp_common.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 
 // References into a caller's existing diagnostic vector. Factor-only and
 // solve interfaces retain their own field ordering and status-buffer sizes.
@@ -41,7 +41,7 @@ absl::Status RunCholeskyFactorization(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
     void* a, cudaDataType_t dtype, ncclComm_t comm,
-    ffi::Result<ffi::BufferR1<S32>> status_out, FactorizationStatusFields status);
+    ffi::Result<ffi::BufferR1<ffi::S32>> status_out, FactorizationStatusFields status);
 
 // Overwrites A with packed LU and writes the native 1-based pivot indices.
 // The caller owns the pivot buffer through GETRS or pivot gathering; temporary
@@ -50,7 +50,7 @@ absl::Status RunLuFactorization(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
     void* a, cudaDataType_t dtype, int64_t* ipiv, size_t ipiv_bytes,
-    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
     FactorizationStatusFields status);
 
 // Inverts a Cholesky or LU factor in place. POTRI writes the lower triangle;
@@ -59,7 +59,7 @@ absl::Status RunFactorInverse(
     const CusolverMpApi& api, cusolverMpHandle_t handle,
     cusolverMpMatrixDescriptor_t desc_a, cudaStream_t cuda_stream, int64_t n,
     void* a, cudaDataType_t dtype, bool cholesky, const int64_t* ipiv,
-    ncclComm_t comm, ffi::Result<ffi::BufferR1<S32>> status_out,
+    ncclComm_t comm, ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
     FactorizationStatusFields status);
 
 // Pivots are distributed over process row zero. Other rows must still pass a
@@ -68,6 +68,6 @@ inline int64_t LuPivotAllocationLength(int64_t local_cols, int32_t process_row) 
   return process_row == 0 ? std::max<int64_t>(local_cols, 1) : 1;
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg
 
 #endif  // JAXMG_FACTORIZATION_H_

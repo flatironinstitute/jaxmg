@@ -33,7 +33,7 @@
 #include "cusolvermp_common.h"
 #include "cusolvermp_routines.h"
 
-namespace xla::gpu {
+namespace jaxmg {
 namespace {
 
 // Owns matrix descriptors and solver workspace for one distributed polar
@@ -235,17 +235,16 @@ absl::Status RunCusolverMpPolar(
 // Binds the polar operation to this rank's CUDA device and XLA-owned NCCL
 // communicator, then dispatches the matrix scalar type.
 absl::Status RunCusolverMpPolarSolver(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
     int64_t grid_mapping, absl::Span<const int64_t> rank_map,
     ffi::Result<ffi::AnyBuffer> up, ffi::AnyBuffer* h, bool compute_h,
-    ffi::Result<ffi::BufferR1<S32>> status_out,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status_out,
+    CollectiveContext collectives) {
   // Stage 1: validate the local FFI buffers and diagnostic output.
-  if (stream == nullptr || cuda_stream == nullptr) {
+  if (cuda_stream == nullptr) {
     return absl::InvalidArgumentError(
-        "cusolvermp_polar requires XLA and CUDA streams");
+        "cusolvermp_polar requires a CUDA stream");
   }
   if (up->dimensions().size() != 2 ||
       (compute_h && (h == nullptr || h->dimensions().size() != 2))) {
@@ -304,7 +303,7 @@ absl::Status RunCusolverMpPolarSolver(
     if (compute_h && h != nullptr) results.push_back(*h);
     JAXMG_RETURN_IF_ERROR(
         InvalidateResultsOnFailure(cuda_stream, status_words[0], results));
-    return CopyStatusToDevice(stream, status_words, status_out);
+    return CopyStatusToDevice(cuda_stream, status_words, status_out);
   };
 
   // Stage 2: bind the matrix's device and create the handle/grid using XLA's
@@ -317,7 +316,7 @@ absl::Status RunCusolverMpPolarSolver(
   JAXMG_RETURN_IF_ERROR(execution.Initialize(
       "cusolvermp_polar", cuda_stream, up->untyped_data(),
       process_rows, process_cols, grid_mapping, rank_map,
-      collective_params, collective_cliques));
+      collectives));
   if (status_words[0] != kStatusOk) {
     execution.Close();
     return publish_status();
@@ -333,25 +332,25 @@ absl::Status RunCusolverMpPolarSolver(
   // Stage 3: dispatch the native POLAR computation by dtype.
   absl::Status polar_status;
   switch (up->element_type()) {
-    case F32:
+    case ffi::F32:
       status_words[28] = 1;
       polar_status = RunCusolverMpPolar<float>(
           api, handle, grid, cuda_stream, m, n, tile_size, process_row,
           process_col, up, h, compute_h, &status_words);
       break;
-    case F64:
+    case ffi::F64:
       status_words[28] = 2;
       polar_status = RunCusolverMpPolar<double>(
           api, handle, grid, cuda_stream, m, n, tile_size, process_row,
           process_col, up, h, compute_h, &status_words);
       break;
-    case C64:
+    case ffi::C64:
       status_words[28] = 3;
       polar_status = RunCusolverMpPolar<cuFloatComplex>(
           api, handle, grid, cuda_stream, m, n, tile_size, process_row,
           process_col, up, h, compute_h, &status_words);
       break;
-    case C128:
+    case ffi::C128:
       status_words[28] = 4;
       polar_status = RunCusolverMpPolar<cuDoubleComplex>(
           api, handle, grid, cuda_stream, m, n, tile_size, process_row,
@@ -376,15 +375,14 @@ absl::Status RunCusolverMpPolarSolver(
 // Executes the complete fused workflow. The same scratch allocation is reused
 // for A/Up and optional H because the factors are restored sequentially.
 absl::Status RunCusolverMpPolarDispatch(
-    se::Stream* stream, se::Stream* comm_stream, cudaStream_t cuda_stream,
+    cudaStream_t cuda_stream,
     int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
     int64_t tile_size, absl::Span<const int64_t> partition_slots,
     ffi::AnyBuffer a, ffi::Result<ffi::AnyBuffer> up, ffi::AnyBuffer* h,
-    bool compute_h, ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    bool compute_h, ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
   absl::StatusOr<ResolvedProcessGrid> process_grid = ResolveProcessGrid(
-      "cusolvermp_polar", collective_params, partition_slots, process_rows,
+      "cusolvermp_polar", partition_slots, process_rows,
       process_cols);
   if (!process_grid.ok()) return process_grid.status();
   const int64_t grid_mapping = process_grid->grid_mapping;
@@ -451,15 +449,15 @@ absl::Status RunCusolverMpPolarDispatch(
   ffi::AnyBuffer up_work = *up;
   if (absl::Status convert_status = ConvertRowMajorToColumnMajorInPlace(
           cuda_stream, "cusolvermp_polar/a_layout_convert", up_work,
-          scratch.base, scratch.elements);
+          scratch.pointer, scratch.elements);
       !convert_status.ok()) {
     return return_after_cleanup(convert_status);
   }
   if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_polar/a_forward", stream, comm_stream, cuda_stream,
+          "cusolvermp_polar/a_forward", cuda_stream,
           process_rows, process_cols, tile_size, tile_size, m, n,
-          /*reverse=*/0, rank_map, up_work, up->device_memory(), scratch.base,
-          scratch.elements, collective_params, collective_cliques);
+          /*reverse=*/0, rank_map, up_work, up->untyped_data(), scratch.pointer,
+          scratch.elements, collectives);
       !redist_status.ok()) {
     return return_after_cleanup(redist_status);
   }
@@ -470,9 +468,8 @@ absl::Status RunCusolverMpPolarDispatch(
   }
 
   if (absl::Status solver_status = RunCusolverMpPolarSolver(
-          stream, cuda_stream, process_rows, process_cols, m, n, tile_size,
-          grid_mapping, rank_map, up, h, compute_h, status, collective_params,
-          collective_cliques);
+          cuda_stream, process_rows, process_cols, m, n, tile_size,
+          grid_mapping, rank_map, up, h, compute_h, status, collectives);
       !solver_status.ok()) {
     return return_after_cleanup(solver_status);
   }
@@ -485,15 +482,15 @@ absl::Status RunCusolverMpPolarDispatch(
   // Up occupies the overwritten A buffer and therefore follows the inverse of
   // A's redistribution and local layout conversion.
   if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
-          "cusolvermp_polar/up_reverse", stream, comm_stream, cuda_stream,
+          "cusolvermp_polar/up_reverse", cuda_stream,
           process_rows, process_cols, tile_size, tile_size, m, n,
-          /*reverse=*/1, rank_map, *up, up->device_memory(), scratch.base,
-          scratch.elements, collective_params, collective_cliques);
+          /*reverse=*/1, rank_map, *up, up->untyped_data(), scratch.pointer,
+          scratch.elements, collectives);
       !redist_status.ok()) {
     return return_after_cleanup(redist_status);
   }
   if (absl::Status convert_status = ConvertColumnMajorToRowMajorInPlace(
-          cuda_stream, "cusolvermp_polar/up_layout_restore", *up, scratch.base,
+          cuda_stream, "cusolvermp_polar/up_layout_restore", *up, scratch.pointer,
           scratch.elements);
       !convert_status.ok()) {
     return return_after_cleanup(convert_status);
@@ -506,15 +503,15 @@ absl::Status RunCusolverMpPolarDispatch(
       return sync_status;
     }
     if (absl::Status redist_status = ExecutePadded2DNativePlanRaw(
-            "cusolvermp_polar/h_reverse", stream, comm_stream, cuda_stream,
+            "cusolvermp_polar/h_reverse", cuda_stream,
             process_rows, process_cols, tile_size, tile_size, n, n,
-            /*reverse=*/1, rank_map, *h, h->device_memory(), scratch.base,
-            scratch.elements, collective_params, collective_cliques);
+            /*reverse=*/1, rank_map, *h, h->untyped_data(), scratch.pointer,
+            scratch.elements, collectives);
         !redist_status.ok()) {
       return return_after_cleanup(redist_status);
     }
     if (absl::Status convert_status = ConvertColumnMajorToRowMajorInPlace(
-            cuda_stream, "cusolvermp_polar/h_layout_restore", *h, scratch.base,
+            cuda_stream, "cusolvermp_polar/h_layout_restore", *h, scratch.pointer,
             scratch.elements);
         !convert_status.ok()) {
       return return_after_cleanup(convert_status);
@@ -526,31 +523,29 @@ absl::Status RunCusolverMpPolarDispatch(
 }  // namespace
 
 absl::Status XlaCusolverMpPolarUhDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
     ffi::Result<ffi::AnyBuffer> up, ffi::Result<ffi::AnyBuffer> h,
-    ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
   ffi::AnyBuffer h_buffer = *h;
   return RunCusolverMpPolarDispatch(
-      stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
+      cuda_stream, process_rows, process_cols,
       m, n, tile_size, partition_slots, a, up, &h_buffer,
-      /*compute_h=*/true, status, collective_params, collective_cliques);
+      /*compute_h=*/true, status, collectives);
 }
 
 absl::Status XlaCusolverMpPolarUDispatch(
-    se::Stream* stream, cudaStream_t cuda_stream, int64_t process_rows,
+    cudaStream_t cuda_stream, int64_t process_rows,
     int64_t process_cols, int64_t m, int64_t n, int64_t tile_size,
     absl::Span<const int64_t> partition_slots, ffi::AnyBuffer a,
-    ffi::Result<ffi::AnyBuffer> up, ffi::Result<ffi::BufferR1<S32>> status,
-    const CollectiveParams* collective_params,
-    CollectiveCliques* collective_cliques) {
+    ffi::Result<ffi::AnyBuffer> up, ffi::Result<ffi::BufferR1<ffi::S32>> status,
+    CollectiveContext collectives) {
   return RunCusolverMpPolarDispatch(
-      stream, /*comm_stream=*/nullptr, cuda_stream, process_rows, process_cols,
+      cuda_stream, process_rows, process_cols,
       m, n, tile_size, partition_slots, a, up, /*h=*/nullptr,
-      /*compute_h=*/false, status, collective_params, collective_cliques);
+      /*compute_h=*/false, status, collectives);
 }
 
-}  // namespace xla::gpu
+}  // namespace jaxmg
