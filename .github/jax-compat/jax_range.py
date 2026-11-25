@@ -1,7 +1,7 @@
 """Helpers for .github/workflows/jax-compat.yml.
 
 latest_tested.txt pins the newest JAX validated against the native backend
-built from JAX_GIT_TAG, and pyproject.toml caps jax just above it.
+built from the current sources, and pyproject.toml caps jax just above it.
 
   untested  print, as a JSON list, the final jax releases that pyproject.toml
             excludes but the widened range would admit: the versions to test
