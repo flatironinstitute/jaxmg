@@ -42,11 +42,6 @@ jobs:
   # GPU-test the x86 wheels on Jenkins. Skipped for fork PRs (no access to the
   # Jenkins secrets); those simply don't get the GPU gate.
   test-x86:
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        jax: ['0.11.2', '0.12.0.1', '0.12.1']
     needs: build-x86
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
@@ -55,6 +50,5 @@ jobs:
     with:
       gha_run_id: ${{ github.run_id }}
       git_sha: ${{ github.sha }}
-      jax_version: ${{ matrix.jax }}
       branch: ${{ github.ref_name }}    # trigger this branch's own Jenkins job
     secrets: inherit
